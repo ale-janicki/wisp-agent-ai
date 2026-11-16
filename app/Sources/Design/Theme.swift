@@ -69,6 +69,17 @@ enum Theme {
         static let cardGap: CGFloat = 12
         static let rowHeight: CGFloat = 32
     }
+
+    enum Graph {
+        static let palette: [Color] = [
+            Color(hex: 0xA3D65C), Color(hex: 0x4FD1C5), Color(hex: 0x60A5FA), Color(hex: 0xF5B83D),
+            Color(hex: 0xC084FC), Color(hex: 0xF472B6), Color(hex: 0xFB923C), Color(hex: 0x94A3B8),
+        ]
+        static let other = Color(hex: 0x6B6C72)
+        static let ghost = Color(hex: 0x45464B)
+        static let edge = Color.white.opacity(0.09)
+        static let well = Color.black.opacity(0.22)
+    }
 }
 
 extension Color {
