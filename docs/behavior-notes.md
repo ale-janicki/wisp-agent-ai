@@ -1,0 +1,64 @@
+# Behavior notes
+
+Traps, invariants and external-system quirks that used to live as code comments. Grouped by module.
+
+## core / Blocks
+
+- `TaskList`: the "feito" key is the exact line (without newline) plus its occurrence index, so two identical lines stay distinct. The occurrence is counted over every line, the same way `deleting` counts. When the removed line was the last one and had no newline, the line before it keeps its own newline. Splitting is on "\n" only (Foundation literal search, not `split`): Swift reads "\r\n" as one Character that never equals "\n", and rejoining with "\n" must give the same bytes.
+- `CommandTemplate`: each value is passed as one single-quoted shell word (`it's` -> `'it'\''s'`), so a key with spaces or quotes cannot split or inject.
+- `BlockCommand`: runs through `zsh -c` with the login shell's PATH (a GUI app inherits a minimal one); blocking, call off main. The shell leads its own process group so a timeout signals it and everything it started (SIGTERM, then SIGKILL shortly after; always reaped). The parent closes its copies of the child's pipe ends, or the readers never see EOF. Both pipes are drained while the process runs, so a large output cannot stall it; after exit it waits at most a second for readers (a background child may hold the pipe).
+- `AlertList`: `nivel` is `red` or `yellow` (anything else reads as yellow); open time is `aberto_ts`, else `ts`; red first, then newest. Dates accept ISO 8601 with or without fractional seconds and `Z` or `-03:00` / `+0530` offsets.
+- `AgendaList`: `allDay` events carry dates, not times; a `declined` response is excluded from now / next / count; all-day first, then by start.
+
+## core / Settings
+
+- `HexColor`: `#RRGGBB` only; the 3-digit shorthand is rejected, not expanded.
+- `WispSettings`: a custom theme picks accent, background and surface; the rest is derived. If the default text does not reach WCAG AA contrast (4.5) over a custom background, the side with better luminance is used. Saved tile order is always a permutation of `DashboardTileID.defaultOrder` (unknown ids and repeats dropped, missing appended). Files written before `dashboardOrder` existed decode to the default order. An unknown preset id (or "custom" without colors) falls back to the default lime.
+- `SettingsStore`, `TimerStore`, `ConversationStore`, `ClipboardStore`: written atomically; a corrupt file is moved to `<name>.bad` (a second corruption overwrites the older `.bad`) and defaults are used; the move is reported through the store's recovery note.
+
+## core / Memory, Routines, Profile
+
+- `MemorySearch`: the search template fills `{query}` / `{root}` with shell-quoted values and must print `path<NUL>line:text` (grep/rg `--null -n`) or `path:line:text` (the first `:<digits>:` ends the path). BSD grep does not descend into a symlinked root (the owner's vault links into iCloud Drive), so commands get the symlink-resolved path. Obsidian names a vault after its folder; the `obsidian://open` URL percent-encodes every reserved character in both values, `/` included. Title matches sort first, else command order.
+- `Routines`: `launchctl print` exits 113 ("Could not find service") for a label that is not loaded. Only the job's own top-level keys (one tab deep) are read; nested blocks such as the resource coalition repeat `state = active` and are ignored. Log tails read at most `maxBytes` from the end and drop a partial first line; "\r\n" is one Character in Swift, so it is a separator of its own.
+- `Profile`: a `blocks` value of an unknown shape is ignored instead of failing the whole profile; a block with no command is a hidden tab.
+
+## core / Agent, Store, Telegram
+
+- `AgentSession`: decoding under the lock keeps yields in stream order across handler invocations. Orphaned grandchildren can hold the pipes open, so the exit is emitted once the process is gone anyway.
+- `ClaudeLocator`: the login-shell PATH is computed once per process.
+- `ConversationReducer`: pure state machine over session events; when the session is gone, no queued turn can still produce a result.
+- `TranscriptReader`: incremental, a line is read only once its newline lands. The project folder name is the cwd with every character outside `[A-Za-z0-9]` replaced by "-", one per Unicode scalar (same as the bot's `sessao.slug`). The CLI writes one line per content block. Injected prompts (slash commands, local command output, reminders), interrupt placeholders and the bot's own follow-up turn are not part of the conversation; when the session moved machine the bot wraps the user's message in context and the message follows a marker.
+- `TranscriptFollower`: state is touched on its queue only. A missing file is a real state (a topic before its first turn): reported once, empty. On change the next poll reopens whatever sits at the path; a replaced file is read again from the start with a fresh parser. The descriptor outlives the dispatch source, never the reverse.
+- `TelegramHTML`: `&amp;` is unescaped last so `&amp;lt;` becomes `&lt;`, not `<`.
+- `TelegramTopics`: the bot is the only process that runs `claude` on a topic's session; Wisp reads the transcript and talks through `blocks.telegram.send`. `up` means the bot on this machine reads Telegram now (Wisp tails the transcript on this disk). A partial `blocks.telegram` counts as no Telegram. `topics == nil` (never read) keeps every conversation in Wisp.
+
+## core / Usage, System, Media, Clipboard, Timers, Shell
+
+- `UsageAggregator`: only files modified inside the window are opened, streamed line by line; each `message.id` counts once; a cheap byte check skips lines without usage. Cache reads are reported apart from the turn's spend.
+- `PlanLimits`: Wisp never reads the OAuth token nor calls the usage API; limits come from the statusline's `rate-limits.json` or the CLI's `rate_limit_event`, newest wins. A window whose reset time passed is stale.
+- `UsageFormat`, `SystemFormat`: a value that rounds up to 1000 carries into the next unit ("999,96 GB" -> next unit, not "1000 GB"). Disk and network use decimal units (Finder), memory binary (Activity Monitor).
+- `CPUUsage`, `NetworkRate`: counters are 32-bit and wrap; deltas are taken modulo 2^32. Nil when the CPU count changed or no time elapsed.
+- `TemperatureSummary`: `PMU* tdie*` are SoC die sensors (Apple does not say which die is CPU or GPU), `NAND*` the SSD, `gas gauge battery` the battery; implausible values (`tdev` sensors report about -22 C idle) are dropped.
+- `ProcessTable`: `ps` is setuid and sees every user's processes, `proc_pidinfo` only ours; `%cpu` may be above 100 and may use a comma decimal; `comm` may contain spaces.
+- `VolumeUsage`: `available` is `volumeAvailableCapacityForImportantUsage` (Finder, purgeable counted as free); `availableRaw` is `volumeAvailableCapacity`.
+- `MemoryBreakdown`: App = anonymous minus purgeable; Used = App + Wired + Compressed; Cached = file-backed + purgeable. Pressure level values are the kernel's: 1 normal, 2 warning, 4 critical.
+- `NowPlayingParser`: fields are joined by U+001F; AppleScript writes reals with the locale's decimal separator ("12,5" in pt-BR).
+- `ClipboardHistory`: items carrying an nspasteboard.org concealed / transient marker (including older markers some apps still write) are never stored; copying the same content again moves the entry up keeping its pin; pinned items are never evicted; big text copies are not recorded.
+- `CountdownTimer`: the end date is persisted (not a remaining count), so a running timer survives a restart. Remaining time shows rounded up so a running timer never reads 0:00.
+- `NotchGeometry`: the band hugging the notch never changes between rest and active; active only adds a strip below it.
+
+## app
+
+- `NowPlayingService`: every script is wrapped in `is running`, so a player that quit between the check and the script is never relaunched by `tell`. `AEDeterminePermissionToAutomateTarget` blocks (with `ask` it waits on the system prompt): it runs on its own queue, never main, and a prompting request has its own queue so an unanswered prompt does not hold back the other player's checks. No query at launch, so the Automation prompt never appears out of context; only a player that already granted Automation is queried; the prompt comes from "Permitir controle". A grant is cached (the 1 s ticker must not hit tccd); a revoke surfaces as -1743. The wildcard permission check does not prompt, a real harmless Apple Event does. Local files and ads have no artwork URL; that must not hide the track.
+- `ShellController`: window-server routing ignores `hitTest`, so outside the pill the window stops taking events outright; the global monitor keeps firing and flips it back when the cursor enters. Hover-open never steals the keyboard. Leaving `.panel`, a window that stays key keeps eating keystrokes, so it is cycled out of the window list and focus returns to the previous app only if the user did not switch apps meanwhile. Frames jump (not slide) across displays. `CGRect.contains` excludes the max edges; the cursor can sit exactly on the top edge.
+- `PillView`: an always-on 30 fps timeline in the resting pill cost 6-12% CPU, so it animates only while busy. The pill sits in a top-aligned centered overlay so its fixed size never feeds back into the hosting view's window size.
+- `ComposerView`: corner radius is half the one-line height; `.continuous` at that radius left a half-filled 1pt column at the leading edge. The AppKit layout callback is deferred because it may run inside a SwiftUI update.
+- `SettingsView`: the color panel must float above the notch panel or it opens hidden behind it.
+- `SidebarView`: the Cmd-N shortcut button uses `.opacity(0)`; `.hidden()` would drop the shortcut.
+- `AppSettings`: writes go through one queue (ordered); a color picker drag is debounced; flush on terminate so a change inside the window is not lost.
+- `TabModels`, `DashboardModels`, `MemoryModel`, `RoutinesModel`, `TelegramModel`: live for the process (the panel view is rebuilt on every open) and never act as source: every read goes back to the profile's file or command, the newest read wins, and a forced read during a running one runs again after it (the running read may predate an action). The agenda command hits the network, so non-forced refreshes within `maxAge` keep the last result.
+- `ConversationViewModel`: a conversation linked to a topic stays the bot's unless a read topic list says the topic is gone; an unknown list (never read, bot down) must never let Wisp run `claude` on the bot's session. Session starts are serialized (one start at a time, the next waits for the stop) so two children never share one transcript; a start in flight notices a new generation and stops its own child. The pill reacts only to a result or phase change; `result` is the sole path that shows a reply in the pill.
+- `ClipboardService`: whatever sits on the pasteboard at launch is not recorded; with capture off a change is counted but never read, so turning capture on does not record what was copied meanwhile; Wisp's own write-back is not re-recorded.
+- `SystemProbe`: IOHID temperature symbols are private (not in headers), resolved with `dlsym`; any missing symbol leaves sensors unavailable (nil). `kIOHIDEventTypeTemperature` = 15. When no sensor is readable the UI shows the system thermal state, never an invented number.
+- `HomeDashboard`: drag starts after `dragThreshold` pt so clicks inside the card keep working; bubbles are whole only (newest 3, else 2, else 1).
+- `SnapshotRenderer`: uses an offscreen `NSHostingView` + `cacheDisplay` because `ImageRenderer` draws ScrollView content empty and AppKit-backed views as placeholders; no Screen Recording permission needed. Debug launch arguments: `-WispSnapshot <dir>`, `-WispTelegramE2E` (posts in the owner's Telegram), `-WispFrameLog <file>`, `-WispDemoAsk "<text>"`, `-WispDemoAsk2`, `-WispDemoRetry`.
