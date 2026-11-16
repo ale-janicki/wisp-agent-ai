@@ -2,11 +2,11 @@ import Foundation
 import WispCore
 
 enum PanelTab: String, CaseIterable, Identifiable {
-    case home, conversation, memory, tasks, reminders, agenda, routines, timers, music, clipboard, myMac, settings
+    case home, conversation, memory, tasks, reminders, agenda, routines, music, clipboard, myMac, settings
 
     var id: Self { self }
 
-    static let order: [PanelTab] = [.home, .conversation, .memory, .tasks, .reminders, .agenda, .routines, .timers, .music, .clipboard, .myMac]
+    static let order: [PanelTab] = [.home, .conversation, .memory, .tasks, .reminders, .agenda, .routines, .music, .clipboard, .myMac]
 
     static func nav(for profile: Profile) -> [PanelTab] {
         order.filter { $0.isAvailable(in: profile) }
@@ -32,7 +32,6 @@ enum PanelTab: String, CaseIterable, Identifiable {
         case .agenda: "Agenda"
         case .memory: "Memória"
         case .routines: "Rotinas"
-        case .timers: "Timers"
         case .music: "Música"
         case .clipboard: "Copiados"
         case .myMac: "My Mac"
@@ -49,7 +48,6 @@ enum PanelTab: String, CaseIterable, Identifiable {
         case .agenda: "calendar"
         case .memory: "brain.head.profile"
         case .routines: "clock.arrow.circlepath"
-        case .timers: "timer"
         case .music: "music.note"
         case .clipboard: "doc.on.clipboard.fill"
         case .myMac: "laptopcomputer"

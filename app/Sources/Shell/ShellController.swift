@@ -17,21 +17,18 @@ final class ShellController: ObservableObject {
     @Published private(set) var notchWidth: CGFloat = 0
     @Published private(set) var pillBand: CGSize = .zero
     @Published var tab: PanelTab = .home
-    @Published private(set) var timerPulse = false
 
     var restTarget: () -> PillState = { .rest }
 
     private let log = Logger(subsystem: "com.owner.wisp", category: "shell")
     let conversation = ConversationViewModel()
     let media = NowPlayingService()
-    let timers = TimerService()
     let clipboard = ClipboardService()
     private let panel = NotchPanel()
     private var anchorDisplayID: CGDirectDisplayID?
     private var openedByHover = false
     private var dwellTask: Task<Void, Never>?
     private var shrinkTask: Task<Void, Never>?
-    private var announceTask: Task<Void, Never>?
     private var monitors: [Any] = []
     private var hotKey: HotKey?
     private var screenObserver: NSObjectProtocol?
@@ -40,7 +37,6 @@ final class ShellController: ObservableObject {
     private static let dwell: Duration = .milliseconds(300)
     private static let animationDuration: TimeInterval = 0.25
     private static let foldDuration: Duration = .milliseconds(400)
-    private static let announceDuration: Duration = .seconds(5)
 
     init() {
         let host = FirstMouseHostingView(rootView: PillView(controller: self))
@@ -48,7 +44,6 @@ final class ShellController: ObservableObject {
         host.hitShape = { [weak self] size in self?.pillHitPath(in: size) }
         panel.contentView = host
         conversation.shell = self
-        timers.onFinish = { [weak self] line in self?.announce(line) }
         panel.onInactiveMouseDown = { [weak self] in
             guard let self, self.state == .panel else { return }
             self.openedByHover = false
@@ -94,7 +89,6 @@ final class ShellController: ObservableObject {
             MainActor.assumeIsolated { self?.reanchor() }
         }
         show(.rest)
-        timers.start()
     }
 
     // MARK: State
@@ -148,21 +142,6 @@ final class ShellController: ObservableObject {
             previousApp.activate()
         }
         log.info("released key; restored=\(self.previousApp?.bundleIdentifier ?? "nil", privacy: .public) frontmost=\(NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "nil", privacy: .public)")
-    }
-
-    func announce(_ line: String) {
-        guard state != .panel else { return }
-        announceTask?.cancel()
-        pillText = line
-        timerPulse = true
-        if state == .rest { show(.active) }
-        announceTask = Task { [weak self] in
-            try? await Task.sleep(for: Self.announceDuration)
-            guard !Task.isCancelled, let self else { return }
-            self.timerPulse = false
-            guard self.state == .active, self.pillText == line else { return }
-            self.show(self.restTarget())
-        }
     }
 
     func toggle() {
@@ -349,10 +328,6 @@ final class ShellController: ObservableObject {
             frame(for: .panel, on: screen),
             Self.notchRect(of: screen)
         )
-    }
-
-    func setSnapshotPulse(_ on: Bool) {
-        timerPulse = on
     }
 
     func setSnapshotState(_ new: PillState, notch: CGRect?) {
