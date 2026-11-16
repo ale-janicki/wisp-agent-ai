@@ -1,0 +1,33 @@
+name: Wisp
+options:
+  bundleIdPrefix: com.owner
+  deploymentTarget:
+    macOS: "15.0"
+packages:
+  WispCore:
+    path: ../core
+targets:
+  Wisp:
+    type: application
+    platform: macOS
+    sources: [Sources]
+    dependencies:
+      - package: WispCore
+        product: WispCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.owner.wisp
+        PRODUCT_NAME: Wisp
+        SWIFT_VERSION: "6.0"
+        SWIFT_STRICT_CONCURRENCY: complete
+        MACOSX_DEPLOYMENT_TARGET: "15.0"
+        GENERATE_INFOPLIST_FILE: YES
+        CODE_SIGN_IDENTITY: "-"
+    info:
+      path: Sources/Info.plist
+      properties:
+        CFBundleName: Wisp
+        CFBundleDisplayName: Wisp
+        LSUIElement: true
+        LSMinimumSystemVersion: "15.0"
+        NSAppleEventsUsageDescription: "O Wisp mostra e controla a música que está tocando no Spotify ou no Music."
