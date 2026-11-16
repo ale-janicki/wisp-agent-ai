@@ -38,8 +38,10 @@ actor SystemProbe {
     private var samples = 0
     private var cachedVolumes: [VolumeUsage] = []
     private var cachedBattery: BatteryStatus?
+    private var cachedProcesses: [ProcessSample] = []
 
     private static let slowEvery = 15
+    private static let processesEvery = 5
 
     deinit {
         mach_port_deallocate(mach_task_self_, host)
@@ -71,6 +73,9 @@ actor SystemProbe {
             cachedVolumes = Self.volumes()
             cachedBattery = Self.battery()
         }
+        if samples % Self.processesEvery == 0 {
+            cachedProcesses = Self.processes()
+        }
         let swap = Self.swap()
         return SystemSnapshot(
             cpu: cpu(),
@@ -84,7 +89,7 @@ actor SystemProbe {
             thermal: ThermalLevel(rawValue: ProcessInfo.processInfo.thermalState.rawValue) ?? .nominal,
             battery: cachedBattery,
             network: network(),
-            processes: Self.processes()
+            processes: cachedProcesses
         )
     }
 

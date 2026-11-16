@@ -191,15 +191,15 @@ private struct LiveSparkline: View {
                 }
             }
         }
-        .frame(minHeight: 14)
+        .frame(maxWidth: .infinity)
+        .frame(height: 36)
     }
 
     private func points(_ values: [Double], in size: CGSize) -> [CGPoint] {
-        let slots = CGFloat(SampleHistory().capacity - 1)
-        let offset = CGFloat(SampleHistory().capacity - values.count)
+        let slots = CGFloat(max(1, values.count - 1))
         return values.enumerated().map { index, value in
             CGPoint(
-                x: size.width * (offset + CGFloat(index)) / slots,
+                x: size.width * CGFloat(index) / slots,
                 y: 1 + (size.height - 2) * (1 - CGFloat(value))
             )
         }
@@ -252,8 +252,10 @@ private struct CPUTile: View {
                     } else {
                         Detail("carga 1 · 5 · 15 min")
                     }
+                    Spacer(minLength: 0)
                     LiveSparkline(series: [history.normalized(floor: 1)])
                 }
+                .frame(maxHeight: .infinity)
             } else {
                 LoadingFigure()
             }
@@ -279,8 +281,10 @@ private struct MemoryTile: View {
                     Figure(value: SystemFormat.bytes(memory.used, binary: true), detail: "de \(SystemFormat.bytes(memory.total, binary: true))")
                     Detail("Apps \(gb(memory.app)) · Fixa \(gb(memory.wired))")
                     Detail(swapLine(memory))
+                    Spacer(minLength: 0)
                     LiveSparkline(series: [history.normalized(floor: 1)], colors: [pressureColor])
                 }
+                .frame(maxHeight: .infinity)
                 .help(snapshot.map { "Swap \(gb($0.swapUsed)) usados de \(gb($0.swapTotal)) · cache de arquivos \(gb(memory.cached))" } ?? "")
             } else {
                 LoadingFigure()
@@ -322,11 +326,13 @@ private struct NetworkTile: View {
                     rateLabel("arrow.up", SystemFormat.rate(rate.up), color: Theme.accentTeal)
                     Detail(network.address.map { "IP \($0)" } ?? "Sem endereço IPv4")
                     let peak = max(Self.floor, (down.values + up.values).max() ?? 0)
+                    Spacer(minLength: 0)
                     LiveSparkline(
                         series: [down.values.map { $0 / peak }, up.values.map { $0 / peak }],
                         colors: [Theme.accent, Theme.accentTeal]
                     )
                 }
+                .frame(maxHeight: .infinity)
             } else {
                 LoadingFigure()
             }
