@@ -4,11 +4,13 @@ import WispCore
 struct SidebarView: View {
     @ObservedObject var controller: ShellController
     var model: ConversationViewModel
+    var showConversations: () -> Void = {}
 
     private let sources = TabSources.shared
 
-    private var messageCount: Int {
-        model.state.messages.filter { $0.role == .user || $0.role == .assistant }.count
+    private var conversationCount: Int {
+        let sections = model.sections
+        return sections.wisp.count + sections.telegram.count
     }
 
     var body: some View {
@@ -48,7 +50,7 @@ struct SidebarView: View {
 
     private func badge(for tab: PanelTab) -> Int? {
         let count: Int? = switch tab {
-        case .conversation: messageCount
+        case .conversation: conversationCount
         case .tasks: sources.tasks.openCount
         case .reminders: sources.alertCount
         case .agenda: sources.agenda.remaining
@@ -72,7 +74,7 @@ struct SidebarView: View {
                     .font(Theme.Font.bodyMedium)
                     .foregroundStyle(selected ? Theme.accentText : Theme.textSecondary)
                 Spacer(minLength: Theme.Space.xs)
-                if let count = badge(for: tab) {
+                if let count = badge(for: tab), !(tab == .conversation && selected) {
                     Text("\(count)")
                         .font(Theme.Font.captionMono)
                         .foregroundStyle(Theme.textSecondary)
@@ -83,5 +85,18 @@ struct SidebarView: View {
             }
         }
         .buttonStyle(RowButtonStyle(highlight: selected ? .accent : .none))
+        .overlay(alignment: .trailing) {
+            if tab == .conversation && selected {
+                Button(action: showConversations) {
+                    Image(systemName: "list.bullet")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(Theme.accent)
+                        .frame(width: 26, height: 22)
+                }
+                .buttonStyle(.plain)
+                .padding(.trailing, Theme.Space.xs)
+                .help("Mostrar conversas")
+            }
+        }
     }
 }

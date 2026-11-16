@@ -32,6 +32,10 @@ enum SnapshotRenderer {
             return
         }
         let notch = layout.notch
+        if ProcessInfo.processInfo.arguments.contains("-WispSnapshotGraph") {
+            await renderMemoryGraph(shell, layout: layout, to: directory)
+            return
+        }
 
         shell.setSnapshotState(.rest, notch: notch)
         await render(shell, frame: layout.rest, notch: notch, to: directory, name: "1-pill-rest")
@@ -75,10 +79,14 @@ enum SnapshotRenderer {
         await render(shell, frame: layout.panel, notch: notch, to: directory, name: "4-panel-home")
         shell.tab = .conversation
         await render(shell, frame: layout.panel, notch: notch, to: directory, name: "5-panel-conversation")
+        PanelView.snapshotNav = true
+        await render(shell, frame: layout.panel, notch: notch, to: directory, name: "5a-panel-conversation-nav")
+        PanelView.snapshotNav = false
         await renderTelegram(shell, layout: layout, to: directory)
         shell.tab = .music
         await render(shell, frame: layout.panel, notch: notch, to: directory, name: "6-panel-music")
-        await renderTimersAndClipboard(shell, layout: layout, to: directory)
+        await renderSpotify(shell, layout: layout, to: directory)
+        await renderClipboard(shell, layout: layout, to: directory)
         await renderSourceTabs(shell, layout: layout, to: directory)
         await renderMemoryAndRoutines(shell, layout: layout, to: directory)
         await renderMyMac(shell, layout: layout, to: directory)
@@ -86,6 +94,36 @@ enum SnapshotRenderer {
     }
 
     private static let margin: CGFloat = 24
+
+    private static func renderSpotify(
+        _ shell: ShellController,
+        layout: (rest: CGRect, active: CGRect, panel: CGRect, notch: CGRect?),
+        to directory: URL
+    ) async {
+        let spotify = SpotifyModel.shared
+        spotify.bootstrap()
+        for _ in 0..<30 where spotify.auth == .unknown { try? await Task.sleep(for: .milliseconds(100)) }
+        print("snapshot: spotify auth=\(spotify.auth) clientID=\(spotify.hasClientID ? "set" : "empty")")
+        guard spotify.auth != .signedIn else { return }
+        shell.setSnapshotState(.panel, notch: layout.notch)
+        MusicTab.snapshotShowsSteps = true
+        shell.tab = .home
+        shell.tab = .music
+        await render(shell, frame: layout.panel, notch: layout.notch, to: directory, name: "6b-panel-music-spotify-steps")
+        MusicTab.snapshotShowsSteps = false
+        let card = SpotifySettingsCard().frame(width: 628).padding(Theme.Layout.panelPadding).background(Theme.bg)
+        let host = NSHostingView(rootView: card)
+        host.frame = CGRect(origin: .zero, size: host.fittingSize)
+        let window = NSWindow(contentRect: CGRect(origin: CGPoint(x: -20000, y: -20000), size: host.fittingSize), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.contentView = host
+        window.orderFrontRegardless()
+        try? await Task.sleep(for: .milliseconds(600))
+        if let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) {
+            host.cacheDisplay(in: host.bounds, to: rep)
+            try? rep.representation(using: .png, properties: [:])?.write(to: directory.appendingPathComponent("6c-settings-spotify-card.png"))
+        }
+        window.orderOut(nil)
+    }
 
     private static func renderTelegram(
         _ shell: ShellController,
@@ -215,37 +253,20 @@ enum SnapshotRenderer {
         }
     }
 
-    private static func renderTimersAndClipboard(
+    private static func renderClipboard(
         _ shell: ShellController,
         layout: (rest: CGRect, active: CGRect, panel: CGRect, notch: CGRect?),
         to directory: URL
     ) async {
         let notch = layout.notch
-        var timers = TimerList()
-        timers.start(duration: 25 * 60, at: Date().addingTimeInterval(-7 * 60))
-        let paused = timers.start(duration: 5 * 60, at: Date().addingTimeInterval(-90))
-        timers.pause(paused.id, at: Date())
-        shell.timers.applyForSnapshot(timers)
         shell.clipboard.captureForSnapshot()
 
-        shell.setSnapshotState(.rest, notch: notch)
-        await render(shell, frame: layout.rest, notch: notch, to: directory, name: "c1-pill-timer-rest")
-        let previousText = shell.pillText
-        shell.pillText = "Timer 25 min acabou"
-        shell.setSnapshotPulse(true)
-        shell.setSnapshotState(.active, notch: notch)
-        await render(shell, frame: layout.active, notch: notch, to: directory, name: "c2-pill-timer-done")
-        shell.setSnapshotPulse(false)
-        shell.pillText = previousText
-
         shell.setSnapshotState(.panel, notch: notch)
-        shell.tab = .timers
-        await render(shell, frame: layout.panel, notch: notch, to: directory, name: "c3-panel-timers")
         shell.tab = .clipboard
         await render(shell, frame: layout.panel, notch: notch, to: directory, name: "c4-panel-clipboard")
         shell.tab = .settings
         await render(shell, frame: layout.panel, notch: notch, to: directory, name: "c5-panel-settings")
-        print("snapshot: clipboard items=\(shell.clipboard.history.items.count) timers=\(shell.timers.list.timers.count)")
+        print("snapshot: clipboard items=\(shell.clipboard.history.items.count)")
     }
 
     private static func renderMyMac(
@@ -277,7 +298,7 @@ enum SnapshotRenderer {
         await measure("hidden-after") { try? await Task.sleep(for: .seconds(10)) }
     }
 
-    private static func render(_ shell: ShellController, frame: CGRect, notch: CGRect?, to directory: URL, name: String, settle: Duration = .milliseconds(900)) async {
+    static func render(_ shell: ShellController, frame: CGRect, notch: CGRect?, to directory: URL, name: String, settle: Duration = .milliseconds(900)) async {
         let root = ZStack(alignment: .topLeading) {
             Color(white: 0.32)
             PillView(controller: shell)

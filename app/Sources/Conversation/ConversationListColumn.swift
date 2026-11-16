@@ -4,13 +4,37 @@ import WispCore
 struct ConversationListColumn: View {
     @ObservedObject var controller: ShellController
     var model: ConversationViewModel
+    var showNav: () -> Void
 
-    static let width: CGFloat = 200
     private static let refreshInterval: Duration = .seconds(30)
 
     var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Spacer(minLength: 0)
+                Button(action: showNav) {
+                    Image(systemName: "sidebar.left")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(Theme.textSecondary)
+                        .frame(width: 26, height: 22)
+                }
+                .buttonStyle(RowButtonStyle())
+                .help("Mostrar menu")
+            }
+            .padding(.top, Theme.Space.xs)
+            rows
+        }
+        .task {
+            while !Task.isCancelled {
+                await model.refreshTelegram()
+                try? await Task.sleep(for: Self.refreshInterval)
+            }
+        }
+    }
+
+    private var rows: some View {
         let sections = model.sections
-        ScrollView {
+        return ScrollView {
             VStack(alignment: .leading, spacing: 2) {
                 section("Wisp") {
                     ForEach(sections.wisp) { record in
@@ -42,13 +66,6 @@ struct ConversationListColumn: View {
             .padding(.top, Theme.Space.xs)
         }
         .scrollIndicators(.automatic)
-        .frame(width: Self.width)
-        .task {
-            while !Task.isCancelled {
-                await model.refreshTelegram()
-                try? await Task.sleep(for: Self.refreshInterval)
-            }
-        }
     }
 }
 

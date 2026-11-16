@@ -7,6 +7,23 @@ struct PanelView: View {
     @ObservedObject var media: NowPlayingService
     var model: ConversationViewModel
     @State private var draft = ""
+    @State private var listShown: Bool
+
+    #if DEBUG
+    nonisolated(unsafe) static var snapshotNav = false
+    #endif
+
+    init(controller: ShellController, media: NowPlayingService, model: ConversationViewModel) {
+        self.controller = controller
+        self.media = media
+        self.model = model
+        #if DEBUG
+        let navHidden = Self.snapshotNav
+        #else
+        let navHidden = false
+        #endif
+        _listShown = State(initialValue: controller.tab == .conversation && !navHidden)
+    }
 
     private static let headerHeight: CGFloat = 56
 
@@ -19,8 +36,9 @@ struct PanelView: View {
                 OnboardingView(model: model)
             } else {
                 HStack(alignment: .top, spacing: 0) {
-                    SidebarView(controller: controller, model: model)
+                    leftColumn
                         .frame(width: Theme.Layout.sidebarWidth - padding)
+                        .clipped()
                     content
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 }
@@ -76,6 +94,30 @@ struct PanelView: View {
         }
     }
 
+    // MARK: Left column
+
+    private static let slide = Animation.spring(duration: 0.35, bounce: 0.1)
+
+    private var leftColumn: some View {
+        ZStack(alignment: .topLeading) {
+            SidebarView(controller: controller, model: model) { setList(true) }
+            if listShown {
+                ConversationListColumn(controller: controller, model: model) { setList(false) }
+                    .padding(.trailing, Theme.Space.m)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .background(Theme.bg)
+                    .transition(.move(edge: .trailing))
+            }
+        }
+        .onChange(of: controller.tab) { _, tab in
+            setList(tab == .conversation)
+        }
+    }
+
+    private func setList(_ shown: Bool) {
+        withAnimation(Self.slide) { listShown = shown }
+    }
+
     // MARK: Tabs
 
     @ViewBuilder
@@ -83,17 +125,13 @@ struct PanelView: View {
         switch controller.tab {
         case .home: home
         case .conversation:
-            HStack(alignment: .top, spacing: Theme.Layout.cardGap) {
-                ConversationListColumn(controller: controller, model: model)
-                ConversationCard(model: model, draft: $draft, submit: submit)
-            }
+            ConversationCard(model: model, draft: $draft, submit: submit)
         case .tasks: TasksTab(profile: model.profile)
         case .reminders: RemindersTab(profile: model.profile)
         case .agenda: AgendaTab(profile: model.profile)
         case .memory: MemoryTab(profile: model.profile)
         case .routines: RoutinesTab(profile: model.profile)
-        case .timers: TimersView(timers: controller.timers)
-        case .music: MediaCardView(media: media, style: .large)
+        case .music: MusicTab(media: media) { controller.tab = .settings }
         case .clipboard: ClipboardView(clipboard: controller.clipboard)
         case .myMac: MyMacTab()
         case .settings: SettingsView(media: media)
