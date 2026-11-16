@@ -2,9 +2,16 @@ import SwiftUI
 import WispCore
 
 struct MemoryTab: View {
+    enum Mode: String {
+        case list, graph
+    }
+
     let profile: Profile
     @State private var query = Self.initialQuery
+    @State private var mode = Self.lastMode
     private let memory = MemoryModel.shared
+
+    @MainActor static var lastMode: Mode = .graph
 
     #if DEBUG
     static var snapshotQuery = ""
@@ -28,21 +35,52 @@ struct MemoryTab: View {
     var body: some View {
         TabCard(title: "Memória", icon: "brain.head.profile", trailing: vaultName) {
             VStack(alignment: .leading, spacing: Theme.Space.s) {
-                if block?.search != nil {
-                    SearchField(text: $query, placeholder: "Buscar nas notas")
+                HStack(spacing: Theme.Space.s) {
+                    if block?.search != nil || mode == .graph {
+                        SearchField(text: $query, placeholder: mode == .graph ? "Buscar nota no grafo" : "Buscar nas notas")
+                    } else {
+                        Spacer(minLength: 0)
+                    }
+                    modePicker
                 }
                 if let error = memory.openError {
                     InlineError(text: error)
                 }
-                list
+                switch mode {
+                case .list: list
+                case .graph:
+                    if let root {
+                        MemoryGraphView(root: root, query: query, recent: recentPath, open: open)
+                    }
+                }
             }
         }
         .onAppear {
             if let root { memory.refreshRecents(root: root) }
         }
-        .task(id: query) {
-            if let block { await memory.search(query, block: block) }
+        .task(id: "\(mode.rawValue)|\(query)") {
+            if mode == .list, let block { await memory.search(query, block: block) }
         }
+    }
+
+    private var recentPath: String? {
+        if case .loaded(let notes) = memory.recents { return notes.first?.path }
+        return nil
+    }
+
+    private var modePicker: some View {
+        HStack(spacing: 2) {
+            ForEach([Mode.list, .graph], id: \.self) { option in
+                Button(option == .list ? "Lista" : "Grafo") {
+                    mode = option
+                    Self.lastMode = option
+                }
+                .buttonStyle(CompactCapsuleStyle(accent: mode == option))
+            }
+        }
+        .padding(3)
+        .background(Theme.surfaceHi, in: Capsule())
+        .fixedSize()
     }
 
     @ViewBuilder
