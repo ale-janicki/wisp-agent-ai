@@ -127,6 +127,7 @@ public struct WispSettings: Codable, Equatable, Sendable {
         didSet { dashboardOrder = DashboardTileID.normalized(dashboardOrder) }
     }
     public var clipboardCapture = true
+    public var spotifyClientID = ""
 
     public init(theme: String = ThemePreset.lime.id, custom: CustomTheme? = nil, dashboardOrder: [String] = DashboardTileID.defaultOrder) {
         self.theme = theme
@@ -134,7 +135,7 @@ public struct WispSettings: Codable, Equatable, Sendable {
         self.dashboardOrder = DashboardTileID.normalized(dashboardOrder)
     }
 
-    private enum CodingKeys: String, CodingKey { case theme, custom, dashboardOrder, clipboardCapture }
+    private enum CodingKeys: String, CodingKey { case theme, custom, dashboardOrder, clipboardCapture, spotifyClientID }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -142,6 +143,7 @@ public struct WispSettings: Codable, Equatable, Sendable {
         custom = try container.decodeIfPresent(CustomTheme.self, forKey: .custom)
         dashboardOrder = DashboardTileID.normalized(try container.decodeIfPresent([String].self, forKey: .dashboardOrder) ?? [])
         clipboardCapture = try container.decodeIfPresent(Bool.self, forKey: .clipboardCapture) ?? true
+        spotifyClientID = try container.decodeIfPresent(String.self, forKey: .spotifyClientID) ?? ""
     }
 
     public static let `default` = WispSettings()

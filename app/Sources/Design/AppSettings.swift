@@ -54,9 +54,11 @@ final class AppSettings {
         update { settings in
             let order = settings.dashboardOrder
             let capture = settings.clipboardCapture
+            let spotify = settings.spotifyClientID
             settings = .default
             settings.dashboardOrder = order
             settings.clipboardCapture = capture
+            settings.spotifyClientID = spotify
         }
     }
 
@@ -70,6 +72,10 @@ final class AppSettings {
 
     func setClipboardCapture(_ on: Bool) {
         update { $0.clipboardCapture = on }
+    }
+
+    func setSpotifyClientID(_ id: String) {
+        update { $0.spotifyClientID = id.trimmingCharacters(in: .whitespacesAndNewlines) }
     }
 
     #if DEBUG

@@ -15,6 +15,7 @@ struct SettingsView: View {
                 colors
                 home
                 music
+                SpotifySettingsCard()
                 clipboard
                 if let notice = settings.notice {
                     Text(notice)

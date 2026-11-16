@@ -175,11 +175,8 @@ final class NowPlayingService: ObservableObject {
     private var refreshAgain = false
     private var ticker: Task<Void, Never>?
     private var artworkKey: String?
-    private var artworkCache: [URL: NSImage] = [:]
-    private var artworkCacheOrder: [URL] = []
     private var artworkFailure: (key: String, at: Date)?
 
-    private static let artworkCacheLimit = 20
     private static let artworkRetryDelay: TimeInterval = 30
 
     private static let permissionErrors: Set<Int> = [-1743, -1744]
@@ -325,7 +322,8 @@ final class NowPlayingService: ObservableObject {
         artworkKey = key
         artwork = nil
 
-        if let url = track.artworkURL, let cached = artworkCache[url] {
+        let cacheKey = player.artworkDataScript == nil ? track.artworkURL?.absoluteString : key
+        if let cacheKey, let cached = ArtworkCache.shared.cached(key: cacheKey) {
             artwork = cached
             artworkLoading = false
             return
@@ -333,8 +331,8 @@ final class NowPlayingService: ObservableObject {
         artworkLoading = true
         Task { [weak self] in
             let image = await Self.fetchArtwork(player: player, url: track.artworkURL)
+            if let image, player.artworkDataScript != nil { ArtworkCache.shared.store(image, key: key) }
             guard let self, self.artworkKey == key else { return }
-            if let url = track.artworkURL, let image { self.cacheArtwork(image, for: url) }
             if image == nil {
                 self.artworkFailure = (key, Date())
                 self.artworkKey = nil
@@ -346,22 +344,13 @@ final class NowPlayingService: ObservableObject {
         }
     }
 
-    private func cacheArtwork(_ image: NSImage, for url: URL) {
-        if artworkCache[url] == nil { artworkCacheOrder.append(url) }
-        artworkCache[url] = image
-        while artworkCacheOrder.count > Self.artworkCacheLimit {
-            artworkCache[artworkCacheOrder.removeFirst()] = nil
-        }
-    }
-
     private static func fetchArtwork(player: MediaPlayer, url: URL?) async -> NSImage? {
         if let script = player.artworkDataScript {
             let output = await AppleScriptRunner.run(script)
             return output.data.flatMap(NSImage.init(data:))
         }
-        guard let url, url.scheme == "https" else { return nil }
-        guard let (data, _) = try? await URLSession.shared.data(from: url) else { return nil }
-        return NSImage(data: data)
+        guard let url else { return nil }
+        return await ArtworkCache.shared.image(for: url)
     }
 
     // MARK: Position

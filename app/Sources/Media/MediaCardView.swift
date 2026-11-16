@@ -2,7 +2,7 @@ import SwiftUI
 import WispCore
 
 struct MediaCardView: View {
-    enum Style { case tile, large }
+    enum Style { case tile, large, compact }
 
     @ObservedObject var media: NowPlayingService
     var style: Style
@@ -12,7 +12,29 @@ struct MediaCardView: View {
             switch style {
             case .tile: tile(track)
             case .large: large(track, player: player).card()
+            case .compact: compact(track, player: player).card()
             }
+        } else if style == .compact {
+            HStack(spacing: Theme.Space.m) {
+                Image(systemName: media.playerNeedingPermission == nil ? "music.note" : "lock.fill")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(Theme.textTertiary)
+                    .frame(width: 36, height: 36)
+                    .background(Theme.surfaceHi, in: Circle())
+                if let player = media.playerNeedingPermission {
+                    AutomationPromptView(media: media, player: player)
+                } else {
+                    Text(emptySentence)
+                        .font(Theme.Font.body)
+                        .foregroundStyle(Theme.textSecondary)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, Theme.Space.l)
+            .padding(.vertical, Theme.Space.m)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .card()
         } else if style == .tile {
             Group {
                 if let player = media.playerNeedingPermission {
@@ -77,6 +99,37 @@ struct MediaCardView: View {
                 .frame(maxWidth: .infinity)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    // MARK: Compact
+
+    private func compact(_ track: NowPlayingTrack, player: MediaPlayer) -> some View {
+        HStack(spacing: Theme.Space.m) {
+            Artwork(media: media, size: 56)
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: Theme.Space.s) {
+                    Text(track.title)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Theme.textPrimary)
+                        .lineLimit(1)
+                    Text("no \(player.name)")
+                        .font(Theme.Font.caption)
+                        .foregroundStyle(Theme.accentText)
+                        .lineLimit(1)
+                        .fixedSize()
+                }
+                Text(track.artist)
+                    .font(Theme.Font.caption)
+                    .foregroundStyle(Theme.textSecondary)
+                    .lineLimit(1)
+                ProgressRow(track: track)
+                    .padding(.top, Theme.Space.xs)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            Controls(media: media, track: track, small: 28, main: 36)
+        }
+        .padding(Theme.Space.m)
+        .frame(maxWidth: .infinity)
     }
 
     // MARK: Large
