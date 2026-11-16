@@ -18,12 +18,10 @@ final class FirstMouseHostingView<Content: View>: NSHostingView<Content> {
 struct PillView: View {
     @ObservedObject var controller: ShellController
     @ObservedObject private var media: NowPlayingService
-    @ObservedObject private var timers: TimerService
 
     init(controller: ShellController) {
         self.controller = controller
         _media = ObservedObject(wrappedValue: controller.media)
-        _timers = ObservedObject(wrappedValue: controller.timers)
     }
 
     private var isPanel: Bool { controller.state == .panel }
@@ -85,11 +83,6 @@ struct PillView: View {
         )
         return ZStack(alignment: .top) {
             shape.fill(Theme.notch)
-            if controller.timerPulse {
-                shape.stroke(Theme.accent, lineWidth: 1.5)
-                    .phaseAnimator([0.15, 0.9]) { outline, phase in outline.opacity(phase) } animation: { _ in .easeInOut(duration: 0.6) }
-                    .allowsHitTesting(false)
-            }
             VStack(spacing: 0) {
                 bandContent.frame(width: band.width, height: band.height)
                 if isActive {
@@ -137,14 +130,7 @@ extension PillView {
 
     private var statusWing: some View {
         HStack(spacing: 5) {
-            if controller.timerPulse {
-                TimerRing(fractionLeft: 1)
-                    .phaseAnimator([0.3, 1.0]) { ring, phase in ring.opacity(phase) } animation: { _ in .easeInOut(duration: 0.6) }
-            } else if let timer = timers.list.soonest {
-                TimelineView(.periodic(from: .now, by: 1)) { context in
-                    TimerRing(fractionLeft: timer.fractionLeft(at: context.date))
-                }
-            } else if media.isPlaying, controller.statusColor == .ok {
+            if media.isPlaying, controller.statusColor == .ok {
                 EqualizerBars()
             }
             dot
