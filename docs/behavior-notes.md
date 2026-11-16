@@ -14,13 +14,23 @@ Traps, invariants and external-system quirks that used to live as code comments.
 
 - `HexColor`: `#RRGGBB` only; the 3-digit shorthand is rejected, not expanded.
 - `WispSettings`: a custom theme picks accent, background and surface; the rest is derived. If the default text does not reach WCAG AA contrast (4.5) over a custom background, the side with better luminance is used. Saved tile order is always a permutation of `DashboardTileID.defaultOrder` (unknown ids and repeats dropped, missing appended). Files written before `dashboardOrder` existed decode to the default order. An unknown preset id (or "custom" without colors) falls back to the default lime.
-- `SettingsStore`, `TimerStore`, `ConversationStore`, `ClipboardStore`: written atomically; a corrupt file is moved to `<name>.bad` (a second corruption overwrites the older `.bad`) and defaults are used; the move is reported through the store's recovery note.
+- `SettingsStore`, `ConversationStore`, `ClipboardStore`: written atomically; a corrupt file is moved to `<name>.bad` (a second corruption overwrites the older `.bad`) and defaults are used; the move is reported through the store's recovery note.
 
 ## core / Memory, Routines, Profile
 
 - `MemorySearch`: the search template fills `{query}` / `{root}` with shell-quoted values and must print `path<NUL>line:text` (grep/rg `--null -n`) or `path:line:text` (the first `:<digits>:` ends the path). BSD grep does not descend into a symlinked root (the owner's vault links into iCloud Drive), so commands get the symlink-resolved path. Obsidian names a vault after its folder; the `obsidian://open` URL percent-encodes every reserved character in both values, `/` included. Title matches sort first, else command order.
 - `Routines`: `launchctl print` exits 113 ("Could not find service") for a label that is not loaded. Only the job's own top-level keys (one tab deep) are read; nested blocks such as the resource coalition repeat `state = active` and are ignored. Log tails read at most `maxBytes` from the end and drop a partial first line; "\r\n" is one Character in Swift, so it is a separator of its own.
 - `Profile`: a `blocks` value of an unknown shape is ignored instead of failing the whole profile; a block with no command is a hidden tab.
+
+## core / Spotify
+
+- `SpotifyAuth`: PKCE verifier is 48 random bytes, base64url without padding (64 characters; RFC 7636 allows 43-128). The redirect is the loopback IP literal `127.0.0.1`: Spotify rejects `localhost` and allows plain HTTP only for loopback literals. A refresh response may omit `refresh_token`; then the previous one stays valid.
+- `SpotifyModels`, `SpotifyRequests`: Feb 2026 API changes: a playlist's `tracks` became `items` (`tracks` kept as a deprecated fallback) and a playlist row's `track` became `item`; dev-mode `GET /search` allows at most 10 per type. An element that is `null` or undecodable decodes to nil so one bad item never drops a page. Episodes carry their own images instead of an album. Player 404 = no active device; player 403 with `PREMIUM_REQUIRED` (or a "premium" message) = not a Premium account. The play target is the active device, else this computer, else any controllable one.
+
+## core / Memory graph
+
+- `LinkGraph`: links resolve like Obsidian: by basename, case-insensitive, shortest path first; an unresolved link becomes a ghost node, except attachment extensions (never ghosts). Edges are undirected and de-duplicated, stored with `a < b`. Code fences and inline code are ignored when extracting links. The scan caches link targets by mtime and size; iCloud files not downloaded (`SF_DATALESS` flag, or legacy `.name.md.icloud`) are never read, since reading would block on a download. The base path goes through `realpath` so it matches the `/private/var/...` form the enumerator yields.
+- `GraphLayout`: d3-force model with Barnes-Hut repulsion. Cooling is 300 steps from alpha 1; when most positions come from the cache it starts lower and settles in about 100. Seeding indexes each source once (O(N)); the layout on screen wins over the one on disk. Nodes without a seed start beside a seeded neighbour, else on a phyllotaxis spiral.
 
 ## core / Agent, Store, Telegram
 
@@ -32,7 +42,7 @@ Traps, invariants and external-system quirks that used to live as code comments.
 - `TelegramHTML`: `&amp;` is unescaped last so `&amp;lt;` becomes `&lt;`, not `<`.
 - `TelegramTopics`: the bot is the only process that runs `claude` on a topic's session; Wisp reads the transcript and talks through `blocks.telegram.send`. `up` means the bot on this machine reads Telegram now (Wisp tails the transcript on this disk). A partial `blocks.telegram` counts as no Telegram. `topics == nil` (never read) keeps every conversation in Wisp.
 
-## core / Usage, System, Media, Clipboard, Timers, Shell
+## core / Usage, System, Media, Clipboard, Shell
 
 - `UsageAggregator`: only files modified inside the window are opened, streamed line by line; each `message.id` counts once; a cheap byte check skips lines without usage. Cache reads are reported apart from the turn's spend.
 - `PlanLimits`: Wisp never reads the OAuth token nor calls the usage API; limits come from the statusline's `rate-limits.json` or the CLI's `rate_limit_event`, newest wins. A window whose reset time passed is stale.
@@ -44,7 +54,6 @@ Traps, invariants and external-system quirks that used to live as code comments.
 - `MemoryBreakdown`: App = anonymous minus purgeable; Used = App + Wired + Compressed; Cached = file-backed + purgeable. Pressure level values are the kernel's: 1 normal, 2 warning, 4 critical.
 - `NowPlayingParser`: fields are joined by U+001F; AppleScript writes reals with the locale's decimal separator ("12,5" in pt-BR).
 - `ClipboardHistory`: items carrying an nspasteboard.org concealed / transient marker (including older markers some apps still write) are never stored; copying the same content again moves the entry up keeping its pin; pinned items are never evicted; big text copies are not recorded.
-- `CountdownTimer`: the end date is persisted (not a remaining count), so a running timer survives a restart. Remaining time shows rounded up so a running timer never reads 0:00.
 - `NotchGeometry`: the band hugging the notch never changes between rest and active; active only adds a strip below it.
 
 ## app
@@ -62,3 +71,6 @@ Traps, invariants and external-system quirks that used to live as code comments.
 - `SystemProbe`: IOHID temperature symbols are private (not in headers), resolved with `dlsym`; any missing symbol leaves sensors unavailable (nil). `kIOHIDEventTypeTemperature` = 15. When no sensor is readable the UI shows the system thermal state, never an invented number.
 - `HomeDashboard`: drag starts after `dragThreshold` pt so clicks inside the card keep working; bubbles are whole only (newest 3, else 2, else 1).
 - `SnapshotRenderer`: uses an offscreen `NSHostingView` + `cacheDisplay` because `ImageRenderer` draws ScrollView content empty and AppKit-backed views as placeholders; no Screen Recording permission needed. Debug launch arguments: `-WispSnapshot <dir>`, `-WispTelegramE2E` (posts in the owner's Telegram), `-WispFrameLog <file>`, `-WispDemoAsk "<text>"`, `-WispDemoAsk2`, `-WispDemoRetry`.
+- `Spotify` (app): the session lives only in the login Keychain, never in a file or a log. Token refresh is single flight (concurrent callers share one request) and 429 waits out `Retry-After`. The loopback listener touches its state only on its queue and returns once the socket is bound, so the browser opens only when the redirect can land; its handlers are held strongly on purpose and `finish` clears them to break the cycle. A generation counter bumps on every connect and sign-out: a login finishing after a sign-out drops the tokens it just stored. A player command with no active device retries once on the best available one.
+- `MemoryGraphModel`: edge strokes are built off main in chunks of 16 segments (one 12k-segment path took 74 s to rasterize in software, chunks about 60 ms); while a layout is still settling with the same nodes and edges, the old strokes stay on screen until the rebuilt ones land. Re-entry within 30 s is a no-op; the scan is incremental after the first. The canvas reads the properties it depends on inside the draw closure so Observation re-renders it.
+- `ArtworkCache`: one fetch per key, LRU-capped; a failed URL is not fetched again for `failureMemory`.
