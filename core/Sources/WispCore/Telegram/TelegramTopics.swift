@@ -8,6 +8,8 @@ public struct TelegramTopic: Decodable, Identifiable, Sendable, Equatable {
     public var turns: Int
     public var lastUsed: Date?
     public var host: String?
+    /// Geral and Journals: the bot refuses to close them.
+    public var fixed: Bool
 
     public var id: Int { thread }
 
@@ -18,7 +20,8 @@ public struct TelegramTopic: Decodable, Identifiable, Sendable, Equatable {
         cwd: String,
         turns: Int = 0,
         lastUsed: Date? = nil,
-        host: String? = nil
+        host: String? = nil,
+        fixed: Bool = false
     ) {
         self.thread = thread
         self.name = name
@@ -27,10 +30,11 @@ public struct TelegramTopic: Decodable, Identifiable, Sendable, Equatable {
         self.turns = turns
         self.lastUsed = lastUsed
         self.host = host
+        self.fixed = fixed
     }
 
     private enum CodingKeys: String, CodingKey {
-        case thread, name, cwd, turns, host
+        case thread, name, cwd, turns, host, fixed
         case sessionId = "session_id"
         case lastUsed = "last_used"
     }
@@ -44,6 +48,7 @@ public struct TelegramTopic: Decodable, Identifiable, Sendable, Equatable {
         turns = try container.decodeIfPresent(Int.self, forKey: .turns) ?? 0
         lastUsed = try container.decodeIfPresent(Double.self, forKey: .lastUsed).map(Date.init(timeIntervalSince1970:))
         host = try container.decodeIfPresent(String.self, forKey: .host)
+        fixed = try container.decodeIfPresent(Bool.self, forKey: .fixed) ?? false
     }
 }
 
@@ -168,7 +173,25 @@ public enum TelegramTopics {
         return String(line.prefix(nameLimit - 1)).trimmingCharacters(in: .whitespaces) + "…"
     }
 
-    public static func sections(records: [ConversationRecord], topics: [TelegramTopic]?) -> ConversationSections {
+    /// Geral then Journals first (by thread), the rest in the order the CLI gave (last use).
+    static func pinned(_ topics: [TelegramTopic]) -> [TelegramTopic] {
+        topics.filter(\.fixed).sorted { $0.thread < $1.thread } + topics.filter { !$0.fixed }
+    }
+
+    /// Without a saved order: `pinned`. With one: threads it does not know (new topics) on top by last use,
+    /// then the saved ones in their saved order; saved ids no longer listed are skipped.
+    static func ordered(_ topics: [TelegramTopic], saved: [Int]) -> [TelegramTopic] {
+        guard !saved.isEmpty else { return pinned(topics) }
+        let byThread = Dictionary(topics.map { ($0.thread, $0) }, uniquingKeysWith: { first, _ in first })
+        var seen = Set<Int>()
+        let kept = saved.compactMap { thread in seen.insert(thread).inserted ? byThread[thread] : nil }
+        let fresh = topics.filter { !seen.contains($0.thread) }.sorted {
+            ($0.lastUsed ?? .distantPast) > ($1.lastUsed ?? .distantPast)
+        }
+        return fresh + kept
+    }
+
+    public static func sections(records: [ConversationRecord], topics: [TelegramTopic]?, order: [Int] = []) -> ConversationSections {
         guard let topics else { return ConversationSections(wisp: records, telegram: []) }
         let threads = Set(topics.map(\.thread))
         var linked: [Int: ConversationRecord] = [:]
@@ -179,7 +202,7 @@ public enum TelegramTopics {
         }
         return ConversationSections(
             wisp: records.filter { record in record.telegramThread.map { !threads.contains($0) } ?? true },
-            telegram: topics.map { TelegramEntry(topic: $0, record: linked[$0.thread]) }
+            telegram: ordered(topics, saved: order).map { TelegramEntry(topic: $0, record: linked[$0.thread]) }
         )
     }
 }

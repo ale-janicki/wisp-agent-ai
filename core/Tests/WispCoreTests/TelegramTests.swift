@@ -86,6 +86,64 @@ final class TelegramTopicsTests: XCTestCase {
         XCTAssertTrue(unread.telegram.isEmpty)
     }
 
+    func testFixedTopicsParseAndPinFirstIncludingThreadZero() throws {
+        let json = #"""
+        [{"thread": 7, "name": "recent", "session_id": "s-7", "fixed": false},
+         {"thread": 45, "name": "daily", "session_id": "s-45", "fixed": true},
+         {"thread": 0, "name": "general", "session_id": "s-0", "fixed": true},
+         {"thread": 3, "name": "old", "session_id": "s-3"}]
+        """#
+        let topics = try TelegramTopics.parseTopics(Data(json.utf8))
+        XCTAssertEqual(topics.map(\.fixed), [false, true, true, false])
+        let sections = TelegramTopics.sections(records: [], topics: topics)
+        XCTAssertEqual(sections.telegram.map(\.id), [0, 45, 7, 3])
+        let linked = ConversationRecord(id: UUID(), sessionId: "s-0", title: "g", updatedAt: Date(), telegramThread: 0)
+        let withGeneral = TelegramTopics.sections(records: [linked], topics: topics)
+        XCTAssertEqual(withGeneral.telegram[0].record?.id, linked.id)
+        XCTAssertTrue(withGeneral.wisp.isEmpty)
+    }
+
+    private func orderTopics() -> [TelegramTopic] {
+        [
+            TelegramTopic(thread: 7, name: "recent", sessionId: "s-7", cwd: "/", lastUsed: Date(timeIntervalSince1970: 70)),
+            TelegramTopic(thread: 45, name: "daily", sessionId: "s-45", cwd: "/", fixed: true),
+            TelegramTopic(thread: 0, name: "general", sessionId: "s-0", cwd: "/", fixed: true),
+            TelegramTopic(thread: 3, name: "old", sessionId: "s-3", cwd: "/", lastUsed: Date(timeIntervalSince1970: 30)),
+        ]
+    }
+
+    func testNoSavedOrderKeepsTodaysOrder() {
+        let sections = TelegramTopics.sections(records: [], topics: orderTopics(), order: [])
+        XCTAssertEqual(sections.telegram.map(\.id), [0, 45, 7, 3])
+    }
+
+    func testSavedOrderIsApplied() {
+        let sections = TelegramTopics.sections(records: [], topics: orderTopics(), order: [3, 7, 45, 0])
+        XCTAssertEqual(sections.telegram.map(\.id), [3, 7, 45, 0])
+    }
+
+    func testThreadsNotInTheSavedOrderGoOnTopByLastUsed() {
+        var topics = orderTopics()
+        topics.append(TelegramTopic(thread: 11, name: "new", sessionId: "s-11", cwd: "/", lastUsed: Date(timeIntervalSince1970: 90)))
+        topics.append(TelegramTopic(thread: 12, name: "newer", sessionId: "s-12", cwd: "/", lastUsed: Date(timeIntervalSince1970: 95)))
+        let sections = TelegramTopics.sections(records: [], topics: topics, order: [3, 7, 45, 0])
+        XCTAssertEqual(sections.telegram.map(\.id), [12, 11, 3, 7, 45, 0])
+    }
+
+    func testUnknownIdsInTheSavedOrderAreIgnored() {
+        let sections = TelegramTopics.sections(records: [], topics: orderTopics(), order: [99, 3, 98, 0])
+        XCTAssertEqual(sections.telegram.map(\.id), [7, 45, 3, 0])
+    }
+
+    func testSavedTelegramOrderRoundTripsAndOldSettingsStillLoad() throws {
+        let old = try JSONDecoder().decode(WispSettings.self, from: Data(#"{"theme":"lime"}"#.utf8))
+        XCTAssertEqual(old.telegramOrder, [])
+        var settings = WispSettings()
+        settings.telegramOrder = [5, 0, 9]
+        let back = try JSONDecoder().decode(WispSettings.self, from: JSONEncoder().encode(settings))
+        XCTAssertEqual(back.telegramOrder, [5, 0, 9])
+    }
+
     func testParsesTheClaimAndItsFailureSentence() throws {
         XCTAssertEqual(
             try TelegramTopics.parseClaim(Data(#"{"ok": true, "reader": "mac", "waited_s": 7.4, "session": "trazida"}"#.utf8)),

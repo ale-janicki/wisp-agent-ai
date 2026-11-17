@@ -126,6 +126,8 @@ public struct WispSettings: Codable, Equatable, Sendable {
     public var dashboardOrder: [String] {
         didSet { dashboardOrder = DashboardTileID.normalized(dashboardOrder) }
     }
+    /// Telegram topic thread ids in the order the user dragged them; empty means the default order.
+    public var telegramOrder: [Int] = []
     public var clipboardCapture = true
     public var spotifyClientID = ""
     public var graph = GraphControls()
@@ -137,13 +139,14 @@ public struct WispSettings: Codable, Equatable, Sendable {
         self.dashboardOrder = DashboardTileID.normalized(dashboardOrder)
     }
 
-    private enum CodingKeys: String, CodingKey { case theme, custom, dashboardOrder, clipboardCapture, spotifyClientID, graph }
+    private enum CodingKeys: String, CodingKey { case theme, custom, dashboardOrder, telegramOrder, clipboardCapture, spotifyClientID, graph }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         theme = try container.decode(String.self, forKey: .theme)
         custom = try container.decodeIfPresent(CustomTheme.self, forKey: .custom)
         dashboardOrder = DashboardTileID.normalized(try container.decodeIfPresent([String].self, forKey: .dashboardOrder) ?? [])
+        telegramOrder = try container.decodeIfPresent([Int].self, forKey: .telegramOrder) ?? []
         clipboardCapture = try container.decodeIfPresent(Bool.self, forKey: .clipboardCapture) ?? true
         spotifyClientID = try container.decodeIfPresent(String.self, forKey: .spotifyClientID) ?? ""
         do {
