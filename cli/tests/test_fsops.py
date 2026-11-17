@@ -28,3 +28,17 @@ def test_copy_file_inside_home(fake_home):
     src.write_text("x")
     copy_file(src, fake_home / "d/s")
     assert (fake_home / "d/s").read_text() == "x"
+
+
+def test_dotdot_escape_raises(fake_home):
+    with pytest.raises(OutsideHome):
+        atomic_write(fake_home / ".." / "escaped.txt", "no")
+
+
+def test_symlink_escape_raises(fake_home, tmp_path):
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (fake_home / "link").symlink_to(outside)
+    with pytest.raises(OutsideHome):
+        atomic_write(fake_home / "link/file.txt", "no")
+    assert not (outside / "file.txt").exists()
