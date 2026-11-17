@@ -12,6 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Python core `wisp` as a uv workspace (`cli/` + `bot/`): per-OS paths, config, runner, step report and file ops, with `wisp --version`.
+- `wisp doctor --json`: reports system, Claude Code and login, brain, harness, Telegram and profile as one JSON object, never exposing the login email.
+- Os-neutral jobs interface (`JobManager`) with a launchd implementation; Linux and Windows raise a clear "not supported yet".
 
 ### Changed
 
@@ -19,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The command runner no longer crashes when a timed-out child has already exited.
 - Invalid graph settings now fall back to the defaults and say so in a notice instead of resetting silently.
 
 ## [Unreleased] - 2026-11-16

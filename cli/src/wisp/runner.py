@@ -47,7 +47,10 @@ class SubprocessRunner:
             out, err = proc.communicate(stdin, timeout=timeout)
             return RunResult(args, proc.returncode, out.decode(errors="replace"), err.decode(errors="replace"))
         except subprocess.TimeoutExpired:
-            os.killpg(proc.pid, signal.SIGKILL)
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
             out, err = proc.communicate()
             return RunResult(args, -9, out.decode(errors="replace"), err.decode(errors="replace"), timed_out=True)
 

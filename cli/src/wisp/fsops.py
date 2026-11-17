@@ -32,3 +32,7 @@ def atomic_write(path: Path, data: bytes | str, mode: int = 0o644) -> None:
 
 def copy_file(src: Path, dst: Path) -> None:
     atomic_write(dst, src.read_bytes(), mode=src.stat().st_mode & 0o777)
+
+
+def ensure_dir(path: Path, mode: int = 0o755) -> None:
+    _check_inside_home(path).mkdir(parents=True, exist_ok=True, mode=mode)
