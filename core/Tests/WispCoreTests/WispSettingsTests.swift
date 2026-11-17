@@ -92,4 +92,28 @@ final class WispSettingsTests: XCTestCase {
         try SettingsStore(directory: dir).save(settings)
         XCTAssertEqual(SettingsStore(directory: dir).settings.dashboardOrder, ["conversation", "alerts", "usage", "music"])
     }
+
+    func testGraphControlsDefaultWhenKeyIsMissing() throws {
+        let settings = try JSONDecoder().decode(WispSettings.self, from: Data(#"{"theme":"lime"}"#.utf8))
+        XCTAssertEqual(settings.graph, GraphControls())
+    }
+
+    func testGraphControlsFillMissingFieldsAndClampOutOfRange() throws {
+        let json = Data(#"{"theme":"lime","graph":{"repel":4,"linkDistance":9000,"textFade":-50}}"#.utf8)
+        let graph = try JSONDecoder().decode(WispSettings.self, from: json).graph
+        XCTAssertEqual(graph.repel, 4)
+        XCTAssertEqual(graph.linkDistance, GraphControls.ranges.linkDistance.upperBound)
+        XCTAssertEqual(graph.textFade, GraphControls.ranges.textFade.lowerBound)
+        XCTAssertEqual(graph.center, GraphControls().center)
+        XCTAssertEqual(graph.nodeSize, GraphControls().nodeSize)
+    }
+
+    func testGraphControlsRoundTripThroughTheStore() throws {
+        var settings = WispSettings.default
+        settings.graph.repel = 3
+        settings.graph.nodeSize = 2
+        settings.graph.textFade = 1.5
+        try SettingsStore(directory: dir).save(settings)
+        XCTAssertEqual(SettingsStore(directory: dir).settings.graph, settings.graph)
+    }
 }

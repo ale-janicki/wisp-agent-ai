@@ -1,5 +1,6 @@
 import AppKit
 import os
+import QuartzCore
 import SwiftUI
 import WispCore
 
@@ -9,6 +10,19 @@ struct MemoryGraphView: View {
     let recent: String?
     let open: (String) -> Void
     private let model = MemoryGraphModel.shared
+    @State private var forcesOpen = Self.initialForcesOpen
+
+    #if DEBUG
+    static var snapshotForcesOpen = false
+    #endif
+
+    private static var initialForcesOpen: Bool {
+        #if DEBUG
+        return snapshotForcesOpen
+        #else
+        return false
+        #endif
+    }
 
     var body: some View {
         Group {
@@ -27,6 +41,7 @@ struct MemoryGraphView: View {
             }
         }
         .onAppear { model.load(root: root) }
+        .onDisappear { model.cancelDrag() }
         .task(id: query) {
             try? await Task.sleep(for: .milliseconds(150))
             guard !Task.isCancelled else { return }
@@ -59,6 +74,9 @@ struct MemoryGraphView: View {
                 HStack(alignment: .top) {
                     caption
                     Spacer(minLength: Theme.Space.s)
+                    Button { forcesOpen.toggle() } label: { Image(systemName: "slider.horizontal.3") }
+                        .buttonStyle(CircleButtonStyle(kind: forcesOpen ? .accent : .plain, size: 28))
+                        .help(forcesOpen ? "Fechar ajustes do grafo" : "Forças e exibição")
                 }
                 Spacer(minLength: 0)
                 HStack(alignment: .bottom, spacing: Theme.Space.s) {
@@ -68,7 +86,15 @@ struct MemoryGraphView: View {
                 }
             }
             .padding(Theme.Space.s)
+            if forcesOpen {
+                GraphForcesPanel(model: model)
+                    .padding(.top, 28 + 2 * Theme.Space.s)
+                    .padding([.trailing, .bottom], Theme.Space.s)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                    .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .topTrailing)))
+            }
         }
+        .animation(.easeOut(duration: 0.18), value: forcesOpen)
         .background(Theme.Graph.well, in: RoundedRectangle(cornerRadius: Theme.Radius.nav, style: .continuous))
         .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.nav, style: .continuous))
     }
@@ -79,6 +105,7 @@ struct MemoryGraphView: View {
             .foregroundStyle(Theme.textTertiary)
             .lineLimit(1)
             .padding(.horizontal, Theme.Space.xs)
+            .padding(.top, 6)
     }
 
     private var captionText: String {
@@ -105,10 +132,10 @@ struct MemoryGraphView: View {
             Button { model.showGhosts.toggle() } label: { Image(systemName: "circle.dashed") }
                 .buttonStyle(CircleButtonStyle(kind: model.showGhosts ? .accent : .plain, size: 28))
                 .help(model.showGhosts ? "Esconder links sem nota" : "Mostrar links sem nota")
-            Button { model.zoom(by: 1 / 1.4, at: nil) } label: { Image(systemName: "minus") }
+            Button { model.zoomSmoothly(by: 1 / 1.4, at: nil) } label: { Image(systemName: "minus") }
                 .buttonStyle(CircleButtonStyle(size: 28))
                 .help("Afastar")
-            Button { model.zoom(by: 1.4, at: nil) } label: { Image(systemName: "plus") }
+            Button { model.zoomSmoothly(by: 1.4, at: nil) } label: { Image(systemName: "plus") }
                 .buttonStyle(CircleButtonStyle(size: 28))
                 .help("Aproximar")
             Button { model.fit() } label: { Image(systemName: "arrow.up.left.and.arrow.down.right") }
@@ -121,6 +148,7 @@ struct MemoryGraphView: View {
 #if DEBUG
 @MainActor enum GraphDrawStats {
     static var seconds: [Double] = []
+    static var probe: [(time: Double, millis: Double)]?
 }
 #endif
 
@@ -129,7 +157,7 @@ struct MemoryGraphView: View {
     private static var stamps: [Double] = []
     private static var drawMillis: [Double] = []
     private static var flush: Task<Void, Never>?
-    private static let log = Logger(subsystem: "com.owner.wisp", category: "graphperf")
+    static let log = Logger(subsystem: "com.owner.wisp", category: "graphperf")
 
     static func record(at time: Double, drawSeconds: Double) {
         stamps.append(time)
@@ -152,14 +180,22 @@ struct MemoryGraphView: View {
             drawMillis.removeAll()
         }
         guard stamps.count >= 10 else { return }
+        let summary = Self.summary(stamps: stamps, drawMillis: drawMillis)
+        log.notice("\(summary, privacy: .public)")
+    }
+
+    static func summary(stamps: [Double], drawMillis: [Double]) -> String {
         let gaps = zip(stamps.dropFirst(), stamps).map { ($0 - $1) * 1000 }.sorted()
         let draws = drawMillis.sorted()
-        func percentile(_ sorted: [Double], _ p: Double) -> Double { sorted[min(sorted.count - 1, Int(Double(sorted.count) * p))] }
-        log.info("""
-        frames=\(stamps.count) interval p50=\(percentile(gaps, 0.5), format: .fixed(precision: 1)) ms \
-        p95=\(percentile(gaps, 0.95), format: .fixed(precision: 1)) ms max=\(gaps.last ?? 0, format: .fixed(precision: 1)) ms \
-        draw-closure p50=\(percentile(draws, 0.5), format: .fixed(precision: 1)) ms p95=\(percentile(draws, 0.95), format: .fixed(precision: 1)) ms
-        """)
+        func percentile(_ sorted: [Double], _ p: Double) -> Double {
+            sorted.isEmpty ? 0 : sorted[min(sorted.count - 1, Int(Double(sorted.count) * p))]
+        }
+        let span = (stamps.last ?? 0) - (stamps.first ?? 0)
+        let fps = span > 0 ? Double(stamps.count - 1) / span : 0
+        return String(
+            format: "frames=%d interval p50=%.1f ms p95=%.1f ms max=%.1f ms (%.0f fps) draw-closure p50=%.1f ms p95=%.1f ms",
+            stamps.count, percentile(gaps, 0.5), percentile(gaps, 0.95), gaps.last ?? 0, fps, percentile(draws, 0.5), percentile(draws, 0.95)
+        )
     }
 }
 #endif
@@ -169,129 +205,226 @@ private struct GraphCanvas: View {
 
     var body: some View {
         GeometryReader { geo in
-            let key = [model.scene.version, model.hovered ?? -1, model.bestMatch ?? -1, model.matches.count, model.localMode ? 1 : 0, model.edgePathsVersion]
-            let viewport = [model.zoom, model.offset.width, model.offset.height]
+            let tick = model.frameTick
             Canvas { context, size in
-                _ = (key, viewport)
-                #if DEBUG
+                _ = tick
                 let started = CACurrentMediaTime()
+                #if DEBUG
                 defer {
                     let finished = CACurrentMediaTime()
                     GraphDrawStats.seconds.append(finished - started)
+                    GraphDrawStats.probe?.append((started, (finished - started) * 1000))
                     GraphFramePerf.record(at: started, drawSeconds: finished - started)
                 }
                 #endif
-                draw(&context, size: size)
+                model.advance(to: started)
+                draw(&context, size: size, now: started)
             }
             .onAppear { model.setViewSize(geo.size) }
             .onChange(of: geo.size) { _, size in model.setViewSize(size) }
         }
     }
 
-    private func draw(_ context: inout GraphicsContext, size: CGSize) {
+    private func draw(_ context: inout GraphicsContext, size: CGSize, now: Double) {
         let scene = model.scene
-        guard !scene.isEmpty else { return }
+        let frame = model.frame
+        let controls = model.controls
         let zoom = model.zoom
-        let paths = model.paths
-        paths.update(model)
-
-        let focus = focusSet(scene)
+        let edgeWidth = max(0.6 / zoom, 0.25) * CGFloat(controls.linkThickness)
         var world = context
         world.translateBy(x: size.width / 2 + model.offset.width, y: size.height / 2 + model.offset.height)
         world.scaleBy(x: zoom, y: zoom)
 
-        var base = world
-        if !focus.isEmpty { base.opacity = 0.16 }
-        let edgeWidth = max(0.6 / zoom, 0.25)
-        for chunk in model.edgePaths {
-            base.stroke(chunk, with: .color(Theme.Graph.edge), lineWidth: edgeWidth)
+        let shown = model.fadeProgress(at: now)
+        if let fade = model.fade {
+            var old = world
+            old.opacity = 1 - shown
+            for chunk in fade.frame.edgePaths { old.stroke(chunk, with: .color(Theme.Graph.edge), lineWidth: edgeWidth) }
+            for (group, path) in fade.frame.nodePaths { old.fill(path, with: .color(color(group))) }
         }
-        for (group, path) in paths.nodes {
-            base.fill(path, with: .color(color(group)))
-        }
+        guard !scene.isEmpty, frame.positions.count == scene.nodes.count else { return }
 
-        if !focus.isEmpty || model.selectedSceneIndex != nil {
-            highlight(&world, scene: scene, focus: focus, zoom: zoom)
-        }
-        labels(&context, scene: scene, focus: focus, size: size)
+        let dim = model.dimAmount
+        var base = world
+        base.opacity = shown * (1 - (1 - MemoryGraphModel.dimmed) * dim)
+        for chunk in frame.edgePaths { base.stroke(chunk, with: .color(Theme.Graph.edge), lineWidth: edgeWidth) }
+        for (group, path) in model.nodePaths(for: frame, scene: scene) { base.fill(path, with: .color(color(group))) }
+
+        let focus = focusSet(scene)
+        var lit = world
+        lit.opacity = shown
+        highlight(&lit, scene: scene, positions: frame.positions, focus: focus, zoom: zoom, thickness: CGFloat(controls.linkThickness))
+        var text = context
+        text.opacity = shown
+        labels(&text, scene: scene, positions: frame.positions, focus: focus, size: size, fade: controls.textFade)
     }
 
     private func focusSet(_ scene: GraphScene) -> Set<Int> {
-        if let hovered = model.hovered, scene.adjacency.indices.contains(hovered) {
+        if let hovered = model.hoverShown, scene.adjacency.indices.contains(hovered) {
             return Set(scene.adjacency[hovered]).union([hovered])
         }
         return model.matches
     }
 
-    private func highlight(_ world: inout GraphicsContext, scene: GraphScene, focus: Set<Int>, zoom: CGFloat) {
-        if let hovered = model.hovered, scene.adjacency.indices.contains(hovered) {
-            var lines = Path()
-            for neighbor in scene.adjacency[hovered] {
-                lines.move(to: scene.positions[hovered])
-                lines.addLine(to: scene.positions[neighbor])
+    private func circle(_ p: SIMD2<Float>, _ r: CGFloat) -> CGRect {
+        CGRect(x: CGFloat(p.x) - r, y: CGFloat(p.y) - r, width: 2 * r, height: 2 * r)
+    }
+
+    private func highlight(_ world: inout GraphicsContext, scene: GraphScene, positions: [SIMD2<Float>], focus: Set<Int>, zoom: CGFloat, thickness: CGFloat) {
+        let hovered = model.hoverShown.flatMap { scene.adjacency.indices.contains($0) ? $0 : nil }
+        let amount = hovered != nil ? model.hoverAmount : model.dimAmount
+        let floor = GraphSimulator.minimumScreenRadius / zoom
+        if !focus.isEmpty, amount > 0 {
+            var layer = world
+            layer.opacity *= amount
+            if let hovered {
+                var lines = Path()
+                let from = CGPoint(x: CGFloat(positions[hovered].x), y: CGFloat(positions[hovered].y))
+                for neighbor in scene.adjacency[hovered] {
+                    lines.move(to: from)
+                    lines.addLine(to: CGPoint(x: CGFloat(positions[neighbor].x), y: CGFloat(positions[neighbor].y)))
+                }
+                layer.stroke(lines, with: .color(Theme.accent.opacity(0.7)), lineWidth: max(1.3 / zoom, 0.5) * thickness)
             }
-            world.stroke(lines, with: .color(Theme.accent.opacity(0.55)), lineWidth: max(1 / zoom, 0.4))
+            var groups: [Int: Path] = [:]
+            for i in focus where i != hovered {
+                groups[model.group(ofScene: i), default: Path()].addEllipse(in: circle(positions[i], max(model.radius(ofScene: i), floor)))
+            }
+            for (group, path) in groups { layer.fill(path, with: .color(color(group))) }
+            if let hovered {
+                let grown = max(model.radius(ofScene: hovered), floor) * (1 + 0.3 * amount)
+                layer.fill(Path(ellipseIn: circle(positions[hovered], grown)), with: .color(color(model.group(ofScene: hovered))))
+            }
         }
-        let floor = GraphPathCache.minimumScreenRadius / zoom
-        var groups: [Int: Path] = [:]
-        for i in focus {
-            let p = scene.positions[i], r = max(model.radius(ofScene: i), floor)
-            groups[model.group(ofScene: i), default: Path()].addEllipse(in: CGRect(x: p.x - r, y: p.y - r, width: 2 * r, height: 2 * r))
-        }
-        for (group, path) in groups { world.fill(path, with: .color(color(group))) }
-        if let ring = model.hovered ?? model.bestMatch ?? model.selectedSceneIndex, scene.positions.indices.contains(ring) {
-            let p = scene.positions[ring], r = max(model.radius(ofScene: ring), floor) + 3 / zoom
-            world.stroke(Path(ellipseIn: CGRect(x: p.x - r, y: p.y - r, width: 2 * r, height: 2 * r)), with: .color(Theme.textPrimary), lineWidth: 1.5 / zoom)
+        let ring = hovered ?? model.bestMatch ?? model.selectedSceneIndex
+        if let ring, positions.indices.contains(ring) {
+            var layer = world
+            if ring == hovered, model.bestMatch != ring, model.selectedSceneIndex != ring { layer.opacity *= amount }
+            let grow: CGFloat = ring == hovered ? 1 + 0.3 * amount : 1
+            let r = max(model.radius(ofScene: ring), floor) * grow + 3 / zoom
+            layer.stroke(Path(ellipseIn: circle(positions[ring], r)), with: .color(Theme.textPrimary), lineWidth: 1.5 / zoom)
         }
     }
 
-    private func labels(_ context: inout GraphicsContext, scene: GraphScene, focus: Set<Int>, size: CGSize) {
-        var chosen: [Int] = []
-        if let hovered = model.hovered { chosen.append(hovered) }
-        if let best = model.bestMatch, best != model.hovered { chosen.append(best) }
-        if chosen.isEmpty, let center = model.selectedSceneIndex { chosen.append(center) }
-        let rest: [Int]
-        if !focus.isEmpty {
-            rest = Array(focus)
-        } else if scene.nodes.count <= 80 {
-            rest = Array(scene.nodes.indices)
-        } else {
-            rest = scene.nodes.indices.filter { model.radius(ofScene: $0) * model.zoom >= (model.localMode ? 6 : 9) }
+    private func labels(_ context: inout GraphicsContext, scene: GraphScene, positions: [SIMD2<Float>], focus: Set<Int>, size: CGSize, fade: Float) {
+        let zoomShown = min(max(Double(log2(model.zoom)) - Double(fade) + 1, 0), 1)
+        let hover = model.hoverShown != nil ? model.hoverAmount : 0
+        let dim = model.dimAmount
+        let limit = 90
+        var chosen: [(index: Int, alpha: Double, primary: Bool)] = []
+        var taken = Set<Int>()
+        func take(_ i: Int, _ alpha: Double, primary: Bool = false) {
+            guard alpha > 0.02, chosen.count < limit, !taken.contains(i) else { return }
+            taken.insert(i)
+            chosen.append((i, alpha, primary))
         }
+        if let hovered = model.hoverShown, positions.indices.contains(hovered) { take(hovered, hover, primary: true) }
+        if let best = model.bestMatch { take(best, 1, primary: model.hoverShown == nil) }
+        if let center = model.selectedSceneIndex { take(center, 1, primary: model.hoverShown == nil && model.bestMatch == nil) }
         let viewport = CGRect(origin: .zero, size: size).insetBy(dx: -40, dy: -20)
-        for i in rest.sorted(by: { model.radius(ofScene: $0) > model.radius(ofScene: $1) }) where chosen.count < 60 && !chosen.contains(i) {
-            if viewport.contains(model.toView(scene.positions[i])) { chosen.append(i) }
+        let order = model.nodesBySize()
+        if !focus.isEmpty {
+            let amount = model.hoverShown != nil ? hover : dim
+            for i in order where focus.contains(i) && chosen.count < limit {
+                if viewport.contains(model.toView(positions[i])) { take(i, max(amount, zoomShown)) }
+            }
+        }
+        if zoomShown > 0.02 {
+            let rest = zoomShown * (1 - (1 - MemoryGraphModel.dimmed) * dim)
+            for i in order where chosen.count < limit {
+                if viewport.contains(model.toView(positions[i])) { take(i, rest) }
+            }
         }
         var placed: [CGRect] = []
-        var drawn: [(text: GraphicsContext.ResolvedText, frame: CGRect, primary: Bool)] = []
-        for (rank, i) in chosen.enumerated() {
-            let p = model.toView(scene.positions[i])
-            let r = max(model.radius(ofScene: i) * model.zoom, GraphPathCache.minimumScreenRadius)
-            let primary = rank == 0 && (model.hovered != nil || model.bestMatch != nil || model.selectedSceneIndex != nil)
+        var drawn: [(text: GraphicsContext.ResolvedText, frame: CGRect, alpha: Double, primary: Bool)] = []
+        for label in chosen {
+            let p = model.toView(positions[label.index])
+            let r = max(model.radius(ofScene: label.index) * model.zoom, GraphSimulator.minimumScreenRadius)
             let text = context.resolve(
-                Text(model.title(ofScene: i))
-                    .font(primary ? Theme.Font.bodyMedium : Theme.Font.caption)
-                    .foregroundStyle(primary ? Theme.textPrimary : Theme.textSecondary)
+                Text(model.title(ofScene: label.index))
+                    .font(label.primary ? Theme.Font.bodyMedium : Theme.Font.caption)
+                    .foregroundStyle(label.primary ? Theme.textPrimary : Theme.textSecondary)
             )
             let measured = text.measure(in: CGSize(width: 220, height: 40))
             let frame = CGRect(x: p.x - measured.width / 2, y: p.y + r + 3, width: measured.width, height: measured.height)
             let padded = frame.insetBy(dx: -6, dy: -2)
             if placed.contains(where: { $0.intersects(padded) }) { continue }
             placed.append(padded)
-            drawn.append((text, frame, primary))
+            drawn.append((text, frame, label.alpha, label.primary))
         }
         for label in drawn.reversed() {
+            var layer = context
+            layer.opacity *= label.alpha
             if label.primary {
                 let box = label.frame.insetBy(dx: -6, dy: -1)
-                context.fill(Path(roundedRect: box, cornerRadius: box.height / 2), with: .color(Theme.surfaceHi.opacity(0.92)))
+                layer.fill(Path(roundedRect: box, cornerRadius: box.height / 2), with: .color(Theme.surfaceHi.opacity(0.92)))
             }
-            context.draw(label.text, in: label.frame)
+            layer.draw(label.text, in: label.frame)
         }
     }
 
     private func color(_ group: Int) -> Color {
         if group < 0 { return Theme.Graph.ghost }
         return group < Theme.Graph.palette.count ? Theme.Graph.palette[group] : Theme.Graph.other
+    }
+}
+
+private struct GraphForcesPanel: View {
+    let model: MemoryGraphModel
+    private let settings = AppSettings.shared
+
+    var body: some View {
+        ViewThatFits(in: .vertical) {
+            content
+            ScrollView { content }
+                .scrollIndicators(.hidden)
+        }
+        .frame(width: 290)
+        .glass()
+    }
+
+    private var content: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            SectionCaption(text: "Forças")
+            row("Força central", \.center, GraphControls.ranges.center, reheat: GraphLayout.dragAlpha)
+            row("Repulsão", \.repel, GraphControls.ranges.repel, reheat: GraphLayout.dragAlpha)
+            row("Força dos links", \.link, GraphControls.ranges.link, reheat: GraphLayout.dragAlpha)
+            row("Distância dos links", \.linkDistance, GraphControls.ranges.linkDistance, reheat: GraphLayout.dragAlpha)
+            SectionCaption(text: "Exibição")
+            row("Tamanho dos nós", \.nodeSize, GraphControls.ranges.nodeSize, reheat: GraphLayout.warmAlpha)
+            row("Espessura dos links", \.linkThickness, GraphControls.ranges.linkThickness, reheat: 0)
+            row("Limiar do texto", \.textFade, GraphControls.ranges.textFade, reheat: 0)
+            Button("Animar") { model.animateLayout() }
+                .buttonStyle(CapsuleButtonStyle(kind: .ghost))
+                .help("Espalhar as notas e ver o grafo se organizar")
+                .frame(maxWidth: .infinity)
+        }
+        .padding(Theme.Space.m)
+    }
+
+    private func row(_ title: String, _ key: WritableKeyPath<GraphControls, Float>, _ range: ClosedRange<Float>, reheat: Float) -> some View {
+        let value = Binding<Double>(
+            get: { Double(settings.settings.graph[keyPath: key]) },
+            set: { next in
+                settings.setGraph { $0[keyPath: key] = Float(next) }
+                model.controlsChanged(reheat: reheat)
+            }
+        )
+        return HStack(spacing: Theme.Space.s) {
+            Text(title)
+                .font(Theme.Font.caption)
+                .foregroundStyle(Theme.textSecondary)
+                .lineLimit(1)
+                .frame(width: 118, alignment: .leading)
+            Slider(value: value, in: Double(range.lowerBound)...Double(range.upperBound))
+                .controlSize(.mini)
+                .tint(Theme.accent)
+            Text(value.wrappedValue, format: .number.precision(.fractionLength(range.upperBound > 20 ? 0 : 1)))
+                .font(Theme.Font.captionMono)
+                .foregroundStyle(Theme.textTertiary)
+                .frame(width: 30, alignment: .trailing)
+        }
+        .frame(height: 22)
     }
 }
 
@@ -354,7 +487,40 @@ final class GraphInputView: NSView {
     var open: ((String) -> Void)?
     private var downAt: NSPoint?
     private var lastDrag: NSPoint?
+    private var pressedNode: Int?
     private var dragging = false
+    private var link: CADisplayLink?
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        link?.invalidate()
+        link = nil
+        guard window != nil else {
+            model?.cancelDrag()
+            dragging = false
+            pressedNode = nil
+            downAt = nil
+            if model?.displayOwner == ObjectIdentifier(self) {
+                model?.wakeDisplay = nil
+                model?.displayOwner = nil
+            }
+            return
+        }
+        let link = displayLink(target: self, selector: #selector(refresh))
+        link.add(to: .main, forMode: .common)
+        link.isPaused = !(model?.isAnimating ?? false)
+        self.link = link
+        model?.displayOwner = ObjectIdentifier(self)
+        model?.wakeDisplay = { [weak self] in self?.link?.isPaused = false }
+    }
+
+    @objc private func refresh(_ link: CADisplayLink) {
+        guard let model, model.isAnimating else {
+            link.isPaused = true
+            return
+        }
+        model.displayFrame()
+    }
 
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { true }
@@ -376,6 +542,7 @@ final class GraphInputView: NSView {
     }
 
     override func mouseExited(with event: NSEvent) {
+        guard !dragging else { return }
         model?.hover(at: nil)
         NSCursor.arrow.set()
     }
@@ -384,34 +551,52 @@ final class GraphInputView: NSView {
         downAt = local(event)
         lastDrag = downAt
         dragging = false
+        model?.stopMomentum()
+        pressedNode = downAt.flatMap { model?.node(at: $0) }
     }
 
     override func mouseDragged(with event: NSEvent) {
         let point = local(event)
-        guard let start = downAt, let last = lastDrag else { return }
-        if !dragging, hypot(point.x - start.x, point.y - start.y) < 3 { return }
-        if !dragging { model?.hover(at: nil) }
-        dragging = true
-        model?.pan(by: CGSize(width: point.x - last.x, height: point.y - last.y))
+        guard let model, let start = downAt, let last = lastDrag else { return }
+        if !dragging {
+            guard hypot(point.x - start.x, point.y - start.y) >= 3 else { return }
+            dragging = true
+            if let node = pressedNode {
+                model.beginDrag(node, at: start)
+            } else {
+                model.hover(at: nil)
+            }
+        }
+        if pressedNode != nil {
+            model.drag(to: point)
+        } else {
+            model.pan(by: CGSize(width: point.x - last.x, height: point.y - last.y), at: event.timestamp)
+        }
         lastDrag = point
         NSCursor.closedHand.set()
     }
 
     override func mouseUp(with event: NSEvent) {
+        let point = local(event)
         defer {
             downAt = nil
             lastDrag = nil
+            pressedNode = nil
             dragging = false
             updateCursor()
         }
-        guard !dragging, let model else { return }
-        if let path = model.click(at: local(event)) { open?(path) }
+        guard let model else { return }
+        if dragging {
+            if pressedNode != nil { model.endDrag(at: point) } else { model.endPan(at: event.timestamp) }
+            return
+        }
+        if let path = model.click(at: point) { open?(path) }
     }
 
     override func scrollWheel(with event: NSEvent) {
         let delta = event.hasPreciseScrollingDeltas ? event.scrollingDeltaY * 0.01 : event.scrollingDeltaY * 0.08
         guard delta != 0 else { return }
-        model?.zoom(by: exp(delta), at: local(event))
+        model?.zoomSmoothly(by: exp(delta), at: local(event))
     }
 
     override func magnify(with event: NSEvent) {
@@ -419,6 +604,6 @@ final class GraphInputView: NSView {
     }
 
     private func updateCursor() {
-        if model?.hovered != nil { NSCursor.pointingHand.set() } else { NSCursor.arrow.set() }
+        if model?.isHovering == true { NSCursor.pointingHand.set() } else { NSCursor.arrow.set() }
     }
 }

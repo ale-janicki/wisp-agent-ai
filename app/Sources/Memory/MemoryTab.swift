@@ -110,7 +110,7 @@ struct MemoryTab: View {
                     }
                 }
             }
-            .scrollIndicators(.automatic)
+            .scrollIndicators(.hidden)
         }
     }
 
@@ -132,7 +132,7 @@ struct MemoryTab: View {
                     }
                 }
             }
-            .scrollIndicators(.automatic)
+            .scrollIndicators(.hidden)
         case .failed(let message):
             TabMessage(text: message)
         }

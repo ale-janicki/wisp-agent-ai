@@ -55,10 +55,12 @@ final class AppSettings {
             let order = settings.dashboardOrder
             let capture = settings.clipboardCapture
             let spotify = settings.spotifyClientID
+            let graph = settings.graph
             settings = .default
             settings.dashboardOrder = order
             settings.clipboardCapture = capture
             settings.spotifyClientID = spotify
+            settings.graph = graph
         }
     }
 
@@ -76,6 +78,10 @@ final class AppSettings {
 
     func setSpotifyClientID(_ id: String) {
         update { $0.spotifyClientID = id.trimmingCharacters(in: .whitespacesAndNewlines) }
+    }
+
+    func setGraph(_ change: (inout GraphControls) -> Void) {
+        update { change(&$0.graph) }
     }
 
     #if DEBUG

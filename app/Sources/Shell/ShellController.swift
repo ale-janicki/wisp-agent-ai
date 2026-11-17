@@ -102,7 +102,10 @@ final class ShellController: ObservableObject {
         dwellTask?.cancel()
         dwellTask = nil
         if new != .panel { openedByHover = false }
-        if previous == .panel, new != .panel { releaseKey() }
+        if previous == .panel, new != .panel {
+            releaseKey()
+            MemoryGraphModel.shared.panelClosed()
+        }
         state = new
         media.panelOpen = new == .panel
         panel.hasShadow = new == .panel
@@ -370,6 +373,9 @@ final class ShellController: ObservableObject {
             }
         }
         conversation.runDemo(arguments: args)
+        if args.contains("-WispGraphBench") {
+            Task { await MemoryGraphBench.run(self) }
+        }
         if args.contains("-WispDemoActive") {
             pillText = "\(conversation.personaName) pensando..."
             show(.active)
