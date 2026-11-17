@@ -118,8 +118,23 @@ struct CardBackground: ViewModifier {
     }
 }
 
+struct GlassBackground: ViewModifier {
+    var cornerRadius: CGFloat = Theme.Radius.nav
+
+    func body(content: Content) -> some View {
+        content
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .strokeBorder(Theme.stroke, lineWidth: 1)
+            }
+            .shadow(color: Theme.notch.opacity(0.35), radius: 14, y: 6)
+    }
+}
+
 extension View {
     func card() -> some View { modifier(CardBackground()) }
+    func glass(cornerRadius: CGFloat = Theme.Radius.nav) -> some View { modifier(GlassBackground(cornerRadius: cornerRadius)) }
 }
 
 struct CircleButtonStyle: ButtonStyle {
