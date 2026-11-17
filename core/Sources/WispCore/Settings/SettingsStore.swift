@@ -35,6 +35,10 @@ public final class SettingsStore: @unchecked Sendable {
         guard fm.fileExists(atPath: fileURL.path) else { return }
         do {
             current = try JSONDecoder().decode(WispSettings.self, from: Data(contentsOf: fileURL))
+            if current.graphWasInvalid {
+                current.graphWasInvalid = false
+                lastRecoveryNote = "Os ajustes do grafo estavam inválidos e voltaram ao padrão."
+            }
         } catch {
             try? fm.removeItem(at: badURL)
             try? fm.moveItem(at: fileURL, to: badURL)

@@ -129,6 +129,7 @@ public struct WispSettings: Codable, Equatable, Sendable {
     public var clipboardCapture = true
     public var spotifyClientID = ""
     public var graph = GraphControls()
+    var graphWasInvalid = false
 
     public init(theme: String = ThemePreset.lime.id, custom: CustomTheme? = nil, dashboardOrder: [String] = DashboardTileID.defaultOrder) {
         self.theme = theme
@@ -145,7 +146,12 @@ public struct WispSettings: Codable, Equatable, Sendable {
         dashboardOrder = DashboardTileID.normalized(try container.decodeIfPresent([String].self, forKey: .dashboardOrder) ?? [])
         clipboardCapture = try container.decodeIfPresent(Bool.self, forKey: .clipboardCapture) ?? true
         spotifyClientID = try container.decodeIfPresent(String.self, forKey: .spotifyClientID) ?? ""
-        graph = (try? container.decodeIfPresent(GraphControls.self, forKey: .graph)) ?? GraphControls()
+        do {
+            graph = try container.decodeIfPresent(GraphControls.self, forKey: .graph) ?? GraphControls()
+        } catch {
+            graph = GraphControls()
+            graphWasInvalid = true
+        }
     }
 
     public static let `default` = WispSettings()

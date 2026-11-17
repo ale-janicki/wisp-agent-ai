@@ -116,4 +116,27 @@ final class WispSettingsTests: XCTestCase {
         try SettingsStore(directory: dir).save(settings)
         XCTAssertEqual(SettingsStore(directory: dir).settings.graph, settings.graph)
     }
+
+    func testMalformedGraphBlockKeepsOtherSettingsAndSetsNote() throws {
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let json = #"{"theme":"blue","spotifyClientID":"abc","clipboardCapture":false,"graph":{"repel":"high"}}"#
+        try Data(json.utf8).write(to: dir.appendingPathComponent("settings.json"))
+        let store = SettingsStore(directory: dir)
+        XCTAssertEqual(store.settings.graph, GraphControls())
+        XCTAssertEqual(store.settings.theme, "blue")
+        XCTAssertEqual(store.settings.spotifyClientID, "abc")
+        XCTAssertFalse(store.settings.clipboardCapture)
+        XCTAssertEqual(store.lastRecoveryNote, "Os ajustes do grafo estavam inválidos e voltaram ao padrão.")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: dir.appendingPathComponent("settings.json.bad").path))
+    }
+
+    func testValidSettingsFileSetsNoNote() throws {
+        var settings = WispSettings.default
+        settings.graph.repel = 3
+        try SettingsStore(directory: dir).save(settings)
+        XCTAssertNil(SettingsStore(directory: dir).lastRecoveryNote)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try Data(#"{"theme":"lime"}"#.utf8).write(to: dir.appendingPathComponent("settings.json"))
+        XCTAssertNil(SettingsStore(directory: dir).lastRecoveryNote)
+    }
 }
