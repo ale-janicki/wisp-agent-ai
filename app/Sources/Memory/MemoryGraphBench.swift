@@ -42,7 +42,7 @@ enum MemoryGraphBench {
         _ = await wait(limit: .seconds(20)) { !model.frame.running }
         model.fit()
         try? await Task.sleep(for: .seconds(1))
-        log.notice("bench: local graph around \(model.selected ?? "nil", privacy: .public) nodes=\(model.scene.nodes.count) edges=\(model.scene.edges.count)")
+        log.notice("bench: local graph around \(model.selected ?? "indisponível", privacy: .public) nodes=\(model.scene.nodes.count) edges=\(model.scene.edges.count)")
         guard onScreen("local", model), await phases("local", model), await idleCPU("local", model) else { return }
         model.setLocalMode(false, fallback: nil)
         guard await abandonedDrag(shell, model) else { return }
@@ -75,8 +75,8 @@ enum MemoryGraphBench {
     }
 
     private static func onScreen(_ step: String, _ model: MemoryGraphModel) -> Bool {
-        let state = shell.map { String(describing: $0.state) } ?? "nil"
-        let tab = shell.map { $0.tab.rawValue } ?? "nil"
+        let state = shell.map { String(describing: $0.state) } ?? "indisponível"
+        let tab = shell.map { $0.tab.rawValue } ?? "indisponível"
         let visible = NSApp.windows.contains { $0.isVisible && $0.occlusionState.contains(.visible) }
         guard shell?.state == .panel, shell?.tab == .memory, model.displayOwner != nil, visible else {
             log.notice("bench: aborted at \(step, privacy: .public): graph not on screen (state=\(state, privacy: .public) tab=\(tab, privacy: .public) view=\(model.displayOwner != nil) visible=\(visible)); panel used, display asleep or screen locked during the run?")

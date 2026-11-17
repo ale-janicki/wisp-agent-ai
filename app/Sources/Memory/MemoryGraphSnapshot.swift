@@ -28,12 +28,12 @@ extension SnapshotRenderer {
             return
         }
         let stats = model.lastScanStats
-        print("snapshot: graph scan#1 \(format(model.lastScanSeconds))s layout \(format(model.lastLayoutSeconds))s nodes=\(model.graph.nodes.count) edges=\(model.graph.edges.count) read=\(stats?.read ?? -1) reused=\(stats?.reused ?? -1) placeholders=\(stats?.placeholders ?? -1) unreadable=\(stats?.unreadable ?? -1)")
+        print("snapshot: graph scan#1 \(format(model.lastScanSeconds))s layout \(format(model.lastLayoutSeconds))s nodes=\(model.graph.nodes.count) edges=\(model.graph.edges.count) read=\((stats?.read).map(String.init) ?? "indisponível") reused=\((stats?.reused).map(String.init) ?? "indisponível") placeholders=\((stats?.placeholders).map(String.init) ?? "indisponível") unreadable=\((stats?.unreadable).map(String.init) ?? "indisponível")")
         let applied = model.scansApplied
         model.load(root: root, force: true)
         for _ in 0..<300 where model.scansApplied == applied { try? await Task.sleep(for: .milliseconds(20)) }
         _ = await waitForGraph(model, limit: .seconds(30))
-        print("snapshot: graph scan#2 \(format(model.lastScanSeconds))s read=\(model.lastScanStats?.read ?? -1) reused=\(model.lastScanStats?.reused ?? -1) settling=\(model.settling)")
+        print("snapshot: graph scan#2 \(format(model.lastScanSeconds))s read=\((model.lastScanStats?.read).map(String.init) ?? "indisponível") reused=\((model.lastScanStats?.reused).map(String.init) ?? "indisponível") settling=\(model.settling)")
 
         model.finishAnimationsForSnapshot()
         await render(shell, frame: layout.panel, notch: layout.notch, to: directory, name: "g1-graph-full")
@@ -67,7 +67,7 @@ extension SnapshotRenderer {
         shell.tab = .memory
         model.search(query)
         model.finishAnimationsForSnapshot()
-        print("snapshot: graph search \"\(query)\" matches=\(model.matches.count) best=\(model.bestMatch.map(model.title(ofScene:)) ?? "nil")")
+        print("snapshot: graph search \"\(query)\" matches=\(model.matches.count) best=\(model.bestMatch.map(model.title(ofScene:)) ?? "indisponível")")
         await render(shell, frame: layout.panel, notch: layout.notch, to: directory, name: "g3-graph-search")
         MemoryTab.snapshotQuery = ""
         model.search("")
@@ -83,7 +83,7 @@ extension SnapshotRenderer {
         _ = await waitForGraph(model, limit: .seconds(30))
         for _ in 0..<150 where model.frame.running { try? await Task.sleep(for: .milliseconds(100)) }
         model.finishAnimationsForSnapshot()
-        print("snapshot: graph local around \(model.selected ?? "nil") nodes=\(model.scene.nodes.count) edges=\(model.scene.edges.count)")
+        print("snapshot: graph local around \(model.selected ?? "indisponível") nodes=\(model.scene.nodes.count) edges=\(model.scene.edges.count)")
         await render(shell, frame: layout.panel, notch: layout.notch, to: directory, name: "g4-graph-local")
         await measurePan(shell, frame: layout.panel, label: "local")
         model.setLocalMode(false, fallback: nil)
