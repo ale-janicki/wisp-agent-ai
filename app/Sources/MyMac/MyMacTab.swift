@@ -7,6 +7,7 @@ struct MyMacTab: View {
     private var gap: CGFloat { Theme.Layout.cardGap }
 
     var body: some View {
+        ScrollView(.vertical) {
         VStack(alignment: .leading, spacing: gap) {
             MachineHeader(machine: model.machine)
             HStack(spacing: gap) {
@@ -14,7 +15,8 @@ struct MyMacTab: View {
                 MemoryTile(snapshot: model.snapshot, history: model.memoryHistory)
                 NetworkTile(snapshot: model.snapshot, down: model.downHistory, up: model.upHistory)
             }
-            .frame(maxHeight: .infinity)
+            .frame(minHeight: 150)
+            .fixedSize(horizontal: false, vertical: true)
             HStack(spacing: gap) {
                 DiskTile(snapshot: model.snapshot)
                 TemperatureTile(snapshot: model.snapshot)
@@ -31,9 +33,12 @@ struct MyMacTab: View {
                     SystemFormat.bytes($0.residentBytes, binary: true)
                 }
             }
-            .frame(maxHeight: .infinity)
+            .fixedSize(horizontal: false, vertical: true)
         }
         .padding(.top, Theme.Space.xs)
+        .padding(.bottom, Theme.Space.m)
+        }
+        .scrollIndicators(.hidden)
         .task { await model.run() }
     }
 }

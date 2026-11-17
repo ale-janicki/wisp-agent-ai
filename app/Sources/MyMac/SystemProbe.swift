@@ -198,7 +198,7 @@ actor SystemProbe {
                 name: values.volumeName ?? url.lastPathComponent,
                 path: url.path,
                 total: UInt64(total),
-                available: values.volumeAvailableCapacityForImportantUsage.map { UInt64(max(0, $0)) } ?? raw,
+                available: values.volumeAvailableCapacityForImportantUsage.flatMap { $0 > 0 ? UInt64($0) : nil } ?? raw,
                 availableRaw: raw,
                 isBoot: values.volumeIsRootFileSystem ?? (url.path == "/")
             )
