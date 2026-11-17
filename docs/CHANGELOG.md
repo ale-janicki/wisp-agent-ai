@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 **:date: ORDER**: Entries are organized in **descending chronological order** (newest first).
 
+## [Unreleased] - 2026-11-17
+
+### Changed
+
+- Telegram: the machine where the last Wisp message was sent reads the bot. Sending from Wisp while the other machine reads first brings the conversation over ("Trazendo a conversa do PC…"), then creates or sends; if the hand-off fails, one sentence explains it and nothing is sent. The Conversa list says when the PC is reading.
+
+### Fixed
+
+- Invalid graph settings now fall back to the defaults and say so in a notice instead of resetting silently.
+
 ## [Unreleased] - 2026-11-16
 
 ### Changed
