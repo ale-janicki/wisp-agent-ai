@@ -61,6 +61,8 @@ final class ConversationViewModel {
     private static let sendingStep = "Enviando ao Telegram…"
     private static let creatingStep = "Criando tópico no Telegram…"
 
+    private static func claimingStep(_ host: String) -> String { "Trazendo a conversa do \(host)…" }
+
     var personaName: String { profile.persona.name }
 
     var isThinking: Bool {
@@ -87,7 +89,7 @@ final class ConversationViewModel {
     var telegramNotice: String? {
         guard linkedThread == nil else { return nil }
         switch telegram.link {
-        case .up, .checking: return nil
+        case .up, .remote, .checking: return nil
         case .notConfigured, .down: return "Telegram desconectado — conversa só no Wisp"
         }
     }
@@ -321,7 +323,14 @@ final class ConversationViewModel {
 
     private func chooseEngine(firstMessage text: String, generation gen: Int) async -> Engine {
         await telegram.ensureFreshStatus()
-        guard gen == generation, telegram.isUp else { return .local }
+        guard gen == generation, telegram.canSend else { return .local }
+        if let failure = await claimReader(thread: nil, generation: gen) {
+            guard gen == generation else { return .failed }
+            failLinked(failure.sentence)
+            engine = nil
+            return .failed
+        }
+        guard gen == generation else { return .failed }
         state.phase = .thinking(step: Self.creatingStep)
         syncPill()
         let cwd = expandTilde(profile.agent.cwd)
@@ -347,6 +356,14 @@ final class ConversationViewModel {
     private func deliverLinked(_ text: String, thread: Int, generation gen: Int) async {
         guard gen == generation else { return }
         awaitingReply = true
+        await telegram.ensureFreshStatus()
+        guard gen == generation else { return }
+        if let failure = await claimReader(thread: thread, generation: gen) {
+            guard gen == generation else { return }
+            failLinked(failure.sentence)
+            return
+        }
+        guard gen == generation else { return }
         if case .thinking(let step) = state.phase, step == nil || step == Self.creatingStep {
             state.phase = .thinking(step: Self.sendingStep)
             syncPill()
@@ -362,6 +379,21 @@ final class ConversationViewModel {
             syncPill()
         }
         armReplyDeadline(generation: gen)
+    }
+
+    private func claimReader(thread: Int?, generation gen: Int) async -> TelegramFailure? {
+        guard telegram.claimNeed != .none else { return nil }
+        let handOff = telegram.claimFrom
+        if let handOff {
+            state.phase = .thinking(step: Self.claimingStep(handOff))
+            syncPill()
+        }
+        let failure = await telegram.claim(thread: thread)
+        if handOff != nil, gen == generation, failure == nil {
+            state.phase = .thinking(step: nil)
+            syncPill()
+        }
+        return failure
     }
 
     private func failLinked(_ sentence: String) {

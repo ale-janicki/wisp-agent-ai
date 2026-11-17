@@ -32,6 +32,32 @@ final class TelegramTopicsTests: XCTestCase {
         XCTAssertEqual(created.cwd, "/Users/test")
     }
 
+    func testParsesTheReadingHostOfEveryTopic() throws {
+        let json = #"""
+        [{"thread": 6018, "name": "projeto-sync", "session_id": "s-6018", "cwd": "/Users/test", "started": true, "turns": 1, "last_used": 1794788722.3, "host": "pc", "session_host": "pc"},
+         {"thread": 826, "name": "Alertas", "session_id": "s-826", "cwd": "/Users/test", "started": true, "turns": 2, "last_used": 1791983990.9, "host": null, "session_host": "mac"}]
+        """#
+        let topics = try TelegramTopics.parseTopics(Data(json.utf8))
+        XCTAssertEqual(topics.map(\.thread), [6018, 826])
+        XCTAssertEqual(topics[0].host, "pc")
+        XCTAssertNil(topics[1].host)
+        XCTAssertEqual(topics[1].turns, 2)
+    }
+
+    func testStatusSaysWhoReadsTelegram() throws {
+        func reading(_ json: String) throws -> TelegramReading {
+            try TelegramTopics.parseStatus(Data(json.utf8)).reading
+        }
+        XCTAssertEqual(try reading(#"{"up": true, "host": "mac", "state": "active", "age_s": 1, "reader": "mac"}"#), .here)
+        XCTAssertEqual(try reading(#"{"up": false, "host": "mac", "state": "standby", "age_s": 3, "reader": "pc"}"#), .elsewhere("pc"))
+        XCTAssertEqual(try reading(#"{"up": false, "host": "mac", "state": "standby", "age_s": 3, "reader": null}"#), .nobody)
+        XCTAssertEqual(try reading(#"{"up": false, "host": "mac", "state": "standby", "age_s": 3, "reader": "mac"}"#), .nobody)
+        XCTAssertEqual(try reading(#"{"up": true, "host": "mac", "state": "active", "age_s": 1}"#), .here)
+        XCTAssertEqual(try reading(#"{"up": false, "host": "mac", "state": null, "age_s": null}"#), .nobody)
+        XCTAssertEqual(TelegramTopics.hostName("pc"), "PC")
+        XCTAssertEqual(TelegramTopics.hostName("mac"), "Mac")
+    }
+
     func testTopicNameIsTheFirstMessageOnOneLineCutAt40() {
         XCTAssertEqual(TelegramTopics.topicName(from: "  responda só:\n ok  "), "responda só: ok")
         let long = TelegramTopics.topicName(from: String(repeating: "abcde ", count: 20))
@@ -58,6 +84,46 @@ final class TelegramTopicsTests: XCTestCase {
         let unread = TelegramTopics.sections(records: [linked, local], topics: nil)
         XCTAssertEqual(unread.wisp.map(\.id), [linked.id, local.id])
         XCTAssertTrue(unread.telegram.isEmpty)
+    }
+
+    func testParsesTheClaimAndItsFailureSentence() throws {
+        XCTAssertEqual(
+            try TelegramTopics.parseClaim(Data(#"{"ok": true, "reader": "mac", "waited_s": 7.4, "session": "trazida"}"#.utf8)),
+            TelegramClaim(ok: true, reader: "mac", waitedSeconds: 7.4)
+        )
+        XCTAssertFalse(try TelegramTopics.parseClaim(Data(#"{"ok": false}"#.utf8)).ok)
+        XCTAssertThrowsError(try TelegramTopics.parseClaim(Data("mac le o Telegram".utf8)))
+        XCTAssertEqual(
+            TelegramTopics.claimFailure("Wisp-topico: nao consegui falar com o PC (ssh); a mensagem nao foi enviada"),
+            "nao consegui falar com o PC (ssh); a mensagem nao foi enviada"
+        )
+        XCTAssertEqual(TelegramTopics.claimFailure("o comando passou de 75 s"), "o comando passou de 75 s")
+    }
+
+    func testClaimNeedFollowsTheReaderAndTheLastClaim() throws {
+        func need(_ json: String) throws -> TelegramClaimNeed {
+            try TelegramTopics.parseStatus(Data(json.utf8)).claimNeed
+        }
+        XCTAssertEqual(try need(#"{"up": false, "host": "mac", "reader": "pc", "claim": "pc"}"#), .handOff("pc"))
+        XCTAssertEqual(try need(#"{"up": true, "host": "mac", "reader": "mac", "claim": "mac"}"#), .none)
+        XCTAssertEqual(try need(#"{"up": true, "host": "mac", "reader": "mac", "claim": "pc"}"#), .refresh)
+        XCTAssertEqual(try need(#"{"up": true, "host": "mac", "reader": "mac", "claim": "none"}"#), .refresh)
+        XCTAssertEqual(try need(#"{"up": true, "host": "mac", "reader": "mac", "claim": null}"#), .refresh)
+        XCTAssertEqual(try need(#"{"up": true, "host": "mac", "reader": "mac"}"#), .refresh)
+        XCTAssertEqual(try need(#"{"up": false, "host": "mac", "reader": null, "claim": "pc"}"#), .none)
+        XCTAssertEqual(try need(#"{"up": true, "reader": "mac", "claim": "pc"}"#), .none)
+    }
+
+    func testClaimIsOptionalInTheBlock() throws {
+        let json = #"{"status": "s", "list": "l", "create": "c", "send": "m", "close": "x"}"#
+        let block = try JSONDecoder().decode(TelegramBlock.self, from: Data(json.utf8))
+        XCTAssertTrue(block.isComplete)
+        XCTAssertNil(block.claim)
+        let withClaim = try JSONDecoder().decode(
+            TelegramBlock.self,
+            from: Data(#"{"status": "s", "list": "l", "create": "c", "send": "m", "close": "x", "claim": "a {thread}"}"#.utf8)
+        )
+        XCTAssertEqual(withClaim.claim, "a {thread}")
     }
 
     func testBlockIsCompleteOnlyWithEveryCommand() {

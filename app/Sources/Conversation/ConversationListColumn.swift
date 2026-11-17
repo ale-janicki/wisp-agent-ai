@@ -95,7 +95,7 @@ private struct TelegramSection: View {
         switch telegram.link {
         case .notConfigured: nil
         case .checking: Theme.textTertiary
-        case .up: Theme.ok
+        case .up, .remote: Theme.ok
         case .down: Theme.error
         }
     }
@@ -105,7 +105,11 @@ private struct TelegramSection: View {
             if telegram.link == .notConfigured {
                 connectRow
             } else {
-                if case .down(let reason) = telegram.link { note("Bot fora: \(reason)") }
+                switch telegram.link {
+                case .down(let reason): note("Bot fora: \(reason)")
+                case .remote(let host): note("Telegram lido pelo \(host)")
+                case .notConfigured, .checking, .up: EmptyView()
+                }
                 switch telegram.topics {
                 case .loading:
                     ForEach(0..<3, id: \.self) { _ in
