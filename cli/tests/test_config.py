@@ -24,3 +24,10 @@ def test_unknown_keys_ignored(fake_home):
     cfg = load_config()
     assert cfg.user_name == "A"
     assert cfg.telegram == TelegramConfig(chat_id=1, user_id=2, token_file="t")
+
+
+def test_persona_lives_only_at_top_level(fake_home):
+    # the bot reads only the top-level persona: a telegram copy would always say the default
+    save_config(WispConfig(persona="Luna", telegram=TelegramConfig(chat_id=1, user_id=2, token_file="t")))
+    raw = json.loads((fake_home / ".config/wisp/wisp.json").read_text())
+    assert raw["persona"] == "Luna" and "persona" not in raw["telegram"]
