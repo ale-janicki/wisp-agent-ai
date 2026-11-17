@@ -9,7 +9,7 @@ from wisp.jobs import JobState, NotSupportedHere, manager_for
 from wisp.paths import WispPaths
 from wisp.runner import Runner
 
-BOT_LABEL = "com.owner.wisp.bot"
+BOT_LABEL = "ai.wisp.bot"
 MIN_MACOS = 15
 
 
