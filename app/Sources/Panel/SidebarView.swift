@@ -22,7 +22,7 @@ struct SidebarView: View {
                     }
                 }
             }
-            .scrollIndicators(.automatic)
+            .scrollIndicators(.hidden)
 
             navRow(.settings)
                 .padding(.top, Theme.Space.s)
@@ -33,6 +33,7 @@ struct SidebarView: View {
             Button("") {
                 model.newConversation()
                 controller.tab = .conversation
+                showConversations()
             }
             .keyboardShortcut("n", modifiers: .command)
             .opacity(0)
@@ -62,8 +63,9 @@ struct SidebarView: View {
 
     private func navRow(_ tab: PanelTab) -> some View {
         let selected = controller.tab == tab
+        let listHint = tab == .conversation && selected
         return Button {
-            controller.tab = tab
+            if listHint { showConversations() } else { controller.tab = tab }
         } label: {
             HStack(spacing: 10) {
                 Image(systemName: tab.icon)
@@ -74,7 +76,12 @@ struct SidebarView: View {
                     .font(Theme.Font.bodyMedium)
                     .foregroundStyle(selected ? Theme.accentText : Theme.textSecondary)
                 Spacer(minLength: Theme.Space.xs)
-                if let count = badge(for: tab), !(tab == .conversation && selected) {
+                if listHint {
+                    Image(systemName: "list.bullet")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(Theme.accent)
+                }
+                if let count = badge(for: tab), !listHint {
                     Text("\(count)")
                         .font(Theme.Font.captionMono)
                         .foregroundStyle(Theme.textSecondary)
@@ -85,18 +92,6 @@ struct SidebarView: View {
             }
         }
         .buttonStyle(RowButtonStyle(highlight: selected ? .accent : .none))
-        .overlay(alignment: .trailing) {
-            if tab == .conversation && selected {
-                Button(action: showConversations) {
-                    Image(systemName: "list.bullet")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(Theme.accent)
-                        .frame(width: 26, height: 22)
-                }
-                .buttonStyle(.plain)
-                .padding(.trailing, Theme.Space.xs)
-                .help("Mostrar conversas")
-            }
-        }
+        .help(listHint ? "Mostrar conversas" : "")
     }
 }
