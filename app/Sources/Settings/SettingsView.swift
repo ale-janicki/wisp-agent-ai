@@ -80,11 +80,14 @@ struct SettingsView: View {
         HStack(spacing: Theme.Space.m) {
             VStack(alignment: .leading, spacing: 2) {
                 sectionTitle("Início")
-                Text("Arraste os cartões do Início para reordenar.")
+                Text("Arraste os cartões do Início e os tópicos da Conversa para reordenar.")
                     .font(Theme.Font.caption)
                     .foregroundStyle(Theme.textSecondary)
             }
             Spacer()
+            Button("Restaurar ordem dos tópicos") { settings.restoreTelegramOrder() }
+                .buttonStyle(CapsuleButtonStyle(kind: .ghost))
+                .disabled(settings.settings.telegramOrder.isEmpty)
             Button("Restaurar ordem do Início") { settings.restoreDashboardOrder() }
                 .buttonStyle(CapsuleButtonStyle(kind: .ghost))
                 .disabled(settings.settings.dashboardOrder == DashboardTileID.defaultOrder)

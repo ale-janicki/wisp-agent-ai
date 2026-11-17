@@ -53,11 +53,13 @@ final class AppSettings {
     func restoreDefaults() {
         update { settings in
             let order = settings.dashboardOrder
+            let topicOrder = settings.telegramOrder
             let capture = settings.clipboardCapture
             let spotify = settings.spotifyClientID
             let graph = settings.graph
             settings = .default
             settings.dashboardOrder = order
+            settings.telegramOrder = topicOrder
             settings.clipboardCapture = capture
             settings.spotifyClientID = spotify
             settings.graph = graph
@@ -70,6 +72,14 @@ final class AppSettings {
 
     func restoreDashboardOrder() {
         update { $0.dashboardOrder = DashboardTileID.defaultOrder }
+    }
+
+    func setTelegramOrder(_ order: [Int]) {
+        update { $0.telegramOrder = order }
+    }
+
+    func restoreTelegramOrder() {
+        update { $0.telegramOrder = [] }
     }
 
     func setClipboardCapture(_ on: Bool) {

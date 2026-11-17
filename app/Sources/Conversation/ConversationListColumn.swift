@@ -88,6 +88,17 @@ private struct TelegramSection: View {
     var model: ConversationViewModel
     let entries: [TelegramEntry]
     @State private var explaining = false
+    @State private var dragged: Int?
+    @State private var liftedTop: CGFloat = 0
+    @State private var grabOffset: CGFloat = 0
+    @State private var target: Int?
+    @State private var lastDragEnd: Date = .distantPast
+
+    private static let dragThreshold: CGFloat = 6
+    private static let reflow = Animation.spring(response: 0.3, dampingFraction: 0.82)
+    private static let space = "telegram-rows"
+    private static let pitch = TopicRow.height + 2
+    private static let clickGuard: TimeInterval = 0.25
 
     private var telegram: TelegramModel { model.telegram }
 
@@ -119,19 +130,95 @@ private struct TelegramSection: View {
                     note(reason)
                 case .loaded:
                     if entries.isEmpty { note("Nenhum tópico aberto") }
-                    ForEach(entries) { entry in
-                        TopicRow(
-                            entry: entry,
-                            selected: model.linkedThread == entry.topic.thread,
-                            closing: telegram.closing.contains(entry.topic.thread),
-                            open: { model.open(entry) },
-                            close: { model.close(entry) }
-                        )
-                    }
+                    topicRows
                 }
                 if let error = telegram.actionError { note(error) }
             }
         }
+    }
+
+    private var dragging: Bool { dragged != nil || Date().timeIntervalSince(lastDragEnd) < Self.clickGuard }
+
+    private var preview: [Int] {
+        var ids = entries.map(\.id)
+        guard let dragged, let target, let from = ids.firstIndex(of: dragged) else { return ids }
+        ids.move(fromOffsets: IndexSet(integer: from), toOffset: target > from ? target + 1 : target)
+        return ids
+    }
+
+    private var topicRows: some View {
+        let ids = entries.map(\.id)
+        let shown = preview
+        return ZStack(alignment: .topLeading) {
+            if dragged != nil, let target {
+                RoundedRectangle(cornerRadius: Theme.Radius.nav, style: .continuous)
+                    .strokeBorder(Theme.accent, lineWidth: 1.5)
+                    .background(Theme.accent.opacity(0.06), in: RoundedRectangle(cornerRadius: Theme.Radius.nav, style: .continuous))
+                    .frame(height: TopicRow.height)
+                    .offset(y: CGFloat(target) * Self.pitch)
+                    .allowsHitTesting(false)
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                ForEach(Array(entries.enumerated()), id: \.element.id) { index, entry in
+                    let lifted = entry.id == dragged
+                    let slot = CGFloat(shown.firstIndex(of: entry.id) ?? index)
+                    let offset = lifted ? liftedTop - CGFloat(index) * Self.pitch : (slot - CGFloat(index)) * Self.pitch
+                    TopicRow(
+                        entry: entry,
+                        selected: model.linkedThread == entry.topic.thread,
+                        closing: telegram.closing.contains(entry.topic.thread),
+                        open: {
+                            guard !dragging else { return }
+                            model.open(entry)
+                        },
+                        close: { model.close(entry) },
+                        blocked: { dragging }
+                    )
+                    .scaleEffect(lifted ? 1.02 : 1)
+                    .shadow(color: Theme.notch.opacity(lifted ? 0.45 : 0), radius: lifted ? 14 : 0, y: lifted ? 6 : 0)
+                    .offset(y: offset)
+                    .zIndex(lifted ? 1 : 0)
+                    .pointerStyle(lifted ? .grabActive : .grabIdle)
+                    .animation(lifted ? nil : Self.reflow, value: offset)
+                    .simultaneousGesture(reorder(entry.id, ids: ids))
+                }
+            }
+        }
+        .coordinateSpace(.named(Self.space))
+        .onChange(of: ids) { _, now in
+            if let dragged, !now.contains(dragged) {
+                self.dragged = nil
+                target = nil
+            }
+        }
+    }
+
+    private func reorder(_ id: Int, ids: [Int]) -> some Gesture {
+        DragGesture(minimumDistance: Self.dragThreshold, coordinateSpace: .named(Self.space))
+            .onChanged { value in
+                if dragged == nil, let index = ids.firstIndex(of: id) {
+                    grabOffset = value.startLocation.y - CGFloat(index) * Self.pitch
+                    dragged = id
+                    target = index
+                }
+                guard dragged == id else { return }
+                liftedTop = value.location.y - grabOffset
+                let slot = min(max(Int(((liftedTop + TopicRow.height / 2) / Self.pitch).rounded(.down)), 0), ids.count - 1)
+                if slot != target { withAnimation(Self.reflow) { target = slot } }
+            }
+            .onEnded { _ in
+                guard dragged == id else { return }
+                let final = preview
+                lastDragEnd = Date()
+                withAnimation(Self.reflow) {
+                    if final != ids {
+                        let saved = AppSettings.shared.settings.telegramOrder
+                        AppSettings.shared.setTelegramOrder(final + saved.filter { !final.contains($0) })
+                    }
+                    dragged = nil
+                    target = nil
+                }
+            }
     }
 
     private var connectRow: some View {
@@ -168,10 +255,11 @@ private struct TopicRow: View {
     let closing: Bool
     let open: () -> Void
     let close: () -> Void
+    let blocked: () -> Bool
     @State private var hovering = false
     @State private var confirming = false
 
-    private static let height: CGFloat = 44
+    fileprivate static let height: CGFloat = 44
 
     var body: some View {
         if confirming {
@@ -205,17 +293,21 @@ private struct TopicRow: View {
                         .foregroundStyle(Theme.textTertiary)
                         .lineLimit(1)
                 }
-                .padding(.trailing, hovering || closing ? 24 : 0)
+                .padding(.trailing, (hovering && !entry.topic.fixed) || closing ? 24 : 0)
             }
             .buttonStyle(RowButtonStyle(highlight: selected ? .subtle : .none, height: Self.height, hovered: hovering))
             .overlay(alignment: .trailing) {
                 if closing {
                     ProgressView().controlSize(.small).padding(.trailing, 10)
-                } else if hovering {
-                    Button { confirming = true } label: {
+                } else if hovering && !entry.topic.fixed {
+                    Button {
+                        guard !blocked() else { return }
+                        confirming = true
+                    } label: {
                         Image(systemName: "trash")
                     }
                     .buttonStyle(CircleButtonStyle(size: 24))
+                    .pointerStyle(.default)
                     .padding(.trailing, 6)
                     .help("Encerrar o tópico no Telegram")
                 }

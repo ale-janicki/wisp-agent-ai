@@ -95,7 +95,7 @@ final class ConversationViewModel {
     }
 
     var sections: ConversationSections {
-        TelegramTopics.sections(records: records, topics: telegram.loadedTopics)
+        TelegramTopics.sections(records: records, topics: telegram.loadedTopics, order: AppSettings.shared.settings.telegramOrder)
     }
 
     // MARK: Onboarding
