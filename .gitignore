@@ -4,3 +4,7 @@ DerivedData/
 .DS_Store
 .superpowers/
 app/Sources/Info.plist
+.venv/
+__pycache__/
+.pytest_cache/
+app/Resources/runtime/

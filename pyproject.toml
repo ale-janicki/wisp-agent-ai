@@ -1,0 +1,18 @@
+[project]
+name = "wisp-workspace"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = ["wisp", "wisp-bot"]
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+[tool.uv.sources]
+wisp = { workspace = true }
+wisp-bot = { workspace = true }
+
+[tool.uv.workspace]
+members = ["cli", "bot"]
+
+[tool.pytest.ini_options]
+testpaths = ["cli/tests", "bot/tests"]
