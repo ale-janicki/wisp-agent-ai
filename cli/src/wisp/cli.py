@@ -16,6 +16,7 @@ from wisp.runner import SubprocessRunner
 from wisp.setup.brain import setup_brain
 from wisp.setup.harness import setup_harness
 from wisp.setup.system import setup_system
+from wisp.topic import add_parser as add_topic_parser, run as run_topic
 
 
 def emit(report: StepReport) -> int:
@@ -102,7 +103,7 @@ def build_parser() -> argparse.ArgumentParser:
     system.add_argument("--with-homebrew", action="store_true")
     system.add_argument("--dry-run", action="store_true")
     system.add_argument("--json", action="store_true")
-    sub.add_parser("topic")
+    add_topic_parser(sub)
     hook = sub.add_parser("hook")
     hook.add_argument("which", choices=["boot", "brain-commit"])
     return parser
@@ -120,5 +121,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _setup_system(args)
     if args.command == "hook":
         return _hook(args)
+    if args.command == "topic":
+        return run_topic(args)
     print(f"wisp {args.command}: not implemented yet", file=sys.stderr)
     return 1
