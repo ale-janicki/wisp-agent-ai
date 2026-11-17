@@ -111,6 +111,15 @@ public struct ClipboardHistory: Codable, Equatable, Sendable {
         return removed
     }
 
+    @discardableResult
+    public mutating func expire(now: Date, maxAge: TimeInterval = 24 * 3600) -> [ClipItem] {
+        let cutoff = now.addingTimeInterval(-maxAge)
+        let removed = items.filter { !$0.pinned && $0.copiedAt < cutoff }
+        guard !removed.isEmpty else { return [] }
+        items.removeAll { !$0.pinned && $0.copiedAt < cutoff }
+        return removed
+    }
+
     public func visible(matching query: String) -> [ClipItem] {
         let needle = query.trimmingCharacters(in: .whitespacesAndNewlines)
         let matched = needle.isEmpty ? items : items.filter { item in

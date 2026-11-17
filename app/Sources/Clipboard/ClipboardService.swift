@@ -15,10 +15,12 @@ final class ClipboardService: ObservableObject {
     private let writeQueue = DispatchQueue(label: "com.owner.wisp.clipboard.write", qos: .utility)
     private var lastChangeCount: Int
     private var poll: Timer?
+    private var expiry: Timer?
     private var persists = true
     private let log = Logger(subsystem: "com.owner.wisp", category: "clipboard")
 
     private static let interval: TimeInterval = 0.5
+    private static let expiryInterval: TimeInterval = 600
     private static let maxImageBytes = 25_000_000
     private static let thumbnailPixels = 160
 
@@ -27,6 +29,7 @@ final class ClipboardService: ObservableObject {
         history = store.load()
         notice = store.lastRecoveryNote
         lastChangeCount = NSPasteboard.general.changeCount
+        expireOld()
     }
 
     var captureEnabled: Bool { AppSettings.shared.settings.clipboardCapture }
@@ -40,6 +43,13 @@ final class ClipboardService: ObservableObject {
         timer.tolerance = 0.1
         RunLoop.main.add(timer, forMode: .common)
         poll = timer
+
+        let sweep = Timer(timeInterval: Self.expiryInterval, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.expireOld() }
+        }
+        sweep.tolerance = 30
+        RunLoop.main.add(sweep, forMode: .common)
+        expiry = sweep
     }
 
     func setCapture(_ on: Bool) {
@@ -147,6 +157,14 @@ final class ClipboardService: ObservableObject {
 
     private func add(_ item: ClipItem) {
         deleteFiles(history.insert(item))
+        deleteFiles(history.expire(now: Date()))
+        save()
+    }
+
+    private func expireOld() {
+        let expired = history.expire(now: Date())
+        guard !expired.isEmpty else { return }
+        deleteFiles(expired)
         save()
     }
 
