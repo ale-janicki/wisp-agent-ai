@@ -8,3 +8,4 @@ app/Sources/Info.plist
 __pycache__/
 .pytest_cache/
 app/Resources/runtime/
+scripts/leak-patterns.local.txt
