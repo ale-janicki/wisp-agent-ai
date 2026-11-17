@@ -33,6 +33,7 @@ ALLOWED_USER_ID = _CFG.user_id
 ALLOWED_CHAT_IDS = set(_CFG.chat_ids)
 DEFAULT_CWD = str(_CFG.brain)
 PERSONA = _CFG.persona
+_QUEM = f"o {_CFG.user_name}" if _CFG.user_name else "o usuario"
 TG_LIMIT = 4000          # o teto real e 4096; a folga cobre a tag de fechamento
 # Opus no Geral e nos topicos (decisao de 28/09): e ele que segura a linha
 # de raciocinio e julga operator/reviewer.
@@ -844,6 +845,10 @@ async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
 
 ANEXOS_DIR = hosting.DIR / "anexos"
 ANEXO_JANELA = 3.0          # s: arquivos enviados juntos chegam como mensagens separadas
+ANEXO_SEM_TEXTO = "(sem texto — veja o que é e me diga)"
+ANEXO_FOTO = (".jpg", ".jpeg", ".png", ".webp")    # o resto (heic, gif, pdf...) vai como documento
+ANEXOS_MAX = 10
+ANEXO_MAX_BYTES = 50 * 1024 * 1024    # limite de upload da Bot API
 _anexos_pendentes: dict[str, dict] = {}
 
 
@@ -913,11 +918,50 @@ async def _despachar_anexos(key: str, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     p = _anexos_pendentes.pop(key, None)
     if not p:
         return
-    n = len(p["itens"])
-    texto = "\n".join(p["legenda"]) or "(sem texto — veja o que é e me diga)"
-    msg = (f"[o usuario enviou {n} arquivo(s) pelo Telegram, ja salvos nesta maquina:\n"
-           + "\n".join(p["itens"]) + "]\n\n" + texto)
+    msg = bloco_anexos("Telegram", p["itens"], "\n".join(p["legenda"]))
     await processa(p["update"], ctx, msg, p["contexto"])
+
+
+def bloco_anexos(origem: str, itens: list[str], texto: str) -> str:
+    """O prompt de um envio com arquivos: o mesmo texto que o Wisp monta (WispCore MessageAttachments)."""
+    return (f"[{_QUEM} enviou {len(itens)} arquivo(s) pelo {origem}, ja salvos nesta maquina:\n"
+            + "\n".join(itens) + "]\n\n" + (texto or ANEXO_SEM_TEXTO))
+
+
+def anexos_validos(brutos) -> list[tuple[Path, int]]:
+    """Caminhos do `falar` com anexos: so arquivo regular dentro de ANEXOS_DIR, para a fila de controle
+    nunca mandar ao Telegram um arquivo qualquer da maquina. Devolve (caminho REAL, bytes): quem posta abre
+    o real, sem resolver de novo depois de um await. Tudo e checado antes de postar qualquer coisa."""
+    if not brutos:
+        return []
+    if not isinstance(brutos, list) or len(brutos) > ANEXOS_MAX:
+        raise ValueError(f"anexos precisa ser uma lista de ate {ANEXOS_MAX} caminhos")
+    raiz = ANEXOS_DIR.resolve()
+    out = []
+    for bruto in brutos:
+        p = Path(str(bruto))
+        real = p.resolve() if p.is_absolute() else None
+        if real is None or not real.is_relative_to(raiz) or not real.is_file():
+            raise ValueError(f"anexo recusado: {p.name or bruto!r} nao e um arquivo da pasta de anexos do bot")
+        tamanho = real.stat().st_size
+        if tamanho > ANEXO_MAX_BYTES:
+            raise ValueError(f"anexo recusado: {real.name} passa de {ANEXO_MAX_BYTES // (1024 * 1024)} MB")
+        out.append((real, tamanho))
+    return out
+
+
+async def _postar_anexo(bot, chat_id: int, tid: int | None, p: Path) -> None:
+    """Foto vai como foto; o resto, ou a foto que o Telegram recusa (dimensao, > 10 MB), como documento.
+    `p` ja e o caminho real validado por anexos_validos."""
+    with p.open("rb") as f:
+        if p.suffix.lower() in ANEXO_FOTO:
+            try:
+                await bot.send_photo(chat_id, f, message_thread_id=tid, **_TIMEOUTS)
+                return
+            except BadRequest as e:
+                log.warning("anexo %s recusado como foto (%s); indo como documento", p.name, e)
+                f.seek(0)
+        await bot.send_document(chat_id, f, filename=p.name, message_thread_id=tid, **_TIMEOUTS)
 
 
 async def _recebido(m) -> None:
@@ -1621,13 +1665,21 @@ async def ctl_executar(app, op: dict, origem: str) -> None:
             if not key:
                 raise ValueError(f"topico {op.get('thread')} desconhecido")
             texto = str(op.get("texto") or "").strip()
-            if not texto:
+            anexos = anexos_validos(op.get("anexos"))
+            if not texto and not anexos:
                 raise ValueError("texto vazio")
             # Geral e thread 0 na chave, mas o Telegram o posta SEM message_thread_id (como o on_message: None)
             chat, tid = SimpleNamespace(id=int(key.rsplit(":", 1)[0])), _thread_de(key) or None
             origem_msg = html.escape(str(op.get("origem") or "terminal")[:80])
-            await send(app.bot, chat, tid, f"<i>mensagem de outro tópico: {origem_msg}</i>\n"
-                                           f"<pre>{html.escape(texto[:3000])}</pre>")
+            await send(app.bot, chat, tid, f"<i>mensagem de outro tópico: {origem_msg}</i>"
+                                           + (f"\n<pre>{html.escape(texto[:3000])}</pre>" if texto else ""))
+            for p, _ in anexos:
+                try:
+                    await _postar_anexo(app.bot, chat.id, tid, p)
+                except Exception as e:                 # o agente ainda le o arquivo do disco: o turno segue
+                    log.warning("anexo %s nao foi ao topico: %s", p.name, e)
+            if anexos:                                 # o mesmo bloco de uma foto do celular, vindo do Wisp
+                texto = bloco_anexos("Wisp", [f"- {p} ({p.name}, {n} bytes)" for p, n in anexos], texto)
             # solto, como no abrir_topico: o turno() ja enfileira pelo lock do topico
             _disparar(turno(app.bot, chat, tid, key, texto))
             res = {"ok": True, "thread_id": tid or 0}

@@ -4,7 +4,7 @@
                               Geral and the system topics included with fixed: true
   status --json               {up, host, state, age_s, reader, claim}
   novo [--cwd D] -- <nome>    empty topic; prints {thread, session_id, cwd, name}
-  falar [--origem N] -- <thread> <texto>
+  falar [--origem N] [--anexo F]... -- <thread> <texto>
                               posts the text in an existing topic and its agent answers
   encerrar <thread>           closes the topic
   assumir [--thread N] [--json] [--timeout S]
@@ -621,7 +621,8 @@ def cmd_encerrar(a) -> int:
 def cmd_falar(a) -> int:
     """Geral is thread 0: the bot posts it without a message_thread_id, so the thread goes through as given."""
     try:
-        d = esperar("falar", FALAR_S, thread=str(a.thread), texto=a.texto, origem=a.origem)
+        extra = {"anexos": [str(Path(f).absolute()) for f in a.anexo]} if a.anexo else {}
+        d = esperar("falar", FALAR_S, thread=str(a.thread), texto=a.texto, origem=a.origem, **extra)
     except RuntimeError as e:
         return erro(str(e))
     print(f"enviado ao tópico {d.get('thread_id')}; o turno roda no Telegram")
@@ -643,6 +644,7 @@ def add_parser(sub) -> argparse.ArgumentParser:
     p.set_defaults(f=cmd_novo)
     p = cmds.add_parser("falar", parents=[pai])
     p.add_argument("--origem", default="terminal")
+    p.add_argument("--anexo", action="append", default=[], help="file to send with the message (repeatable)")
     p.add_argument("thread")
     p.add_argument("texto")
     p.set_defaults(f=cmd_falar)

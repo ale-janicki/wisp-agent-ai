@@ -38,6 +38,7 @@ class BotConfig:
     alert_cmd: list[str] | None
     pair: dict | None
     system_topics: dict[int, str] = field(default_factory=dict)
+    user_name: str = ""
 
 
 def config_path(env: Mapping[str, str] = os.environ) -> Path:
@@ -132,7 +133,8 @@ def _build(raw: dict, env: Mapping[str, str], strict: bool) -> BotConfig:
         claude_bin=raw.get("claude_bin") or None,
         persona=str(raw.get("persona") or DEFAULT_PERSONA),
         hosting=hosting, brain_sync_cmd=_command(tg.get("brain_sync_cmd"), "brain_sync_cmd", env),
-        alert_cmd=_command(tg.get("alert_cmd"), "alert_cmd", env), pair=pair, system_topics=system_topics)
+        alert_cmd=_command(tg.get("alert_cmd"), "alert_cmd", env), pair=pair, system_topics=system_topics,
+        user_name=str(raw.get("user_name") or "").strip())
 
 
 def _token(tg: dict, env: Mapping[str, str]) -> str:
