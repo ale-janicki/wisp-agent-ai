@@ -15,7 +15,6 @@ class TelegramConfig:
     topics_rel: str = "wisp/topicos"
     state_dir: str = "~/.local/state/wisp/bot"
     hosting: str = "solo"
-    persona: str = "Wisp"
     brain_sync_cmd: str | None = None
     alert_cmd: str | None = None
     pair: dict | None = None

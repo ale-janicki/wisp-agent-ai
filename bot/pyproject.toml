@@ -2,7 +2,10 @@
 name = "wisp-bot"
 version = "0.1.0"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = ["python-telegram-bot>=21.0,<23"]
+
+[project.scripts]
+wisp-bot = "wisp_bot.bot:main"
 
 [build-system]
 requires = ["hatchling"]

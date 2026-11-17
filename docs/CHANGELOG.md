@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Generic `harness/` content (CLAUDE.md block, reader/operator/reviewer roles, `brain-boot` and `save-to-brain` skills, `/diagnose`, settings fragment) and `wisp hook boot|brain-commit`: the boot hook prints the date and the pendências, the Stop hook commits brain changes locally, holds back files that look like secrets and never pushes.
 - `wisp setup harness [--dry-run] --json`: installs the generic harness into `~/.claude` with a backup first (`~/.local/state/wisp/backups`), merges `CLAUDE.md` (one marked block) and `settings.json` (user values and order kept, ours appended), keeps any file the user edited and reports it as a conflict, refuses a symlinked harness, and leaves a second run byte-identical.
 - `wisp setup system [--with-homebrew] [--dry-run] --json`: checks the Command Line Tools (opens Apple's installer), installs Claude Code with its official installer and saves its path; with `--with-homebrew` downloads Homebrew's signed `.pkg`, checks its signature and opens it.
+- `wisp-bot`: the Telegram bot as a package of its own, configured per user from `wisp.json` (token from its 0600 file, user, group, brain, topic folder, state folder, persona); `solo` hosting reads Telegram on one machine with no ssh, `pair` keeps the Mac and PC hand-off; brain sync and alerts run only when their command is configured.
 
 ### Changed
 
