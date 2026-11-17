@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Os-neutral jobs interface (`JobManager`) with a launchd implementation; Linux and Windows raise a clear "not supported yet".
 - `wisp setup brain [--path] [--dry-run] --json`: creates the brain from `vault-template/` as a local git folder (default `~/Wisp/brain`), keeps files that already exist, commits without a global git identity, warns for macOS-protected folders and asks for the Command Line Tools first.
 - Secrets scan and `scripts/leak-check.sh`: gitleaks, the shared secret patterns and a generic identifier list; a git-ignored local list adds personal patterns.
+- Generic `harness/` content (CLAUDE.md block, reader/operator/reviewer roles, `brain-boot` and `save-to-brain` skills, `/diagnose`, settings fragment) and `wisp hook boot|brain-commit`: the boot hook prints the date and the pendências, the Stop hook commits brain changes locally, holds back files that look like secrets and never pushes.
 
 ### Changed
 

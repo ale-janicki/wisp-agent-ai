@@ -1,0 +1,47 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls:*)",
+      "Bash(cat:*)",
+      "Bash(grep:*)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(date)",
+      "Bash(~/.local/bin/wisp topic:*)",
+      "WebSearch"
+    ],
+    "deny": [
+      "Bash(rm -rf /*)",
+      "Bash(rm -rf ~*)",
+      "Bash(git push --force*)",
+      "Bash(git push -f*)",
+      "Bash(sudo *)",
+      "Read(~/.config/wisp/secrets/**)",
+      "Bash(cat *wisp/secrets*)",
+      "Bash(grep *wisp/secrets*)"
+    ]
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$HOME\"/.local/bin/wisp hook boot"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$HOME\"/.local/bin/wisp hook brain-commit"
+          }
+        ]
+      }
+    ]
+  }
+}
