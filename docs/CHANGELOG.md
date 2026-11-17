@@ -14,9 +14,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Python core `wisp` as a uv workspace (`cli/` + `bot/`): per-OS paths, config, runner, step report and file ops, with `wisp --version`.
 - `wisp doctor --json`: reports system, Claude Code and login, brain, harness, Telegram and profile as one JSON object, never exposing the login email.
 - Os-neutral jobs interface (`JobManager`) with a launchd implementation; Linux and Windows raise a clear "not supported yet".
+- `wisp setup brain [--path] [--dry-run] --json`: creates the brain from `vault-template/` as a local git folder (default `~/Wisp/brain`), keeps files that already exist, commits without a global git identity, warns for macOS-protected folders and asks for the Command Line Tools first.
+- Secrets scan and `scripts/leak-check.sh`: gitleaks, the shared secret patterns and a generic identifier list; a git-ignored local list adds personal patterns.
 
 ### Changed
 
+- `wisp doctor --json` prints one JSON object with a `warning` and default settings when `wisp.json` is unreadable; the bot's launchd label is `ai.wisp.bot`.
 - Telegram: the machine where the last Wisp message was sent reads the bot. Sending from Wisp while the other machine reads first brings the conversation over ("Trazendo a conversa do PC…"), then creates or sends; if the hand-off fails, one sentence explains it and nothing is sent. The Conversa list says when the PC is reading.
 
 ### Fixed

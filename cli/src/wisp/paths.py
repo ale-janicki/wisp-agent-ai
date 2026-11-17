@@ -29,3 +29,8 @@ class WispPaths:
     @staticmethod
     def current() -> "WispPaths":
         return WispPaths.for_os(platform.system(), Path.home(), os.environ)
+
+
+def resources_root() -> Path:
+    env = os.environ.get("WISP_RESOURCES")
+    return Path(env) if env else Path(__file__).resolve().parents[3]

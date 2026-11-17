@@ -74,3 +74,40 @@ def test_profile_symlink_reported_external(fake_home):
 def test_only_filter(fake_home):
     checks = run_doctor(_runner(), _paths(fake_home), WispConfig(), only={"clt", "profile"})
     assert [c.id for c in checks] == ["clt", "profile"]
+
+
+def _telegram_cfg():
+    from wisp.config import TelegramConfig
+
+    return WispConfig(telegram=TelegramConfig(chat_id=1, user_id=2, token_file="t"))
+
+
+def _telegram_check(fake_home, monkeypatch, print_exit, print_out):
+    monkeypatch.setattr("wisp.doctor.platform.system", lambda: "Darwin")
+    runner = _runner()
+    runner.script[("launchctl", "print")] = RunResult([], print_exit, print_out, "")
+    check = _by_id(run_doctor(runner, _paths(fake_home), _telegram_cfg(), only={"telegram"}))["telegram"]
+    return check, runner
+
+
+def test_telegram_configured_ok_only_when_running(fake_home, monkeypatch):
+    check, runner = _telegram_check(fake_home, monkeypatch, 0, "x = {\n\tstate = running\n}\n")
+    assert check.ok
+    assert check.data == {"job": "running"}
+    assert runner.calls[0][:2] == ["launchctl", "print"]
+    assert runner.calls[0][2].endswith("/ai.wisp.bot")
+
+
+def test_telegram_configured_not_ok_when_stopped(fake_home, monkeypatch):
+    check, _ = _telegram_check(fake_home, monkeypatch, 0, "x = {\n\tstate = not running\n\tlast exit code = (never exited)\n}\n")
+    assert not check.ok
+    assert check.data == {"job": "installed"}
+    check, _ = _telegram_check(fake_home, monkeypatch, 113, "")
+    assert not check.ok
+    assert check.data == {"job": "not_installed"}
+
+
+def test_telegram_configured_not_supported_on_linux(fake_home, monkeypatch):
+    monkeypatch.setattr("wisp.doctor.platform.system", lambda: "Linux")
+    check = _by_id(run_doctor(_runner(), _paths(fake_home), _telegram_cfg(), only={"telegram"}))["telegram"]
+    assert not check.ok
