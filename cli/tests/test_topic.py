@@ -74,19 +74,19 @@ def test_profile_templates_parse():
         "wisp topic status --json",
         "wisp topic listar --json",
         "wisp topic novo --cwd {cwd} -- {name}",
-        "wisp topic falar --sem-pull --origem Wisp -- {thread} {text}",
+        "wisp topic falar --sem-pull --origem Wisp {anexos} -- {thread} {text}",
         "wisp topic encerrar --sem-pull {thread}",
         "wisp topic assumir --json --thread {thread}",
     ]
     values = {"cwd": "/tmp/o'brien dir", "name": "-ideia 'x' $(rm)", "thread": "12", "text": "--oi; \"a b\""}
     parser = build_parser()
     for t in templates:
-        filled = t
+        filled = t.replace("{anexos}", "--anexo '/tmp/a b.png'")
         for k, v in values.items():
             filled = filled.replace("{" + k + "}", shlex.quote(v))
         args = parser.parse_args(shlex.split(filled)[1:])
         assert args.command == "topic" and callable(args.f)
-    falar = parser.parse_args(shlex.split(templates[3].replace("{thread}", "'12'").replace("{text}", shlex.quote("--oi")))[1:])
+    falar = parser.parse_args(shlex.split(templates[3].replace("{anexos}", "").replace("{thread}", "'12'").replace("{text}", shlex.quote("--oi")))[1:])
     assert (falar.thread, falar.texto, falar.origem, falar.sem_pull) == ("12", "--oi", "Wisp", True)
 
 
@@ -323,3 +323,23 @@ def test_listar_without_telegram_has_no_fixed_rows(env, capsys, monkeypatch):
     monkeypatch.setattr(topic, "cfg", lambda: replace(real, chat_ids=set(), system_topics={}))
     assert main(["topic", "listar", "--json", "--sem-pull"]) == 0
     assert json.loads(capsys.readouterr().out) == []
+
+
+def test_falar_anexo_sends_absolute_paths_and_allows_empty_text(env):
+    seen: list = []
+    stop = fake_bot({"ok": True, "thread_id": 12}, seen)
+    try:
+        assert main(["topic", "falar", "--sem-pull", "--anexo", "/a/b.png", "--anexo", "rel.txt", "--", "12", ""]) == 0
+    finally:
+        stop.set()
+    assert seen[0]["anexos"] == ["/a/b.png", str(Path("rel.txt").absolute())] and seen[0]["texto"] == ""
+
+
+def test_falar_without_anexo_has_no_anexos_key(env):
+    seen: list = []
+    stop = fake_bot({"ok": True, "thread_id": 12}, seen)
+    try:
+        assert main(["topic", "falar", "--sem-pull", "--", "12", "oi"]) == 0
+    finally:
+        stop.set()
+    assert "anexos" not in seen[0]

@@ -1,5 +1,7 @@
 import argparse
 import json
+import os
+import platform
 import sys
 from collections.abc import Callable, Sequence
 from dataclasses import asdict
@@ -9,6 +11,7 @@ from wisp import __version__
 from wisp.config import WispConfig, load_config
 from wisp.doctor import run_doctor
 from wisp.fsops import OutsideHome
+from wisp.jobs import NotSupportedHere, manager_for
 from wisp.hooks import hook_boot, hook_brain_commit
 from wisp.paths import WispPaths
 from wisp.report import StepReport
@@ -16,6 +19,8 @@ from wisp.runner import SubprocessRunner
 from wisp.setup.brain import setup_brain
 from wisp.setup.harness import setup_harness
 from wisp.setup.system import setup_system
+from wisp.setup.telegram import setup_telegram
+from wisp.telegram_api import TelegramAPI
 from wisp.topic import add_parser as add_topic_parser, run as run_topic
 
 
@@ -71,6 +76,23 @@ def _setup_system(args: argparse.Namespace) -> int:
     return _run_step("system", lambda cfg: setup_system(SubprocessRunner(), WispPaths.current(), cfg, with_homebrew=args.with_homebrew, dry_run=args.dry_run))
 
 
+def _setup_telegram(args: argparse.Namespace) -> int:
+    token = sys.stdin.buffer.read() if args.token_stdin else None
+    runner, paths = SubprocessRunner(), WispPaths.current()
+
+    def run(cfg: WispConfig) -> StepReport:
+        try:
+            jobs = manager_for(platform.system(), paths, runner, os.getuid())
+        except NotSupportedHere:
+            return StepReport("telegram", "failed", "o Telegram ainda não roda neste sistema")
+        return setup_telegram(
+            runner, paths, cfg, TelegramAPI, jobs,
+            token_stdin=token, discover=args.discover, skip=args.skip, dry_run=args.dry_run,
+        )
+
+    return _run_step("telegram", run)
+
+
 def _hook(args: argparse.Namespace) -> int:
     try:
         cfg, _ = _load_config_or_default()
@@ -103,6 +125,13 @@ def build_parser() -> argparse.ArgumentParser:
     system.add_argument("--with-homebrew", action="store_true")
     system.add_argument("--dry-run", action="store_true")
     system.add_argument("--json", action="store_true")
+    telegram = steps.add_parser("telegram")
+    action = telegram.add_mutually_exclusive_group(required=True)
+    action.add_argument("--token-stdin", action="store_true")
+    action.add_argument("--discover", action="store_true")
+    action.add_argument("--skip", action="store_true")
+    telegram.add_argument("--dry-run", action="store_true")
+    telegram.add_argument("--json", action="store_true")
     add_topic_parser(sub)
     hook = sub.add_parser("hook")
     hook.add_argument("which", choices=["boot", "brain-commit"])
@@ -119,6 +148,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _setup_harness(args)
     if args.command == "setup" and args.step == "system":
         return _setup_system(args)
+    if args.command == "setup" and args.step == "telegram":
+        return _setup_telegram(args)
     if args.command == "hook":
         return _hook(args)
     if args.command == "topic":
