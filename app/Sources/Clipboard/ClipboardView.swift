@@ -98,7 +98,7 @@ struct ClipboardView: View {
                 }
                 .padding(Theme.Space.s)
             }
-            .scrollIndicators(.automatic)
+            .scrollIndicators(.hidden)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .card()
         }

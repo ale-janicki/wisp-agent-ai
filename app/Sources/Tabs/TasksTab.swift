@@ -45,7 +45,7 @@ struct TasksTab: View {
                         }
                     }
                 }
-                .scrollIndicators(.automatic)
+                .scrollIndicators(.hidden)
             }
         }
     }

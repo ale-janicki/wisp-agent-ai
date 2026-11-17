@@ -320,7 +320,7 @@ private struct AlertsTile: View {
                         ForEach(items) { AlertRow(item: $0) }
                     }
                 }
-                .scrollIndicators(.automatic)
+                .scrollIndicators(.hidden)
             case .failed(let message):
                 centered(message)
             }

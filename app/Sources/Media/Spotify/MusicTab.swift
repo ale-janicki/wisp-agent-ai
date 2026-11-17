@@ -265,7 +265,7 @@ private struct PlaylistGrid: View {
                     }
                 }
             }
-            .scrollIndicators(.automatic)
+            .scrollIndicators(.hidden)
         }
     }
 }
@@ -372,7 +372,7 @@ private struct PlaylistDetail: View {
                         }
                     }
                 }
-                .scrollIndicators(.automatic)
+                .scrollIndicators(.hidden)
             }
         }
     }
@@ -459,7 +459,7 @@ private struct SearchResultsList: View {
                     }
                 }
             }
-            .scrollIndicators(.automatic)
+            .scrollIndicators(.hidden)
         }
     }
 }

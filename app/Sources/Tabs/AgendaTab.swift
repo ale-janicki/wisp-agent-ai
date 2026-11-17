@@ -38,7 +38,7 @@ struct AgendaTab: View {
                         }
                     }
                 }
-                .scrollIndicators(.automatic)
+                .scrollIndicators(.hidden)
             }
         }
     }
