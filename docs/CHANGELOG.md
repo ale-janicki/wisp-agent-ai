@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased] - 2026-11-16
 
+### Changed
+
+- Memória graph is now a live force simulation like Obsidian's: drag a note and its neighbours follow, pan with momentum, zoom at the cursor, animated hover dimming, labels that fade in with zoom, a Forces panel (center, repel, link force and distance, node size, link thickness, text fade) saved in settings, an "Animar" button, and an animated switch to the local graph. It draws only while something moves and stops when the panel closes, also mid-drag.
+- Clicking the Conversa row while the menu is showing brings the conversation list back; ⌘N does too.
+- My Mac scrolls inside the tab; network volumes show their real free space.
+- Scroll bars are hidden in every pane.
+
 ### Added
 
 - Memória graph view: Obsidian-style link graph of the vault (wiki links, embeds, aliases), force layout cached between opens, hover highlights neighbours, click opens the note, local graph, folder colours.
