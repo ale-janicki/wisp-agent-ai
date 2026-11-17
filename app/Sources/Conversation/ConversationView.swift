@@ -63,7 +63,7 @@ struct ConversationView: View {
                         .padding(.vertical, Theme.Space.m)
                         .frame(maxWidth: .infinity, minHeight: geo.size.height, alignment: .bottom)
                     }
-                    .scrollIndicators(.automatic)
+                    .scrollIndicators(.hidden)
                     .defaultScrollAnchor(.bottom)
                     .onChange(of: model.state) { _, _ in
                         withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo("bottom", anchor: .bottom) }

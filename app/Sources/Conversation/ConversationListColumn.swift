@@ -65,7 +65,7 @@ struct ConversationListColumn: View {
             }
             .padding(.top, Theme.Space.xs)
         }
-        .scrollIndicators(.automatic)
+        .scrollIndicators(.hidden)
     }
 }
 

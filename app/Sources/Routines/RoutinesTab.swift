@@ -76,7 +76,7 @@ struct RoutinesTab: View {
                     }
                 }
             }
-            .scrollIndicators(.automatic)
+            .scrollIndicators(.hidden)
         case .failed(let message):
             TabMessage(text: message)
         }
@@ -225,7 +225,7 @@ private struct LogPane: View {
                     .padding(Theme.Space.s)
             }
             .defaultScrollAnchor(.bottom)
-            .scrollIndicators(.automatic)
+            .scrollIndicators(.hidden)
             .background(Theme.bg.opacity(0.5), in: RoundedRectangle(cornerRadius: Theme.Radius.nav, style: .continuous))
         case .failed(let message):
             TabMessage(text: message)

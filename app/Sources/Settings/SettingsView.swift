@@ -25,7 +25,7 @@ struct SettingsView: View {
             }
             .padding(.top, Theme.Space.xs)
         }
-        .scrollIndicators(.automatic)
+        .scrollIndicators(.hidden)
         .onAppear {
             NSColorPanel.shared.level = NSWindow.Level(rawValue: NotchPanel.windowLevel.rawValue + 1)
             media.refresh()

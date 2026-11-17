@@ -43,7 +43,7 @@ struct RemindersTab: View {
                     }
                 }
             }
-            .scrollIndicators(.automatic)
+            .scrollIndicators(.hidden)
         }
     }
 
