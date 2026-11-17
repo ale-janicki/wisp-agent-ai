@@ -14,6 +14,8 @@ from wisp.paths import WispPaths
 from wisp.report import StepReport
 from wisp.runner import SubprocessRunner
 from wisp.setup.brain import setup_brain
+from wisp.setup.harness import setup_harness
+from wisp.setup.system import setup_system
 
 
 def emit(report: StepReport) -> int:
@@ -60,6 +62,14 @@ def _setup_brain(args: argparse.Namespace) -> int:
     return _run_step("brain", lambda cfg: setup_brain(SubprocessRunner(), WispPaths.current(), cfg, path=path, dry_run=args.dry_run))
 
 
+def _setup_harness(args: argparse.Namespace) -> int:
+    return _run_step("harness", lambda cfg: setup_harness(SubprocessRunner(), WispPaths.current(), cfg, dry_run=args.dry_run))
+
+
+def _setup_system(args: argparse.Namespace) -> int:
+    return _run_step("system", lambda cfg: setup_system(SubprocessRunner(), WispPaths.current(), cfg, with_homebrew=args.with_homebrew, dry_run=args.dry_run))
+
+
 def _hook(args: argparse.Namespace) -> int:
     try:
         cfg, _ = _load_config_or_default()
@@ -85,6 +95,13 @@ def build_parser() -> argparse.ArgumentParser:
     brain.add_argument("--path")
     brain.add_argument("--dry-run", action="store_true")
     brain.add_argument("--json", action="store_true")
+    harness = steps.add_parser("harness")
+    harness.add_argument("--dry-run", action="store_true")
+    harness.add_argument("--json", action="store_true")
+    system = steps.add_parser("system")
+    system.add_argument("--with-homebrew", action="store_true")
+    system.add_argument("--dry-run", action="store_true")
+    system.add_argument("--json", action="store_true")
     sub.add_parser("topic")
     hook = sub.add_parser("hook")
     hook.add_argument("which", choices=["boot", "brain-commit"])
@@ -97,6 +114,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _doctor(args)
     if args.command == "setup" and args.step == "brain":
         return _setup_brain(args)
+    if args.command == "setup" and args.step == "harness":
+        return _setup_harness(args)
+    if args.command == "setup" and args.step == "system":
+        return _setup_system(args)
     if args.command == "hook":
         return _hook(args)
     print(f"wisp {args.command}: not implemented yet", file=sys.stderr)

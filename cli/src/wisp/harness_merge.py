@@ -1,0 +1,198 @@
+import copy
+import hashlib
+import shutil
+from collections.abc import Mapping
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Literal
+
+from wisp.fsops import atomic_write, ensure_dir
+
+BEGIN = "<!-- wisp:begin -->"
+END = "<!-- wisp:end -->"
+TREE_DIRS = ("agents", "skills", "commands")
+BACKUP_ITEMS = ("CLAUDE.md", "settings.json", "agents", "commands", "skills", "hooks")
+PERMISSION_LISTS = ("allow", "deny", "ask")
+
+
+@dataclass
+class Change:
+    rel: str
+    kind: Literal["added", "updated", "skipped", "conflict", "merged"]
+
+
+@dataclass
+class InstalledManifest:
+    version: int = 1
+    files: dict[str, str] = field(default_factory=dict)
+
+
+def sha256(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def render(text: str, values: Mapping[str, str]) -> str:
+    for key, value in values.items():
+        text = text.replace("{{" + key + "}}", value)
+    return text
+
+
+BLOCK_KEY = "CLAUDE.md#block"
+
+
+def detect_eol(text: str) -> str:
+    crlf = text.count("\r\n")
+    return "\r\n" if crlf > text.count("\n") - crlf else "\n"
+
+
+def block_digest(text: str) -> str:
+    return sha256(text.replace("\r\n", "\n").strip("\n").encode())
+
+
+def current_block(user: str) -> str | None:
+    begin = user.find(BEGIN)
+    if begin == -1 and END not in user:
+        return None
+    end = user.find(END, begin + len(BEGIN)) if begin != -1 else -1
+    if end == -1 or user.count(BEGIN) != 1 or user.count(END) != 1:
+        raise ValueError("os marcadores do Wisp no CLAUDE.md estão incompletos")
+    return user[begin : end + len(END)]
+
+
+def merge_claude_md(user: str | None, block: str) -> str:
+    if user is None:
+        return block
+    eol = detect_eol(user)
+    inner = block.rstrip("\n").replace("\n", eol)
+    existing = current_block(user)
+    if existing is None:
+        return user + eol * 2 + inner + (eol if block.endswith("\n") else "")
+    begin = user.index(existing)
+    return user[:begin] + inner + user[begin + len(existing) :]
+
+
+def _append_missing(target: list, extra: list) -> None:
+    for item in extra:
+        if item not in target:
+            target.append(item)
+
+
+def _commands(group: object) -> set[str]:
+    if isinstance(group, dict) and isinstance(group.get("command"), str) and "hooks" not in group:
+        return {group["command"]}
+    hooks = group.get("hooks") if isinstance(group, dict) else None
+    return {h["command"] for h in hooks if isinstance(h, dict) and "command" in h} if isinstance(hooks, list) else set()
+
+
+def _merge_permissions(merged: dict, ours: dict, notes: list[str]) -> None:
+    if "permissions" not in merged:
+        merged["permissions"] = copy.deepcopy(ours)
+        return
+    current = merged["permissions"]
+    if not isinstance(current, dict):
+        notes.append("permissions: mantido o valor do usuário")
+        return
+    for key, value in ours.items():
+        if key not in current:
+            current[key] = copy.deepcopy(value)
+        elif key in PERMISSION_LISTS and isinstance(current[key], list) and isinstance(value, list):
+            _append_missing(current[key], value)
+        elif current[key] != value:
+            notes.append(f"permissions.{key}: mantido o valor do usuário")
+
+
+def _merge_hooks(merged: dict, ours: dict, notes: list[str]) -> None:
+    if "hooks" not in merged:
+        merged["hooks"] = copy.deepcopy(ours)
+        return
+    current = merged["hooks"]
+    if not isinstance(current, dict):
+        notes.append("hooks: mantido o valor do usuário")
+        return
+    for event, groups in ours.items():
+        if event not in current:
+            current[event] = copy.deepcopy(groups)
+        elif isinstance(current[event], list):
+            existing = set().union(*(_commands(g) for g in current[event]))
+            current[event].extend(copy.deepcopy(g) for g in groups if not _commands(g) & existing)
+        else:
+            notes.append(f"hooks.{event}: mantido o valor do usuário")
+
+
+def merge_settings(user: dict, ours: dict) -> tuple[dict, list[str]]:
+    merged = copy.deepcopy(user)
+    notes: list[str] = []
+    for key, value in ours.items():
+        if key == "permissions":
+            _merge_permissions(merged, value, notes)
+        elif key == "hooks":
+            _merge_hooks(merged, value, notes)
+        elif key not in merged:
+            merged[key] = copy.deepcopy(value)
+        elif merged[key] != value:
+            notes.append(f"{key}: mantido o valor do usuário")
+    return merged, notes
+
+
+def has_symlink(path: Path, root: Path) -> bool:
+    current = path
+    while True:
+        if current.is_symlink():
+            return True
+        if current == root or current.parent == current:
+            return False
+        current = current.parent
+
+
+def _render_bytes(src: Path, values: Mapping[str, str]) -> bytes:
+    raw = src.read_bytes()
+    try:
+        return render(raw.decode(), values).encode()
+    except UnicodeDecodeError:
+        return raw
+
+
+def _classify(target: Path, root: Path, payload: bytes, recorded: str | None) -> str:
+    if has_symlink(target, root) or (target.exists() and not target.is_file()):
+        return "conflict"
+    if not target.exists():
+        return "added"
+    current = target.read_bytes()
+    if current == payload:
+        return "skipped"
+    return "updated" if sha256(current) == recorded else "conflict"
+
+
+def install_tree(src: Path, dst: Path, manifest: InstalledManifest, values: Mapping[str, str], *, dry_run: bool = False) -> list[Change]:
+    changes: list[Change] = []
+    for sub in TREE_DIRS:
+        for source in sorted(p for p in (src / sub).rglob("*") if p.is_file()):
+            rel = source.relative_to(src).as_posix()
+            target = dst / rel
+            payload = _render_bytes(source, values)
+            kind = _classify(target, dst, payload, manifest.files.get(rel))
+            if kind != "conflict":
+                manifest.files[rel] = sha256(payload)
+            if kind in ("added", "updated") and not dry_run:
+                atomic_write(target, payload, mode=source.stat().st_mode & 0o777)
+            changes.append(Change(rel, kind))
+    return changes
+
+
+def backup(claude_dir: Path, dest_root: Path, stamp: str) -> Path | None:
+    present = [name for name in BACKUP_ITEMS if (claude_dir / name).exists() or (claude_dir / name).is_symlink()]
+    if not present:
+        return None
+    dest = dest_root / f"claude-{stamp}"
+    suffix = 1
+    while dest.exists():
+        suffix += 1
+        dest = dest_root / f"claude-{stamp}-{suffix}"
+    ensure_dir(dest)
+    for name in present:
+        source = claude_dir / name
+        if source.is_dir() and not source.is_symlink():
+            shutil.copytree(source, dest / name, symlinks=True)
+        else:
+            shutil.copy2(source, dest / name, follow_symlinks=False)
+    return dest
