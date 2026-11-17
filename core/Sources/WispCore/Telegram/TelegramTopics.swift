@@ -7,20 +7,30 @@ public struct TelegramTopic: Decodable, Identifiable, Sendable, Equatable {
     public var cwd: String
     public var turns: Int
     public var lastUsed: Date?
+    public var host: String?
 
     public var id: Int { thread }
 
-    public init(thread: Int, name: String, sessionId: String, cwd: String, turns: Int = 0, lastUsed: Date? = nil) {
+    public init(
+        thread: Int,
+        name: String,
+        sessionId: String,
+        cwd: String,
+        turns: Int = 0,
+        lastUsed: Date? = nil,
+        host: String? = nil
+    ) {
         self.thread = thread
         self.name = name
         self.sessionId = sessionId
         self.cwd = cwd
         self.turns = turns
         self.lastUsed = lastUsed
+        self.host = host
     }
 
     private enum CodingKeys: String, CodingKey {
-        case thread, name, cwd, turns
+        case thread, name, cwd, turns, host
         case sessionId = "session_id"
         case lastUsed = "last_used"
     }
@@ -33,18 +43,50 @@ public struct TelegramTopic: Decodable, Identifiable, Sendable, Equatable {
         cwd = try container.decodeIfPresent(String.self, forKey: .cwd) ?? "~"
         turns = try container.decodeIfPresent(Int.self, forKey: .turns) ?? 0
         lastUsed = try container.decodeIfPresent(Double.self, forKey: .lastUsed).map(Date.init(timeIntervalSince1970:))
+        host = try container.decodeIfPresent(String.self, forKey: .host)
     }
+}
+
+public enum TelegramReading: Sendable, Equatable {
+    case here
+    case elsewhere(String)
+    case nobody
+}
+
+public enum TelegramClaimNeed: Sendable, Equatable {
+    case none
+    case refresh
+    case handOff(String)
 }
 
 public struct TelegramStatus: Decodable, Sendable, Equatable {
     public var up: Bool
     public var host: String?
     public var state: String?
+    public var reader: String?
+    public var claim: String?
 
-    public init(up: Bool, host: String? = nil, state: String? = nil) {
+    public init(up: Bool, host: String? = nil, state: String? = nil, reader: String? = nil, claim: String? = nil) {
         self.up = up
         self.host = host
         self.state = state
+        self.reader = reader
+        self.claim = claim
+    }
+
+    public var reading: TelegramReading {
+        if up { return .here }
+        guard let reader, !reader.isEmpty, reader != host else { return .nobody }
+        return .elsewhere(reader)
+    }
+
+    public var claimNeed: TelegramClaimNeed {
+        switch reading {
+        case .elsewhere(let reader): .handOff(reader)
+        case .nobody: .none
+        case .here:
+            if let host, !host.isEmpty, claim != host { .refresh } else { .none }
+        }
     }
 }
 
@@ -56,6 +98,23 @@ public struct TelegramCreated: Decodable, Sendable, Equatable {
     private enum CodingKeys: String, CodingKey {
         case thread, cwd
         case sessionId = "session_id"
+    }
+}
+
+public struct TelegramClaim: Decodable, Sendable, Equatable {
+    public var ok: Bool
+    public var reader: String?
+    public var waitedSeconds: Double?
+
+    public init(ok: Bool, reader: String? = nil, waitedSeconds: Double? = nil) {
+        self.ok = ok
+        self.reader = reader
+        self.waitedSeconds = waitedSeconds
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case ok, reader
+        case waitedSeconds = "waited_s"
     }
 }
 
@@ -86,6 +145,23 @@ public enum TelegramTopics {
         try JSONDecoder().decode(TelegramCreated.self, from: data)
     }
 
+    public static func parseClaim(_ data: Data) throws -> TelegramClaim {
+        try JSONDecoder().decode(TelegramClaim.self, from: data)
+    }
+
+    public static func claimFailure(_ message: String) -> String {
+        let prefix = "Wisp-topico: "
+        return message.hasPrefix(prefix) ? String(message.dropFirst(prefix.count)) : message
+    }
+
+    public static func hostName(_ host: String) -> String {
+        switch host.lowercased() {
+        case "pc": "PC"
+        case "mac": "Mac"
+        default: host
+        }
+    }
+
     public static func topicName(from message: String) -> String {
         let line = message.split(whereSeparator: \.isWhitespace).joined(separator: " ")
         guard line.count > nameLimit else { return line }
@@ -114,13 +190,18 @@ public struct TelegramBlock: Codable, Sendable, Equatable {
     public var create: String?
     public var send: String?
     public var close: String?
+    public var claim: String?
 
-    public init(status: String? = nil, list: String? = nil, create: String? = nil, send: String? = nil, close: String? = nil) {
+    public init(
+        status: String? = nil, list: String? = nil, create: String? = nil, send: String? = nil,
+        close: String? = nil, claim: String? = nil
+    ) {
         self.status = status
         self.list = list
         self.create = create
         self.send = send
         self.close = close
+        self.claim = claim
     }
 
     public var isComplete: Bool {
