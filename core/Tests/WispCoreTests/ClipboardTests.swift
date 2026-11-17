@@ -99,6 +99,39 @@ final class ClipboardTests: XCTestCase {
         XCTAssertEqual(history.items.map(\.id), [keep.id])
     }
 
+    func testExpireRemovesUnpinnedOlderThan24hAndReturnsThem() {
+        let now = t0.addingTimeInterval(48 * 3600)
+        var history = ClipboardHistory(items: [text("old", at: 0)])
+        XCTAssertEqual(history.expire(now: now).map(\.text), ["old"])
+        XCTAssertTrue(history.items.isEmpty)
+    }
+
+    func testExpireKeepsPinnedOldItem() {
+        var pinned = text("pinned", at: 0)
+        pinned.pinned = true
+        var history = ClipboardHistory(items: [pinned])
+        XCTAssertTrue(history.expire(now: t0.addingTimeInterval(72 * 3600)).isEmpty)
+        XCTAssertEqual(history.items.count, 1)
+    }
+
+    func testExpireKeepsItemAt23h59m() {
+        var history = ClipboardHistory(items: [text("fresh", at: 0)])
+        XCTAssertTrue(history.expire(now: t0.addingTimeInterval(23 * 3600 + 59 * 60)).isEmpty)
+        XCTAssertEqual(history.items.count, 1)
+    }
+
+    func testExpireKeepsOrderOfRemainingItems() {
+        let now = t0.addingTimeInterval(30 * 3600)
+        var pinned = text("pinned", at: 0)
+        pinned.pinned = true
+        let a = text("a", at: 29 * 3600)
+        let stale = text("stale", at: 1 * 3600)
+        let b = text("b", at: 10 * 3600)
+        var history = ClipboardHistory(items: [a, stale, pinned, b])
+        XCTAssertEqual(history.expire(now: now).map(\.id), [stale.id])
+        XCTAssertEqual(history.items.map(\.id), [a.id, pinned.id, b.id])
+    }
+
     func testVisiblePinnedFirstAndSearchIgnoresCaseAndAccents() {
         var history = ClipboardHistory()
         let old = text("Reunião às 10h")
