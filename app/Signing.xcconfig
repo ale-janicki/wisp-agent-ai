@@ -1,0 +1,6 @@
+// Code signing for Debug and Release. Ad-hoc by default, so anyone can build.
+// A maintainer with a signing identity overrides it in the git-ignored
+// Local.xcconfig (see Local.xcconfig.example).
+CODE_SIGN_IDENTITY = -
+
+#include? "Local.xcconfig"
