@@ -2,6 +2,8 @@ import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
+/// "Teu wisp": the name of the assistant, the user's name, an avatar and the colors. The values live on the model
+/// so the step button (and the DEBUG walkthrough) read the same ones.
 struct ProfileStepView: View {
     @Bindable var model: SetupModel
 

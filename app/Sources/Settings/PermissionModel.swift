@@ -3,15 +3,21 @@ import Observation
 import os
 import WispCore
 
+/// "Permissões do Claude": the mode new and resumed Wisp sessions run in. It lives in the profile
+/// (`agent.permissionMode`, which the bot reads too); a profile that is a link managed elsewhere is never
+/// written through, so there the choice stays in Wisp's own settings. `~/.claude/settings.json` is only read.
 @MainActor @Observable
 final class PermissionModel {
     static let shared = PermissionModel()
 
     private(set) var setting = PermissionSetting(choice: .ask, source: .standard)
+    /// The profile is a symlink: Wisp keeps the choice in its own settings and the Telegram bot on this Mac reads it from there.
     private(set) var profileIsLink = false
     private(set) var error: String?
+    /// A session asked for `auto` and the CLI reported another mode at init.
     private(set) var autoUnavailable = false
 
+    /// The live session restarts with the new mode; set by the conversation model.
     @ObservationIgnored var onChange: () -> Void = {}
     @ObservationIgnored private let log = Logger(subsystem: AppIdentity.bundleID, category: "permissions")
 
@@ -28,6 +34,7 @@ final class PermissionModel {
         refresh()
     }
 
+    /// The mode for the next session's `--permission-mode`; nil leaves it to the CLI.
     var cliMode: String? {
         PermissionSetting.cliMode(profileMode: profileMode(), wispMode: AppSettings.shared.settings.permissionMode)
     }
@@ -42,6 +49,7 @@ final class PermissionModel {
 
     func select(_ choice: PermissionChoice) {
         error = nil
+        // The DEBUG setup walkthrough runs on a throwaway home with settings not persisted: never the real profile.
         guard AppSettings.shared.persists else { return }
         if profileIsLink {
             AppSettings.shared.setPermissionMode(choice.rawValue)
@@ -59,6 +67,7 @@ final class PermissionModel {
         onChange()
     }
 
+    /// The CLI's answer at init to a session that asked for `requested`.
     func sessionReported(mode: String, requested: String?) {
         guard requested == PermissionChoice.auto.rawValue else { return }
         autoUnavailable = mode != PermissionChoice.auto.rawValue

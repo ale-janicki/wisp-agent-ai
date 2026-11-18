@@ -117,6 +117,7 @@ struct MessageRow: View {
         }
     }
 
+    /// A prompt with the attachment block shows its photos and files (never the paths); a preview stays one line.
     @ViewBuilder
     private var userContent: some View {
         if let attachments = MessageAttachments.parse(message.text) ?? MessageAttachments.unparsed(message.text) {
@@ -133,6 +134,7 @@ struct MessageRow: View {
         }
     }
 
+    /// Images take ~70% of the column; `maxWidth` is already 80% of it.
     private static let imageShare: CGFloat = 0.875
 
     private func bubble(_ text: Text, fill: Color) -> some View {
@@ -233,18 +235,24 @@ private struct TypingRow: View {
     }
 }
 
+/// A tool call the CLI holds until the user answers; one at a time, the rest wait behind it.
 struct ApprovalCard: View {
     let request: PermissionRequest
     let queued: Int
     let answer: (PermissionDecision) -> Void
     @State private var expanded: Bool
+    /// The full input was open at least once; until then a summary that can hide part of it holds Permitir.
+    @State private var seenFull: Bool
 
     init(request: PermissionRequest, queued: Int, expanded: Bool = false, answer: @escaping (PermissionDecision) -> Void) {
         self.request = request
         self.queued = queued
         self.answer = answer
         _expanded = State(initialValue: expanded)
+        _seenFull = State(initialValue: expanded)
     }
+
+    private var locked: Bool { request.requiresExpansion && !seenFull }
 
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Space.s) {
@@ -267,15 +275,23 @@ struct ApprovalCard: View {
                 .truncationMode(.middle)
                 .textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
-            Button { withAnimation(.easeOut(duration: 0.18)) { expanded.toggle() } } label: {
+            Button {
+                let opening = !expanded
+                withAnimation(.easeOut(duration: 0.18)) { expanded = opening }
+                if opening { seenFull = true }
+            } label: {
                 HStack(spacing: 4) {
-                    Text("detalhes")
+                    if locked {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.system(size: 10))
+                    }
+                    Text(locked ? "comando longo — veja inteiro" : "detalhes")
                     Image(systemName: "chevron.right")
                         .font(.system(size: 9, weight: .bold))
                         .rotationEffect(.degrees(expanded ? 90 : 0))
                 }
-                .font(Theme.Font.caption)
-                .foregroundStyle(Theme.textSecondary)
+                .font(locked ? Theme.Font.bodyMedium : Theme.Font.caption)
+                .foregroundStyle(locked ? Theme.busy : Theme.textSecondary)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -289,17 +305,20 @@ struct ApprovalCard: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(Theme.Space.s)
                 }
-                .frame(maxHeight: 160)
+                .frame(maxHeight: 220)
                 .background(Theme.surfaceHi, in: RoundedRectangle(cornerRadius: Theme.Radius.bubble, style: .continuous))
                 .transition(.opacity)
             }
             HStack(spacing: Theme.Space.s) {
                 Button("Permitir") { answer(.allow) }
                     .buttonStyle(CapsuleButtonStyle())
+                    .disabled(locked)
+                    .help(locked ? "Abra o comando inteiro antes de permitir" : "")
                 if request.canPersist {
                     Button("Sempre permitir") { answer(.allowAlways) }
                         .buttonStyle(CapsuleButtonStyle(kind: .ghost))
-                        .help("Salva no Claude: \(request.persistRules.joined(separator: ", "))")
+                        .disabled(locked)
+                        .help(locked ? "Abra o comando inteiro antes de permitir" : "Salva no Claude: \(request.persistRules.joined(separator: ", "))")
                 }
                 Spacer(minLength: 0)
                 Button("Negar") { answer(.deny) }
@@ -334,6 +353,7 @@ private struct FailureRow: View {
     }
 }
 
+/// Under a message in the outbox (D15): waiting, on its way, or not sent.
 private struct HeldMarkRow: View {
     let mark: HeldMark
     let retry: () -> Void
