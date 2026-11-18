@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Builds the Release app and packs dist/Wisp.zip.
+# Builds the Release app and packs dist/Wisp.dmg (drag to Applications) and dist/Wisp.zip.
 # Default is an ad-hoc signature (open source, no Developer ID). With WISP_SIGN_ID the app and the embedded uv are
 # signed with the hardened runtime and the apple-events entitlement; with WISP_NOTARY_PROFILE it is also notarized.
 set -euo pipefail
@@ -45,4 +45,13 @@ if [ -n "${WISP_NOTARY_PROFILE:-}" ]; then
   ditto -c -k --keepParent "$app" "$dist/Wisp.zip"
 fi
 
-echo "build-release: $dist/Wisp.zip ($(du -h "$dist/Wisp.zip" | awk '{print $1}'))"
+stage="$build/dmg"
+rm -rf "$stage"
+mkdir -p "$stage"
+ditto "$app" "$stage/Wisp.app"
+ln -s /Applications "$stage/Aplicativos"
+hdiutil create -volname "Wisp" -srcfolder "$stage" -fs HFS+ -format UDZO -ov "$dist/Wisp.dmg" >/dev/null
+[ "$sign_id" = "-" ] || codesign --force --sign "$sign_id" --timestamp "$dist/Wisp.dmg"
+rm -rf "$stage"
+
+echo "build-release: $dist/Wisp.dmg ($(du -h "$dist/Wisp.dmg" | awk '{print $1}')), $dist/Wisp.zip ($(du -h "$dist/Wisp.zip" | awk '{print $1}'))"
