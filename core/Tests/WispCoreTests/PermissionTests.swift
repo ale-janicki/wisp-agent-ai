@@ -2,7 +2,6 @@ import Foundation
 import Testing
 @testable import WispCore
 
-/// Lines recorded from Claude Code 2.1.327 (`-p --input-format stream-json --permission-prompt-tool stdio`), paths scrubbed.
 @Suite struct PermissionTests {
     private func fixtureEvents() throws -> [ClaudeEvent] {
         let url = try #require(Bundle.module.url(forResource: "Fixtures/permission-requests", withExtension: "jsonl"))

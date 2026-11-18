@@ -15,7 +15,6 @@ final class AppSettings {
     @ObservationIgnored private var saveTask: Task<Void, Never>?
     @ObservationIgnored private let writeQueue = DispatchQueue(label: "\(AppIdentity.bundleID).settings.write", qos: .utility)
     @ObservationIgnored private var unsaved = false
-    /// False under the DEBUG setup walkthrough's fake HOME: nothing reaches the real settings file.
     @ObservationIgnored var persists = true
     @ObservationIgnored private let log = Logger(subsystem: AppIdentity.bundleID, category: "settings")
 

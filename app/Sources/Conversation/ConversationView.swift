@@ -117,7 +117,6 @@ struct MessageRow: View {
         }
     }
 
-    /// A prompt with the attachment block shows its photos and files (never the paths); a preview stays one line.
     @ViewBuilder
     private var userContent: some View {
         if let attachments = MessageAttachments.parse(message.text) ?? MessageAttachments.unparsed(message.text) {
@@ -134,7 +133,6 @@ struct MessageRow: View {
         }
     }
 
-    /// Images take ~70% of the column; `maxWidth` is already 80% of it.
     private static let imageShare: CGFloat = 0.875
 
     private func bubble(_ text: Text, fill: Color) -> some View {
@@ -235,7 +233,6 @@ private struct TypingRow: View {
     }
 }
 
-/// A tool call the CLI holds until the user answers; one at a time, the rest wait behind it.
 struct ApprovalCard: View {
     let request: PermissionRequest
     let queued: Int
@@ -337,7 +334,6 @@ private struct FailureRow: View {
     }
 }
 
-/// Under a message in the outbox (D15): waiting, on its way, or not sent.
 private struct HeldMarkRow: View {
     let mark: HeldMark
     let retry: () -> Void

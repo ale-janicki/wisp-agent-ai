@@ -19,7 +19,6 @@ public struct AgentConfig: Codable, Sendable, Equatable {
     public var model: String?
     public var claudePath: String?
     public var statusPrefix: String?
-    /// A CLI `--permission-mode` value (`default`, `auto`, `bypassPermissions`); the bot reads it too.
     public var permissionMode: String?
 
     public init(

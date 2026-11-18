@@ -1,4 +1,3 @@
-"""agent.permissionMode do profile.json decide o --permission-mode do bot."""
 import json
 from pathlib import Path
 
