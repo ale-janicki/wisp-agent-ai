@@ -125,3 +125,34 @@ def setup_harness(runner: Runner, paths: WispPaths, cfg: WispConfig, *, dry_run:
     if conflicts:
         summary += f"; {len(conflicts)} arquivo(s) editado(s) por você foram mantidos"
     return StepReport("harness", "done", summary, details, data)
+
+
+def update_persona_block(paths: WispPaths, cfg: WispConfig, *, dry_run: bool) -> tuple[str, str]:
+    """Re-renders only the CLAUDE.md block and its manifest sha. Returns (kind, reason) with kind one of
+    updated | unchanged | absent | conflict | failed; nothing else in ~/.claude is touched and no backup is made."""
+    claude_dir = paths.home / ".claude"
+    md_path = claude_dir / "CLAUDE.md"
+    if _managed_elsewhere(claude_dir):
+        return "failed", "o harness é gerenciado fora do Wisp"
+    if not md_path.exists():
+        return "absent", ""
+    block = render((resources_root() / "harness/claude-md-block.md").read_text(), _values(cfg))
+    manifest_path = paths.config / MANIFEST_NAME
+    manifest = _load_manifest(manifest_path)
+    try:
+        user_md = md_path.read_bytes().decode()
+        existing = current_block(user_md)
+        new_md = merge_claude_md(user_md, block)
+    except (UnicodeDecodeError, ValueError):
+        return "failed", "o CLAUDE.md tem marcadores do Wisp quebrados ou não é texto"
+    if existing is None:
+        return "absent", ""
+    if new_md == user_md:
+        return "unchanged", ""
+    if block_digest(existing) != manifest.files.get(BLOCK_KEY):
+        return "conflict", "o bloco do Wisp no CLAUDE.md foi editado por você e foi mantido"
+    if not dry_run:
+        atomic_write(md_path, new_md.encode(), mode=_file_mode(md_path))
+        manifest.files[BLOCK_KEY] = block_digest(block)
+        atomic_write(manifest_path, json.dumps({"version": manifest.version, "files": manifest.files}, indent=2, sort_keys=True) + "\n")
+    return "updated", ""

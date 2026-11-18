@@ -1,0 +1,28 @@
+{
+  "persona": {
+    "name": "Ada",
+    "user": "Rita",
+    "language": "pt-BR"
+  },
+  "agent": {
+    "cwd": "~"
+  },
+  "blocks": {
+    "tasks": {
+      "file": "/home/rita/Wisp/brain/pendencias.md"
+    },
+    "memory": {
+      "search": "/usr/bin/grep -rIin --null --include='*.md' --exclude-dir='.*' -m 1 -F -e {query} {root} | head -n 200",
+      "root": "/home/rita/Wisp/brain"
+    },
+    "telegram": {
+      "status": "/opt/wisp/venv/bin/wisp topic status --json",
+      "list": "/opt/wisp/venv/bin/wisp topic listar --json",
+      "create": "/opt/wisp/venv/bin/wisp topic novo --cwd {cwd} -- {name}",
+      "send": "/opt/wisp/venv/bin/wisp topic falar --sem-pull --origem Wisp {anexos} -- {thread} {text}",
+      "close": "/opt/wisp/venv/bin/wisp topic encerrar --sem-pull {thread}",
+      "claim": "/opt/wisp/venv/bin/wisp topic assumir --json --thread {thread}",
+      "attachments": "/state/anexos"
+    }
+  }
+}
