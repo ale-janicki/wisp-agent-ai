@@ -78,13 +78,13 @@ def setup_system(runner: Runner, paths: WispPaths, cfg: WispConfig, *, with_home
         opened = _record(runner, details, ["xcode-select", "--install"], 30)
         if opened.exit != 0 and CLT_REQUESTED not in (opened.stdout + opened.stderr).lower():
             return StepReport("system", "failed", "não consegui abrir o instalador da Apple", details)
-        return StepReport("system", "needs_user", CLT_SUMMARY, details)
+        return StepReport("system", "needs_user", CLT_SUMMARY, details, {"waiting": "clt"})
 
     changed = False
     if claude is None:
         claude = _install_claude(runner, paths, cfg, details)
         if claude is None:
-            return StepReport("system", "failed", "não consegui instalar o Claude Code", details)
+            return StepReport("system", "failed", "não consegui instalar o Claude", details)
         changed = True
     version = _record(runner, details, [str(claude), "--version"], 10).stdout.strip()
     data = {"claude": str(claude), "claude_version": version}
@@ -97,7 +97,7 @@ def setup_system(runner: Runner, paths: WispPaths, cfg: WispConfig, *, with_home
         if pkg is None:
             return StepReport("system", "failed", problem, details, data)
         _record(runner, details, ["open", str(pkg)], 30)
-        return StepReport("system", "needs_user", BREW_SUMMARY, details, data)
+        return StepReport("system", "needs_user", BREW_SUMMARY, details, {**data, "waiting": "homebrew"})
     if changed:
-        return StepReport("system", "done", "Claude Code instalado", details, data)
+        return StepReport("system", "done", "o Claude foi instalado", details, data)
     return StepReport("system", "skipped", "tudo pronto", details, data)

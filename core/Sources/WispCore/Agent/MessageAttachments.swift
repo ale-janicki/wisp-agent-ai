@@ -13,7 +13,7 @@ public struct StagedAttachment: Equatable, Sendable {
     }
 }
 
-/// The attachment block the Wisp bot writes for a phone upload, and Wisp writes for its own:
+/// The attachment block the Telegram bot writes for a phone upload, and Wisp writes for its own:
 /// `[o <user> enviou N arquivo(s) pelo <origem>, ja salvos nesta maquina:\n- <path> (<name>, <bytes> bytes)…]\n\n<caption>`.
 /// Wisp composes it byte for byte like the bot (`bloco_anexos` in bot.py), so a linked echo matches the transcript.
 public struct MessageAttachments: Equatable, Sendable {

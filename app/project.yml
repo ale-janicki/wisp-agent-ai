@@ -1,6 +1,6 @@
 name: Wisp
 options:
-  bundleIdPrefix: com.owner
+  bundleIdPrefix: ai.wisp
   deploymentTarget:
     macOS: "15.0"
 packages:
@@ -24,7 +24,7 @@ targets:
         product: SwiftTerm
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.owner.wisp
+        PRODUCT_BUNDLE_IDENTIFIER: ai.wisp.app
         PRODUCT_NAME: Wisp
         SWIFT_VERSION: "6.0"
         SWIFT_STRICT_CONCURRENCY: complete

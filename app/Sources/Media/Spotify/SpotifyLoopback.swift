@@ -11,7 +11,7 @@ final class SpotifyLoopback: @unchecked Sendable {
         case listener(String)
     }
 
-    private let queue = DispatchQueue(label: "com.owner.wisp.spotify.loopback", qos: .userInitiated)
+    private let queue = DispatchQueue(label: "\(AppIdentity.bundleID).spotify.loopback", qos: .userInitiated)
     private let listener: NWListener
     private let port: UInt16
     private let path: String

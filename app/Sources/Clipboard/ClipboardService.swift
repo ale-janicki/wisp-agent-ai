@@ -12,12 +12,12 @@ final class ClipboardService: ObservableObject {
 
     private let store: ClipboardStore
     private let pasteboard = NSPasteboard.general
-    private let writeQueue = DispatchQueue(label: "com.owner.wisp.clipboard.write", qos: .utility)
+    private let writeQueue = DispatchQueue(label: "\(AppIdentity.bundleID).clipboard.write", qos: .utility)
     private var lastChangeCount: Int
     private var poll: Timer?
     private var expiry: Timer?
     private var persists = true
-    private let log = Logger(subsystem: "com.owner.wisp", category: "clipboard")
+    private let log = Logger(subsystem: AppIdentity.bundleID, category: "clipboard")
 
     private static let interval: TimeInterval = 0.5
     private static let expiryInterval: TimeInterval = 600

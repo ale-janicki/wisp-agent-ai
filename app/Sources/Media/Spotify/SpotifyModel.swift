@@ -36,7 +36,7 @@ final class SpotifyModel {
     @ObservationIgnored private var tracksGeneration = 0
     @ObservationIgnored private var sessionGeneration = 0
     @ObservationIgnored private var noticeTask: Task<Void, Never>?
-    @ObservationIgnored private let log = Logger(subsystem: "com.owner.wisp", category: "spotify")
+    @ObservationIgnored private let log = Logger(subsystem: AppIdentity.bundleID, category: "spotify")
 
     static let searchDebounce: Duration = .milliseconds(300)
     private static let loginTimeout: Duration = .seconds(300)

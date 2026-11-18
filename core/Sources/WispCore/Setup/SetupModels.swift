@@ -40,12 +40,25 @@ public struct DoctorCheck: Decodable, Sendable, Equatable {
     public var ok: Bool
     public var summary: String
     public var step: String?
+    public var data: [String: String]
 
-    public init(id: String, ok: Bool, summary: String, step: String? = nil) {
+    public init(id: String, ok: Bool, summary: String, step: String? = nil, data: [String: String] = [:]) {
         self.id = id
         self.ok = ok
         self.summary = summary
         self.step = step
+        self.data = data
+    }
+
+    private enum CodingKeys: String, CodingKey { case id, ok, summary, step, data }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        ok = try container.decode(Bool.self, forKey: .ok)
+        summary = try container.decode(String.self, forKey: .summary)
+        step = try container.decodeIfPresent(String.self, forKey: .step)
+        data = (try? container.decodeIfPresent([String: String].self, forKey: .data)) ?? [:]
     }
 }
 

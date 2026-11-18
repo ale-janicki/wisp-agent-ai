@@ -34,7 +34,7 @@ final class ConversationViewModel {
     @ObservationIgnored private var drainTask: Task<Void, Never>?
     @ObservationIgnored private var drainSleeping = false
     @ObservationIgnored private var outboxBroken = false
-    @ObservationIgnored private let log = Logger(subsystem: "com.owner.wisp", category: "conversation")
+    @ObservationIgnored private let log = Logger(subsystem: AppIdentity.bundleID, category: "conversation")
     @ObservationIgnored private var session: AgentSession?
     @ObservationIgnored private var eventTask: Task<Void, Never>?
     @ObservationIgnored private var generation = 0
@@ -158,6 +158,13 @@ final class ConversationViewModel {
         }
         if telegramConfigured { startDrain() } else { stopDrain() }
         refreshHeldPhase()
+    }
+
+    /// The setup window closed: a Telegram connected or disconnected there (or a new name) applies now, and the
+    /// outbox drain starts or stops with it.
+    func reloadProfile() {
+        loadProfile()
+        Task { [weak self] in await self?.refreshTelegram() }
     }
 
     private func probeClaude() {

@@ -15,6 +15,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+        IdentityMigration.run()
         #if DEBUG
         if let directory = SnapshotRenderer.directory(from: ProcessInfo.processInfo.arguments) {
             Task {
@@ -63,7 +64,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             #if DEBUG
             if homeOverride != nil { return }
             #endif
-            if self.shell == nil { self.startShell() }
+            if let shell = self.shell {
+                shell.conversation.reloadProfile()
+            } else {
+                self.startShell()
+            }
         }
         setup = controller
         controller.show()

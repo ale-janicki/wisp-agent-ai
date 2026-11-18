@@ -152,10 +152,11 @@ final class TelegramTopicsTests: XCTestCase {
         XCTAssertFalse(try TelegramTopics.parseClaim(Data(#"{"ok": false}"#.utf8)).ok)
         XCTAssertThrowsError(try TelegramTopics.parseClaim(Data("mac le o Telegram".utf8)))
         XCTAssertEqual(
-            TelegramTopics.claimFailure("Wisp-topico: nao consegui falar com o PC (ssh); a mensagem nao foi enviada"),
+            TelegramTopics.claimFailure("some-topic-tool: nao consegui falar com o PC (ssh); a mensagem nao foi enviada"),
             "nao consegui falar com o PC (ssh); a mensagem nao foi enviada"
         )
         XCTAssertEqual(TelegramTopics.claimFailure("o comando passou de 75 s"), "o comando passou de 75 s")
+        XCTAssertEqual(TelegramTopics.claimFailure("aviso: a outra maquina nao respondeu"), "aviso: a outra maquina nao respondeu")
     }
 
     func testClaimNeedFollowsTheReaderAndTheLastClaim() throws {

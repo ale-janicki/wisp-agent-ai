@@ -81,6 +81,7 @@ def test_clt_missing_opens_installer_and_needs_user(fake_home):
     assert report.status == "needs_user"
     assert report.summary == "Clique em Instalar na janela da Apple; o Wisp continua sozinho quando terminar"
     assert ["xcode-select", "--install"] in runner.calls
+    assert report.data == {"waiting": "clt"}
     assert not any("claude" in " ".join(c) for c in runner.calls)
 
 
@@ -89,7 +90,7 @@ def test_claude_missing_runs_official_installer(fake_home):
     report = _run(runner, fake_home)
     installer = next(c for c in runner.calls if c[:2] == ["/bin/bash", "-c"])
     assert "https://claude.ai/install.sh" in installer[2]
-    assert report.status == "done"
+    assert report.status == "done" and report.summary == "o Claude foi instalado"
     assert report.data["claude"] == str(fake_home / ".local/bin/claude")
     assert load_config().claude_bin == str(fake_home / ".local/bin/claude")
 
@@ -97,7 +98,7 @@ def test_claude_missing_runs_official_installer(fake_home):
 def test_claude_install_failure_is_failed_with_output(fake_home):
     runner = InstallingRunner(fake_home, RunResult([], 1, "", "curl: (6) could not resolve host"))
     report = _run(runner, fake_home)
-    assert report.status == "failed"
+    assert report.status == "failed" and report.summary == "não consegui instalar o Claude"
     assert "could not resolve host" in " ".join(d.output for d in report.details)
     assert load_config().claude_bin is None
 
@@ -110,6 +111,7 @@ def test_homebrew_only_when_asked(fake_home):
     report = _run(asked, fake_home, with_homebrew=True)
     assert report.status == "needs_user"
     assert report.summary == "O instalador do Homebrew vai pedir a senha do seu Mac"
+    assert report.data["waiting"] == "homebrew"
     assert ["open", str(fake_home / ".local/state/wisp/downloads/Homebrew.pkg")] in asked.calls
     assert (fake_home / ".local/state/wisp/downloads").is_dir()
 

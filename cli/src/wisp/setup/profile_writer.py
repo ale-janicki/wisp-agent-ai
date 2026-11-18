@@ -43,10 +43,7 @@ def render_persona(profile_path: Path, *, name: str, user_name: str, language: s
     return json.dumps(profile, indent=2, ensure_ascii=False) + "\n"
 
 
-def set_telegram_block(profile_path: Path, wisp_bin: str, attachments: str | None = None) -> None:
-    """Writes blocks.telegram into the profile, keeping every other key. `{anexos}` stays in the send template
-    so the profile matches the app once `wisp topic falar` accepts attachments."""
-    check_writable(profile_path)
+def _telegram_block(wisp_bin: str, attachments: str | None) -> dict:
     wisp = shlex.quote(wisp_bin)
     block = {
         "status": f"{wisp} topic status --json",
@@ -58,6 +55,43 @@ def set_telegram_block(profile_path: Path, wisp_bin: str, attachments: str | Non
     }
     if attachments:
         block["attachments"] = attachments
+    return block
+
+
+def render_telegram_block(
+    profile_path: Path, wisp_bin: str, attachments: str | None = None, *, name: str = "Wisp", language: str = "pt-BR"
+) -> str:
+    """Profile text with blocks.telegram set, every other key kept. A profile without persona/agent (none yet, or one
+    written by an older Telegram step) gets the defaults the app needs to decode it; the profile step fills them in later.
+    `{anexos}` stays in the send template so the profile matches the app once `wisp topic falar` accepts attachments."""
+    check_writable(profile_path)
     profile = _load(profile_path)
-    profile.setdefault("blocks", {})["telegram"] = block
+    if not profile.get("persona"):
+        profile["persona"] = {"name": name, "language": language}
+    if not isinstance(profile.get("agent"), dict):
+        profile["agent"] = {"cwd": "~"}
+    profile.setdefault("blocks", {})["telegram"] = _telegram_block(wisp_bin, attachments)
+    return json.dumps(profile, indent=2, ensure_ascii=False) + "\n"
+
+
+def set_telegram_block(
+    profile_path: Path, wisp_bin: str, attachments: str | None = None, *, name: str = "Wisp", language: str = "pt-BR"
+) -> None:
+    atomic_write(profile_path, render_telegram_block(profile_path, wisp_bin, attachments, name=name, language=language))
+
+
+def has_telegram_block(profile_path: Path) -> bool:
+    """True when a profile Wisp may write (not a symlink) carries blocks.telegram; an unreadable one counts as none."""
+    if profile_path.is_symlink() or not profile_path.is_file():
+        return False
+    try:
+        return "telegram" in _load(profile_path).get("blocks", {})
+    except (ValueError, OSError):
+        return False
+
+
+def remove_telegram_block(profile_path: Path) -> None:
+    check_writable(profile_path)
+    profile = _load(profile_path)
+    profile.get("blocks", {}).pop("telegram", None)
     atomic_write(profile_path, json.dumps(profile, indent=2, ensure_ascii=False) + "\n")

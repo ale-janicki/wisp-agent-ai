@@ -31,6 +31,7 @@ def test_all_missing_on_fresh_home(fake_home):
     assert [c.step for c in checks if c.step] == ["system", "system", "login", "brain", "harness", "telegram", "profile"]
     for c in checks:
         assert c.ok == (c.id == "telegram")
+    assert _by_id(checks)["claude"].summary == "o Claude não está instalado"
     assert _by_id(checks)["telegram"].summary == "opcional, não configurado"
 
 
@@ -43,7 +44,7 @@ def test_doctor_never_calls_git_without_clt(fake_home):
 def test_login_parsed_from_auth_status(fake_home):
     runner = _runner(auth=(FIXTURES / "claude-auth-status-in.json").read_text())
     checks = _by_id(run_doctor(runner, _paths(fake_home), WispConfig()))
-    assert checks["claude"].ok
+    assert checks["claude"].ok and checks["claude"].summary == "o Claude está instalado"
     assert checks["claude_login"].ok
     assert checks["claude_login"].data == {"authMethod": "claude.ai", "subscriptionType": "max"}
 
@@ -111,3 +112,27 @@ def test_telegram_configured_not_supported_on_linux(fake_home, monkeypatch):
     monkeypatch.setattr("wisp.doctor.platform.system", lambda: "Linux")
     check = _by_id(run_doctor(_runner(), _paths(fake_home), _telegram_cfg(), only={"telegram"}))["telegram"]
     assert not check.ok
+
+
+def _profile_check(fake_home, data):
+    config = fake_home / ".config/wisp"
+    config.mkdir(parents=True, exist_ok=True)
+    (config / "profile.json").write_text(data if isinstance(data, str) else __import__("json").dumps(data))
+    return _by_id(run_doctor(_runner(), _paths(fake_home), WispConfig(), only={"profile"}))["profile"]
+
+
+def test_profile_with_only_blocks_is_not_present(fake_home):
+    check = _profile_check(fake_home, {"blocks": {"telegram": {"status": "x"}}})
+    assert not check.ok and check.summary == "o perfil ainda não está completo"
+
+
+def test_profile_seeded_by_telegram_is_not_the_users_yet(fake_home):
+    seeded = {"persona": {"name": "Wisp", "language": "pt-BR"}, "agent": {"cwd": "~"}, "blocks": {}}
+    assert not _profile_check(fake_home, seeded).ok
+
+
+def test_profile_written_by_the_profile_step_is_ready(fake_home):
+    full = {"persona": {"name": "Ada", "user": "Rita", "language": "pt-BR"}, "agent": {"cwd": "~"}}
+    assert _profile_check(fake_home, full).ok
+    assert not _profile_check(fake_home, "{not json").ok
+    assert not _profile_check(fake_home, {"persona": {"name": "Ada", "user": "Rita", "language": "pt-BR"}}).ok

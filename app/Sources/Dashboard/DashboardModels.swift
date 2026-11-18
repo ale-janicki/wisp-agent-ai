@@ -22,7 +22,7 @@ final class UsageModel {
 
     @ObservationIgnored private var loading = false
     @ObservationIgnored private var loadedAt: Date?
-    @ObservationIgnored private let log = Logger(subsystem: "com.owner.wisp", category: "usage")
+    @ObservationIgnored private let log = Logger(subsystem: AppIdentity.bundleID, category: "usage")
 
     private static let maxAge: TimeInterval = 60
 

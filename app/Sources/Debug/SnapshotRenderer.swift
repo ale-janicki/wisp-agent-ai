@@ -233,7 +233,7 @@ enum SnapshotRenderer {
             }
             shell.tab = .routines
             await render(shell, frame: layout.panel, notch: layout.notch, to: directory, name: "b-routines")
-            RoutinesTab.snapshotLogLabel = "com.owner.meeting-sync"
+            RoutinesTab.snapshotLogLabel = "com.example.meeting-sync"
             shell.tab = .home
             shell.tab = .routines
             await render(shell, frame: layout.panel, notch: layout.notch, to: directory, name: "b-routines-log")

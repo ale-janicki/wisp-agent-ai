@@ -29,6 +29,7 @@ class WispConfig:
     brain: str | None = None
     claude_bin: str | None = None
     telegram: TelegramConfig | None = None
+    telegram_token_at: int | None = None
 
 
 def _known(cls, raw: dict) -> dict:

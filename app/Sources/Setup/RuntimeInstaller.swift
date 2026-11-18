@@ -20,8 +20,8 @@ final class RuntimeInstaller {
     private(set) var phase: Phase = .checking
 
     private let layout: RuntimeLayout
-    private let log = Logger(subsystem: "com.owner.wisp", category: "runtime")
-    private static let queue = DispatchQueue(label: "com.owner.wisp.runtime-install", qos: .utility)
+    private let log = Logger(subsystem: AppIdentity.bundleID, category: "runtime")
+    private static let queue = DispatchQueue(label: "\(AppIdentity.bundleID).runtime-install", qos: .utility)
 
     init(bundle: URL = Bundle.main.bundleURL, home: URL = FileManager.default.homeDirectoryForCurrentUser) {
         layout = RuntimeLayout(bundle: bundle, home: home)
@@ -100,6 +100,7 @@ final class RuntimeInstaller {
             if let failure = fullInstall(layout: layout, version: bundled, environment: environment, progress: progress) {
                 return .failed(failure)
             }
+            restartBotIfLoaded()
             return .installed
         }
         if !fm.fileExists(atPath: shim.path) {
@@ -153,6 +154,15 @@ final class RuntimeInstaller {
             return "Não consegui gravar a versão instalada: \(error.localizedDescription)"
         }
         return nil
+    }
+
+    /// The user's Telegram bot runs from this runtime: after an update it restarts so it runs the new code.
+    nonisolated private static func restartBotIfLoaded() {
+        let launchctl = URL(fileURLWithPath: "/bin/launchctl")
+        let target = "gui/\(getuid())/\(AppIdentity.botLabel)"
+        guard case .success(let probe) = CommandRunner.run(
+            executable: launchctl, arguments: ["print", target], environment: [:], timeout: 10), probe.status == 0 else { return }
+        _ = CommandRunner.run(executable: launchctl, arguments: ["kickstart", "-k", target], environment: [:], timeout: 30)
     }
 
     nonisolated private static func installShim(layout: RuntimeLayout, environment: [String: String]) -> String? {
