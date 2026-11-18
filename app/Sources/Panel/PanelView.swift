@@ -134,6 +134,7 @@ struct PanelView: View {
         case .routines: RoutinesTab(profile: model.profile)
         case .music:
             MusicTab(media: media) {
+                IntegrationsPane.expandOnOpen = .spotify
                 SettingsSection.integrations.open()
                 controller.tab = .settings
             }
