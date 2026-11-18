@@ -25,7 +25,9 @@ xcodebuild -project app/Wisp.xcodeproj -scheme Wisp -configuration Debug \
 
 `-skipPackagePluginValidation` is required on the command line because SwiftTerm ships a build plugin Xcode does not trust by default.
 
-Release: `scripts/build-release.sh` builds the Release app and writes `dist/Wisp.dmg` and `dist/Wisp.zip`, ad-hoc signed. Set `WISP_SIGN_ID` to sign with a Developer ID and `WISP_NOTARY_PROFILE` to notarize.
+Release: `scripts/build-release.sh` builds the Release app and writes `dist/Wisp.dmg` and `dist/Wisp.zip`, ad-hoc signed. The disk image is laid out by [dmgbuild](https://github.com/dmgbuild/dmgbuild) (pinned, run through `uvx`, so uv must be on `PATH`). Set `WISP_SIGN_ID` to sign with a Developer ID and `WISP_NOTARY_PROFILE` to notarize.
+
+The app icon (`app/Resources/Assets.xcassets/AppIcon.appiconset`) and the disk image background (`scripts/dmg/`) are committed renders of the real avatar; `scripts/render-art.sh` regenerates both.
 
 ## Layout
 
@@ -35,7 +37,7 @@ Release: `scripts/build-release.sh` builds the Release app and writes `dist/Wisp
 - `bot/`: `wisp-bot`, the Telegram bot (Python).
 - `harness/`: the generic Claude Code harness installed into `~/.claude`.
 - `vault-template/`: the starting content of a new brain.
-- `scripts/`: uv download, runtime embedding, release build and leak check.
+- `scripts/`: uv download, runtime embedding, art rendering, release build and leak check.
 - `docs/`: install guide, changelog and developer notes.
 
 ## Tests
@@ -58,4 +60,4 @@ Other projects use similar names, such as `marciovicente/wisp-ai` and Wispr Flow
 
 ## License
 
-License: to be added.
+Wisp is free software under the [GNU General Public License v3.0](LICENSE). Contributions are welcome through pull requests; see [CONTRIBUTING.md](CONTRIBUTING.md).
