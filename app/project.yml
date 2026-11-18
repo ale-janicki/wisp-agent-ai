@@ -9,6 +9,9 @@ packages:
   SwiftTerm:
     url: https://github.com/migueldeicaza/SwiftTerm
     exactVersion: 1.99.3
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle
+    exactVersion: 2.10.1
 targets:
   Wisp:
     type: application
@@ -23,10 +26,14 @@ targets:
         product: WispCore
       - package: SwiftTerm
         product: SwiftTerm
+      - package: Sparkle
+        product: Sparkle
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: ai.wisp.app
         PRODUCT_NAME: Wisp
+        MARKETING_VERSION: 0.2.0
+        CURRENT_PROJECT_VERSION: 2
         SWIFT_VERSION: "6.0"
         SWIFT_STRICT_CONCURRENCY: complete
         MACOSX_DEPLOYMENT_TARGET: "15.0"
@@ -43,6 +50,14 @@ targets:
       properties:
         CFBundleName: Wisp
         CFBundleDisplayName: Wisp
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        SUFeedURL: https://github.com/ale-janicki/wisp-agent-ai/releases/latest/download/appcast.xml
+        SUPublicEDKey: MNMKX6RjZ+MiJAkihRSLEqA+xZx5NA+yh22u8SIAr10=  # public EdDSA key, not a secret; gitleaks:allow
+        SUEnableAutomaticChecks: true
+        SUScheduledCheckInterval: 86400
+        SUAutomaticallyUpdate: false
+        SUAllowsAutomaticUpdates: false
         LSUIElement: true
         LSMinimumSystemVersion: "15.0"
         NSAppleEventsUsageDescription: "O Wisp mostra e controla a música que está tocando no Spotify ou no Music."

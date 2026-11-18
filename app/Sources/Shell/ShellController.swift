@@ -34,7 +34,6 @@ final class ShellController: ObservableObject {
     private var hotKey: HotKey?
     private var screenObserver: NSObjectProtocol?
     private var previousApp: NSRunningApplication?
-    /// From a card's arrival until its fold finished the window keeps the card's size.
     private var keepsNoticeFrame = false
 
     private static let dwell: Duration = .milliseconds(300)
@@ -58,7 +57,6 @@ final class ShellController: ObservableObject {
 
     // MARK: Notices
 
-    /// A card is at the notch (the panel shows its own floating copy instead).
     var presentsNotice: Bool { state != .panel && notices.current != nil }
     var pillExpanded: Bool { presentsNotice || state == .active }
     var pillDrop: CGSize {
@@ -66,7 +64,6 @@ final class ShellController: ObservableObject {
     }
     var pillRadius: CGFloat { presentsNotice ? Theme.Radius.card : Theme.Radius.pill }
 
-    /// The window grows at once and SwiftUI springs the shape; it shrinks only after the fold spring settled.
     private func noticesChanged() {
         if presentsNotice {
             if keepsNoticeFrame {
@@ -84,12 +81,10 @@ final class ShellController: ObservableObject {
         }
     }
 
-    /// The card's click: the panel opens where the notice came from.
     func open(_ target: NoticeTarget) {
         let model = conversation
         switch target {
         case .conversation(let id):
-            // A conversation that is neither open nor in the index: the Conversa list, never some other conversation.
             if id != model.currentId, let record = model.records.first(where: { $0.id == id }) { model.open(record) }
             tab = .conversation
         case .topic(let thread):
@@ -103,6 +98,9 @@ final class ShellController: ObservableObject {
             tab = .conversation
         case .reminders:
             tab = PanelTab.reminders.isAvailable(in: model.profile) ? .reminders : .home
+        case .update:
+            UpdateModel.shared.showUpdate()
+            return
         }
         pillClicked()
     }

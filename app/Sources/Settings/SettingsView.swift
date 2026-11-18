@@ -18,6 +18,7 @@ struct SettingsView: View {
                 music
                 SpotifySettingsCard()
                 clipboard
+                updates
                 openAtLogin
                 setupAgain
                 if let notice = settings.notice {
@@ -82,7 +83,7 @@ struct SettingsView: View {
     // MARK: Avisos no notch
 
     private static let noticeKinds: [(NoticeKind, String)] = [
-        (.reply, "Respostas"), (.telegram, "Telegram"), (.reminder, "Lembretes"), (.outbox, "Fila"),
+        (.reply, "Respostas"), (.telegram, "Telegram"), (.reminder, "Lembretes"), (.outbox, "Fila"), (.update, "Atualizações"),
     ]
 
     private var notices: some View {
@@ -175,6 +176,35 @@ struct SettingsView: View {
         .card()
     }
 
+    // MARK: Atualizações
+
+    private var updates: some View {
+        let updater = UpdateModel.shared
+        return HStack(spacing: Theme.Space.m) {
+            VStack(alignment: .leading, spacing: 2) {
+                sectionTitle("Atualizações")
+                Text(updater.available.map { "Versão \(updater.version). A \($0) já está disponível." } ?? "Versão \(updater.version).")
+                    .font(Theme.Font.caption)
+                    .foregroundStyle(Theme.textSecondary)
+            }
+            Spacer()
+            Button(updater.available == nil ? "Verificar agora" : "Ver atualização") { updater.showUpdate() }
+                .buttonStyle(CapsuleButtonStyle(kind: .ghost))
+            Toggle("Verificar automaticamente", isOn: Binding(
+                get: { updater.automaticChecks },
+                set: { updater.setAutomaticChecks($0) }
+            ))
+            .toggleStyle(.switch)
+            .tint(Theme.accent)
+            .font(Theme.Font.bodyMedium)
+            .foregroundStyle(Theme.textPrimary)
+            .pointerStyle(.link)
+        }
+        .padding(Theme.Space.l)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .card()
+    }
+
     // MARK: Abrir ao ligar o Mac
 
     private var openAtLogin: some View {
@@ -234,8 +264,10 @@ struct SettingsView: View {
                 Button("Rodar o setup de novo") { (NSApp.delegate as? AppDelegate)?.showSetup() }
                     .buttonStyle(CapsuleButtonStyle(kind: .ghost))
                 Button("Avisos de terceiros") {
-                    if let notice = Bundle.main.url(forResource: "SwiftTerm-LICENSE", withExtension: "txt", subdirectory: "ThirdParty") {
-                        NSWorkspace.shared.open(notice)
+                    for name in ["SwiftTerm-LICENSE", "Sparkle-LICENSE"] {
+                        if let notice = Bundle.main.url(forResource: name, withExtension: "txt", subdirectory: "ThirdParty") {
+                            NSWorkspace.shared.open(notice)
+                        }
                     }
                 }
                 .buttonStyle(CapsuleButtonStyle(kind: .ghost))
@@ -253,7 +285,6 @@ struct SettingsView: View {
     }
 }
 
-/// The theme swatches and, for the custom theme, its three color rows. Shared by Ajustes and the setup wizard.
 struct ThemePicker: View {
     private let settings = AppSettings.shared
 

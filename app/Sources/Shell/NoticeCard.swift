@@ -1,15 +1,12 @@
 import SwiftUI
 import WispCore
 
-/// One spring for the card landing and folding; the window waits for it to settle before it shrinks.
 enum NoticeMotion {
     static let spring = Spring(response: 0.42, dampingRatio: 0.7)
     static let animation = Animation.spring(spring)
     static let settle: Duration = .seconds(spring.settlingDuration)
 }
 
-/// The content of a notch notice: who, what, when, and a × to dismiss. The whole card is the click target
-/// (its container owns the tap); it draws no background of its own, so it sits on the notch or on glass.
 struct NoticeCard: View {
     let notice: Notice
     let badge: Int
@@ -75,6 +72,8 @@ struct NoticeCard: View {
         case .outbox:
             symbol(notice.tone == .alert ? "exclamationmark.bubble.fill" : "paperplane.fill",
                    tint: notice.tone == .alert ? Theme.error : Theme.accent)
+        case .update:
+            symbol("arrow.down.circle.fill", tint: Theme.accent)
         }
     }
 
