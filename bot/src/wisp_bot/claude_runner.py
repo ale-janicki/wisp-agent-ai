@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from typing import Awaitable, Callable
 
 from . import hosting
-from .config import CURRENT as _CFG
+from .config import CURRENT as _CFG, config_path
 from .hosting import HOST
 
 # O Claude escreve markdown; o Telegram nao renderiza markdown. Sem esta instrucao
@@ -28,6 +28,22 @@ normally and do not mention it: the bot strips it before sending.
 
 
 CLAUDE_BIN = _CFG.claude_bin     # o caminho que o setup gravou no wisp.json; vence o PATH
+
+# agent.permissionMode do profile.json (o mesmo que o app grava). O Telegram ainda nao mostra
+# pedidos de aprovacao: "default" (pedir) vira "auto". Sem valor, o bot segue sem pedir, como sempre.
+PERMISSAO_PADRAO = "bypassPermissions"
+_PERMISSAO_NO_BOT = {"default": "auto", "manual": "auto", "auto": "auto", "bypassPermissions": "bypassPermissions"}
+
+
+def permission_mode() -> str:
+    """Lido a cada turno, para uma troca no app valer sem reiniciar o bot; perfil ilegivel = padrao."""
+    perfil = config_path().parent / "profile.json"
+    try:
+        agente = json.loads(perfil.read_text("utf-8")).get("agent")
+        modo = agente.get("permissionMode") if isinstance(agente, dict) else None
+    except (OSError, ValueError, AttributeError):
+        modo = None
+    return _PERMISSAO_NO_BOT.get(modo, PERMISSAO_PADRAO) if isinstance(modo, str) else PERMISSAO_PADRAO
 
 
 def claude_bin() -> str:
@@ -155,7 +171,7 @@ async def run(prompt: str, *, session_id: str, cwd: str, started: bool,
     `on_text` recebe cada bloco de texto do assistant assim que chega; se for
     async, roda como task e o turno so retorna depois de todas terminarem."""
     cmd = [claude_bin(), "--print", "--output-format", "stream-json", "--verbose",
-           "--permission-mode", "bypassPermissions",
+           "--permission-mode", permission_mode(),
            "--append-system-prompt", TELEGRAM_STYLE + extra_prompt]
     cmd += ["--resume", session_id] if started else ["--session-id", session_id]
     if model:

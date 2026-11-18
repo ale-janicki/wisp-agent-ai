@@ -149,6 +149,7 @@ public actor AgentSession {
     private let cwd: URL
     private let model: String?
     private let resume: String?
+    private let permissionMode: String?
     private let environmentOverrides: [String: String]
     private let state: SessionState
     private var process: Process?
@@ -158,12 +159,14 @@ public actor AgentSession {
         cwd: URL,
         model: String?,
         resume: String?,
+        permissionMode: String? = nil,
         environmentOverrides: [String: String] = [:]
     ) {
         self.executable = executable
         self.cwd = cwd
         self.model = model
         self.resume = resume
+        self.permissionMode = permissionMode
         self.environmentOverrides = environmentOverrides
         let (stream, continuation) = AsyncStream<SessionEvent>.makeStream()
         self.events = stream
@@ -176,7 +179,7 @@ public actor AgentSession {
 
         let process = Process()
         process.executableURL = executable
-        process.arguments = ClaudeCommand.arguments(model: model, resume: resume)
+        process.arguments = ClaudeCommand.arguments(model: model, resume: resume, permissionMode: permissionMode)
         process.currentDirectoryURL = cwd
         process.environment = childEnvironment()
 
@@ -223,10 +226,19 @@ public actor AgentSession {
     }
 
     public func send(_ text: String) throws {
-        guard let handle = state.stdinHandle() else { throw AgentError.notRunning }
         let payload: [String: Any] = ["type": "user", "message": ["role": "user", "content": text]]
         var data = try JSONSerialization.data(withJSONObject: payload)
         data.append(0x0A)
+        try write(data)
+    }
+
+    /// Answers a `can_use_tool` request; the CLI holds that tool call until this line lands.
+    public func respond(to request: PermissionRequest, _ decision: PermissionDecision) throws {
+        try write(ClaudeControl.response(to: request, decision))
+    }
+
+    private func write(_ data: Data) throws {
+        guard let handle = state.stdinHandle() else { throw AgentError.notRunning }
         do {
             try handle.write(contentsOf: data)
         } catch {

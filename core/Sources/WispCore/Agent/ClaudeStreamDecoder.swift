@@ -12,15 +12,26 @@ public enum ClaudeStreamDecoder {
         switch type {
         case "system":
             guard object["subtype"] as? String == "init" else { return [.ignored(type: type)] }
-            return [.initialized(
+            var events: [ClaudeEvent] = [.initialized(
                 sessionId: object["session_id"] as? String ?? "",
                 model: object["model"] as? String ?? "",
                 subscription: object["apiKeySource"] as? String == "none"
             )]
+            if let mode = object["permissionMode"] as? String, !mode.isEmpty { events.append(.permissionMode(mode)) }
+            return events
         case "assistant":
             let message = object["message"] as? [String: Any]
             let items = message?["content"] as? [[String: Any]] ?? []
             return items.map(decodeContentItem)
+        case "control_request":
+            let request = object["request"] as? [String: Any] ?? [:]
+            guard let parsed = PermissionRequest(requestId: object["request_id"] as? String ?? "", request: request) else {
+                return [.ignored(type: "control_request.\(request["subtype"] as? String ?? "")")]
+            }
+            return [.permissionRequest(parsed)]
+        case "control_cancel_request":
+            guard let id = object["request_id"] as? String, !id.isEmpty else { return [.ignored(type: type)] }
+            return [.permissionCancelled(id: id)]
         case "rate_limit_event":
             return [.usage(RateLimit(info: object["rate_limit_info"] as? [String: Any]))]
         case "result":
