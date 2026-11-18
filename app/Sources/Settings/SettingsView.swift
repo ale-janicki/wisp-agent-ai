@@ -17,6 +17,7 @@ struct SettingsView: View {
                 music
                 SpotifySettingsCard()
                 clipboard
+                setupAgain
                 if let notice = settings.notice {
                     Text(notice)
                         .font(Theme.Font.caption)
@@ -46,28 +47,7 @@ struct SettingsView: View {
                     .buttonStyle(CapsuleButtonStyle(kind: .ghost))
                     .disabled(settings.settings.theme == WispSettings.default.theme && settings.settings.custom == nil)
             }
-            HStack(spacing: Theme.Space.s) {
-                ForEach(ThemePreset.all) { preset in
-                    Swatch(
-                        name: preset.name,
-                        fill: Color(preset.accent),
-                        selected: settings.settings.theme == preset.id
-                    ) { settings.selectPreset(preset) }
-                }
-                Swatch(
-                    name: "Personalizado",
-                    fill: settings.settings.isCustom ? Theme.accent : Theme.surfaceHi,
-                    icon: "paintpalette.fill",
-                    selected: settings.settings.isCustom
-                ) { settings.selectCustom() }
-            }
-            if settings.settings.isCustom {
-                VStack(spacing: Theme.Space.s) {
-                    CustomColorRow(label: "Destaque", color: settings.colors.accent) { settings.setCustom(\.accent, to: $0) }
-                    CustomColorRow(label: "Fundo", color: settings.colors.background) { settings.setCustom(\.background, to: $0) }
-                    CustomColorRow(label: "Superfície", color: settings.colors.surface) { settings.setCustom(\.surface, to: $0) }
-                }
-            }
+            ThemePicker()
         }
         .padding(Theme.Space.l)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -143,10 +123,61 @@ struct SettingsView: View {
         .card()
     }
 
+    // MARK: Setup
+
+    private var setupAgain: some View {
+        HStack(spacing: Theme.Space.m) {
+            VStack(alignment: .leading, spacing: 2) {
+                sectionTitle("Setup")
+                Text("Abre de novo o passo a passo que prepara o Wisp. O que já está pronto aparece marcado.")
+                    .font(Theme.Font.caption)
+                    .foregroundStyle(Theme.textSecondary)
+            }
+            Spacer()
+            Button("Rodar o setup de novo") { (NSApp.delegate as? AppDelegate)?.showSetup() }
+                .buttonStyle(CapsuleButtonStyle(kind: .ghost))
+        }
+        .padding(Theme.Space.l)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .card()
+    }
+
     private func sectionTitle(_ text: String) -> some View {
         Text(text)
             .font(Theme.Font.title)
             .foregroundStyle(Theme.textPrimary)
+    }
+}
+
+/// The theme swatches and, for the custom theme, its three color rows. Shared by Ajustes and the setup wizard.
+struct ThemePicker: View {
+    private let settings = AppSettings.shared
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Theme.Space.l) {
+            HStack(spacing: Theme.Space.s) {
+                ForEach(ThemePreset.all) { preset in
+                    Swatch(
+                        name: preset.name,
+                        fill: Color(preset.accent),
+                        selected: settings.settings.theme == preset.id
+                    ) { settings.selectPreset(preset) }
+                }
+                Swatch(
+                    name: "Personalizado",
+                    fill: settings.settings.isCustom ? Theme.accent : Theme.surfaceHi,
+                    icon: "paintpalette.fill",
+                    selected: settings.settings.isCustom
+                ) { settings.selectCustom() }
+            }
+            if settings.settings.isCustom {
+                VStack(spacing: Theme.Space.s) {
+                    CustomColorRow(label: "Destaque", color: settings.colors.accent) { settings.setCustom(\.accent, to: $0) }
+                    CustomColorRow(label: "Fundo", color: settings.colors.background) { settings.setCustom(\.background, to: $0) }
+                    CustomColorRow(label: "Superfície", color: settings.colors.surface) { settings.setCustom(\.surface, to: $0) }
+                }
+            }
+        }
     }
 }
 
