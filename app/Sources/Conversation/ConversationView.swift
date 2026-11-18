@@ -49,7 +49,11 @@ struct ConversationView: View {
                             if model.isLoadingHistory { HistorySkeleton() }
                             ForEach(rows) { row in
                                 switch row {
-                                case .message(let message): MessageRow(message: message, maxWidth: bubbleWidth)
+                                case .message(let message):
+                                    MessageRow(message: message, maxWidth: bubbleWidth)
+                                    if let mark = model.heldMark(message) {
+                                        HeldMarkRow(mark: mark, retry: { model.retryHeld(message) }, discard: { model.discardHeld(message) })
+                                    }
                                 case .tools(let group): ToolsRow(messages: group)
                                 }
                             }
@@ -57,6 +61,7 @@ struct ConversationView: View {
                             if case .failed(let reason) = model.state.phase {
                                 FailureRow(reason: reason) { model.retry() }
                             }
+                            if case .held(let reason) = model.state.phase { HeldRow(reason: reason) }
                             Color.clear.frame(height: 1).id("bottom")
                         }
                         .padding(.horizontal, Theme.Space.l)
@@ -245,6 +250,66 @@ private struct FailureRow: View {
         .padding(.trailing, 6)
         .padding(.vertical, 6)
         .background(Theme.error.opacity(0.1), in: RoundedRectangle(cornerRadius: Theme.Radius.bubble, style: .continuous))
+    }
+}
+
+/// Under a message in the outbox (D15): waiting, on its way, or not sent.
+private struct HeldMarkRow: View {
+    let mark: HeldMark
+    let retry: () -> Void
+    let discard: () -> Void
+
+    var body: some View {
+        VStack(alignment: .trailing, spacing: Theme.Space.xs) {
+            if case .failed(let reason, _) = mark {
+                Text(reason)
+                    .font(Theme.Font.caption)
+                    .foregroundStyle(Theme.textSecondary)
+                    .multilineTextAlignment(.trailing)
+                    .textSelection(.enabled)
+            }
+            HStack(spacing: Theme.Space.s) {
+                Spacer(minLength: 0)
+                switch mark {
+                case .queued:
+                    label("na fila")
+                    Button("descartar", action: discard).buttonStyle(CapsuleButtonStyle(kind: .ghost))
+                case .sending:
+                    label("enviando…")
+                case .failed(_, let canRetry):
+                    Circle().fill(Theme.error).frame(width: 6, height: 6)
+                    label("não enviada")
+                    if canRetry { Button("tentar de novo", action: retry).buttonStyle(CapsuleButtonStyle(kind: .ghost)) }
+                    Button("descartar", action: discard).buttonStyle(CapsuleButtonStyle(kind: .ghost))
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .trailing)
+    }
+
+    private func label(_ text: String) -> some View {
+        Text(text)
+            .font(Theme.Font.caption)
+            .foregroundStyle(Theme.textTertiary)
+    }
+}
+
+private struct HeldRow: View {
+    let reason: String
+
+    var body: some View {
+        HStack(alignment: .center, spacing: Theme.Space.s) {
+            Circle().fill(Theme.busy).frame(width: 7, height: 7)
+            Text(reason)
+                .font(Theme.Font.caption)
+                .foregroundStyle(Theme.textSecondary)
+                .lineLimit(2)
+                .textSelection(.enabled)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, Theme.Space.m)
+        .padding(.vertical, Theme.Space.s)
+        .background(Theme.busy.opacity(0.1), in: RoundedRectangle(cornerRadius: Theme.Radius.bubble, style: .continuous))
     }
 }
 

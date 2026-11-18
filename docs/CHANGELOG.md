@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- WispCore D15 delivery: `DeliveryPolicy` (local only without Telegram, else Telegram or hold), a persisted `Outbox` of held messages (oldest first, corrupt file kept as `outbox.json.bad`) and the conversation phase `held`.
 - WispCore setup models (`SetupReport`, `DoctorReport`, `SetupState`), the wizard gate, the runtime bootstrap layout and a capturing `CommandRunner` (process spawning shared with `BlockCommand` through `ProcessCore`); `Persona.user` names the user in attachment blocks (fallback "o usuario") and the CLI contract fixtures are decoded by the Swift parsers.
 - `wisp setup profile --name … [--user-name] [--language] [--avatar] --json` writes `~/.config/wisp/profile.json` (persona with the user's name, brain blocks, existing blocks kept), copies the avatar and re-renders the CLAUDE.md block (an edited block stays a conflict); `wisp setup shim` writes `~/.local/bin/wisp` and refuses a file that is not ours.
 - Python core `wisp` as a uv workspace (`cli/` + `bot/`): per-OS paths, config, runner, step report and file ops, with `wisp --version`.
@@ -28,6 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Conversa with Telegram configured never falls back to a local session: every message (with its attachments) goes into the outbox first and waits "na fila" while the bot is down, survives a quit, retries after 10, 30 and 60 s when a send fails, then shows "não enviada · tentar de novo · descartar"; it goes out in order through the same hand-off, create and send once the bot is back, a timed-out send is never resent on its own, and the Conversa list marks conversations with held messages; the notice reads "Telegram fora do ar — as mensagens ficam na fila".
 - `wisp doctor --json` prints one JSON object with a `warning` and default settings when `wisp.json` is unreadable; the bot's launchd label is `ai.wisp.bot`.
 - Telegram: the machine where the last Wisp message was sent reads the bot. Sending from Wisp while the other machine reads first brings the conversation over ("Trazendo a conversa do PC…"), then creates or sends; if the hand-off fails, one sentence explains it and nothing is sent. The Conversa list says when the PC is reading.
 

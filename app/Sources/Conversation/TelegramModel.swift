@@ -28,6 +28,7 @@ final class TelegramModel {
     @ObservationIgnored private var checkedAt: Date?
     @ObservationIgnored private var readGeneration = 0
     @ObservationIgnored private var lastClaimNeed: TelegramClaimNeed = .none
+    @ObservationIgnored private var statusGeneration = 0
 
     private static let readTimeout: TimeInterval = 5
     static let actionTimeout: TimeInterval = 35
@@ -40,6 +41,11 @@ final class TelegramModel {
         case .up, .remote: true
         case .notConfigured, .checking, .down: false
         }
+    }
+
+    var downReason: String? {
+        if case .down(let reason) = link { return reason }
+        return nil
     }
 
     var claimNeed: TelegramClaimNeed {
@@ -93,8 +99,18 @@ final class TelegramModel {
         await checkStatus(block)
     }
 
+    /// The outbox asks the bot directly: a 30 s old answer would keep a held message waiting for nothing.
+    func checkNow() async {
+        guard let block, block.isComplete else { return }
+        await checkStatus(block)
+    }
+
+    /// `refresh` and `checkNow` can overlap; only the newest read (or a claim after it) sets the link.
     private func checkStatus(_ block: TelegramBlock) async {
+        statusGeneration += 1
+        let current = statusGeneration
         let result = await Self.run(block.status ?? "", timeout: Self.readTimeout)
+        guard current == statusGeneration else { return }
         checkedAt = Date()
         switch result {
         case .success(let data):
@@ -126,6 +142,8 @@ final class TelegramModel {
                 return .failure(TelegramFailure("o tópico não voltou em JSON"))
             }
             return .success(created)
+        case .failure(.timedOut):
+            return .failure(TelegramFailure("o tópico demorou demais e pode já existir; confira no Telegram antes de tentar de novo", retry: false))
         case .failure(let error):
             return .failure(TelegramFailure("Não consegui criar o tópico: \(error.localizedDescription)"))
         }
@@ -139,6 +157,7 @@ final class TelegramModel {
             guard let claimed = try? TelegramTopics.parseClaim(data), claimed.ok else {
                 return TelegramFailure("a troca de máquina não voltou em JSON; a mensagem não foi enviada")
             }
+            statusGeneration += 1
             link = .up
             lastClaimNeed = .none
             checkedAt = Date()
@@ -150,16 +169,19 @@ final class TelegramModel {
 
     /// `files` go through the profile's optional `{anexos}`; a profile without it can only send text.
     func send(thread: Int, text: String, files: [String] = []) async -> TelegramFailure? {
-        guard let block, let command = block.send else { return TelegramFailure("Telegram não configurado") }
+        guard let block, let command = block.send else { return TelegramFailure("Telegram não configurado", retry: false) }
         if !files.isEmpty, !block.sendsAttachments {
-            return TelegramFailure("o perfil não sabe mandar anexos ao Telegram (falta {anexos} no send)")
+            return TelegramFailure("o perfil não sabe mandar anexos ao Telegram (falta {anexos} no send)", retry: false)
         }
         let filled = CommandTemplate.fill(command, ["thread": String(thread), "text": text],
                                           raw: ["anexos": CommandTemplate.repeated("--anexo", files)])
-        if case .failure(let error) = await Self.run(filled, timeout: Self.actionTimeout) {
+        switch await Self.run(filled, timeout: Self.actionTimeout) {
+        case .success: return nil
+        case .failure(.timedOut):
+            return TelegramFailure("o envio demorou demais e pode já ter chegado; confira no Telegram antes de tentar de novo", retry: false)
+        case .failure(let error):
             return TelegramFailure("Não consegui mandar ao Telegram: \(error.localizedDescription)")
         }
-        return nil
     }
 
     func close(thread: Int) async {
@@ -181,7 +203,12 @@ final class TelegramModel {
     }
 }
 
+/// `retry` false: retrying blindly could duplicate (a timeout may have reached the bot) or can never work.
 struct TelegramFailure: Error, Equatable {
     let sentence: String
-    init(_ sentence: String) { self.sentence = sentence }
+    let retry: Bool
+    init(_ sentence: String, retry: Bool = true) {
+        self.sentence = sentence
+        self.retry = retry
+    }
 }

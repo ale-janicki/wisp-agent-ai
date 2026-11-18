@@ -21,6 +21,7 @@ public struct ConversationState: Equatable, Sendable {
         case idle
         case thinking(step: String?)
         case failed(String)
+        case held(String)
     }
 
     public var messages: [ConversationMessage] = []
@@ -36,11 +37,17 @@ public struct ConversationState: Equatable, Sendable {
 }
 
 public enum ConversationReducer {
-    public static func userSent(_ s: inout ConversationState, text: String) {
-        s.messages.append(ConversationMessage(role: .user, text: text, time: Date()))
+    public static func userSent(_ s: inout ConversationState, text: String, id: UUID = UUID(), time: Date = Date()) {
+        s.messages.append(ConversationMessage(role: .user, text: text, id: id, time: time))
         s.status = nil
         s.pendingTurns += 1
+        if case .held = s.phase { return }
         s.phase = .thinking(step: nil)
+    }
+
+    /// The message waits in the outbox for the bot; later messages of the conversation queue behind it.
+    public static func held(_ s: inout ConversationState, reason: String) {
+        s.phase = .held(reason)
     }
 
     public static func sessionDiscarded(_ s: inout ConversationState) {

@@ -41,6 +41,7 @@ struct ConversationListColumn: View {
                         ConversationRow(
                             record: record,
                             selected: record.id == model.currentId,
+                            held: model.heldDot(record.id),
                             open: { model.open(record) },
                             delete: { model.delete(record) }
                         )
@@ -167,6 +168,7 @@ private struct TelegramSection: View {
                         entry: entry,
                         selected: model.linkedThread == entry.topic.thread,
                         closing: telegram.closing.contains(entry.topic.thread),
+                        held: entry.record.flatMap { model.heldDot($0.id) },
                         open: {
                             guard !dragging else { return }
                             model.open(entry)
@@ -253,6 +255,7 @@ private struct TopicRow: View {
     let entry: TelegramEntry
     let selected: Bool
     let closing: Bool
+    let held: StatusColor?
     let open: () -> Void
     let close: () -> Void
     let blocked: () -> Bool
@@ -283,11 +286,14 @@ private struct TopicRow: View {
         } else {
             Button(action: open) {
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(entry.topic.name)
-                        .font(Theme.Font.body)
-                        .foregroundStyle(selected ? Theme.textPrimary : Theme.textSecondary)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
+                    HStack(spacing: 6) {
+                        if let held { HeldDot(color: held) }
+                        Text(entry.topic.name)
+                            .font(Theme.Font.body)
+                            .foregroundStyle(selected ? Theme.textPrimary : Theme.textSecondary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
                     Text(closing ? "encerrando…" : caption)
                         .font(Theme.Font.caption)
                         .foregroundStyle(Theme.textTertiary)
@@ -327,6 +333,7 @@ private struct TopicRow: View {
 private struct ConversationRow: View {
     let record: ConversationRecord
     let selected: Bool
+    let held: StatusColor?
     let open: () -> Void
     let delete: () -> Void
     @State private var hovering = false
@@ -336,11 +343,14 @@ private struct ConversationRow: View {
     var body: some View {
         Button(action: open) {
             VStack(alignment: .leading, spacing: 1) {
-                Text(record.title)
-                    .font(Theme.Font.body)
-                    .foregroundStyle(selected ? Theme.textPrimary : Theme.textSecondary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
+                HStack(spacing: 6) {
+                    if let held { HeldDot(color: held) }
+                    Text(record.title)
+                        .font(Theme.Font.body)
+                        .foregroundStyle(selected ? Theme.textPrimary : Theme.textSecondary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
                 Text(Self.relative(record.updatedAt))
                     .font(Theme.Font.caption)
                     .foregroundStyle(Theme.textTertiary)
@@ -375,5 +385,17 @@ private struct ConversationRow: View {
             return "ontem, \(time)"
         }
         return "\(date.formatted(.dateTime.day().month(.abbreviated).locale(locale))), \(time)"
+    }
+}
+
+/// A conversation with messages in the outbox: amber while they wait, red when one was not sent.
+private struct HeldDot: View {
+    let color: StatusColor
+
+    var body: some View {
+        Circle()
+            .fill(color.color)
+            .frame(width: 6, height: 6)
+            .help(color == .error ? "Uma mensagem não foi enviada" : "Mensagens na fila do Telegram")
     }
 }

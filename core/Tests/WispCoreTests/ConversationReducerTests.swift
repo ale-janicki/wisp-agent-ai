@@ -135,4 +135,31 @@ import Testing
         #expect(time != nil)
         #expect((time ?? .distantPast) >= before)
     }
+
+    @Test func heldSetsPhase() {
+        var state = ConversationState()
+        ConversationReducer.userSent(&state, text: "oi")
+        ConversationReducer.held(&state, reason: "o Telegram está fora do ar")
+        #expect(state.phase == .held("o Telegram está fora do ar"))
+        #expect(state.pendingTurns == 1)
+    }
+
+    @Test func heldThenUserSentStaysHeld() {
+        var state = ConversationState()
+        ConversationReducer.userSent(&state, text: "um")
+        ConversationReducer.held(&state, reason: "fora")
+        ConversationReducer.userSent(&state, text: "dois")
+        #expect(state.phase == .held("fora"))
+        #expect(state.pendingTurns == 2)
+        #expect(state.messages.map(\.text) == ["um", "dois"])
+    }
+
+    @Test func userSentKeepsTheOutboxIdAndTime() {
+        var state = ConversationState()
+        let id = UUID()
+        let time = Date(timeIntervalSince1970: 1_000)
+        ConversationReducer.userSent(&state, text: "oi", id: id, time: time)
+        #expect(state.messages.last?.id == id)
+        #expect(state.messages.last?.time == time)
+    }
 }
