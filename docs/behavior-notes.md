@@ -56,6 +56,12 @@ Traps, invariants and external-system quirks that used to live as code comments.
 - `ClipboardHistory`: items carrying an nspasteboard.org concealed / transient marker (including older markers some apps still write) are never stored; copying the same content again moves the entry up keeping its pin; pinned items are never evicted; big text copies are not recorded.
 - `NotchGeometry`: the band hugging the notch never changes between rest and active; active only adds a strip below it.
 
+## core / Setup
+
+- `CommandRunner` replaces the whole environment when one is given: for uv always pass `RuntimeBootstrap.processEnvironment(layout, base:)`, never `uvEnvironment` alone (PATH, HOME, proxies and SSL_* would be lost).
+- Risk to check in Task 15: the runtime root is under `$HOME`, and a home with a space (`/Users/Maria Silva`) was not run through uv; the paths are passed as separate argv/env values, but uv and the venv shebangs with a space are unverified.
+- `SetupState` is read and written only through `SetupState.load/save` (ISO 8601 dates), so the wizard and the gate agree.
+
 ## app
 
 - `NowPlayingService`: every script is wrapped in `is running`, so a player that quit between the check and the script is never relaunched by `tell`. `AEDeterminePermissionToAutomateTarget` blocks (with `ask` it waits on the system prompt): it runs on its own queue, never main, and a prompting request has its own queue so an unanswered prompt does not hold back the other player's checks. No query at launch, so the Automation prompt never appears out of context; only a player that already granted Automation is queried; the prompt comes from "Permitir controle". A grant is cached (the 1 s ticker must not hit tccd); a revoke surfaces as -1743. The wildcard permission check does not prompt, a real harmless Apple Event does. Local files and ads have no artwork URL; that must not hide the track.

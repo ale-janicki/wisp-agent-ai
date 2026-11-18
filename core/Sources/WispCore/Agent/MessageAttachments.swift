@@ -14,7 +14,7 @@ public struct StagedAttachment: Equatable, Sendable {
 }
 
 /// The attachment block the Wisp bot writes for a phone upload, and Wisp writes for its own:
-/// `[o Ale enviou N arquivo(s) pelo <origem>, ja salvos nesta maquina:\n- <path> (<name>, <bytes> bytes)…]\n\n<caption>`.
+/// `[o <user> enviou N arquivo(s) pelo <origem>, ja salvos nesta maquina:\n- <path> (<name>, <bytes> bytes)…]\n\n<caption>`.
 /// Wisp composes it byte for byte like the bot (`bloco_anexos` in bot.py), so a linked echo matches the transcript.
 public struct MessageAttachments: Equatable, Sendable {
     public enum Item: Equatable, Sendable {
@@ -27,7 +27,9 @@ public struct MessageAttachments: Equatable, Sendable {
     public var caption: String?
 
     public static let noCaption = "(sem texto — veja o que é e me diga)"
-    private static let headPrefix = "[o Ale enviou "
+    private static let headPrefix = "[o "
+    private static let headEnviou = " enviou "
+    public static let defaultUser = "usuario"
     private static let headMiddle = " arquivo(s) pelo "
     private static let headSuffix = ", ja salvos nesta maquina:"
     private static let failedMarker = ": nao consegui baixar"
@@ -40,7 +42,7 @@ public struct MessageAttachments: Equatable, Sendable {
 
     /// A text that starts like the block but does not parse: no items (so no path ever shows), just the caption.
     public static func unparsed(_ text: String) -> MessageAttachments? {
-        guard text.hasPrefix(headPrefix), parse(text) == nil else { return nil }
+        guard isBlockHead(text), parse(text) == nil else { return nil }
         let rest = text.range(of: "]\n\n").map { text[$0.upperBound...].trimmingCharacters(in: .whitespacesAndNewlines) } ?? ""
         return MessageAttachments(origin: "", items: [], caption: rest.isEmpty || isPlaceholder(rest) ? nil : rest)
     }
@@ -71,17 +73,38 @@ public struct MessageAttachments: Equatable, Sendable {
         return String(parts[2])
     }
 
-    public static func compose(origin: String, files: [StagedAttachment], caption: String) -> String {
+    /// The first line has the full shape `[o <name> enviou <digits> arquivo(s) pelo Telegram|Wisp`; ordinary text that
+    /// only starts with "[o " does not count.
+    private static func isBlockHead(_ text: String) -> Bool {
+        guard text.hasPrefix(headPrefix) else { return false }
+        let head = text.prefix { $0 != "\n" }.dropFirst(headPrefix.count)
+        var from = head.startIndex
+        while let who = head.range(of: headEnviou, range: from..<head.endIndex) {
+            let rest = head[who.upperBound...]
+            let digits = rest.prefix(while: \.isASCII).prefix(while: \.isNumber)
+            let after = rest.dropFirst(digits.count)
+            if !digits.isEmpty, after.hasPrefix(headMiddle), ["Telegram", "Wisp"].contains(where: { after.dropFirst(headMiddle.count).hasPrefix($0) }) {
+                return true
+            }
+            from = who.upperBound
+        }
+        return false
+    }
+
+    public static func compose(origin: String, files: [StagedAttachment], caption: String, user: String? = nil) -> String {
+        let name = user?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let who = name.isEmpty ? defaultUser : name
         let trimmed = caption.trimmingCharacters(in: .whitespacesAndNewlines)
         let lines = files.map { "- \($0.path) (\($0.name), \($0.bytes) bytes)" }
-        return "\(headPrefix)\(files.count)\(headMiddle)\(origin)\(headSuffix)\n"
+        return "\(headPrefix)\(who)\(headEnviou)\(files.count)\(headMiddle)\(origin)\(headSuffix)\n"
             + lines.joined(separator: "\n") + "]\n\n" + (trimmed.isEmpty ? noCaption : trimmed)
     }
 
     public static func parse(_ text: String) -> MessageAttachments? {
         let lines = text.components(separatedBy: "\n")
-        guard let head = lines.first, head.hasPrefix(headPrefix), head.hasSuffix(headSuffix) else { return nil }
-        let middle = head.dropFirst(headPrefix.count).dropLast(headSuffix.count)
+        guard let head = lines.first, head.hasPrefix(headPrefix), head.hasSuffix(headSuffix),
+              let who = head.dropFirst(headPrefix.count).range(of: headEnviou) else { return nil }
+        let middle = head.dropFirst(headPrefix.count)[who.upperBound...].dropLast(headSuffix.count)
         guard let split = middle.range(of: headMiddle), let count = Int(middle[..<split.lowerBound]), count > 0 else { return nil }
         let origin = String(middle[split.upperBound...])
 
