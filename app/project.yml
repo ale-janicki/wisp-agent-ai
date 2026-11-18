@@ -23,6 +23,11 @@ targets:
         MACOSX_DEPLOYMENT_TARGET: "15.0"
         GENERATE_INFOPLIST_FILE: YES
         CODE_SIGN_IDENTITY: "-"
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
+    postBuildScripts:
+      - name: Embed runtime
+        script: '"$SRCROOT/../scripts/embed-runtime.sh"'
+        basedOnDependencyAnalysis: false
     info:
       path: Sources/Info.plist
       properties:

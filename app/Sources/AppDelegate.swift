@@ -3,8 +3,10 @@ import AppKit
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var shell: ShellController?
+    private let runtime = RuntimeInstaller()
 
     func applicationWillTerminate(_ notification: Notification) {
+        runtime.cancel()
         AppSettings.shared.flush()
     }
 
@@ -25,5 +27,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         #if DEBUG
         shell.runDebugArguments()
         #endif
+        Task { await runtime.ensure() }
     }
 }

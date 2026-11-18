@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- App bundles `uv` 0.13.5 (universal, pinned sha256, `scripts/fetch-uv.sh`) and the Python sources (`scripts/embed-runtime.sh`); on first launch `RuntimeInstaller` copies them to `~/.local/share/wisp/runtime`, runs `uv sync` and `wisp setup shim`, and writes `VERSION` last. An unchanged runtime is not reinstalled.
 - WispCore D15 delivery: `DeliveryPolicy` (local only without Telegram, else Telegram or hold), a persisted `Outbox` of held messages (oldest first, corrupt file kept as `outbox.json.bad`) and the conversation phase `held`.
 - WispCore setup models (`SetupReport`, `DoctorReport`, `SetupState`), the wizard gate, the runtime bootstrap layout and a capturing `CommandRunner` (process spawning shared with `BlockCommand` through `ProcessCore`); `Persona.user` names the user in attachment blocks (fallback "o usuario") and the CLI contract fixtures are decoded by the Swift parsers.
 - `wisp setup profile --name … [--user-name] [--language] [--avatar] --json` writes `~/.config/wisp/profile.json` (persona with the user's name, brain blocks, existing blocks kept), copies the avatar and re-renders the CLAUDE.md block (an edited block stays a conflict); `wisp setup shim` writes `~/.local/bin/wisp` and refuses a file that is not ours.
