@@ -11,7 +11,7 @@ final class ProfileTests: XCTestCase {
         return url
     }
 
-    func testLoadsWispProfile() throws {
+    func testLoadsProfile() throws {
         let url = try tempFile("""
         {"persona":{"name":"Wisp","language":"pt-BR"},
          "agent":{"cwd":"~","statusPrefix":"STATUS ·"}}
@@ -69,10 +69,10 @@ final class ProfileTests: XCTestCase {
 
     func testLoadsAlertsBlockCommand() throws {
         let url = try tempFile("""
-        {"persona":{"name":"A","language":"en"},"agent":{"cwd":"~"},"blocks":{"alerts":{"list":"Wisp-alerta list --json"},"todos":{"list":"x"}}}
+        {"persona":{"name":"A","language":"en"},"agent":{"cwd":"~"},"blocks":{"alerts":{"list":"alerts list --json"},"todos":{"list":"x"}}}
         """)
         let profile = try ProfileLoader.load(from: url)
-        XCTAssertEqual(profile.blocks?.alerts?.list, "Wisp-alerta list --json")
+        XCTAssertEqual(profile.blocks?.alerts?.list, "alerts list --json")
         XCTAssertNil(profile.blocks?.alerts?.resolve)
     }
 
@@ -80,12 +80,5 @@ final class ProfileTests: XCTestCase {
         XCTAssertEqual(expandTilde("~/x"), NSHomeDirectory() + "/x")
         XCTAssertEqual(expandTilde("~"), NSHomeDirectory())
         XCTAssertEqual(expandTilde("/a/b"), "/a/b")
-    }
-
-    func testRealProfileIsWispWhenPresent() throws {
-        try XCTSkipUnless(ProcessInfo.processInfo.environment["WISP_LIVE"] == "1")
-        try XCTSkipUnless(FileManager.default.fileExists(atPath: ProfileLoader.defaultURL.path))
-        let profile = try ProfileLoader.load(from: ProfileLoader.defaultURL)
-        XCTAssertEqual(profile.persona.name, "Wisp")
     }
 }

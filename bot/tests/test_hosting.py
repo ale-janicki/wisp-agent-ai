@@ -1599,3 +1599,19 @@ def test_ctl_falar_no_geral_posta_sem_message_thread_id(monkeypatch):
     asyncio.run(cenario())
     assert feitos["g"] == {"ok": True, "thread_id": 0}
     assert enviados == [None] and turnos == [(None, "-1:0")]
+
+
+def test_sh_err_estouro_mata_o_grupo_inteiro(tmp_path):
+    import os
+    pidfile = tmp_path / "neto.pid"
+    rc, out, _ = asyncio.run(hosting._sh_err("sh", "-c", f"sleep 30 & echo $! > {pidfile}; wait", timeout=1))
+    assert rc == 124 and out == ""
+    neto = int(pidfile.read_text())
+    for _ in range(50):
+        try:
+            os.kill(neto, 0)
+        except ProcessLookupError:
+            break
+        time.sleep(0.1)
+    with pytest.raises(ProcessLookupError):
+        os.kill(neto, 0)

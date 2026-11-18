@@ -4,8 +4,8 @@ import XCTest
 final class MessageAttachmentsTests: XCTestCase {
     private let phoneUpload = """
         [o Ale enviou 3 arquivo(s) pelo Telegram, ja salvos nesta maquina:
-        - /Users/x/.Wisp-telegram/anexos/2026-11-17/6125-foto-6125.jpg (foto-6125.jpg, 99013 bytes)
-        - /Users/x/.Wisp-telegram/anexos/2026-11-17/6126-relatorio (1).pdf (relatorio (1).pdf, 2048 bytes)
+        - /Users/x/.wisp-telegram/anexos/2026-11-17/6125-foto-6125.jpg (foto-6125.jpg, 99013 bytes)
+        - /Users/x/.wisp-telegram/anexos/2026-11-17/6126-relatorio (1).pdf (relatorio (1).pdf, 2048 bytes)
         - foto: nao consegui baixar (File is too big)]
 
         (sem texto — veja o que é e me diga)
@@ -16,8 +16,8 @@ final class MessageAttachmentsTests: XCTestCase {
         XCTAssertEqual(parsed.origin, "Telegram")
         XCTAssertNil(parsed.caption)
         XCTAssertEqual(parsed.items, [
-            .file(path: "/Users/x/.Wisp-telegram/anexos/2026-11-17/6125-foto-6125.jpg", name: "foto-6125.jpg", bytes: 99013),
-            .file(path: "/Users/x/.Wisp-telegram/anexos/2026-11-17/6126-relatorio (1).pdf", name: "relatorio (1).pdf", bytes: 2048),
+            .file(path: "/Users/x/.wisp-telegram/anexos/2026-11-17/6125-foto-6125.jpg", name: "foto-6125.jpg", bytes: 99013),
+            .file(path: "/Users/x/.wisp-telegram/anexos/2026-11-17/6126-relatorio (1).pdf", name: "relatorio (1).pdf", bytes: 2048),
             .failed(label: "foto"),
         ])
     }
@@ -37,10 +37,10 @@ final class MessageAttachmentsTests: XCTestCase {
     }
 
     func testComposeMatchesTheBotByteForByteAndRoundTrips() throws {
-        let files = [StagedAttachment(path: "/h/.Wisp-telegram/anexos/2026-11-17/wisp-a1-praia.jpg", name: "wisp-a1-praia.jpg", bytes: 4)]
+        let files = [StagedAttachment(path: "/h/.wisp-telegram/anexos/2026-11-17/wisp-a1-praia.jpg", name: "wisp-a1-praia.jpg", bytes: 4)]
         let empty = MessageAttachments.compose(origin: "Wisp", files: files, caption: "  ")
         XCTAssertEqual(empty, "[o usuario enviou 1 arquivo(s) pelo Wisp, ja salvos nesta maquina:\n"
-            + "- /h/.Wisp-telegram/anexos/2026-11-17/wisp-a1-praia.jpg (wisp-a1-praia.jpg, 4 bytes)]\n\n"
+            + "- /h/.wisp-telegram/anexos/2026-11-17/wisp-a1-praia.jpg (wisp-a1-praia.jpg, 4 bytes)]\n\n"
             + "(sem texto — veja o que é e me diga)")
         XCTAssertNil(try XCTUnwrap(MessageAttachments.parse(empty)).caption)
         XCTAssertTrue(MessageAttachments.compose(origin: "Wisp", files: files, caption: "", user: "Rita").hasPrefix("[o Rita enviou "))

@@ -56,7 +56,7 @@ def test_missing_gitleaks_fails_loudly(tmp_path):
 def test_missing_default_dir_is_an_error(tmp_path):
     (tmp_path / "scripts").mkdir()
     shutil.copy(SCRIPT, tmp_path / "scripts/leak-check.sh")
-    for name in ("cli", "bot", "vault-template"):
+    for name in ("app", "core", "cli", "bot", "docs", "vault-template"):
         (tmp_path / name).mkdir()
     result = subprocess.run([str(tmp_path / "scripts/leak-check.sh")], capture_output=True, text=True)
     assert result.returncode == 1
@@ -82,3 +82,31 @@ def test_grep_read_error_is_a_failure(tmp_path):
     finally:
         locked.chmod(0o755)
     assert result.returncode == 1
+
+
+def _default_scope_tree(tmp_path):
+    (tmp_path / "scripts").mkdir()
+    shutil.copy(SCRIPT, tmp_path / "scripts/leak-check.sh")
+    (tmp_path / "scripts/leak-patterns.txt").write_text("planted-marker\n")
+    (tmp_path / "scripts/uv").write_text("#!/bin/sh\nexit 0\n")
+    (tmp_path / "scripts/uv").chmod(0o755)
+    for name in ("app", "core", "cli", "bot", "harness", "docs", "vault-template"):
+        (tmp_path / name).mkdir()
+    return {"PATH": f"{tmp_path / 'scripts'}:{shutil.which('gitleaks') and Path(shutil.which('gitleaks')).parent}:/usr/bin:/bin"}
+
+
+@needs_gitleaks
+def test_default_scope_covers_docs_and_core_but_skips_runtime_build_and_patterns(tmp_path):
+    env = _default_scope_tree(tmp_path)
+    script = str(tmp_path / "scripts/leak-check.sh")
+    (tmp_path / "app/Resources/runtime").mkdir(parents=True)
+    (tmp_path / "app/Resources/runtime/vendored.txt").write_text("planted-marker\n")
+    (tmp_path / "core/build").mkdir()
+    (tmp_path / "core/build/out.txt").write_text("planted-marker\n")
+    assert subprocess.run([script], capture_output=True, text=True, env=env).returncode == 0
+    for folder in ("docs", "core/Tests", "app/Sources", "scripts"):
+        planted = tmp_path / folder / "n.md"
+        planted.parent.mkdir(parents=True, exist_ok=True)
+        planted.write_text("planted-marker\n")
+        assert subprocess.run([script], capture_output=True, text=True, env=env).returncode == 1, folder
+        planted.unlink()

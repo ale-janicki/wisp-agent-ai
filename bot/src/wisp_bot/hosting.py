@@ -43,7 +43,7 @@ Tudo isto e o modo `pair` (telegram.hosting). No modo `solo`, o padrao, ha um ho
 `rodar` ativa a leitura e so publica a batida, sem ssh nenhum.
 """
 from __future__ import annotations
-import asyncio, ipaddress, json, logging, os, platform, re, shlex, shutil, socket, time
+import asyncio, ipaddress, json, logging, os, platform, re, shlex, shutil, signal, socket, time
 from pathlib import Path
 
 from . import config, polling
@@ -290,17 +290,21 @@ def _pc_cfg() -> dict:
 
 
 async def _sh_err(*cmd: str, stdin: bytes | None = None, timeout: float = 10) -> tuple[int, str, str]:
-    """Como _sh, mas devolve tambem o stderr (rc, stdout, stderr)."""
+    """Como _sh, mas devolve tambem o stderr (rc, stdout, stderr). O filho nasce em sessao propria e no estouro o grupo inteiro morre."""
     p = None
     try:
         p = await asyncio.create_subprocess_exec(
             *cmd, stdin=asyncio.subprocess.PIPE if stdin is not None else asyncio.subprocess.DEVNULL,
-            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, start_new_session=True)
         out, err = await asyncio.wait_for(p.communicate(stdin), timeout=timeout)
         return p.returncode or 0, (out or b"").decode("utf-8", "replace"), (err or b"").decode("utf-8", "replace")
     except (FileNotFoundError, asyncio.TimeoutError):
         if p is not None and p.returncode is None:
-            p.kill()
+            try:
+                os.killpg(p.pid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                p.kill()
+            await p.wait()
         return 124, "", ""
 
 

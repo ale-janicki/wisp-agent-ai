@@ -128,10 +128,18 @@ final class RoutinesTests: XCTestCase {
         XCTAssertEqual(RoutineRegistry.logs(fromPlist: Data("nope".utf8)), [])
     }
 
-    func testRealRegistryMatchesItsPlistsWhenPresent() throws {
-        let path = NSHomeDirectory() + "/repos/pessoal/Wisp/harness/wisp/jobs.json"
-        try XCTSkipUnless(FileManager.default.fileExists(atPath: path))
-        for job in try RoutineRegistry.load(path: path) {
+    func testRegistryFixtureMatchesItsPlist() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("routines-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let plistURL = dir.appendingPathComponent("job.plist")
+        let plistData = try PropertyListSerialization.data(
+            fromPropertyList: ["Label": "com.example.wisp-job", "StandardOutPath": "/tmp/job.log"], format: .xml, options: 0)
+        try plistData.write(to: plistURL)
+        let registry = dir.appendingPathComponent("jobs.json")
+        let json = #"{"jobs":[{"label":"com.example.wisp-job","name":"Job","plist":"\#(plistURL.path)","logs":["/tmp/job.log"]}]}"#
+        try Data(json.utf8).write(to: registry)
+        for job in try RoutineRegistry.load(path: registry.path) {
             let data = try XCTUnwrap(FileManager.default.contents(atPath: job.plist), job.label)
             XCTAssertEqual(RoutineRegistry.logs(fromPlist: data), job.logs, job.label)
             let plist = try XCTUnwrap(PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any])
@@ -151,15 +159,8 @@ final class RoutinesTests: XCTestCase {
         XCTAssertNil(blocks.routines?.start)
     }
 
-    func testRealLaunchctlPrintParsesForEveryRegistryJob() throws {
+    func testRealLaunchctlPrintReportsAnUnloadedJob() throws {
         try XCTSkipUnless(ProcessInfo.processInfo.environment["WISP_LIVE"] == "1")
-        let path = NSHomeDirectory() + "/repos/pessoal/Wisp/harness/wisp/jobs.json"
-        for job in try RoutineRegistry.load(path: path) {
-            let command = RoutineCommand.build("launchctl print gui/{uid}/{label}", job: job)
-            let status = try RoutineStatusParser.interpret(BlockCommand.run(command, path: "/usr/bin:/bin")).get()
-            print("live: \(job.label) \(status)")
-            XCTAssertTrue(status.isLoaded, job.label)
-        }
         let missing = RoutineJob(label: "com.example.wisp-not-loaded", name: "x", plist: "/x.plist")
         let command = RoutineCommand.build("launchctl print gui/{uid}/{label}", job: missing)
         XCTAssertEqual(RoutineStatusParser.interpret(BlockCommand.run(command, path: "/usr/bin:/bin")), .success(.unloaded))

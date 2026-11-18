@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `wisp hook guard-secrets` (`PreToolUse`): blocks Bash and file-tool calls that reference the Wisp secrets folder, after normalising `~`, `$HOME` and `..`; the existing deny rules stay.
+- `scripts/leak-check.sh` scans the whole tree (app, core, cli, bot, harness, vault-template, docs, scripts), not only the shipped folders.
 - Ajustes > "Abrir ao ligar o Mac" (default on): Wisp registers itself as a login item (`SMAppService.mainApp`) once, when the setup wizard finishes or on the first launch after it, and only from an app in /Applications or ~/Applications (a DerivedData build never does). A removal in System Settings is respected; the switch shows macOS's real status, can register again on purpose, and points to Login Items when macOS asks for approval. The decision is `LoginItemPolicy` in WispCore.
 - Notch notices: a reply in a conversation not on screen (local or Telegram), a new message in a Telegram topic, a new alert/lembrete and an outbox message finally sent or marked "não enviada" grow the pill into a card under the notch (avatar or icon, title, two-line preview, time, +N when more wait, ×); it folds after 6 s, pauses while hovered, a click opens the panel on the conversation, topic or Lembretes, and with the panel open on another tab a floating copy shows instead. Queue, dedupe by source, "already on screen" and timing live in WispCore `NoticeQueue`; alerts and topics are read every 60 s while the panel is closed. Ajustes > "Avisos no notch": one switch per kind and "Não perturbe". Never the macOS Notification Center. DEBUG `-WispDemoNotice` fires three samples.
 - Release build: `scripts/build-release.sh` builds the Release app, signs the embedded uv and the app (ad-hoc by default; `WISP_SIGN_ID` for a Developer ID with the hardened runtime and the apple-events entitlement; notarizes only with `WISP_NOTARY_PROFILE`), verifies the signature and packs `dist/Wisp.zip`; pt-BR install guide in `docs/instalar.md`. The runtime installer runs a copy of uv without the quarantine flag, because the bundled uv blocks on Gatekeeper when the app came from a download.
@@ -35,12 +37,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Conversation rows (Conversas list and the Início "Conversas" tile) show a one-line preview of the last message under the date ("Você: …" for yours, attachments as "📎 foto"/"📎 arquivo"). It is stored on the record when you send or a reply lands (`lastPreview`/`lastFrom`); older records and Telegram topics get it from the tail of the session transcript, read off the main actor with a byte cap. Removed the unused `LastConversationModel`.
+- Início: the "Última conversa" tile is now "Conversas": the most recent conversations (Wisp and Telegram topics), newest first, as many rows as the tile's height fits, each one opens in Conversa; the tile shows the same count as the Conversa badge.
+- Pill avatar: the Wisp droplet takes its gradient from the theme accent (accent to a lighter tint, live on theme change), floats and breathes gently, blinks at random every 4 to 7 s and pulses a soft glow while the agent works; "Reduzir movimento" freezes it; a chosen profile image is untouched. The pill dot is gone by default: it shows only for a notice not yet opened or dismissed (accent, amber for a reminder, red for an alert or failed message) or a conversation in error, and clears when the panel opens.
 - Conversa with Telegram configured never falls back to a local session: every message (with its attachments) goes into the outbox first and waits "na fila" while the bot is down, survives a quit, retries after 10, 30 and 60 s when a send fails, then shows "não enviada · tentar de novo · descartar"; it goes out in order through the same hand-off, create and send once the bot is back, a timed-out send is never resent on its own, and the Conversa list marks conversations with held messages; the notice reads "Telegram fora do ar — as mensagens ficam na fila".
 - `wisp doctor --json` prints one JSON object with a `warning` and default settings when `wisp.json` is unreadable; the bot's launchd label is `ai.wisp.bot`.
 - Telegram: the machine where the last Wisp message was sent reads the bot. Sending from Wisp while the other machine reads first brings the conversation over ("Trazendo a conversa do PC…"), then creates or sends; if the hand-off fails, one sentence explains it and nothing is sent. The Conversa list says when the PC is reading.
 
 ### Fixed
 
+- Claude installer is downloaded over HTTPS (`--fail --proto =https --tlsv1.2`) to a file and run from it instead of `curl | bash`; the bot's ssh helper kills its whole process group on timeout.
+- Conversa tab: closing the conversation list now slides it out over the menu with its background, the exact reverse of opening it (the list overlay keeps an explicit `zIndex`, so it is no longer dropped under the sidebar while it is removed).
 - The command runner no longer crashes when a timed-out child has already exited.
 - Invalid graph settings now fall back to the defaults and say so in a notice instead of resetting silently.
 
