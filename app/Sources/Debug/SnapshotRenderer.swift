@@ -11,6 +11,10 @@ enum SnapshotRenderer {
     }
 
     static func run(into directory: URL) async {
+        if ProcessInfo.processInfo.arguments.contains("-WispSnapshotApproval") {
+            await renderApproval(to: directory)
+            return
+        }
         let shell = ShellController()
         shell.media.start()
         shell.media.refresh()
@@ -96,6 +100,27 @@ enum SnapshotRenderer {
     }
 
     private static let margin: CGFloat = 24
+
+    /// `-WispSnapshotApproval`: only the approval card (closed, open, with a queue) and the Ajustes card, no shell.
+    private static func renderApproval(to directory: URL) async {
+        let bash = PermissionRequest(
+            id: "demo-1", toolName: "Bash", summary: "rodar mkdir -p ~/projetos/novo && cd ~/projetos/novo && git init",
+            detail: "Cria a pasta do projeto e inicia o git\n\nmkdir -p ~/projetos/novo && cd ~/projetos/novo && git init",
+            persistJSON: "[]", persistRules: ["Bash(mkdir -p ~/projetos/novo *)"]
+        )
+        let write = PermissionRequest(id: "demo-2", toolName: "Write", summary: "escrever ~/notas/hoje.md",
+                                      detail: "{\n  \"content\" : \"oi\",\n  \"file_path\" : \"~/notas/hoje.md\"\n}")
+        let width: CGFloat = 520
+        func framed(_ view: some View, height: CGFloat) -> some View {
+            view.padding(Theme.Space.l).frame(width: width, height: height, alignment: .top).background(Theme.bg)
+        }
+        await renderView(framed(ApprovalCard(request: bash, queued: 1) { _ in }, height: 150),
+                         size: CGSize(width: width, height: 150), to: directory, name: "approval-1-card")
+        await renderView(framed(ApprovalCard(request: write, queued: 0, expanded: true) { _ in }, height: 230),
+                         size: CGSize(width: width, height: 230), to: directory, name: "approval-2-detail")
+        await renderView(framed(PermissionSettingsCard(), height: 330),
+                         size: CGSize(width: width, height: 330), to: directory, name: "approval-3-settings")
+    }
 
     /// The pill with two theme colors, with and without an unseen notice (and a busy one), plus a larger avatar strip.
     private static func renderAvatarDot(

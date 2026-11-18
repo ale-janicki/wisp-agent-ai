@@ -57,7 +57,12 @@ struct ConversationView: View {
                                 case .tools(let group): ToolsRow(messages: group)
                                 }
                             }
-                            if model.isThinking { TypingRow(name: model.personaName) }
+                            if let request = model.state.approvals.first {
+                                ApprovalCard(request: request, queued: model.state.approvals.count - 1) { model.answer(request, $0) }
+                                    .id(request.id)
+                            } else if model.isThinking {
+                                TypingRow(name: model.personaName)
+                            }
                             if case .failed(let reason) = model.state.phase {
                                 FailureRow(reason: reason) { model.retry() }
                             }
@@ -227,6 +232,85 @@ private struct TypingRow: View {
         .padding(.horizontal, Theme.Space.m)
         .frame(height: 30)
         .background(Theme.surfaceHi, in: RoundedRectangle(cornerRadius: Theme.Radius.bubble, style: .continuous))
+    }
+}
+
+/// A tool call the CLI holds until the user answers; one at a time, the rest wait behind it.
+struct ApprovalCard: View {
+    let request: PermissionRequest
+    let queued: Int
+    let answer: (PermissionDecision) -> Void
+    @State private var expanded: Bool
+
+    init(request: PermissionRequest, queued: Int, expanded: Bool = false, answer: @escaping (PermissionDecision) -> Void) {
+        self.request = request
+        self.queued = queued
+        self.answer = answer
+        _expanded = State(initialValue: expanded)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Theme.Space.s) {
+            HStack(spacing: Theme.Space.s) {
+                Circle().fill(Theme.busy).frame(width: 7, height: 7)
+                Text(ConversationReducer.awaitingApprovalStep)
+                    .font(Theme.Font.caption)
+                    .foregroundStyle(Theme.textSecondary)
+                Spacer(minLength: 0)
+                if queued > 0 {
+                    Text("+\(queued) na fila")
+                        .font(Theme.Font.caption)
+                        .foregroundStyle(Theme.textTertiary)
+                }
+            }
+            Text("O Claude quer \(request.summary)")
+                .font(Theme.Font.bodyMedium)
+                .foregroundStyle(Theme.textPrimary)
+                .lineLimit(3)
+                .truncationMode(.middle)
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+            Button { withAnimation(.easeOut(duration: 0.18)) { expanded.toggle() } } label: {
+                HStack(spacing: 4) {
+                    Text("detalhes")
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 9, weight: .bold))
+                        .rotationEffect(.degrees(expanded ? 90 : 0))
+                }
+                .font(Theme.Font.caption)
+                .foregroundStyle(Theme.textSecondary)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .pointerStyle(.link)
+            if expanded {
+                ScrollView {
+                    Text(request.detail)
+                        .font(Theme.Font.tool)
+                        .foregroundStyle(Theme.textSecondary)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(Theme.Space.s)
+                }
+                .frame(maxHeight: 160)
+                .background(Theme.surfaceHi, in: RoundedRectangle(cornerRadius: Theme.Radius.bubble, style: .continuous))
+                .transition(.opacity)
+            }
+            HStack(spacing: Theme.Space.s) {
+                Button("Permitir") { answer(.allow) }
+                    .buttonStyle(CapsuleButtonStyle())
+                if request.canPersist {
+                    Button("Sempre permitir") { answer(.allowAlways) }
+                        .buttonStyle(CapsuleButtonStyle(kind: .ghost))
+                        .help("Salva no Claude: \(request.persistRules.joined(separator: ", "))")
+                }
+                Spacer(minLength: 0)
+                Button("Negar") { answer(.deny) }
+                    .buttonStyle(CapsuleButtonStyle(kind: .error))
+            }
+        }
+        .padding(Theme.Space.m)
+        .background(Theme.busy.opacity(0.1), in: RoundedRectangle(cornerRadius: Theme.Radius.bubble, style: .continuous))
     }
 }
 

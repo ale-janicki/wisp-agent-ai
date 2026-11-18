@@ -53,6 +53,10 @@ final class ConversationViewModel {
     @ObservationIgnored private var seenPrompts = 0
     @ObservationIgnored private var awaitingReply = false
     @ObservationIgnored private var replyDeadline: Task<Void, Never>?
+    /// The mode the live session was started with, to tell whether the CLI took `auto`.
+    @ObservationIgnored private var sessionMode: String?
+    /// The permission mode changed mid-turn: the session restarts once the turn ends.
+    @ObservationIgnored private var restartAfterTurn = false
     #if DEBUG
     @ObservationIgnored private var demoAsk2: String?
     @ObservationIgnored private var demoRetry: String?
@@ -116,6 +120,7 @@ final class ConversationViewModel {
         probeClaude()
         Task { [weak self] in await self?.refreshTelegram() }
         startDrain()
+        PermissionModel.shared.onChange = { [weak self] in self?.permissionModeChanged() }
     }
 
     var telegramNotice: String? {
@@ -862,6 +867,8 @@ final class ConversationViewModel {
 
     private func discardSession() {
         generation += 1
+        sessionMode = nil
+        restartAfterTurn = false
         eventTask?.cancel()
         eventTask = nil
         startTask = nil
@@ -896,11 +903,14 @@ final class ConversationViewModel {
             let executable = try await Task.detached { try ClaudeLocator.resolve(configured: configured) }.value
             guard gen == generation else { throw CancellationError() }
             let resume = state.sessionId
+            PermissionModel.shared.refresh()
+            let mode = PermissionModel.shared.cliMode
             let next = AgentSession(
                 executable: executable,
                 cwd: URL(fileURLWithPath: expandTilde(sessionCwd ?? profile.agent.cwd)),
                 model: profile.agent.model,
-                resume: resume
+                resume: resume,
+                permissionMode: mode
             )
             try await next.start()
             guard gen == generation else {
@@ -908,8 +918,9 @@ final class ConversationViewModel {
                 throw CancellationError()
             }
             session = next
+            sessionMode = mode
             startTask = nil
-            log.notice("session started resume=\(resume ?? "nil", privacy: .private)")
+            log.notice("session started resume=\(resume ?? "nil", privacy: .private) mode=\(mode ?? "claude", privacy: .public)")
             eventTask = Task { [weak self] in
                 for await event in next.events { self?.handle(event, generation: gen) }
             }
@@ -964,9 +975,56 @@ final class ConversationViewModel {
         }
         if isResult || state.phase != before { syncPill(result: isResult) }
         if case .claude(.result(_, _, false, _)) = event { noticeReply() }
+        if case .claude(.permissionRequest(let request)) = event { noticeApproval(request) }
+        if case .claude(.permissionMode(let mode)) = event { reportedMode(mode) }
         #if DEBUG
         continueDemo(after: event)
         #endif
+        if isResult, restartAfterTurn, state.pendingTurns == 0 {
+            restartAfterTurn = false
+            discardSession()
+        }
+    }
+
+    // MARK: Permissions
+
+    /// The card's buttons. The reducer moves on at once; the CLI holds the tool call until the line lands.
+    func answer(_ request: PermissionRequest, _ decision: PermissionDecision) {
+        guard state.approvals.contains(where: { $0.id == request.id }) else { return }
+        ConversationReducer.approvalAnswered(&state, id: request.id, decision: decision)
+        syncPill()
+        guard let active = session else { return }
+        let gen = generation
+        Task { [weak self] in
+            do {
+                try await active.respond(to: request, decision)
+            } catch {
+                guard let self, gen == self.generation else { return }
+                self.log.error("permission answer failed: \(error.localizedDescription, privacy: .public)")
+                self.state.messages.append(ConversationMessage(role: .system, text: "não consegui responder ao claude: a sessão acabou"))
+            }
+        }
+    }
+
+    /// A new mode applies to the next start: an idle session stops now (the next message resumes it with the
+    /// new mode), a turn in flight finishes first.
+    private func permissionModeChanged() {
+        loadProfile()
+        guard session != nil || startTask != nil else { return }
+        if state.pendingTurns == 0 {
+            discardSession()
+        } else {
+            restartAfterTurn = true
+        }
+    }
+
+    private func reportedMode(_ mode: String) {
+        PermissionModel.shared.sessionReported(mode: mode, requested: sessionMode)
+        guard sessionMode == PermissionChoice.auto.rawValue, mode != sessionMode else { return }
+        state.messages.append(ConversationMessage(
+            role: .system,
+            text: "o modo Automático não está disponível nesta conta; esta conversa roda no modo \(mode)"
+        ))
     }
 
     private func logLatency() {
@@ -1015,6 +1073,19 @@ final class ConversationViewModel {
             preview: Notices.preview(last.text),
             time: Date(),
             target: linkedThread.map(NoticeTarget.topic) ?? .conversation(currentId)
+        ))
+    }
+
+    /// The panel closed (or on another screen) while a tool call waits for the user.
+    private func noticeApproval(_ request: PermissionRequest) {
+        shell?.notices.post(Notice(
+            sourceId: "approval:\(currentId.uuidString)",
+            kind: .approval,
+            title: "O Claude precisa da tua aprovação",
+            preview: Notices.preview("Quer \(request.summary)"),
+            time: Date(),
+            target: .conversation(currentId),
+            tone: .warning
         ))
     }
 
