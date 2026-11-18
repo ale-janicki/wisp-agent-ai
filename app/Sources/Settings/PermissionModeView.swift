@@ -1,13 +1,14 @@
 import SwiftUI
 import WispCore
 
+/// The three choices, shared by Ajustes and the setup's "Teu wisp" step. "Sem pedir" asks for a confirm first.
 struct PermissionModePicker: View {
     private let model = PermissionModel.shared
     @State private var confirmingBypass = false
 
     private static let options: [(PermissionChoice, String, String)] = [
         (.ask, "Pedir minha aprovação", "O Claude pergunta aqui no Wisp antes de rodar um comando ou mexer num arquivo."),
-        (.auto, "Automático", "O Claude decide sozinho o que é seguro; o que for arriscado ainda pergunta."),
+        (.auto, "Automático", "O Claude decide sozinho o que é seguro; pode executar ações destrutivas sem perguntar."),
         (.bypass, "Sem pedir (perigoso)", "O Claude roda qualquer comando e edita qualquer arquivo sem perguntar."),
     ]
 
@@ -17,6 +18,10 @@ struct PermissionModePicker: View {
                 row(choice, title: title, sentence: choice == .auto && model.autoUnavailable
                     ? "Indisponível nesta conta: o Claude não aceitou o modo Automático." : sentence)
             }
+            Text("Nas conversas do Telegram, \"Pedir minha aprovação\" roda como Automático.")
+                .font(Theme.Font.caption)
+                .foregroundStyle(Theme.textTertiary)
+                .fixedSize(horizontal: false, vertical: true)
             if confirmingBypass {
                 VStack(alignment: .leading, spacing: Theme.Space.s) {
                     Text("Sem pedir, o Claude age sem perguntar nada. Só as regras de bloqueio do Claude e os hooks continuam valendo.")
@@ -57,7 +62,7 @@ struct PermissionModePicker: View {
             let known = model.setting.choice == nil ? " (\(mode), sem equivalente aqui)" : ""
             return "Definido no Claude\(known), em ~/.claude/settings.json. Escolher aqui vale para o Wisp e não muda esse arquivo."
         case .wisp:
-            return "Teu perfil é gerenciado fora do Wisp, então esta escolha fica só no Wisp; o bot do Telegram não a vê."
+            return "Teu perfil é gerenciado fora do Wisp, então esta escolha fica nos ajustes do Wisp; o bot do Telegram neste Mac lê de lá."
         case .profile, .standard:
             return nil
         }
@@ -100,6 +105,7 @@ struct PermissionModePicker: View {
     }
 }
 
+/// Ajustes > "Permissões do Claude".
 struct PermissionSettingsCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Space.m) {
@@ -107,7 +113,7 @@ struct PermissionSettingsCard: View {
                 Text("Permissões do Claude")
                     .font(Theme.Font.title)
                     .foregroundStyle(Theme.textPrimary)
-                Text("Vale para as conversas do Wisp a partir da próxima mensagem. O bot do Telegram ainda não mostra pedidos: lá, pedir aprovação vira Automático.")
+                Text("Vale para as conversas do Wisp a partir da próxima mensagem.")
                     .font(Theme.Font.caption)
                     .foregroundStyle(Theme.textSecondary)
             }
