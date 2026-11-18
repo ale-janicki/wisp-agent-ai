@@ -52,8 +52,8 @@ def _check_clt(runner: Runner, **_) -> Check:
 def _check_claude(runner: Runner, paths: WispPaths, cfg: WispConfig, **_) -> Check:
     found = locate_claude(paths, cfg, runner)
     if found is None:
-        return Check("claude", False, "o Claude Code não está instalado", "system")
-    return Check("claude", True, "Claude Code instalado", "system", {"path": str(found)})
+        return Check("claude", False, "o Claude não está instalado", "system")
+    return Check("claude", True, "o Claude está instalado", "system", {"path": str(found)})
 
 
 def _check_claude_login(runner: Runner, paths: WispPaths, cfg: WispConfig, **_) -> Check:
@@ -98,12 +98,30 @@ def _check_telegram(runner: Runner, paths: WispPaths, cfg: WispConfig, **_) -> C
     return Check("telegram", ok, "Telegram conectado" if ok else "o Telegram está configurado mas parado", "telegram", {"job": state.value})
 
 
+def _profile_complete(profile: Path) -> bool:
+    """The keys the app needs to decode the profile, plus `persona.user`, which only the profile step writes:
+    a profile seeded by the Telegram step decodes but is not the user's yet."""
+    try:
+        data = json.loads(profile.read_text())
+    except (OSError, ValueError):
+        return False
+    persona = data.get("persona") if isinstance(data, dict) else None
+    agent = data.get("agent") if isinstance(data, dict) else None
+    return (
+        isinstance(persona, dict) and isinstance(agent, dict)
+        and all(isinstance(persona.get(key), str) and persona[key] for key in ("name", "language", "user"))
+        and isinstance(agent.get("cwd"), str)
+    )
+
+
 def _check_profile(paths: WispPaths, **_) -> Check:
     profile = paths.config / "profile.json"
     if profile.is_symlink():
         return Check("profile", True, "perfil gerenciado fora do Wisp", "profile")
-    ok = profile.exists()
-    return Check("profile", ok, "perfil pronto" if ok else "o perfil ainda não foi criado", "profile")
+    if not profile.exists():
+        return Check("profile", False, "o perfil ainda não foi criado", "profile")
+    ok = _profile_complete(profile)
+    return Check("profile", ok, "perfil pronto" if ok else "o perfil ainda não está completo", "profile")
 
 
 _CHECKS = {

@@ -157,7 +157,7 @@ struct MemoryGraphView: View {
     private static var stamps: [Double] = []
     private static var drawMillis: [Double] = []
     private static var flush: Task<Void, Never>?
-    static let log = Logger(subsystem: "com.owner.wisp", category: "graphperf")
+    static let log = Logger(subsystem: AppIdentity.bundleID, category: "graphperf")
 
     static func record(at time: Double, drawSeconds: Double) {
         stamps.append(time)

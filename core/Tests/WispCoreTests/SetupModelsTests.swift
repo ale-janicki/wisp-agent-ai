@@ -23,6 +23,13 @@ final class SetupModelsTests: XCTestCase {
         let json = #"{"version":1,"checks":[{"id":"git","ok":false,"summary":"sem git","step":"system"},{"id":"x","ok":true,"summary":"ok"}]}"#
         let doctor = try JSONDecoder().decode(DoctorReport.self, from: Data(json.utf8))
         XCTAssertEqual(doctor.checks.map(\.step), ["system", nil])
+        XCTAssertEqual(doctor.checks.map(\.data), [[:], [:]])
+    }
+
+    func testDecodesDoctorCheckData() throws {
+        let json = #"{"version":1,"checks":[{"id":"telegram","ok":false,"summary":"parado","step":"telegram","data":{"job":"installed"}}]}"#
+        let doctor = try JSONDecoder().decode(DoctorReport.self, from: Data(json.utf8))
+        XCTAssertEqual(doctor.checks.first?.data, ["job": "installed"])
     }
 
     func testSetupStateSavesAndLoadsWithTheSharedCoders() throws {

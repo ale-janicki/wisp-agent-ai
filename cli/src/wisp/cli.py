@@ -35,7 +35,7 @@ def _load_config_or_default() -> tuple[WispConfig, str | None]:
     try:
         return load_config(), None
     except (ValueError, TypeError, OSError) as e:
-        return WispConfig(), f"wisp.json could not be read ({type(e).__name__}); using defaults"
+        return WispConfig(), "não consegui ler o wisp.json; o Wisp usou os valores padrão"
 
 
 def _doctor(args: argparse.Namespace) -> int:

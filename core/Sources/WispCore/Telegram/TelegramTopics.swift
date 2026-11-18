@@ -154,9 +154,10 @@ public enum TelegramTopics {
         try JSONDecoder().decode(TelegramClaim.self, from: data)
     }
 
+    /// A topic command's error without the tool-name prefix some commands put first (`some-tool: …`).
     public static func claimFailure(_ message: String) -> String {
-        let prefix = "Wisp-topico: "
-        return message.hasPrefix(prefix) ? String(message.dropFirst(prefix.count)) : message
+        guard let range = message.range(of: #"^[a-z0-9]+(-[a-z0-9]+)+: "#, options: .regularExpression) else { return message }
+        return String(message[range.upperBound...])
     }
 
     public static func hostName(_ host: String) -> String {

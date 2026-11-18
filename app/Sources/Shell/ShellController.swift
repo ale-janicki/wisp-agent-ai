@@ -20,7 +20,7 @@ final class ShellController: ObservableObject {
 
     var restTarget: () -> PillState = { .rest }
 
-    private let log = Logger(subsystem: "com.owner.wisp", category: "shell")
+    private let log = Logger(subsystem: AppIdentity.bundleID, category: "shell")
     let conversation = ConversationViewModel()
     let media = NowPlayingService()
     let clipboard = ClipboardService()

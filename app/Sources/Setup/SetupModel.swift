@@ -43,13 +43,18 @@ final class SetupModel {
     private(set) var telegramTokenStored = false
     /// The wait for Apple's installer ran out: one sentence and a "verificar" button.
     private(set) var pollTimedOut = false
+    /// Wisp has a Telegram setup of its own (even a stopped one): the step offers checking and disconnecting it.
+    private(set) var telegramConfigured = false
+    /// What the system step's last needs_user waits for, and when that wait gives up.
+    private(set) var systemWait: SetupFlow.SystemWait = .commandLineTools
+    private var pollDeadline: Date?
 
     let wisp: URL
     let homeOverride: URL?
     /// A re-run, or a profile that already exists: closing the window must never re-arm the wizard gate.
     let existingInstall: Bool
 
-    private let log = Logger(subsystem: "com.owner.wisp", category: "setup")
+    private let log = Logger(subsystem: AppIdentity.bundleID, category: "setup")
     private var pollTask: Task<Void, Never>?
     /// The Login step's terminal; it lives here so closing the window or quitting ends it with the model.
     @ObservationIgnored let loginTerminal = LoginTerminalSession()
@@ -106,6 +111,7 @@ final class SetupModel {
             return
         }
         doctorFailed = false
+        telegramConfigured = SetupFlow.telegramConfigured(doctor: report)
         let automatic: [SetupStepID] = [.system, .login, .brain, .harness, .profile]
         for step in SetupStepID.allCases where step != .done {
             let checks = report.checks.filter { $0.step == step.rawValue }
@@ -135,12 +141,17 @@ final class SetupModel {
     // MARK: Steps
 
     func run(_ step: SetupStepID, arguments: [String] = [], stdin: Data? = nil) async {
+        await run(step, arguments: arguments, stdin: stdin, automaticRerun: false)
+    }
+
+    private func run(_ step: SetupStepID, arguments: [String], stdin: Data?, automaticRerun: Bool) async {
         guard !isBusy, step != .done, step != .login, step != .spotify else { return }
         pollTask?.cancel()
         pollTimedOut = false
         if step == .system {
             systemArguments = arguments
             doctorFailed = false
+            pollDeadline = SetupFlow.pollDeadline(current: pollDeadline, automaticRerun: automaticRerun, now: Date(), limit: Self.pollLimit)
         }
         var command = ["setup", step.rawValue] + arguments + ["--json"]
         if homeOverride != nil, Self.dryRunSteps.contains(step), !arguments.contains("--skip") { command.append("--dry-run") }
@@ -149,7 +160,7 @@ final class SetupModel {
             $0.command = "wisp " + command.joined(separator: " ")
             $0.liveLog = ""
         }
-        let timeout: TimeInterval = step == .system ? 900 : 120
+        let timeout: TimeInterval = step == .system ? 1500 : 120
         let result = await execute(command, stdin: stdin, timeout: timeout)
         let skippedByUser = arguments.contains("--skip")
         switch result {
@@ -184,7 +195,13 @@ final class SetupModel {
                 telegramTokenStored = report.status == .needsUser
             }
             record(step, report.status, skippedByUser: skippedByUser)
-            if step == .system, report.status == .needsUser { startPollingSystem() }
+            if step == .system, report.status == .needsUser {
+                systemWait = SetupFlow.systemWait(report)
+                startPollingSystem()
+            }
+        }
+        if step == .telegram, let doctor = await doctor(only: "telegram", timeout: 20) {
+            telegramConfigured = SetupFlow.telegramConfigured(doctor: doctor)
         }
     }
 
@@ -223,12 +240,14 @@ final class SetupModel {
 
     // MARK: Waiting for Apple's installer
 
-    /// Polls until the Command Line Tools are in (Claude Code is installed by the system step itself, so it is
-    /// not waited for), then runs System again with the arguments of the run that asked for the wait.
-    /// Stops when the step leaves needsUser, when the window closes, or after 30 minutes.
+    /// Polls until what the step waits for is in (the Command Line Tools, or brew after the Homebrew installer; Claude Code
+    /// is installed by the system step itself, so it is not waited for), then runs System again with the arguments of
+    /// the run that asked for the wait. Stops when the step leaves needsUser, when the window closes, or at the deadline
+    /// set by the run the user started (an automatic re-run never extends it).
     private func startPollingSystem() {
         pollTask?.cancel()
-        let deadline = Date().addingTimeInterval(Self.pollLimit)
+        let deadline = pollDeadline ?? Date().addingTimeInterval(Self.pollLimit)
+        let wait = systemWait
         pollTask = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: Self.pollInterval)
@@ -236,21 +255,34 @@ final class SetupModel {
                 guard case .needsUser = self.row(.system).state else { return }
                 if Date() > deadline {
                     self.pollTimedOut = true
-                    self.update(.system) {
-                        $0.state = .needsUser("Ainda esperando as ferramentas da Apple — termine a instalação e toque em verificar")
-                    }
+                    self.update(.system) { $0.state = .needsUser(Self.timedOutText(wait)) }
                     return
                 }
-                guard let report = await self.doctor(only: "clt,claude"), SetupFlow.shouldRerunSystem(doctor: report) else { continue }
+                guard let report = await self.doctor(only: wait.doctorChecks),
+                      SetupFlow.shouldRerunSystem(after: wait, doctor: report) else { continue }
                 await self.rerunSystemAfterWait()
                 return
             }
         }
     }
 
+    private static func timedOutText(_ wait: SetupFlow.SystemWait) -> String {
+        switch wait {
+        case .commandLineTools: "Ainda esperando as ferramentas da Apple — termine a instalação e toque em verificar"
+        case .homebrew: "Ainda esperando o Homebrew — termine a instalação e toque em verificar"
+        }
+    }
+
+    private static func waitingText(_ wait: SetupFlow.SystemWait) -> String {
+        switch wait {
+        case .commandLineTools: "Clique em Instalar na janela da Apple; o Wisp continua sozinho quando terminar"
+        case .homebrew: "O instalador do Homebrew vai pedir a senha do seu Mac"
+        }
+    }
+
     private func rerunSystemAfterWait() async {
         pollTask = nil
-        await run(.system, arguments: systemArguments)
+        await run(.system, arguments: systemArguments, stdin: nil, automaticRerun: true)
     }
 
     /// The "verificar" button after the wait timed out, and the retry after an unreadable doctor.
@@ -259,12 +291,13 @@ final class SetupModel {
             await refreshFromDoctor()
             return
         }
-        guard let report = await doctor(only: "clt,claude") else { return }
-        if SetupFlow.shouldRerunSystem(doctor: report) {
+        guard let report = await doctor(only: systemWait.doctorChecks) else { return }
+        if SetupFlow.shouldRerunSystem(after: systemWait, doctor: report) {
             await rerunSystemAfterWait()
         } else {
             pollTimedOut = false
-            update(.system) { $0.state = .needsUser("Clique em Instalar na janela da Apple; o Wisp continua sozinho quando terminar") }
+            pollDeadline = SetupFlow.pollDeadline(current: pollDeadline, automaticRerun: false, now: Date(), limit: Self.pollLimit)
+            update(.system) { $0.state = .needsUser(Self.waitingText(systemWait)) }
             startPollingSystem()
         }
     }

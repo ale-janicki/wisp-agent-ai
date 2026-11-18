@@ -5,7 +5,7 @@ public final class TranscriptFollower: @unchecked Sendable {
     private let cwd: String
     private let projectsRoot: URL
     private let onChange: @Sendable (TranscriptParser.Snapshot) -> Void
-    private let queue = DispatchQueue(label: "com.owner.wisp.transcript-follower")
+    private let queue = DispatchQueue(label: "\(AppIdentity.bundleID).transcript-follower")
 
     private var parser: TranscriptParser
     private var handle: FileHandle?

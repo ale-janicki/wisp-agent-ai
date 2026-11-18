@@ -4,6 +4,7 @@ import json
 import os
 import stat
 import threading
+import time
 import urllib.error
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
@@ -25,8 +26,9 @@ PLAIN = {"id": -1002, "type": "supergroup"}
 ADMIN = {"status": "administrator", "can_manage_topics": True}
 
 
-def update(chat, sender=None, update_id=1):
-    return {"update_id": update_id, "message": {"chat": chat, "from": sender or {"id": 55, "is_bot": False}}}
+def update(chat, sender=None, update_id=1, date=None):
+    message = {"chat": chat, "from": sender or {"id": 55, "is_bot": False}, "date": int(time.time()) if date is None else date}
+    return {"update_id": update_id, "message": message}
 
 
 class FakeTelegram:
@@ -251,11 +253,30 @@ def test_symlinked_profile_refused_before_anything_is_written(fake_home, tg):
     assert load_config().telegram is None and "getUpdates" not in tg.methods()
 
 
-def test_bot_that_never_comes_up_is_failed(fake_home, tg):
+def test_bot_that_never_comes_up_rolls_back(fake_home, tg):
     store_token(fake_home)
     tg.replies.update({"getMe": ME, "getUpdates": [update(FORUM)], "getChat": FORUM, "getChatMember": ADMIN})
-    report, _, _ = run(fake_home, tg, discover=True, up=False)
+    report, runner, paths = run(fake_home, tg, discover=True, up=False)
     assert report.status == "failed" and "não respondeu" in report.summary
+    assert load_config().telegram is None
+    assert not (paths.config / "profile.json").exists()
+    assert not (paths.launch_agents / "ai.wisp.bot.plist").exists()
+    assert any(c[:2] == ["launchctl", "bootout"] for c in runner.calls[-1:])
+
+
+def test_profile_written_only_after_the_bot_answered(fake_home, tg, monkeypatch):
+    store_token(fake_home)
+    tg.replies.update({"getMe": ME, "getUpdates": [update(FORUM)], "getChat": FORUM, "getChatMember": ADMIN})
+    seen = []
+    real_wait = step._wait_up
+
+    def wait(runner, paths, details):
+        seen.append(((paths.config / "profile.json").exists(), load_config().telegram is not None))
+        return real_wait(runner, paths, details)
+    monkeypatch.setattr(step, "_wait_up", wait)
+    report, _, _ = run(fake_home, tg, discover=True)
+    assert report.status == "done" and seen == [(False, True)]
+    assert "telegram" in json.loads((paths_of(fake_home).config / "profile.json").read_text())["blocks"]
 
 
 def test_rerun_configured_verifies_only(fake_home, tg):
@@ -266,10 +287,85 @@ def test_rerun_configured_verifies_only(fake_home, tg):
     assert not any(c[:2] == ["launchctl", "bootstrap"] for c in runner.calls)
 
 
-def test_rerun_configured_but_stopped_is_failed(fake_home, tg):
-    cfg = WispConfig(telegram=TelegramConfig(chat_id=-1, user_id=1, token_file="x"))
-    report, _, _ = run(fake_home, tg, cfg, running=False, discover=True)
-    assert report.status == "failed" and tg.requests == []
+def configured(home):
+    store_token(home)
+    return WispConfig(telegram=TelegramConfig(chat_id=-1, user_id=1, token_file=str(paths_of(home).config / "secrets/telegram-token")))
+
+
+def test_rerun_configured_but_stopped_restarts_the_job(fake_home, tg):
+    report, runner, paths = run(fake_home, tg, configured(fake_home), running=False, discover=True)
+    assert report.status == "done" and tg.requests == []
+    assert [c[1] for c in runner.calls if c[0] == "launchctl" and c[1] != "print"] == ["bootout", "bootstrap"]
+    assert (paths.launch_agents / "ai.wisp.bot.plist").exists()
+
+
+def test_rerun_configured_bot_that_stays_down_is_failed(fake_home, tg):
+    report, _, _ = run(fake_home, tg, configured(fake_home), running=False, up=False, discover=True)
+    assert report.status == "failed" and "não respondeu" in report.summary
+
+
+def test_rerun_configured_without_token_is_failed(fake_home, tg):
+    cfg = WispConfig(telegram=TelegramConfig(chat_id=-1, user_id=1, token_file=str(fake_home / "missing")))
+    report, runner, _ = run(fake_home, tg, cfg, running=False, discover=True)
+    assert report.status == "failed" and "token" in report.summary
+    assert not any(c[:2] == ["launchctl", "bootstrap"] for c in runner.calls)
+
+
+def connected(home, tg):
+    store_token(home)
+    tg.replies.update({"getMe": ME, "getUpdates": [update(FORUM)], "getChat": FORUM, "getChatMember": ADMIN})
+    report, _, paths = run(home, tg, discover=True)
+    assert report.status == "done"
+    return paths
+
+
+def test_skip_on_configured_setup_disconnects(fake_home, tg):
+    paths = connected(fake_home, tg)
+    profile = paths.config / "profile.json"
+    data = json.loads(profile.read_text())
+    data["blocks"]["tasks"] = {"file": "x"}
+    profile.write_text(json.dumps(data))
+    report, runner, _ = run(fake_home, tg, load_config(), skip=True)
+    assert report.status == "skipped" and report.summary == "Telegram desconectado"
+    after = json.loads(profile.read_text())
+    assert "telegram" not in after["blocks"] and after["blocks"]["tasks"] == {"file": "x"}
+    assert load_config().telegram is None
+    assert any(c[:2] == ["launchctl", "bootout"] and c[2].endswith("/ai.wisp.bot") for c in runner.calls)
+    assert not (paths.launch_agents / "ai.wisp.bot.plist").exists()
+    assert (paths.config / "secrets/telegram-token").exists()
+
+
+def test_skip_cleans_a_half_finished_setup(fake_home, tg):
+    paths = paths_of(fake_home)
+    paths.launch_agents.mkdir(parents=True)
+    (paths.launch_agents / "ai.wisp.bot.plist").write_text("x")
+    report, runner, _ = run(fake_home, tg, skip=True)
+    assert report.status == "skipped" and report.summary == "Telegram desconectado"
+    assert not (paths.launch_agents / "ai.wisp.bot.plist").exists()
+
+
+def test_skip_refuses_a_symlinked_profile_and_changes_nothing(fake_home, tg):
+    paths = connected(fake_home, tg)
+    profile = paths.config / "profile.json"
+    target = fake_home / "elsewhere.json"
+    target.write_text(profile.read_text())
+    profile.unlink()
+    profile.symlink_to(target)
+    before = target.read_text()
+    report, runner, _ = run(fake_home, tg, load_config(), skip=True)
+    assert report.status == "failed"
+    assert target.read_text() == before and load_config().telegram is not None
+    assert runner.calls == [] and (paths.launch_agents / "ai.wisp.bot.plist").exists()
+
+
+def test_skip_ignores_a_foreign_symlinked_profile_when_wisp_has_no_telegram(fake_home, tg):
+    profile = paths_of(fake_home).config / "profile.json"
+    profile.parent.mkdir(parents=True)
+    target = fake_home / "elsewhere.json"
+    target.write_text(json.dumps({"blocks": {"telegram": {"status": "x"}}}))
+    profile.symlink_to(target)
+    report, runner, _ = run(fake_home, tg, skip=True)
+    assert report.status == "skipped" and report.summary == "Telegram deixado para depois" and runner.calls == []
 
 
 def test_skip_is_skipped(fake_home, tg):
@@ -372,14 +468,41 @@ def test_plain_group_then_forum_is_found(fake_home, tg):
     assert report.status == "done"
 
 
-def test_backlog_is_drained_and_ignored(fake_home, tg):
-    store_token(fake_home)
-    tg.backlog = [update(FORUM, update_id=5)]
-    tg.replies.update({"getMe": ME, "getChat": FORUM, "getChatMember": ADMIN, "getUpdates": [update(FORUM, update_id=5)]})
+def test_oi_sent_before_procurar_is_found(fake_home, tg):
+    tg.replies["getMe"] = ME
+    run(fake_home, tg, token_stdin=TOKEN.encode())
+    stored_at = load_config().telegram_token_at
+    assert isinstance(stored_at, int) and abs(stored_at - time.time()) < 5
+    tg.requests.clear()
+    tg.polls = 0
+    tg.backlog = [update(FORUM, update_id=5, date=stored_at + 30)]
+    tg.replies.update({"getChat": FORUM, "getChatMember": ADMIN})
     report, _, _ = run(fake_home, tg, discover=True)
+    assert report.status == "done" and load_config().telegram.chat_id == -1001
+    assert tg.requests[0][1]["timeout"] > 0
+
+
+def test_messages_older_than_the_token_are_ignored(fake_home, tg):
+    tg.replies["getMe"] = ME
+    run(fake_home, tg, token_stdin=TOKEN.encode())
+    stored_at = load_config().telegram_token_at
+    tg.polls = 0
+    tg.backlog = [update(FORUM, update_id=5, date=stored_at - 1)]
+    tg.replies.update({"getChat": FORUM, "getChatMember": ADMIN})
+    report, runner, _ = run(fake_home, tg, discover=True)
     assert report.status == "needs_user" and "'oi'" in report.summary
     assert load_config().telegram is None
-    assert tg.requests[0][1]["timeout"] == 0 and tg.requests[1][1]["offset"] == 6
+    assert not any(c[:2] == ["launchctl", "bootstrap"] for c in runner.calls)
+
+
+def test_token_without_timestamp_falls_back_to_the_token_file_time(fake_home, tg):
+    store_token(fake_home)
+    stored_at = int((paths_of(fake_home).config / "secrets/telegram-token").stat().st_mtime)
+    tg.backlog = [update(FORUM, update_id=5, date=stored_at - 60)]
+    tg.later = [[update(FORUM, {"id": 66}, update_id=6, date=stored_at)]]
+    tg.replies.update({"getMe": ME, "getChat": FORUM, "getChatMember": ADMIN})
+    report, _, _ = run(fake_home, tg, discover=True)
+    assert report.status == "done" and load_config().telegram.user_id == 66
 
 
 def test_backlog_then_fresh_message_counts(fake_home, tg):
@@ -407,11 +530,24 @@ def test_secrets_dir_is_chmodded_0700_even_if_it_existed(fake_home, tg):
     assert stat.S_IMODE(secrets.stat().st_mode) == 0o700
 
 
-def test_new_token_on_configured_setup_says_restart(fake_home, tg):
+def test_new_token_on_configured_setup_restarts_the_bot(fake_home, tg):
     tg.replies["getMe"] = ME
     cfg = WispConfig(telegram=TelegramConfig(chat_id=-1, user_id=1, token_file="x"))
-    report, _, _ = run(fake_home, tg, cfg, running=True, token_stdin=TOKEN.encode())
-    assert report.status == "needs_user" and "reinici" in report.summary
+    report, runner, _ = run(fake_home, tg, cfg, running=True, token_stdin=TOKEN.encode())
+    assert report.status == "done" and "reiniciado" in report.summary
+    assert [c[1] for c in runner.calls if c[0] == "launchctl" and c[1] != "print"] == ["bootout", "bootstrap"]
+
+
+def test_telegram_block_on_a_missing_profile_seeds_persona_and_agent(fake_home):
+    profile = fake_home / ".config/wisp/profile.json"
+    profile.parent.mkdir(parents=True)
+    set_telegram_block(profile, "/h/bin/wisp", name="Ada", language="pt-BR")
+    data = json.loads(profile.read_text())
+    assert data["persona"] == {"name": "Ada", "language": "pt-BR"} and data["agent"] == {"cwd": "~"}
+    profile.write_text(json.dumps({"blocks": {"tasks": {"file": "x"}}}))
+    set_telegram_block(profile, "/h/bin/wisp")
+    data = json.loads(profile.read_text())
+    assert data["persona"] == {"name": "Wisp", "language": "pt-BR"} and data["blocks"]["tasks"] == {"file": "x"}
 
 
 def test_profile_writer_refuses_symlink(fake_home):

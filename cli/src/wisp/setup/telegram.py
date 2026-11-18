@@ -13,7 +13,9 @@ from wisp.jobs import JobManager, JobSpec, JobState
 from wisp.paths import WispPaths
 from wisp.report import Detail, StepReport
 from wisp.runner import Runner
-from wisp.setup.profile_writer import check_writable, set_telegram_block
+from wisp.setup.profile_writer import (
+    check_writable, has_telegram_block, remove_telegram_block, render_telegram_block, set_telegram_block,
+)
 from wisp.telegram_api import TelegramAPI, TelegramError
 
 STEP = "telegram"
@@ -23,6 +25,7 @@ UP_WAIT_S = 30
 POLL_S = 10
 UP_POLL_S = 1.0
 sleep = time.sleep
+now = time.time
 
 
 def _token_path(paths: WispPaths) -> Path:
@@ -56,8 +59,23 @@ def _wait_up(runner: Runner, paths: WispPaths, details: list[Detail]) -> bool:
         sleep(UP_POLL_S)
 
 
+def _job_spec(paths: WispPaths) -> JobSpec:
+    return JobSpec(
+        label=BOT_LABEL,
+        program=[str(paths.runtime / "venv/bin/wisp-bot")],
+        env={"WISP_CONFIG": str(_config_path(paths)), "PATH": f"{paths.bin}:/opt/homebrew/bin:/usr/bin:/bin"},
+        log_path=paths.state / "bot" / "bot.log",
+    )
+
+
+def _start_bot(runner: Runner, paths: WispPaths, jobs: JobManager) -> tuple[bool, list[Detail]]:
+    """(Re)installs the job (bootout, then bootstrap) and waits for the bot to answer."""
+    details = jobs.install(_job_spec(paths))
+    return _wait_up(runner, paths, details), details
+
+
 def _store_token(
-    paths: WispPaths, api_factory: Callable[[str], TelegramAPI], raw: bytes, restart_needed: bool
+    runner: Runner, paths: WispPaths, cfg: WispConfig, api_factory: Callable[[str], TelegramAPI], jobs: JobManager, raw: bytes
 ) -> StepReport:
     token = raw.decode(errors="replace").strip()
     if not TOKEN_SHAPE.fullmatch(token):
@@ -70,9 +88,14 @@ def _store_token(
     ensure_dir(target.parent, mode=0o700)
     os.chmod(target.parent, 0o700)
     atomic_write(target, token + "\n", mode=0o600)
+    cfg.telegram_token_at = int(now())
+    save_config(cfg, _config_path(paths))
     username = str(bot.get("username", ""))
-    if restart_needed:
-        return StepReport(STEP, "needs_user", "token trocado; reinicie o bot para ele valer", data={"bot": username})
+    if cfg.telegram is not None:
+        up, details = _start_bot(runner, paths, jobs)
+        if not up:
+            return StepReport(STEP, "failed", "troquei o token, mas o bot não respondeu a tempo", details, {"bot": username})
+        return StepReport(STEP, "done", "token trocado e bot reiniciado", details, {"bot": username})
     return StepReport(
         STEP, "needs_user",
         f"Crie um grupo, ative Tópicos, adicione @{username} como admin e mande 'oi' lá",
@@ -80,17 +103,19 @@ def _store_token(
     )
 
 
-def _find_forum(api: TelegramAPI) -> tuple[dict | None, str | None]:
-    """Waits for a person's message in a forum supergroup, ignoring everything sent before setup started.
+def _find_forum(api: TelegramAPI, since: int) -> tuple[dict | None, str | None]:
+    """Waits for a person's message in a forum supergroup sent at or after `since` (when the token was stored), so the
+    'oi' she sent before asking for the search counts and older messages to a reused bot do not.
     Returns (found, why_not); why_not is set only if a non-forum group was seen by the deadline."""
     deadline = time.monotonic() + DISCOVER_S
-    api.get_updates(0)
     non_forum_seen = False
     while (remaining := deadline - time.monotonic()) > 0:
         for update in api.get_updates(max(1, min(POLL_S, math.ceil(remaining)))):
             message = update.get("message") or {}
             chat, sender = message.get("chat") or {}, message.get("from") or {}
             if chat.get("type") not in ("group", "supergroup") or sender.get("is_bot") or "id" not in sender:
+                continue
+            if not isinstance(message.get("date"), int) or message["date"] < since:
                 continue
             if chat["type"] == "supergroup" and api.get_chat(chat["id"]).get("is_forum") is True:
                 return {"chat_id": chat["id"], "user_id": sender["id"]}, None
@@ -105,11 +130,16 @@ def _bot_can_manage_topics(api: TelegramAPI, chat_id: int) -> bool:
     )
 
 
-def _verify(runner: Runner, paths: WispPaths, jobs: JobManager) -> StepReport:
+def _verify(runner: Runner, paths: WispPaths, cfg: WispConfig, jobs: JobManager) -> StepReport:
     state = jobs.state(BOT_LABEL)
     if state == JobState.RUNNING and _status_up(runner, paths)[0]:
         return StepReport(STEP, "skipped", "o Telegram já está configurado e conectado")
-    return StepReport(STEP, "failed", "o Telegram está configurado, mas o bot está parado", data={"job": state.value})
+    if not Path(cfg.telegram.token_file).expanduser().is_file():
+        return StepReport(STEP, "failed", "falta o token do bot; envie o token de novo", data={"job": state.value})
+    up, details = _start_bot(runner, paths, jobs)
+    if not up:
+        return StepReport(STEP, "failed", "reiniciei o bot, mas ele não respondeu a tempo", details, {"job": state.value})
+    return StepReport(STEP, "done", "o bot voltou a rodar", details)
 
 
 def _discover(runner, paths, cfg, api_factory, jobs: JobManager) -> StepReport:
@@ -117,39 +147,59 @@ def _discover(runner, paths, cfg, api_factory, jobs: JobManager) -> StepReport:
     if not token_file.is_file():
         return StepReport(STEP, "failed", "falta o token do bot; envie o token primeiro")
     profile = paths.config / "profile.json"
+    block_args = (profile, str(paths.bin / "wisp"), str(paths.state / "bot" / "anexos"))
+    names = {"name": cfg.persona or "Wisp", "language": cfg.language or "pt-BR"}
     try:
-        check_writable(profile)
+        render_telegram_block(*block_args, **names)
     except ValueError as e:
-        return StepReport(STEP, "failed", str(e))
+        return StepReport(STEP, "failed", f"não consegui atualizar o perfil: {e}")
     if jobs.state(BOT_LABEL) != JobState.NOT_INSTALLED:
         return StepReport(STEP, "failed", "pare o bot antes de procurar o grupo")
     api = api_factory(token_file.read_text().strip())
-    found, why = _find_forum(api)
+    found, why = _find_forum(api, cfg.telegram_token_at or int(token_file.stat().st_mtime))
     if found is None:
         return StepReport(STEP, "needs_user", why or "mande 'oi' no grupo do bot e tente de novo")
     if not _bot_can_manage_topics(api, found["chat_id"]):
         return StepReport(STEP, "needs_user", "torne o bot administrador do grupo com permissão para gerenciar tópicos")
 
-    state_dir = paths.state / "bot"
+    # The bot reads wisp.json, so the telegram part goes first; the profile only once the bot answered.
     cfg.telegram = TelegramConfig(
-        chat_id=found["chat_id"], user_id=found["user_id"], token_file=str(token_file), state_dir=str(state_dir)
+        chat_id=found["chat_id"], user_id=found["user_id"], token_file=str(token_file), state_dir=str(paths.state / "bot")
     )
-    try:
-        set_telegram_block(profile, str(paths.bin / "wisp"), str(state_dir / "anexos"))
-    except ValueError as e:
-        cfg.telegram = None
-        return StepReport(STEP, "failed", f"não consegui atualizar o perfil: {e}")
     save_config(cfg, _config_path(paths))
-    spec = JobSpec(
-        label=BOT_LABEL,
-        program=[str(paths.runtime / "venv/bin/wisp-bot")],
-        env={"WISP_CONFIG": str(_config_path(paths)), "PATH": f"{paths.bin}:/opt/homebrew/bin:/usr/bin:/bin"},
-        log_path=state_dir / "bot.log",
-    )
-    details = jobs.install(spec)
-    if not _wait_up(runner, paths, details):
-        return StepReport(STEP, "failed", "o bot foi instalado, mas não respondeu a tempo", details)
+    up, details = _start_bot(runner, paths, jobs)
+    problem = None if up else "o bot não respondeu a tempo; nada ficou configurado, tente de novo"
+    if up:
+        try:
+            set_telegram_block(*block_args, **names)
+        except (ValueError, OSError) as e:
+            problem = f"não consegui atualizar o perfil: {e}"
+    if problem:
+        details += jobs.remove(BOT_LABEL)
+        cfg.telegram = None
+        save_config(cfg, _config_path(paths))
+        return StepReport(STEP, "failed", problem, details)
     return StepReport(STEP, "done", "Telegram conectado", details, {"chat_id": str(found["chat_id"])})
+
+
+def _disconnect(paths: WispPaths, cfg: WispConfig, jobs: JobManager) -> StepReport:
+    """`--skip`: nothing set up means "later"; a setup (even half done) is undone: profile block, wisp.json, job.
+    The token file stays, so connecting again only needs the group search."""
+    profile = paths.config / "profile.json"
+    plist = paths.launch_agents / f"{BOT_LABEL}.plist" if paths.launch_agents else None
+    has_block = has_telegram_block(profile)
+    if cfg.telegram is None and not has_block and not (plist and plist.exists()):
+        return StepReport(STEP, "skipped", "Telegram deixado para depois")
+    try:
+        check_writable(profile)
+        if has_block:
+            remove_telegram_block(profile)
+    except ValueError as e:
+        return StepReport(STEP, "failed", str(e))
+    details = jobs.remove(BOT_LABEL)
+    cfg.telegram = None
+    save_config(cfg, _config_path(paths))
+    return StepReport(STEP, "skipped", "Telegram desconectado", details)
 
 
 def setup_telegram(
@@ -164,16 +214,15 @@ def setup_telegram(
     skip: bool,
     dry_run: bool,
 ) -> StepReport:
-    if skip:
-        return StepReport(STEP, "skipped", "Telegram deixado para depois")
     if dry_run:
-        return StepReport(STEP, "done", "dry run: nada foi escrito")
+        return StepReport(STEP, "done" if not skip else "skipped", "dry run: nada foi escrito")
     try:
+        if skip:
+            return _disconnect(paths, cfg, jobs)
         if token_stdin is not None:
-            restart = cfg.telegram is not None and jobs.state(BOT_LABEL) != JobState.NOT_INSTALLED
-            return _store_token(paths, api_factory, token_stdin, restart)
+            return _store_token(runner, paths, cfg, api_factory, jobs, token_stdin)
         if cfg.telegram is not None:
-            return _verify(runner, paths, jobs)
+            return _verify(runner, paths, cfg, jobs)
         if discover:
             return _discover(runner, paths, cfg, api_factory, jobs)
     except TelegramError as e:

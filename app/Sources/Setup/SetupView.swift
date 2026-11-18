@@ -253,7 +253,7 @@ private struct StepPane: View {
         case .harness:
             harnessResult
         case .telegram:
-            if !model.telegramTokenStored, !settled {
+            if !model.telegramTokenStored, !model.telegramConfigured, !settled {
                 tokenField
             }
         case .spotify:
@@ -338,19 +338,19 @@ private struct StepPane: View {
         case .running:
             HStack(spacing: Theme.Space.m) {
                 ProgressView().controlSize(.small)
-                Text("Trabalhando…")
+                Text(runningLabel)
                     .font(Theme.Font.body)
                     .foregroundStyle(Theme.textSecondary)
             }
         case .needsUser(let text):
             HStack(alignment: .top, spacing: Theme.Space.s) {
-                if step == .system { ProgressView().controlSize(.small) }
-                Text(text)
+                if step == .system, !model.pollTimedOut { ProgressView().controlSize(.small) }
+                Text(Self.sentence(text))
                     .font(Theme.Font.body)
                     .foregroundStyle(Theme.busy)
             }
         case .failed(let text):
-            Text(text)
+            Text(Self.sentence(text))
                 .font(Theme.Font.body)
                 .foregroundStyle(Theme.error)
         case .done, .skipped:
@@ -364,6 +364,14 @@ private struct StepPane: View {
         }
     }
 
+    /// The group search waits for her 'oi', so it says so instead of a generic "working".
+    private var runningLabel: String {
+        if step == .telegram, row.command.contains("--discover"), !model.telegramConfigured {
+            return "Mande 'oi' no grupo agora — estou procurando"
+        }
+        return "Trabalhando…"
+    }
+
     // MARK: Actions
 
     @ViewBuilder private var actions: some View {
@@ -371,6 +379,7 @@ private struct StepPane: View {
             if settled, step != .done {
                 Button("Continuar") { model.advance() }
                     .buttonStyle(CapsuleButtonStyle())
+                if step == .telegram, model.telegramConfigured { disconnectTelegram }
             } else {
                 primary
                 secondary
@@ -398,7 +407,9 @@ private struct StepPane: View {
         case .harness:
             run("Instalar as ferramentas") { await model.run(.harness) }
         case .telegram:
-            if model.telegramTokenStored {
+            if model.telegramConfigured {
+                run("Conferir o bot") { await model.run(.telegram, arguments: ["--discover"]) }
+            } else if model.telegramTokenStored {
                 run(discoverFailed ? "Procurar o grupo de novo" : "Procurar o grupo") {
                     await model.run(.telegram, arguments: ["--discover"])
                 }
@@ -430,15 +441,26 @@ private struct StepPane: View {
     @ViewBuilder private var secondary: some View {
         switch step {
         case .telegram:
-            Button("pular") { Task { await model.run(.telegram, arguments: ["--skip"]) } }
-                .buttonStyle(CapsuleButtonStyle(kind: .ghost))
-                .disabled(model.isBusy)
+            if model.telegramConfigured {
+                disconnectTelegram
+            } else {
+                Button("pular") { Task { await model.run(.telegram, arguments: ["--skip"]) } }
+                    .buttonStyle(CapsuleButtonStyle(kind: .ghost))
+                    .disabled(model.isBusy)
+            }
         case .spotify:
             Button("pular") { model.skip(.spotify) }
                 .buttonStyle(CapsuleButtonStyle(kind: .ghost))
         default:
             EmptyView()
         }
+    }
+
+    /// `wisp setup telegram --skip` on a configured setup removes the bot job, wisp.json's telegram and the profile block.
+    private var disconnectTelegram: some View {
+        Button("desconectar o Telegram") { Task { await model.run(.telegram, arguments: ["--skip"]) } }
+            .buttonStyle(CapsuleButtonStyle(kind: .ghost))
+            .disabled(model.isBusy)
     }
 
     private func run(_ title: String, disabled: Bool = false, _ work: @escaping () async -> Void) -> some View {

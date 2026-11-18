@@ -190,4 +190,4 @@ def test_cli_corrupt_config_falls_back_with_warning(fake_home, capsys):
     assert main(["setup", "brain", "--path", str(fake_home / "b"), "--json"]) == 0
     out = json.loads(capsys.readouterr().out)
     assert out["status"] == "done"
-    assert "wisp.json" in out["data"]["warning"]
+    assert out["data"]["warning"] == "não consegui ler o wisp.json; o Wisp usou os valores padrão"

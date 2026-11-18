@@ -85,8 +85,8 @@ enum AutomationStatus: Sendable, Equatable {
 }
 
 private enum AutomationCheck {
-    private static let queue = DispatchQueue(label: "com.owner.wisp.automation", qos: .userInitiated)
-    private static let requestQueue = DispatchQueue(label: "com.owner.wisp.automation.request", qos: .userInitiated)
+    private static let queue = DispatchQueue(label: "\(AppIdentity.bundleID).automation", qos: .userInitiated)
+    private static let requestQueue = DispatchQueue(label: "\(AppIdentity.bundleID).automation.request", qos: .userInitiated)
 
     static func status(of player: MediaPlayer, ask: Bool) async -> AutomationStatus {
         let bundleId = player.bundleId
@@ -119,8 +119,8 @@ private struct ScriptOutput: Sendable {
 }
 
 private enum AppleScriptRunner {
-    private static let queue = DispatchQueue(label: "com.owner.wisp.applescript", qos: .userInitiated)
-    private static let requestQueue = DispatchQueue(label: "com.owner.wisp.applescript.request", qos: .userInitiated)
+    private static let queue = DispatchQueue(label: "\(AppIdentity.bundleID).applescript", qos: .userInitiated)
+    private static let requestQueue = DispatchQueue(label: "\(AppIdentity.bundleID).applescript.request", qos: .userInitiated)
 
     static func run(_ source: String, prompting: Bool = false) async -> ScriptOutput {
         let queue = prompting ? requestQueue : queue
@@ -169,7 +169,7 @@ final class NowPlayingService: ObservableObject {
         MediaPlayer.allCases.first { $0.isRunning && automationStatus(for: $0) != .granted }
     }
 
-    private let log = Logger(subsystem: "com.owner.wisp", category: "media")
+    private let log = Logger(subsystem: AppIdentity.bundleID, category: "media")
     private var observers: [NSObjectProtocol] = []
     private var querying = false
     private var refreshAgain = false
