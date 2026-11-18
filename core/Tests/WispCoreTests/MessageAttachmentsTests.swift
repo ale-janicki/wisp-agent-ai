@@ -39,10 +39,13 @@ final class MessageAttachmentsTests: XCTestCase {
     func testComposeMatchesTheBotByteForByteAndRoundTrips() throws {
         let files = [StagedAttachment(path: "/h/.Wisp-telegram/anexos/2026-11-17/wisp-a1-praia.jpg", name: "wisp-a1-praia.jpg", bytes: 4)]
         let empty = MessageAttachments.compose(origin: "Wisp", files: files, caption: "  ")
-        XCTAssertEqual(empty, "[o Ale enviou 1 arquivo(s) pelo Wisp, ja salvos nesta maquina:\n"
+        XCTAssertEqual(empty, "[o usuario enviou 1 arquivo(s) pelo Wisp, ja salvos nesta maquina:\n"
             + "- /h/.Wisp-telegram/anexos/2026-11-17/wisp-a1-praia.jpg (wisp-a1-praia.jpg, 4 bytes)]\n\n"
             + "(sem texto — veja o que é e me diga)")
         XCTAssertNil(try XCTUnwrap(MessageAttachments.parse(empty)).caption)
+        XCTAssertTrue(MessageAttachments.compose(origin: "Wisp", files: files, caption: "", user: "Rita").hasPrefix("[o Rita enviou "))
+        XCTAssertTrue(MessageAttachments.compose(origin: "Wisp", files: files, caption: "", user: " ").hasPrefix("[o usuario enviou "))
+        XCTAssertEqual(try XCTUnwrap(MessageAttachments.parse(MessageAttachments.compose(origin: "Wisp", files: files, caption: "", user: "Rita"))).items.count, 1)
         let captioned = MessageAttachments.compose(origin: "Wisp", files: files, caption: " olha ")
         XCTAssertEqual(try XCTUnwrap(MessageAttachments.parse(captioned)).caption, "olha")
     }
@@ -164,6 +167,9 @@ final class MessageAttachmentsTests: XCTestCase {
         XCTAssertEqual(MessageAttachments.unparsed(broken)?.summary, "anexos · olha")
         XCTAssertNil(MessageAttachments.unparsed("[o Ale enviou 1 arquivo(s) pelo Wisp, ja salvos nesta maquina:\n- /a]\n\n(sem texto — veja o que é e me diga)")?.caption)
         XCTAssertNil(MessageAttachments.unparsed("oi"))
+        XCTAssertNil(MessageAttachments.unparsed("[o Joao enviou o relatorio ontem]\n\nveja"))
+        XCTAssertNil(MessageAttachments.unparsed("[o time enviou isso"))
+        XCTAssertNotNil(MessageAttachments.unparsed("[o Rita enviou 2 arquivo(s) pelo Telegram, ja salvos nesta maquina:\n- quebrado]\n\nolha"))
     }
 
     func testFirstMessageNameForAttachmentOnlyMessages() {

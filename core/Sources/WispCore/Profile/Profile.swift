@@ -3,11 +3,13 @@ import Foundation
 public struct Persona: Codable, Sendable, Equatable {
     public var name: String
     public var avatar: String?
+    public var user: String?
     public var language: String
 
-    public init(name: String, avatar: String? = nil, language: String) {
+    public init(name: String, avatar: String? = nil, user: String? = nil, language: String) {
         self.name = name
         self.avatar = avatar
+        self.user = user
         self.language = language
     }
 }

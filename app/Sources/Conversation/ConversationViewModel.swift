@@ -178,7 +178,7 @@ final class ConversationViewModel {
             let staged = try AttachmentStaging.stage(pendingAttachments, into: attachmentsRoot)
             pendingAttachments = []
             attachmentNotice = nil
-            submit(prompt: MessageAttachments.compose(origin: Self.attachmentOrigin, files: staged, caption: text),
+            submit(prompt: MessageAttachments.compose(origin: Self.attachmentOrigin, files: staged, caption: text, user: profile.persona.user),
                    caption: text, files: staged.map(\.path),
                    name: MessageAttachments.firstMessageName(caption: text, names: staged.map(\.name)))
             return true
