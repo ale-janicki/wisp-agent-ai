@@ -230,6 +230,7 @@ final class SetupModel {
         state.completed.insert(SetupStepID.done.rawValue)
         do { try state.save(to: stateURL) } catch { log.error("setup state not saved: \(error.localizedDescription, privacy: .public)") }
         update(.done) { $0.state = .done }
+        if homeOverride == nil { LoginItemModel.shared.sync(setupFinished: true) }
     }
 
     /// The window closed or the app is quitting: no poll and no `claude` child outlive it.

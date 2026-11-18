@@ -48,6 +48,7 @@ enum SnapshotRenderer {
         await render(shell, frame: layout.active, notch: notch, to: directory, name: "2-pill-active")
         shell.pillText = previousText
         shell.statusColor = previousColor
+        await renderNotices(shell, layout: layout, to: directory)
 
         shell.setSnapshotState(.panel, notch: notch)
         shell.tab = .home
@@ -94,6 +95,41 @@ enum SnapshotRenderer {
     }
 
     private static let margin: CGFloat = 24
+
+    /// The notch card: queued with "+2", an alert, a failed outbox message, a Mac without notch, and the floating
+    /// copy over an open panel.
+    private static func renderNotices(
+        _ shell: ShellController,
+        layout: (rest: CGRect, active: CGRect, panel: CGRect, notch: CGRect?),
+        to directory: URL
+    ) async {
+        let samples = NoticeCenter.samples(persona: shell.conversation.personaName)
+        let notch = layout.notch
+        let card = NotchGeometry.noticeFrame(band: layout.rest)
+        shell.setSnapshotState(.rest, notch: notch)
+        shell.notices.setForSnapshot(samples)
+        await render(shell, frame: card, notch: notch, to: directory, name: "n1-notice-reply-queued")
+        shell.notices.setForSnapshot([samples[2]])
+        await render(shell, frame: card, notch: notch, to: directory, name: "n2-notice-alert")
+        shell.notices.setForSnapshot([Notice(
+            sourceId: "demo:outbox", kind: .outbox, title: "Planejamento da semana",
+            preview: "Não enviada: o envio demorou demais e pode já ter chegado; confira no Telegram antes de tentar de novo",
+            time: Date(), target: .conversation(UUID()), tone: .alert
+        )])
+        await render(shell, frame: card, notch: notch, to: directory, name: "n3-notice-outbox-failed")
+
+        shell.setSnapshotState(.rest, notch: nil)
+        shell.notices.setForSnapshot([samples[1]])
+        let screen = CGRect(origin: .zero, size: CGSize(width: layout.panel.width * 2, height: layout.panel.height * 2))
+        await render(shell, frame: NotchGeometry.noticeFrame(screen: screen, notch: nil), notch: nil, to: directory, name: "n4-notice-no-notch")
+
+        shell.setSnapshotState(.panel, notch: notch)
+        shell.tab = .music
+        shell.notices.setForSnapshot(Array(samples.prefix(2)))
+        await render(shell, frame: layout.panel, notch: notch, to: directory, name: "n5-notice-over-panel")
+        shell.notices.setForSnapshot([])
+        shell.setSnapshotState(.rest, notch: notch)
+    }
 
     private static func renderSpotify(
         _ shell: ShellController,
@@ -311,7 +347,7 @@ enum SnapshotRenderer {
             PillView(controller: shell)
                 .frame(width: frame.width, height: frame.height)
                 .offset(x: margin)
-            if let notch, shell.state != .rest {
+            if let notch, shell.state != .rest || shell.presentsNotice {
                 UnevenRoundedRectangle(bottomLeadingRadius: 10, bottomTrailingRadius: 10)
                     .fill(Color.black)
                     .frame(width: notch.width, height: notch.height)

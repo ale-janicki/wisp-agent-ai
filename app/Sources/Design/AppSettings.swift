@@ -59,12 +59,18 @@ final class AppSettings {
             let capture = settings.clipboardCapture
             let spotify = settings.spotifyClientID
             let graph = settings.graph
+            let notices = settings.notices
+            let openAtLogin = settings.openAtLogin
+            let loginItemRegistered = settings.loginItemRegistered
             settings = .default
             settings.dashboardOrder = order
             settings.telegramOrder = topicOrder
             settings.clipboardCapture = capture
             settings.spotifyClientID = spotify
             settings.graph = graph
+            settings.notices = notices
+            settings.openAtLogin = openAtLogin
+            settings.loginItemRegistered = loginItemRegistered
         }
     }
 
@@ -94,6 +100,18 @@ final class AppSettings {
 
     func setGraph(_ change: (inout GraphControls) -> Void) {
         update { change(&$0.graph) }
+    }
+
+    func setOpenAtLogin(_ on: Bool) {
+        update { $0.openAtLogin = on }
+    }
+
+    func markLoginItemRegistered() {
+        update { $0.loginItemRegistered = true }
+    }
+
+    func setNotices(_ change: (inout NoticeSettings) -> Void) {
+        update { change(&$0.notices) }
     }
 
     #if DEBUG
