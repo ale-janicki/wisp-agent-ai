@@ -126,16 +126,13 @@ public struct WispSettings: Codable, Equatable, Sendable {
     public var dashboardOrder: [String] {
         didSet { dashboardOrder = DashboardTileID.normalized(dashboardOrder) }
     }
-    /// Telegram topic thread ids in the order the user dragged them; empty means the default order.
     public var telegramOrder: [Int] = []
     public var clipboardCapture = true
     public var spotifyClientID = ""
     public var graph = GraphControls()
     public var notices = NoticeSettings()
     public var openAtLogin = true
-    /// Wisp registered itself once; from then on a removal in System Settings is respected.
     public var loginItemRegistered = false
-    /// The permission mode chosen in Wisp while the profile is a link Wisp does not write through; nil otherwise.
     public var permissionMode: String?
     var graphWasInvalid = false
 

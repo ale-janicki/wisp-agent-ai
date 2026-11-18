@@ -1,8 +1,3 @@
-"""Invoca o Claude Code sem bloquear o loop do bot.
-
-O turno do Geral precisa ser curto: por isso tudo aqui e asyncio e o processo
-roda solto. Nada neste modulo pode usar subprocess sincrono.
-"""
 from __future__ import annotations
 import asyncio, json, os, re, shutil
 from dataclasses import dataclass
@@ -12,8 +7,6 @@ from . import hosting
 from .config import CURRENT as _CFG, config_path
 from .hosting import HOST
 
-# O Claude escreve markdown; o Telegram nao renderiza markdown. Sem esta instrucao
-# a resposta chega com ** e ## crus na tela.
 TELEGRAM_STYLE = """You are answering through Telegram. Format rules, they are hard:
 - Allowed tags ONLY: <b> <i> <u> <s> <code> <pre> <a href="">. Nothing else.
 - NEVER use markdown: no **bold**, no ##heading, no ---, no | tables |, no ``` fences.
@@ -27,16 +20,13 @@ normally and do not mention it: the bot strips it before sending.
 """
 
 
-CLAUDE_BIN = _CFG.claude_bin     # o caminho que o setup gravou no wisp.json; vence o PATH
+CLAUDE_BIN = _CFG.claude_bin
 
-# agent.permissionMode do profile.json (o mesmo que o app grava). O Telegram ainda nao mostra
-# pedidos de aprovacao: "default" (pedir) vira "auto". Sem valor, o bot segue sem pedir, como sempre.
 PERMISSAO_PADRAO = "bypassPermissions"
 _PERMISSAO_NO_BOT = {"default": "auto", "manual": "auto", "auto": "auto", "bypassPermissions": "bypassPermissions"}
 
 
 def permission_mode() -> str:
-    """Lido a cada turno, para uma troca no app valer sem reiniciar o bot; perfil ilegivel = padrao."""
     perfil = config_path().parent / "profile.json"
     try:
         agente = json.loads(perfil.read_text("utf-8")).get("agent")
@@ -47,8 +37,6 @@ def permission_mode() -> str:
 
 
 def claude_bin() -> str:
-    """Resolve o binario. Servico launchd/systemd nao herda PATH de shell de login, entao
-    depender do PATH aqui e o caminho certo para um FileNotFoundError silencioso."""
     if CLAUDE_BIN and os.path.isfile(os.path.expanduser(CLAUDE_BIN)):
         return os.path.expanduser(CLAUDE_BIN)
     found = shutil.which("claude")
@@ -60,8 +48,8 @@ def claude_bin() -> str:
 
 CHAVE_OAUTH = "claude-oauth-expirado"
 _AUTH = ("oauth session expired", "failed to authenticate", "not logged in", "please run /login")
-_alerta_aberto = False      # add ja disparado neste processo, resolve pendente
-_resolvido_boot = False     # 1o sucesso do processo ja tentou fechar alerta de antes do restart
+_alerta_aberto = False
+_resolvido_boot = False
 _soltas: set[asyncio.Task] = set()
 
 
@@ -71,7 +59,6 @@ def falha_de_auth(*textos: str) -> bool:
 
 
 async def _alerta(*args: str) -> bool:
-    """O mesmo alert_cmd do hosting; sem ele, no-op."""
     return await hosting.rodar_alerta(*args)
 
 
@@ -82,8 +69,6 @@ def _solta(coro) -> None:
 
 
 def alertar_oauth() -> None:
-    """Login do CLI expirou: todo job do bot falha em silencio. Um add por processo; o
-    alert_cmd tambem nao deve repetir chave aberta de mesmo nivel."""
     global _alerta_aberto
     if _alerta_aberto:
         return
@@ -95,12 +80,11 @@ def alertar_oauth() -> None:
                            f"Login do Claude CLI expirou no host {HOST}: todo job do bot (Geral, topicos) "
                            "esta falhando. Conserto: rodar `claude` e `/login` nessa maquina.")
         if not ok:
-            _alerta_aberto = False        # nao chegou: a proxima falha tenta de novo
+            _alerta_aberto = False
     _solta(add())
 
 
 def fechar_oauth() -> None:
-    """1o sucesso apos alerta aberto, ou 1o sucesso do processo (alerta de antes do restart)."""
     global _alerta_aberto, _resolvido_boot
     if _resolvido_boot and not _alerta_aberto:
         return
@@ -117,12 +101,10 @@ class Result:
     cost_usd: float | None = None
 
 
-LIMITE_LINHA = 32 * 1024 * 1024   # linha de tool_result passa fácil de 64KB (default do StreamReader)
+LIMITE_LINHA = 32 * 1024 * 1024
 
 
 def rotulo(item: dict) -> str:
-    """Rotulo geral do que o Claude esta fazendo, a partir de um bloco tool_use.
-    Pedido de 14/10: resumo amplo ("acessando a pasta x", "validando"), nunca o comando cru."""
     nome = item.get("name") or ""
     i = item.get("input") or {}
     base = lambda p: os.path.basename(str(p or "").rstrip("/"))
@@ -166,10 +148,6 @@ async def run(prompt: str, *, session_id: str, cwd: str, started: bool,
               env: dict | None = None, no_tools: bool = False,
               on_event: Callable[[str], None] | None = None,
               on_text: Callable[[str], Awaitable[None] | None] | None = None) -> Result:
-    """Um turno. `started` decide entre criar a sessao e retomar. `on_event`
-    recebe um rotulo curto a cada tool_use (cosmetico: erro nele e ignorado).
-    `on_text` recebe cada bloco de texto do assistant assim que chega; se for
-    async, roda como task e o turno so retorna depois de todas terminarem."""
     cmd = [claude_bin(), "--print", "--output-format", "stream-json", "--verbose",
            "--permission-mode", permission_mode(),
            "--append-system-prompt", TELEGRAM_STYLE + extra_prompt]
@@ -178,10 +156,10 @@ async def run(prompt: str, *, session_id: str, cwd: str, started: bool,
         cmd += ["--model", model]
     if disallowed:
         cmd += ["--disallowedTools", disallowed]
-    if no_tools:                  # entrada nao confiavel: sem ferramentas nem MCP
+    if no_tools:
         cmd += ["--tools", "", "--strict-mcp-config"]
 
-    cwd = os.path.expanduser(cwd)  # topics.json pode guardar "~/..." (vincular): sem expandir, isdir falha
+    cwd = os.path.expanduser(cwd)
     if not os.path.isdir(cwd):
         return Result(False, f"cwd nao existe: {cwd}")
 
@@ -193,9 +171,9 @@ async def run(prompt: str, *, session_id: str, cwd: str, started: bool,
     except FileNotFoundError:
         return Result(False, f"binario do claude nao encontrado: {claude_bin()}")
 
-    parciais: list[str] = []      # texto do assistant + linhas nao-JSON, p/ fallback
+    parciais: list[str] = []
     final: dict | None = None
-    tarefas: list[asyncio.Task] = []   # envios de on_text em voo
+    tarefas: list[asyncio.Task] = []
 
     def emitir_texto(texto: str) -> None:
         if not on_text:
@@ -205,10 +183,9 @@ async def run(prompt: str, *, session_id: str, cwd: str, started: bool,
             if asyncio.iscoroutine(r) or isinstance(r, asyncio.Future):
                 tarefas.append(asyncio.ensure_future(r))
         except Exception:
-            pass                                  # cosmetico: nunca quebra o turno
+            pass
 
     async def esperar_textos() -> None:
-        # os parciais saem antes da resposta final: a ordem importa
         if tarefas:
             await asyncio.gather(*tarefas, return_exceptions=True)
 
@@ -240,7 +217,7 @@ async def run(prompt: str, *, session_id: str, cwd: str, started: bool,
                         try:
                             on_event(rotulo(item))
                         except Exception:
-                            pass                  # cosmetico: nunca quebra o turno
+                            pass
 
     async def tudo() -> bytes:
         proc.stdin.write(prompt.encode("utf-8"))
@@ -249,14 +226,13 @@ async def run(prompt: str, *, session_id: str, cwd: str, started: bool,
             proc.stdin.close()
         except (BrokenPipeError, ConnectionResetError):
             pass
-        # stderr drenado junto com stdout: pipe cheio travaria o processo
         _, err_b, _ = await asyncio.gather(ler_stdout(), proc.stderr.read(), proc.wait())
         return err_b
 
     async def matar() -> None:
         proc.kill()
         try:
-            await asyncio.wait_for(proc.wait(), 5)   # colhe o processo, sem zumbi
+            await asyncio.wait_for(proc.wait(), 5)
         except Exception:
             pass
 
@@ -267,7 +243,6 @@ async def run(prompt: str, *, session_id: str, cwd: str, started: bool,
         await esperar_textos()
         return Result(False, f"estourou {timeout}s e foi morto")
     except Exception as e:
-        # linha acima do limite etc: sem isso o processo ficaria solto
         await matar()
         await esperar_textos()
         return Result(False, f"leitura do claude falhou: {type(e).__name__}: {e}")
@@ -286,7 +261,6 @@ async def run(prompt: str, *, session_id: str, cwd: str, started: bool,
     fechar_oauth()
 
     if final is None:
-        # sem linha result o texto parcial ainda e util: melhor entregar que engolir
         return Result(True, "\n".join(parciais)[-3500:] or "(resposta vazia)")
 
     return Result(
@@ -297,9 +271,6 @@ async def run(prompt: str, *, session_id: str, cwd: str, started: bool,
     )
 
 
-# O CLAUDE.md obriga o bloco STATUS em toda resposta, e a regra vence o
-# --append-system-prompt: medido em 28/09, ele veio mesmo com instrucao contraria.
-# No Telegram o bloco e ruido, entao removo aqui em vez de torcer pelo prompt.
 _STATUS = re.compile(r"\n*(?:```[a-z]*\n)?STATUS\s*[·.].*\Z", re.S | re.I)
 
 

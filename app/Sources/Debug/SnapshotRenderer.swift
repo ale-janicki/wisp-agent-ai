@@ -101,7 +101,6 @@ enum SnapshotRenderer {
 
     private static let margin: CGFloat = 24
 
-    /// `-WispSnapshotApproval`: only the approval card (closed, open, with a queue) and the Ajustes card, no shell.
     private static func renderApproval(to directory: URL) async {
         let bash = PermissionRequest(
             id: "demo-1", toolName: "Bash", summary: "rodar mkdir -p ~/projetos/novo && cd ~/projetos/novo && git init",
@@ -122,7 +121,6 @@ enum SnapshotRenderer {
                          size: CGSize(width: width, height: 330), to: directory, name: "approval-3-settings")
     }
 
-    /// The pill with two theme colors, with and without an unseen notice (and a busy one), plus a larger avatar strip.
     private static func renderAvatarDot(
         _ shell: ShellController,
         layout: (rest: CGRect, active: CGRect, panel: CGRect, notch: CGRect?),
@@ -161,8 +159,6 @@ enum SnapshotRenderer {
         shell.notices.setUnseenForSnapshot(nil)
     }
 
-    /// The notch card: queued with "+2", an alert, a failed outbox message, a Mac without notch, and the floating
-    /// copy over an open panel.
     private static func renderNotices(
         _ shell: ShellController,
         layout: (rest: CGRect, active: CGRect, panel: CGRect, notch: CGRect?),

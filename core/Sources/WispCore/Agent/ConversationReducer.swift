@@ -32,11 +32,8 @@ public struct ConversationState: Equatable, Sendable {
     public var fiveHour: Double? { rateLimit?.fiveHour?.utilization }
     public var subscription: Bool?
     public var pendingTurns = 0
-    /// Tool calls the CLI holds for the user, oldest first; the first one is on screen.
     public var approvals: [PermissionRequest] = []
-    /// The mode the CLI reported at init.
     public var permissionMode: String?
-    /// Tools the user denied this turn; the result lists them as denials too, and they need no settings hint.
     public var userDenials: [String] = []
 
     public init() {}
@@ -51,7 +48,6 @@ public enum ConversationReducer {
         s.phase = .thinking(step: nil)
     }
 
-    /// The message waits in the outbox for the bot; later messages of the conversation queue behind it.
     public static func held(_ s: inout ConversationState, reason: String) {
         s.phase = .held(reason)
     }
@@ -64,7 +60,6 @@ public enum ConversationReducer {
 
     public static let awaitingApprovalStep = "esperando tua aprovação"
 
-    /// The user answered the request on screen (or one queued behind it); the turn goes on.
     public static func approvalAnswered(_ s: inout ConversationState, id: String, decision: PermissionDecision) {
         guard let index = s.approvals.firstIndex(where: { $0.id == id }) else { return }
         let request = s.approvals.remove(at: index)
