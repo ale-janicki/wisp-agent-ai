@@ -15,6 +15,10 @@ Entries are in descending chronological order (newest first).
 - Ajustes > "Permissões do Claude" and the same choice in the setup's "Teu wisp" step: "Pedir minha aprovação" (default), "Automático" (Claude decides what is safe, risky actions still ask) and "Sem pedir (perigoso)", which asks for a confirm. It is saved as `agent.permissionMode` in the profile and applies to new and resumed sessions; an idle session restarts at once, a busy one after its turn. A `permissions.defaultMode` in `~/.claude/settings.json` shows as "Definido no Claude" and is never rewritten. A profile that is a symlink is not written through: the choice stays in Wisp.
 - Telegram bot: honours `agent.permissionMode` from the profile. Without it the bot keeps running without asking; "Pedir minha aprovação" runs as Automático there, since Telegram cannot show the card yet.
 
+### Changed
+
+- Ajustes is split into tabs at the top (Aparência, Claude, Avisos, Integrações, Geral, Sobre) instead of one long scroll of cards; only the selected tab's content scrolls. Each card is a header over aligned rows (label left, control right), and a switch row flips from anywhere on the row. The last tab opened is kept in `settings.json` (`settingsSection`) and reopens next time; "Abrir Ajustes" from the Spotify steps in Música lands on Integrações. Sobre is new: version, GitHub link, license (GPL-3.0) and Avisos de terceiros, which moved there from the Setup card.
+
 ## [0.2.1] - 2026-11-18
 
 ### Changed
