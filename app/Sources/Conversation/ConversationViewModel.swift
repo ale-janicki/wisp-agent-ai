@@ -25,6 +25,7 @@ final class ConversationViewModel {
     private(set) var attachmentNotice: String?
     private(set) var held: [HeldMessage] = []
     private(set) var inFlight: UUID?
+    /// Last-message previews read from transcript tails, by `previewKey`; an empty value means "nothing to show".
     private(set) var tailPreviews: [String: String] = [:]
 
     @ObservationIgnored weak var shell: ShellController? {
@@ -52,7 +53,11 @@ final class ConversationViewModel {
     @ObservationIgnored private var seenPrompts = 0
     @ObservationIgnored private var awaitingReply = false
     @ObservationIgnored private var replyDeadline: Task<Void, Never>?
+    /// The mode the live session was started with, to tell whether the CLI took `auto`.
     @ObservationIgnored private var sessionMode: String?
+    /// Approval ids whose answer is on its way to the CLI: a second click does not write twice.
+    @ObservationIgnored private var answering: Set<String> = []
+    /// The permission mode changed mid-turn: the session restarts once the turn ends.
     @ObservationIgnored private var restartAfterTurn = false
     #if DEBUG
     @ObservationIgnored private var demoAsk2: String?
@@ -70,6 +75,7 @@ final class ConversationViewModel {
     private static let heldPill = "na fila"
     private static let drainFloor: TimeInterval = 0.5
 
+    /// DEBUG `-WispProfile <path>` loads a fixture profile and keeps conversations and outbox in `<its folder>/data`.
     nonisolated private static let debugProfile: URL? = {
         #if DEBUG
         let args = ProcessInfo.processInfo.arguments
@@ -128,6 +134,7 @@ final class ConversationViewModel {
         }
     }
 
+    /// Messages of the open conversation still waiting for the bot, oldest first.
     var heldHere: [HeldMessage] { held.filter { $0.conversationId == currentId } }
 
     func isHeld(_ message: ConversationMessage) -> Bool { held.contains { $0.id == message.id } }
@@ -136,6 +143,7 @@ final class ConversationViewModel {
         held.first { $0.id == message.id }.map { OutboxPlan.mark($0, telegramConfigured: telegramConfigured, inFlight: inFlight) }
     }
 
+    /// The Conversa list dot: red when something there will not go on its own, amber while it waits.
     func heldDot(_ conversationId: UUID) -> StatusColor? {
         let mine = held.filter { $0.conversationId == conversationId }
         guard !mine.isEmpty else { return nil }
@@ -154,6 +162,7 @@ final class ConversationViewModel {
         "\(sessionId)|\(stamp?.timeIntervalSince1970 ?? 0)"
     }
 
+    /// The row's last-message line: the stored one when it is current, else what the transcript tail gave (see `fillPreviews`).
     func preview(_ record: ConversationRecord) -> String? {
         if let stored = ConversationPreview.display(record.lastPreview, from: record.lastFrom) { return stored }
         guard let sessionId = record.sessionId else { return nil }
@@ -169,6 +178,7 @@ final class ConversationViewModel {
         return tailPreviews[Self.previewKey(sessionId: topic.sessionId, stamp: topic.lastUsed)].flatMap { $0.isEmpty ? nil : $0 }
     }
 
+    /// Reads, off the main actor and only from the end of each transcript, the previews the list still lacks.
     func fillPreviews() {
         let sections = self.sections
         struct Job { let key: String; let sessionId: String; let cwd: String; let linked: Bool }
@@ -210,6 +220,8 @@ final class ConversationViewModel {
         refreshHeldPhase()
     }
 
+    /// The setup window closed: a Telegram connected or disconnected there (or a new name) applies now, and the
+    /// outbox drain starts or stops with it.
     func reloadProfile() {
         loadProfile()
         Task { [weak self] in await self?.refreshTelegram() }
@@ -243,6 +255,7 @@ final class ConversationViewModel {
 
     var inputBlocked: Bool { profileError != nil || onboarding != nil }
 
+    /// Picker, drop and paste all land here: links resolved, only regular files kept, the rest refused in one sentence.
     func attach(_ urls: [URL]) {
         let checked = AttachmentStaging.regularFiles(urls.filter(\.isFileURL))
         let files = checked.files.filter { !pendingAttachments.contains($0) }
@@ -255,6 +268,7 @@ final class ConversationViewModel {
         attachmentNotice = nil
     }
 
+    /// The bot's attachments folder when the profile names one (Telegram only takes files from there), else Wisp's own.
     private var attachmentsRoot: URL {
         if let folder = profile.blocks?.telegram?.attachments, !folder.isEmpty {
             return URL(fileURLWithPath: expandTilde(folder), isDirectory: true)
@@ -263,6 +277,8 @@ final class ConversationViewModel {
         return support.appendingPathComponent("Wisp/anexos", isDirectory: true)
     }
 
+    /// Text, attachments or both. Attachments are copied (an APFS clone) into today's attachments folder and the
+    /// prompt becomes the same block a phone upload makes, so the agent reads them the same way.
     @discardableResult
     func send(_ raw: String) -> Bool {
         let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -284,6 +300,8 @@ final class ConversationViewModel {
         }
     }
 
+    /// A Telegram message goes into the outbox before anything else, so order, a quit or a conversation switch
+    /// never lose it; the drain is the only thing that sends it.
     private func submit(prompt text: String, caption: String, files: [String]) -> Bool {
         if isFailed {
             if linkedThread != nil { state.phase = .idle } else { discardSession() }
@@ -492,6 +510,7 @@ final class ConversationViewModel {
         }
     }
 
+    /// Links a topic the bot just created; a conversation no longer open gets its index line instead.
     private func adopt(_ created: TelegramCreated, conversationId: UUID, title: String) {
         if conversationId == currentId {
             linkedThread = created.thread
@@ -525,6 +544,7 @@ final class ConversationViewModel {
 
     private var holdReason: String { telegram.downReason ?? DeliveryPolicy.defaultHoldReason }
 
+    /// A reopened conversation shows what still waits for the bot.
     private func restoreHeld() {
         let waiting = heldHere
         guard !waiting.isEmpty else { return }
@@ -544,6 +564,7 @@ final class ConversationViewModel {
         return MessageAttachments.compose(origin: Self.attachmentOrigin, files: staged, caption: message.text, user: profile.persona.user)
     }
 
+    /// The line under the open conversation says why it waits; with nothing left to explain it stops saying "na fila".
     private func refreshHeldPhase() {
         let waiting = heldHere
         guard !waiting.isEmpty else { return }
@@ -577,6 +598,7 @@ final class ConversationViewModel {
         startDrain(fresh: true)
     }
 
+    /// Refused while the message is on its way: it may already be at the bot.
     func discardHeld(_ message: ConversationMessage) {
         guard message.id != inFlight, let held = held.first(where: { $0.id == message.id }) else { return }
         guard discard(held) else { return }
@@ -606,6 +628,7 @@ final class ConversationViewModel {
         return true
     }
 
+    /// Only Wisp's own staged copies, never a file outside the attachments folder.
     private func deleteStaged(_ paths: [String]) {
         let root = attachmentsRoot.standardizedFileURL.path + "/"
         for path in paths where URL(fileURLWithPath: path).standardizedFileURL.path.hasPrefix(root) {
@@ -613,6 +636,7 @@ final class ConversationViewModel {
         }
     }
 
+    /// A sleeping drain restarts at once; a running pass re-reads the outbox, so it never runs twice.
     private func startDrain(fresh: Bool = false) {
         guard telegramConfigured, !outboxBroken, OutboxPlan.hasWork(outbox.all()) else { return }
         if let drainTask {
@@ -631,6 +655,7 @@ final class ConversationViewModel {
         }
     }
 
+    /// A running pass checks the Telegram block itself before every message.
     private func stopDrain() {
         guard drainSleeping else { return }
         drainTask?.cancel()
@@ -638,6 +663,7 @@ final class ConversationViewModel {
         drainSleeping = false
     }
 
+    /// One look at the bot and everything it can take now; nil ends the drain. Asks every 10 s while held.
     private func drainPass(fresh: Bool) async -> TimeInterval? {
         guard telegramConfigured, !outboxBroken, OutboxPlan.hasWork(outbox.all()) else { return endDrain() }
         if fresh { await telegram.ensureFreshStatus() } else { await telegram.checkNow() }
@@ -662,6 +688,7 @@ final class ConversationViewModel {
         }
     }
 
+    /// Claim, create when the conversation has no topic yet, then send; false stops the pass.
     private func deliverOne(_ message: HeldMessage) async -> Bool {
         let here = { message.conversationId == self.currentId }
         if here() {
@@ -724,6 +751,8 @@ final class ConversationViewModel {
         return true
     }
 
+    /// The bot down is not an attempt: the message keeps its place and the pass stops. A failure with the bot up
+    /// (or one that may already have arrived) counts.
     private func settle(_ message: HeldMessage, _ failure: TelegramFailure) async -> Bool {
         if failure.retry {
             await telegram.checkNow()
@@ -735,6 +764,7 @@ final class ConversationViewModel {
         return fail(message, failure.sentence, retry: failure.retry)
     }
 
+    /// Keeps the message with its failure; other conversations keep draining, this one waits behind it.
     private func fail(_ message: HeldMessage, _ sentence: String, retry: Bool) -> Bool {
         let next: HeldMessage
         do {
@@ -764,6 +794,7 @@ final class ConversationViewModel {
         return true
     }
 
+    /// A message that left but cannot leave the file would be sent again on the next pass, so the outbox stops.
     private func release(_ message: HeldMessage) -> Bool {
         do {
             try outbox.remove(id: message.id)
@@ -959,23 +990,42 @@ final class ConversationViewModel {
 
     // MARK: Permissions
 
+    /// The card's buttons. The card leaves only once the answer reached the CLI; a failed write keeps it.
     func answer(_ request: PermissionRequest, _ decision: PermissionDecision) {
-        guard state.approvals.contains(where: { $0.id == request.id }) else { return }
-        ConversationReducer.approvalAnswered(&state, id: request.id, decision: decision)
-        syncPill()
-        guard let active = session else { return }
+        guard state.approvals.contains(where: { $0.id == request.id }), !answering.contains(request.id) else { return }
+        guard let active = session else {
+            answerFailed("no session")
+            return
+        }
+        answering.insert(request.id)
         let gen = generation
         Task { [weak self] in
+            let failure: Error?
             do {
                 try await active.respond(to: request, decision)
+                failure = nil
             } catch {
-                guard let self, gen == self.generation else { return }
-                self.log.error("permission answer failed: \(error.localizedDescription, privacy: .public)")
-                self.state.messages.append(ConversationMessage(role: .system, text: "não consegui responder ao claude: a sessão acabou"))
+                failure = error
+            }
+            guard let self else { return }
+            self.answering.remove(request.id)
+            guard gen == self.generation else { return }
+            if let failure {
+                self.answerFailed(failure.localizedDescription)
+            } else {
+                ConversationReducer.approvalAnswered(&self.state, id: request.id, decision: decision)
+                self.syncPill()
             }
         }
     }
 
+    private func answerFailed(_ reason: String) {
+        log.error("permission answer failed: \(reason, privacy: .public)")
+        state.messages.append(ConversationMessage(role: .system, text: "não consegui responder ao claude: a sessão acabou"))
+    }
+
+    /// A new mode applies to the next start: an idle session stops now (the next message resumes it with the
+    /// new mode), a turn in flight finishes first.
     private func permissionModeChanged() {
         loadProfile()
         guard session != nil || startTask != nil else { return }
@@ -1032,6 +1082,7 @@ final class ConversationViewModel {
 
     // MARK: Notices
 
+    /// A reply landed in the open conversation; the notice center drops it when that conversation is on screen.
     private func noticeReply() {
         guard let shell, let last = state.messages.last, last.role == .assistant else { return }
         shell.notices.post(Notice(
@@ -1043,6 +1094,7 @@ final class ConversationViewModel {
         ))
     }
 
+    /// The panel closed (or on another screen) while a tool call waits for the user.
     private func noticeApproval(_ request: PermissionRequest) {
         shell?.notices.post(Notice(
             sourceId: "approval:\(currentId.uuidString)",
@@ -1055,6 +1107,7 @@ final class ConversationViewModel {
         ))
     }
 
+    /// The conversation when Wisp knows it, else its topic; with neither the click lands on the Conversa list.
     private func noticeTarget(for message: HeldMessage) -> NoticeTarget {
         let known = message.conversationId == currentId || records.contains { $0.id == message.conversationId }
         if !known, let thread = message.thread { return .topic(thread) }
