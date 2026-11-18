@@ -232,7 +232,6 @@ public actor AgentSession {
         try write(data)
     }
 
-    /// Answers a `can_use_tool` request; the CLI holds that tool call until this line lands.
     public func respond(to request: PermissionRequest, _ decision: PermissionDecision) throws {
         try write(ClaudeControl.response(to: request, decision))
     }

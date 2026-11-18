@@ -1,7 +1,6 @@
 import SwiftUI
 import WispCore
 
-/// The three choices, shared by Ajustes and the setup's "Teu wisp" step. "Sem pedir" asks for a confirm first.
 struct PermissionModePicker: View {
     private let model = PermissionModel.shared
     @State private var confirmingBypass = false
@@ -101,7 +100,6 @@ struct PermissionModePicker: View {
     }
 }
 
-/// Ajustes > "Permissões do Claude".
 struct PermissionSettingsCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Space.m) {
