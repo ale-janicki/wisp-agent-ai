@@ -132,7 +132,18 @@ final class RuntimeInstaller {
         }
 
         progress("Baixando o Python e as dependências")
-        let uv = layout.bundled.appendingPathComponent("bin/uv")
+        // A quarantined binary inside the bundle blocks on Gatekeeper when spawned; a copy without the flag runs.
+        let uv = layout.root.appendingPathComponent("bin/uv")
+        do {
+            try fm.createDirectory(at: uv.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try? fm.removeItem(at: uv)
+            try fm.copyItem(at: layout.bundled.appendingPathComponent("bin/uv"), to: uv)
+            if removexattr(uv.path, "com.apple.quarantine", 0) == -1 && errno != ENOATTR {
+                return "Não consegui liberar o instalador do Wisp (erro \(errno))."
+            }
+        } catch {
+            return "Não consegui preparar o instalador: \(error.localizedDescription)"
+        }
         switch CommandRunner.run(
             executable: uv, arguments: RuntimeBootstrap.uvArguments(layout), environment: environment, timeout: 1200)
         {
