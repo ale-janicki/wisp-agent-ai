@@ -2,7 +2,6 @@ import AppKit
 import SwiftUI
 import WispCore
 
-/// The Ajustes tabs; the raw value is what `WispSettings.settingsSection` keeps.
 enum SettingsSection: String, CaseIterable, Identifiable {
     case appearance, claude, notices, integrations, general, about
 
@@ -34,7 +33,6 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         id.flatMap(SettingsSection.init(rawValue:)) ?? .appearance
     }
 
-    /// Opens Ajustes on this tab and keeps it as the last one seen.
     @MainActor func open() {
         AppSettings.shared.setSettingsSection(rawValue)
     }
@@ -278,11 +276,9 @@ struct SettingsView: View {
 
 // MARK: Integrações
 
-/// One dropdown row per integration; one open at a time, all closed on arrival unless a deep link asks.
 struct IntegrationsPane: View {
     enum Integration: CaseIterable { case spotify, music }
 
-    /// Set before opening Ajustes on Integrações (the Música tab's "Abrir Ajustes"); read once on appear.
     @MainActor static var expandOnOpen: Integration?
 
     @ObservedObject var media: NowPlayingService
@@ -395,7 +391,6 @@ struct IntegrationsPane: View {
 
 // MARK: Rows
 
-/// One card of Ajustes: a header (title, optional sentence and trailing control) over its rows.
 private struct SettingsGroup<Trailing: View, Content: View>: View {
     let title: String
     var caption: String?
@@ -435,7 +430,6 @@ extension SettingsGroup where Trailing == EmptyView {
     }
 }
 
-/// Label (and an optional sentence) on the left, the control on the right.
 private struct SettingsRow<Control: View>: View {
     let title: String
     var detail: String?
@@ -452,7 +446,6 @@ private struct SettingsRow<Control: View>: View {
     }
 }
 
-/// A switch row where the whole row flips it; `accessory` sits before the switch and keeps its own clicks.
 private struct ToggleRow<Accessory: View>: View {
     let title: String
     var detail: String?
