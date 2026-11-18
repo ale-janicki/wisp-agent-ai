@@ -327,3 +327,13 @@ private final class Locked<Value>: @unchecked Sendable {
     init(_ value: Value) { self.value = value }
     func mutate<T>(_ body: (inout Value) -> T) -> T { lock.withLock { body(&value) } }
 }
+
+final class TelegramAttachmentsBlockTests: XCTestCase {
+    func testAttachmentsFolderAndSendTemplateDecode() throws {
+        let json = #"{"send":"x {anexos} -- {thread} {text}","attachments":"~/.Wisp-telegram/anexos"}"#
+        let block = try JSONDecoder().decode(TelegramBlock.self, from: Data(json.utf8))
+        XCTAssertEqual(block.attachments, "~/.Wisp-telegram/anexos")
+        XCTAssertTrue(block.sendsAttachments)
+        XCTAssertFalse(TelegramBlock(send: "x -- {thread} {text}").sendsAttachments)
+    }
+}

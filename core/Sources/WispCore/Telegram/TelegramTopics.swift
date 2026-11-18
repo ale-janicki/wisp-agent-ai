@@ -214,10 +214,15 @@ public struct TelegramBlock: Codable, Sendable, Equatable {
     public var send: String?
     public var close: String?
     public var claim: String?
+    /// Folder the bot accepts attachments from (`<folder>/<yyyy-MM-dd>/…`); Wisp copies picked files there.
+    public var attachments: String?
+
+    /// `send` passes files through an optional `{anexos}` (repeated `--anexo 'path'`); without it, text only.
+    public var sendsAttachments: Bool { (send ?? "").contains("{anexos}") }
 
     public init(
         status: String? = nil, list: String? = nil, create: String? = nil, send: String? = nil,
-        close: String? = nil, claim: String? = nil
+        close: String? = nil, claim: String? = nil, attachments: String? = nil
     ) {
         self.status = status
         self.list = list
@@ -225,6 +230,7 @@ public struct TelegramBlock: Codable, Sendable, Equatable {
         self.send = send
         self.close = close
         self.claim = claim
+        self.attachments = attachments
     }
 
     public var isComplete: Bool {

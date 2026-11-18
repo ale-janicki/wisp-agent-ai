@@ -87,7 +87,7 @@ struct MessageRow: View {
         case .user:
             HStack(spacing: 0) {
                 Spacer(minLength: Theme.Space.xl * 2)
-                bubble(Text(message.text), fill: Theme.userBubble)
+                userContent
                     .frame(maxWidth: maxWidth, alignment: .trailing)
             }
         case .assistant:
@@ -106,6 +106,26 @@ struct MessageRow: View {
                 .padding(.vertical, Theme.Space.xs)
         }
     }
+
+    /// A prompt with the attachment block shows its photos and files (never the paths); a preview stays one line.
+    @ViewBuilder
+    private var userContent: some View {
+        if let attachments = MessageAttachments.parse(message.text) ?? MessageAttachments.unparsed(message.text) {
+            if lineLimit != nil || attachments.items.isEmpty {
+                bubble(Text(attachments.summary), fill: Theme.userBubble)
+            } else {
+                VStack(alignment: .trailing, spacing: Theme.Space.xs) {
+                    AttachmentStack(attachments: attachments, time: message.time, maxWidth: maxWidth * Self.imageShare)
+                    if let caption = attachments.caption { bubble(Text(caption), fill: Theme.userBubble) }
+                }
+            }
+        } else {
+            bubble(Text(message.text), fill: Theme.userBubble)
+        }
+    }
+
+    /// Images take ~70% of the column; `maxWidth` is already 80% of it.
+    private static let imageShare: CGFloat = 0.875
 
     private func bubble(_ text: Text, fill: Color) -> some View {
         text

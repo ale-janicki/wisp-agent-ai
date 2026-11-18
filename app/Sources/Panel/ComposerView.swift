@@ -5,12 +5,16 @@ struct ComposerView: View {
     @Binding var text: String
     var placeholder: String
     var disabled: Bool
+    var attachments: [URL] = []
+    var notice: String?
+    var onAttach: ([URL]) -> Void = { _ in }
+    var onRemove: (URL) -> Void = { _ in }
     var onSubmit: () -> Void
 
     @State private var height = ComposerTextView.lineHeight
 
     private var canSend: Bool {
-        !disabled && !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        !disabled && (!attachments.isEmpty || !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
     }
 
     private static let sendSize: CGFloat = 30
@@ -18,28 +22,21 @@ struct ComposerView: View {
     private static let radius: CGFloat = 20
 
     var body: some View {
-        HStack(alignment: .bottom, spacing: Theme.Space.s) {
-            ZStack(alignment: .topLeading) {
-                if text.isEmpty {
-                    Text(placeholder)
-                        .font(Theme.Font.body)
-                        .foregroundStyle(Theme.textTertiary)
-                        .lineLimit(1)
-                        .allowsHitTesting(false)
-                }
-                ComposerTextView(text: $text, height: $height, disabled: disabled, onSubmit: submit)
-                    .frame(height: height)
+        VStack(alignment: .leading, spacing: 0) {
+            if !attachments.isEmpty {
+                PendingAttachmentsBar(urls: attachments, onRemove: onRemove)
+                    .padding(.horizontal, Theme.Space.m)
+                    .padding(.top, Theme.Space.s)
             }
-            .padding(.vertical, Self.verticalInset)
-            .padding(.leading, Theme.Space.l)
-
-            Button(action: submit) {
-                Image(systemName: "arrow.up")
+            if let notice {
+                Text(notice)
+                    .font(Theme.Font.caption)
+                    .foregroundStyle(Theme.textSecondary)
+                    .lineLimit(2)
+                    .padding(.horizontal, Theme.Space.l)
+                    .padding(.top, Theme.Space.s)
             }
-            .buttonStyle(CircleButtonStyle(kind: .accent, size: Self.sendSize))
-            .disabled(!canSend)
-            .help("Enviar (Enter)")
-            .padding(5)
+            inputRow
         }
         .background {
             RoundedRectangle(cornerRadius: Self.radius, style: .circular)
@@ -51,6 +48,45 @@ struct ComposerView: View {
         }
         .opacity(disabled ? 0.6 : 1)
         .animation(.easeOut(duration: 0.15), value: height)
+        .animation(.easeOut(duration: 0.15), value: attachments)
+    }
+
+    private var inputRow: some View {
+        HStack(alignment: .bottom, spacing: Theme.Space.s) {
+            Button(action: pick) {
+                Image(systemName: "paperclip")
+            }
+            .buttonStyle(CircleButtonStyle(kind: .plain, size: Self.sendSize))
+            .disabled(disabled)
+            .help("Anexar foto ou arquivo")
+            .padding([.leading, .vertical], 5)
+
+            ZStack(alignment: .topLeading) {
+                if text.isEmpty {
+                    Text(placeholder)
+                        .font(Theme.Font.body)
+                        .foregroundStyle(Theme.textTertiary)
+                        .lineLimit(1)
+                        .allowsHitTesting(false)
+                }
+                ComposerTextView(text: $text, height: $height, disabled: disabled, onSubmit: submit, onPasteFiles: onAttach)
+                    .frame(height: height)
+            }
+            .padding(.vertical, Self.verticalInset)
+
+            Button(action: submit) {
+                Image(systemName: "arrow.up")
+            }
+            .buttonStyle(CircleButtonStyle(kind: .accent, size: Self.sendSize))
+            .disabled(!canSend)
+            .help("Enviar (Enter)")
+            .padding(5)
+        }
+    }
+
+    private func pick() {
+        guard !disabled, let urls = AttachmentPicker.choose() else { return }
+        onAttach(urls)
     }
 
     private func submit() {
@@ -64,6 +100,7 @@ struct ComposerTextView: NSViewRepresentable {
     @Binding var height: CGFloat
     var disabled: Bool
     var onSubmit: () -> Void
+    var onPasteFiles: ([URL]) -> Void = { _ in }
 
     static let font = NSFont.systemFont(ofSize: 13)
     static let lineHeight = ceil(NSLayoutManager().defaultLineHeight(for: font))
@@ -99,6 +136,7 @@ struct ComposerTextView: NSViewRepresentable {
         textView.selectedTextAttributes = [.backgroundColor: NSColor(Theme.accent).withAlphaComponent(0.3)]
         textView.string = text
         let coordinator = context.coordinator
+        textView.onPasteFiles = { [weak coordinator] urls in coordinator?.parent.onPasteFiles(urls) }
         textView.onWidthChange = { [weak coordinator] in
             Task { @MainActor in coordinator?.recalculateHeight() }
         }
@@ -154,6 +192,16 @@ struct ComposerTextView: NSViewRepresentable {
 
 final class ComposerNSTextView: NSTextView {
     var onWidthChange: (() -> Void)?
+    var onPasteFiles: (@MainActor ([URL]) -> Void)?
+
+    /// ⌘V of an image or of files copied in Finder attaches them; text pastes as before.
+    override func paste(_ sender: Any?) {
+        let board = NSPasteboard.general
+        let hasText = board.availableType(from: [.string]) != nil
+        let hasFiles = board.canReadObject(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true])
+        if let onPasteFiles, hasFiles || !hasText, AttachmentPicker.pasted(from: board, completion: onPasteFiles) { return }
+        super.paste(sender)
+    }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()

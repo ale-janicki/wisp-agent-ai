@@ -70,3 +70,14 @@ final class TranscriptReaderTests: XCTestCase {
         XCTAssertNil(TranscriptReader.load(sessionId: "x", cwd: "/Users/test", statusPrefix: nil, projectsRoot: root))
     }
 }
+
+final class TranscriptTimeTests: XCTestCase {
+    func testUserPromptCarriesItsTimestamp() throws {
+        let line = #"{"type":"user","timestamp":"2026-11-17T15:56:00.247Z","message":{"role":"user","content":"oi"}}"#
+        let messages = TranscriptReader.messages(fromJSONL: Data(line.utf8), statusPrefix: nil)
+        let time = try XCTUnwrap(messages.first?.time)
+        XCTAssertEqual(time.timeIntervalSince1970, 1_794_930_960.247, accuracy: 0.001)
+        let bare = TranscriptReader.messages(fromJSONL: Data(#"{"type":"user","message":{"role":"user","content":"oi"}}"#.utf8), statusPrefix: nil)
+        XCTAssertNil(bare.first?.time)
+    }
+}

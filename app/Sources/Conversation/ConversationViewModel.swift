@@ -21,6 +21,8 @@ final class ConversationViewModel {
     private(set) var rateLimit: RateLimit?
     let telegram = TelegramModel()
     private(set) var linkedThread: Int?
+    private(set) var pendingAttachments: [URL] = []
+    private(set) var attachmentNotice: String?
 
     @ObservationIgnored weak var shell: ShellController? {
         didSet { shell?.restTarget = { [weak self] in self?.restTarget() ?? .rest } }
@@ -58,6 +60,8 @@ final class ConversationViewModel {
     private static let pillBodyLimit = 60
     private static let transientDuration: Duration = .seconds(4)
     private static let linkedReplyLimit: Duration = .seconds(61 * 60)
+    private static let attachmentLimit = 10
+    private static let attachmentOrigin = "Wisp"
     private static let sendingStep = "Enviando ao Telegram…"
     private static let creatingStep = "Criando tópico no Telegram…"
 
@@ -138,10 +142,54 @@ final class ConversationViewModel {
 
     var inputBlocked: Bool { profileError != nil || onboarding != nil }
 
+    /// Picker, drop and paste all land here: links resolved, only regular files kept, the rest refused in one sentence.
+    func attach(_ urls: [URL]) {
+        let checked = AttachmentStaging.regularFiles(urls.filter(\.isFileURL))
+        let files = checked.files.filter { !pendingAttachments.contains($0) }
+        pendingAttachments = Array((pendingAttachments + files).prefix(Self.attachmentLimit))
+        attachmentNotice = checked.refused.isEmpty ? nil : AttachmentStaging.refusal(checked.refused)
+    }
+
+    func detach(_ url: URL) {
+        pendingAttachments.removeAll { $0 == url }
+        attachmentNotice = nil
+    }
+
+    /// The bot's attachments folder when the profile names one (Telegram only takes files from there), else Wisp's own.
+    private var attachmentsRoot: URL {
+        if let folder = profile.blocks?.telegram?.attachments, !folder.isEmpty {
+            return URL(fileURLWithPath: expandTilde(folder), isDirectory: true)
+        }
+        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        return support.appendingPathComponent("Wisp/anexos", isDirectory: true)
+    }
+
+    /// Text, attachments or both. Attachments are copied (an APFS clone) into today's attachments folder and the
+    /// prompt becomes the same block a phone upload makes, so the agent reads them the same way.
     @discardableResult
     func send(_ raw: String) -> Bool {
         let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty, !inputBlocked else { return false }
+        guard !text.isEmpty || !pendingAttachments.isEmpty, !inputBlocked else { return false }
+        guard !pendingAttachments.isEmpty else {
+            submit(prompt: text, caption: text, files: [])
+            return true
+        }
+        do {
+            let staged = try AttachmentStaging.stage(pendingAttachments, into: attachmentsRoot)
+            pendingAttachments = []
+            attachmentNotice = nil
+            submit(prompt: MessageAttachments.compose(origin: Self.attachmentOrigin, files: staged, caption: text),
+                   caption: text, files: staged.map(\.path),
+                   name: MessageAttachments.firstMessageName(caption: text, names: staged.map(\.name)))
+            return true
+        } catch {
+            attachmentNotice = "Não consegui preparar o anexo: \(error.localizedDescription)"
+            return false
+        }
+    }
+
+    private func submit(prompt text: String, caption: String, files: [String], name: String? = nil) {
+        let name = name ?? caption
         if isFailed {
             if linkedThread != nil { state.phase = .idle } else { discardSession() }
         }
@@ -154,17 +202,17 @@ final class ConversationViewModel {
         syncPill()
         let gen = generation
         if fresh, profile.blocks?.telegram?.isComplete == true {
-            engine = Task { await self.chooseEngine(firstMessage: text, generation: gen) }
+            engine = Task { await self.chooseEngine(firstMessage: name, generation: gen) }
         }
         guard let engine else {
             Task { await deliver(text, generation: gen) }
-            return true
+            return
         }
         if let prompt = state.messages.last, prompt.role == .user { unseenPrompts.append(prompt) }
         Task {
             switch await engine.value {
             case .topic(let thread):
-                await self.deliverLinked(text, thread: thread, generation: gen)
+                await self.deliverLinked(caption, files: files, thread: thread, generation: gen)
             case .local:
                 self.unseenPrompts.removeAll { $0.text == text }
                 await self.deliver(text, generation: gen)
@@ -172,7 +220,6 @@ final class ConversationViewModel {
                 break
             }
         }
-        return true
     }
 
     func retry() {
@@ -353,7 +400,7 @@ final class ConversationViewModel {
         }
     }
 
-    private func deliverLinked(_ text: String, thread: Int, generation gen: Int) async {
+    private func deliverLinked(_ text: String, files: [String], thread: Int, generation gen: Int) async {
         guard gen == generation else { return }
         awaitingReply = true
         await telegram.ensureFreshStatus()
@@ -368,7 +415,7 @@ final class ConversationViewModel {
             state.phase = .thinking(step: Self.sendingStep)
             syncPill()
         }
-        let failure = await telegram.send(thread: thread, text: text)
+        let failure = await telegram.send(thread: thread, text: text, files: files)
         guard gen == generation else { return }
         if let failure {
             failLinked(failure.sentence)
@@ -590,7 +637,7 @@ final class ConversationViewModel {
         let record = ConversationRecord(
             id: currentId,
             sessionId: state.sessionId,
-            title: currentTitle ?? String(first.text.prefix(Self.titleLimit)),
+            title: currentTitle ?? String((MessageAttachments.parse(first.text)?.summary ?? first.text).prefix(Self.titleLimit)),
             updatedAt: Date(),
             telegramThread: linkedThread,
             cwd: sessionCwd

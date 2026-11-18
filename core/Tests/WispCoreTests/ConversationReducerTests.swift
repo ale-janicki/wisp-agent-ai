@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import WispCore
 
@@ -124,5 +125,14 @@ import Testing
         reduce(&state, [.claude(.result(sessionId: "s", text: "ok", isError: false, denials: []))])
         #expect(state.phase == .idle)
         #expect(state.pendingTurns == 0)
+    }
+
+    @Test func userSentStampsTheTimeSoTheBadgeShowsAtOnce() {
+        var state = ConversationState()
+        let before = Date()
+        ConversationReducer.userSent(&state, text: "oi")
+        let time = state.messages.last?.time
+        #expect(time != nil)
+        #expect((time ?? .distantPast) >= before)
     }
 }
