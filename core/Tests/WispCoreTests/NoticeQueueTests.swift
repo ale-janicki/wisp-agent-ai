@@ -278,13 +278,35 @@ final class NoticeQueueTests: XCTestCase {
         XCTAssertTrue(NoticeKind.allCases.allSatisfy(fresh.allows))
         let partial = try JSONDecoder().decode(NoticeSettings.self, from: Data(#"{"telegram":false}"#.utf8))
         XCTAssertFalse(partial[.telegram])
-        XCTAssertTrue(partial[.reply] && partial[.reminder] && partial[.outbox])
+        XCTAssertTrue(partial[.reply] && partial[.reminder] && partial[.outbox] && partial[.update])
         let saved = try JSONDecoder().decode(WispSettings.self, from: Data(#"{"theme":"lime"}"#.utf8))
         XCTAssertEqual(saved.notices, NoticeSettings())
         var changed = WispSettings.default
         changed.notices.doNotDisturb = true
         let roundTrip = try JSONDecoder().decode(WispSettings.self, from: JSONEncoder().encode(changed))
         XCTAssertTrue(roundTrip.notices.doNotDisturb)
+    }
+
+    func testSettingsSavedBeforeUpdateNoticesKeepThemOn() throws {
+        let old = try JSONDecoder().decode(NoticeSettings.self, from: Data(
+            #"{"reply":true,"telegram":true,"reminder":false,"outbox":true,"doNotDisturb":false}"#.utf8))
+        XCTAssertTrue(old.allows(.update))
+        XCTAssertFalse(old.allows(.reminder))
+    }
+
+    func testUpdateNoticeIsOneCardAndHasItsOwnSwitch() {
+        var queue = NoticeQueue()
+        let first = Notice(kind: .update, title: "Versão nova do Wisp — 0.2.0", preview: "p", time: t0, target: .update)
+        let newer = Notice(kind: .update, title: "Versão nova do Wisp — 0.3.0", preview: "p", time: at(1), target: .update)
+        XCTAssertEqual(queue.offer(first, settings: all, visible: [], now: t0), .shown)
+        XCTAssertEqual(queue.offer(newer, settings: all, visible: [], now: at(1)), .updated)
+        XCTAssertEqual(queue.current?.title, "Versão nova do Wisp — 0.3.0")
+        XCTAssertEqual(queue.badge, 0)
+        var off = NoticeSettings()
+        off.update = false
+        var quietQueue = NoticeQueue()
+        XCTAssertEqual(quietQueue.offer(first, settings: off, visible: [], now: t0), .suppressed)
+        XCTAssertTrue(off.allows(.reply))
     }
 
     // MARK: Geometry

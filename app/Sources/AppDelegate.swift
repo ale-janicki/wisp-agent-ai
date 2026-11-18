@@ -47,6 +47,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         #endif
+        UpdateModel.shared.start()
         if Self.setupNeeded() {
             presentSetup(homeOverride: nil, existingInstall: Self.profileExists())
         } else {
@@ -85,6 +86,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         LoginItemModel.shared.sync(setupFinished: finished)
         let shell = ShellController()
         self.shell = shell
+        UpdateModel.shared.notices = shell.notices
         shell.start()
         #if DEBUG
         shell.runDebugArguments()

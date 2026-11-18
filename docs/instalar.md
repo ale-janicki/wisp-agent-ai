@@ -13,7 +13,7 @@ O Wisp precisa de um Mac com macOS 15 (Sequoia) ou mais novo, de internet na pri
 O Wisp não vem da App Store, então o Mac desconfia dele na primeira abertura. É normal e só acontece uma vez.
 
 1. Abra a pasta **Aplicativos** e dê dois cliques no **Wisp**.
-2. Vai aparecer um aviso dizendo que o Mac não pôde verificar o app. Clique em **Concluído** (não clique em "Mover para o Lixo").
+2. Vai aparecer um aviso dizendo que o Mac não pôde verificar o app. Clique em **OK** (não clique em "Mover para o Lixo").
 3. Abra o menu Apple (a maçã no canto superior esquerdo da tela) > **Ajustes do Sistema** > **Privacidade e Segurança**.
 4. Role até a parte **Segurança**. Vai ter a frase sobre o Wisp ter sido bloqueado. Clique em **Abrir Mesmo Assim**.
 5. Digite a senha do Mac (ou use o Touch ID). Se aparecer mais um aviso, clique em **Abrir Mesmo Assim** (ou **Abrir**).
@@ -29,6 +29,8 @@ Depois do último passo o Wisp fica no topo da tela, no meio, colado ao recorte 
 A partir daí o Wisp abre sozinho toda vez que você ligar o Mac (só se ele estiver na pasta **Aplicativos**). Se o Mac mostrar um aviso de "item de início adicionado", pode deixar. Para desligar, use **Abrir ao ligar o Mac** nos Ajustes do Wisp.
 
 Os avisos do Wisp (resposta nova, lembrete, mensagem enviada) aparecem no próprio recorte da câmera, não na Central de Notificações.
+
+O Wisp se atualiza sozinho: quando sair versão nova aparece um aviso no notch.
 
 ## Se algo der errado
 

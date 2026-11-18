@@ -1,27 +1,25 @@
 import Foundation
 
-/// The four kinds of notch notice; Ajustes switches each one on or off.
 public enum NoticeKind: String, Codable, CaseIterable, Sendable {
-    case reply, telegram, reminder, outbox
+    case reply, telegram, reminder, outbox, update
 }
 
-/// Where a click on the card opens the panel, and what "already on screen" is matched against.
 public enum NoticeTarget: Hashable, Sendable {
     case conversation(UUID)
     case topic(Int)
     case reminders
+    case update
 
     var sourceId: String {
         switch self {
         case .conversation(let id): "conversation:\(id.uuidString)"
         case .topic(let thread): "topic:\(thread)"
         case .reminders: "reminders"
+        case .update: "update"
         }
     }
 }
 
-/// One card at the notch. `sourceId` is the dedupe key: by default the target, so a reply and a topic message of
-/// the same thread are one card; alerts and outbox messages pass their own.
 public struct Notice: Identifiable, Equatable, Sendable {
     public enum Tone: Sendable, Equatable { case normal, warning, alert }
 
@@ -49,12 +47,12 @@ public struct Notice: Identifiable, Equatable, Sendable {
     }
 }
 
-/// "Avisos no notch" in Ajustes: one switch per kind, all on by default, and "não perturbe" over all of them.
 public struct NoticeSettings: Codable, Equatable, Sendable {
     public var reply = true
     public var telegram = true
     public var reminder = true
     public var outbox = true
+    public var update = true
     public var doNotDisturb = false
 
     public init() {}
@@ -66,6 +64,7 @@ public struct NoticeSettings: Codable, Equatable, Sendable {
             case .telegram: telegram
             case .reminder: reminder
             case .outbox: outbox
+            case .update: update
             }
         }
         set {
@@ -74,13 +73,14 @@ public struct NoticeSettings: Codable, Equatable, Sendable {
             case .telegram: telegram = newValue
             case .reminder: reminder = newValue
             case .outbox: outbox = newValue
+            case .update: update = newValue
             }
         }
     }
 
     public func allows(_ kind: NoticeKind) -> Bool { !doNotDisturb && self[kind] }
 
-    private enum CodingKeys: String, CodingKey { case reply, telegram, reminder, outbox, doNotDisturb }
+    private enum CodingKeys: String, CodingKey { case reply, telegram, reminder, outbox, update, doNotDisturb }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -88,12 +88,11 @@ public struct NoticeSettings: Codable, Equatable, Sendable {
         telegram = try container.decodeIfPresent(Bool.self, forKey: .telegram) ?? true
         reminder = try container.decodeIfPresent(Bool.self, forKey: .reminder) ?? true
         outbox = try container.decodeIfPresent(Bool.self, forKey: .outbox) ?? true
+        update = try container.decodeIfPresent(Bool.self, forKey: .update) ?? true
         doNotDisturb = try container.decodeIfPresent(Bool.self, forKey: .doNotDisturb) ?? false
     }
 }
 
-/// What the notch shows and when it folds. Pure: the app owns the clock, the pointer and what is on screen.
-/// One card at a time, the rest wait in arrival order; the same source updates its card instead of adding one.
 public struct NoticeQueue: Equatable, Sendable {
     public static let showFor: TimeInterval = 6
     public static let afterHover: TimeInterval = 2
@@ -109,10 +108,8 @@ public struct NoticeQueue: Equatable, Sendable {
 
     public init() {}
 
-    /// The "+N" on the card.
     public var badge: Int { pending.count }
 
-    /// When the card folds on its own; nil with no card or while the pointer is on it.
     public var deadline: Date? {
         guard current != nil, let runningSince else { return nil }
         return runningSince.addingTimeInterval(remaining)
@@ -140,7 +137,6 @@ public struct NoticeQueue: Equatable, Sendable {
         return .queued
     }
 
-    /// Only a change counts, so the pointer reported on every mouse move never eats the time.
     public mutating func hover(_ on: Bool, now: Date) {
         guard on != hovering, current != nil || !on else { return }
         hovering = on
@@ -153,7 +149,6 @@ public struct NoticeQueue: Equatable, Sendable {
         }
     }
 
-    /// True when the card folded (and the next one, if any, took its place).
     @discardableResult
     public mutating func expire(now: Date) -> Bool {
         guard let deadline, now >= deadline else { return false }
@@ -165,14 +160,12 @@ public struct NoticeQueue: Equatable, Sendable {
         advance(now: now)
     }
 
-    /// The click: the card goes away and the caller opens its target.
     public mutating func take(now: Date) -> Notice? {
         let taken = current
         advance(now: now)
         return taken
     }
 
-    /// Drops every card whose source the user is now looking at, or whose kind was switched off.
     public mutating func prune(settings: NoticeSettings, visible: Set<NoticeTarget>, now: Date) {
         let keep = { (notice: Notice) in settings.allows(notice.kind) && !visible.contains(notice.target) }
         pending.removeAll { !keep($0) }
@@ -196,8 +189,6 @@ public struct NoticeQueue: Equatable, Sendable {
     }
 }
 
-/// The last read of each polled source. A source whose kinds are switched off (or "não perturbe") forgets its read,
-/// so the first read after it comes back is a silent baseline and never a burst of old cards.
 public struct NoticeBaselines: Equatable, Sendable {
     public private(set) var alerts: [AlertItem]?
     public private(set) var topics: [TelegramTopic]?
@@ -231,21 +222,16 @@ public struct NoticeBaselines: Equatable, Sendable {
     }
 }
 
-/// What counts as news for each source. Pure, so a first read never floods the notch.
 public enum Notices {
     public static let previewLimit = 140
-    /// A Telegram message that took this long (or failed once) was really held; a normal send is not news.
     public static let heldLongEnough: TimeInterval = 30
 
-    /// nil `old` is the first read: everything there was already there.
     public static func newAlerts(old: [AlertItem]?, new: [AlertItem]) -> [AlertItem] {
         guard let old else { return [] }
         let known = Set(old.map(\.id))
         return new.filter { !known.contains($0.id) }
     }
 
-    /// Topics that moved since the last read (more turns or a newer last use), plus topics that appeared there and
-    /// that Wisp did not create; the topic the open conversation follows live is never news here.
     public static func topicNews(old: [TelegramTopic]?, new: [TelegramTopic], following: Int?, wispThreads: Set<Int>) -> [TelegramTopic] {
         guard let old else { return [] }
         let before = Dictionary(old.map { ($0.thread, $0) }, uniquingKeysWith: { first, _ in first })
