@@ -77,7 +77,7 @@ def render_telegram_block(
 def set_telegram_block(
     profile_path: Path, wisp_bin: str, attachments: str | None = None, *, name: str = "Wisp", language: str = "pt-BR"
 ) -> None:
-    atomic_write(profile_path, render_telegram_block(profile_path, wisp_bin, attachments, name=name, language=language))
+    atomic_write(profile_path, render_telegram_block(profile_path, wisp_bin, attachments, name=name, language=language), mode=0o600)
 
 
 def has_telegram_block(profile_path: Path) -> bool:
@@ -94,4 +94,4 @@ def remove_telegram_block(profile_path: Path) -> None:
     check_writable(profile_path)
     profile = _load(profile_path)
     profile.get("blocks", {}).pop("telegram", None)
-    atomic_write(profile_path, json.dumps(profile, indent=2, ensure_ascii=False) + "\n")
+    atomic_write(profile_path, json.dumps(profile, indent=2, ensure_ascii=False) + "\n", mode=0o600)

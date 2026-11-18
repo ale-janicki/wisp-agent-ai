@@ -54,4 +54,4 @@ def load_config(path: Path | None = None) -> WispConfig:
 
 
 def save_config(cfg: WispConfig, path: Path | None = None) -> None:
-    atomic_write(path or _default_path(), json.dumps(asdict(cfg), indent=2, ensure_ascii=False) + "\n")
+    atomic_write(path or _default_path(), json.dumps(asdict(cfg), indent=2, ensure_ascii=False) + "\n", mode=0o600)
