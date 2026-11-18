@@ -1,7 +1,7 @@
 import Foundation
 
 public enum NoticeKind: String, Codable, CaseIterable, Sendable {
-    case reply, telegram, reminder, outbox, update
+    case reply, telegram, reminder, outbox, update, approval
 }
 
 public enum NoticeTarget: Hashable, Sendable {
@@ -53,6 +53,7 @@ public struct NoticeSettings: Codable, Equatable, Sendable {
     public var reminder = true
     public var outbox = true
     public var update = true
+    public var approval = true
     public var doNotDisturb = false
 
     public init() {}
@@ -65,6 +66,7 @@ public struct NoticeSettings: Codable, Equatable, Sendable {
             case .reminder: reminder
             case .outbox: outbox
             case .update: update
+            case .approval: approval
             }
         }
         set {
@@ -74,13 +76,14 @@ public struct NoticeSettings: Codable, Equatable, Sendable {
             case .reminder: reminder = newValue
             case .outbox: outbox = newValue
             case .update: update = newValue
+            case .approval: approval = newValue
             }
         }
     }
 
     public func allows(_ kind: NoticeKind) -> Bool { !doNotDisturb && self[kind] }
 
-    private enum CodingKeys: String, CodingKey { case reply, telegram, reminder, outbox, update, doNotDisturb }
+    private enum CodingKeys: String, CodingKey { case reply, telegram, reminder, outbox, update, approval, doNotDisturb }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -89,6 +92,7 @@ public struct NoticeSettings: Codable, Equatable, Sendable {
         reminder = try container.decodeIfPresent(Bool.self, forKey: .reminder) ?? true
         outbox = try container.decodeIfPresent(Bool.self, forKey: .outbox) ?? true
         update = try container.decodeIfPresent(Bool.self, forKey: .update) ?? true
+        approval = try container.decodeIfPresent(Bool.self, forKey: .approval) ?? true
         doNotDisturb = try container.decodeIfPresent(Bool.self, forKey: .doNotDisturb) ?? false
     }
 }

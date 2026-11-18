@@ -19,12 +19,17 @@ public struct AgentConfig: Codable, Sendable, Equatable {
     public var model: String?
     public var claudePath: String?
     public var statusPrefix: String?
+    /// A CLI `--permission-mode` value (`default`, `auto`, `bypassPermissions`); the bot reads it too.
+    public var permissionMode: String?
 
-    public init(cwd: String, model: String? = nil, claudePath: String? = nil, statusPrefix: String? = nil) {
+    public init(
+        cwd: String, model: String? = nil, claudePath: String? = nil, statusPrefix: String? = nil, permissionMode: String? = nil
+    ) {
         self.cwd = cwd
         self.model = model
         self.claudePath = claudePath
         self.statusPrefix = statusPrefix
+        self.permissionMode = permissionMode
     }
 }
 
