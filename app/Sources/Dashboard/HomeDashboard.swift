@@ -214,6 +214,7 @@ private struct UsageTile: View {
                             .truncationMode(.tail)
                     }
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
             }
         }
         .task(id: limitsPath) {
