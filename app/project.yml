@@ -6,14 +6,22 @@ options:
 packages:
   WispCore:
     path: ../core
+  SwiftTerm:
+    url: https://github.com/migueldeicaza/SwiftTerm
+    exactVersion: 1.99.3
 targets:
   Wisp:
     type: application
     platform: macOS
-    sources: [Sources]
+    sources:
+      - Sources
+      - path: Resources/ThirdParty
+        type: folder
     dependencies:
       - package: WispCore
         product: WispCore
+      - package: SwiftTerm
+        product: SwiftTerm
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.owner.wisp

@@ -134,8 +134,16 @@ struct SettingsView: View {
                     .foregroundStyle(Theme.textSecondary)
             }
             Spacer()
-            Button("Rodar o setup de novo") { (NSApp.delegate as? AppDelegate)?.showSetup() }
+            VStack(alignment: .trailing, spacing: Theme.Space.s) {
+                Button("Rodar o setup de novo") { (NSApp.delegate as? AppDelegate)?.showSetup() }
+                    .buttonStyle(CapsuleButtonStyle(kind: .ghost))
+                Button("Avisos de terceiros") {
+                    if let notice = Bundle.main.url(forResource: "SwiftTerm-LICENSE", withExtension: "txt", subdirectory: "ThirdParty") {
+                        NSWorkspace.shared.open(notice)
+                    }
+                }
                 .buttonStyle(CapsuleButtonStyle(kind: .ghost))
+            }
         }
         .padding(Theme.Space.l)
         .frame(maxWidth: .infinity, alignment: .leading)

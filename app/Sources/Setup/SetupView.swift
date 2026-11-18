@@ -247,9 +247,7 @@ private struct StepPane: View {
                     .pointerStyle(.link)
             }
         case .login:
-            Text("Esse passo chega na próxima versão do Wisp.")
-                .font(Theme.Font.body)
-                .foregroundStyle(Theme.busy)
+            LoginStepView(model: model)
         case .brain:
             brainFolder
         case .harness:
@@ -391,10 +389,8 @@ private struct StepPane: View {
                 run("Preparar o Mac") { await model.run(.system, arguments: model.withHomebrew ? ["--with-homebrew"] : []) }
             }
         case .login:
-            #if DEBUG
             Button("Pular por enquanto") { model.skip(.login) }
                 .buttonStyle(CapsuleButtonStyle())
-            #endif
         case .brain:
             run("Criar o cérebro") {
                 await model.run(.brain, arguments: model.brainFolder.map { ["--path", $0.path] } ?? [])
