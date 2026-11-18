@@ -9,6 +9,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         runtime.cancel()
+        setup?.session.model?.cancelPolling(blocking: true)
         AppSettings.shared.flush()
     }
 
@@ -28,6 +29,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if let controller = setup, SetupAutorun.isRequested(ProcessInfo.processInfo.arguments) {
                 Task { await SetupAutorun.run(controller: controller, home: home) }
             }
+            Task { await runtime.ensure() }
+            return
+        }
+        if let step = SetupAutorun.forcedStep(from: ProcessInfo.processInfo.arguments) {
+            presentSetup(homeOverride: nil, existingInstall: true)
+            if let controller = setup { Task { await SetupAutorun.open(step, controller: controller) } }
             Task { await runtime.ensure() }
             return
         }

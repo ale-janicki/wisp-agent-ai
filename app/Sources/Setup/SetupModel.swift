@@ -22,7 +22,12 @@ final class SetupModel {
     }
 
     private(set) var rows = SetupStepID.allCases.map { StepRow(id: $0) }
-    var current: SetupStepID = .system
+    var current: SetupStepID = .system {
+        didSet {
+            if current == .login, oldValue != .login { loginTerminal.start(model: self) }
+            if oldValue == .login, current != .login { loginTerminal.stop() }
+        }
+    }
     var detailsOpen = false
 
     var withHomebrew = false
@@ -46,6 +51,8 @@ final class SetupModel {
 
     private let log = Logger(subsystem: "com.owner.wisp", category: "setup")
     private var pollTask: Task<Void, Never>?
+    /// The Login step's terminal; it lives here so closing the window or quitting ends it with the model.
+    @ObservationIgnored let loginTerminal = LoginTerminalSession()
     private var systemArguments: [String] = []
 
     /// Steps whose child gets `--dry-run` under a DEBUG home override: the ones that install software or reach the network.
@@ -113,10 +120,16 @@ final class SetupModel {
         current = SetupFlow.openingStep(doctor: report, state: state)
     }
 
-    private func doctor(only: String?) async -> DoctorReport? {
+    private func doctor(only: String?, timeout: TimeInterval = 40) async -> DoctorReport? {
         let arguments = ["doctor", "--json"] + (only.map { ["--only", $0] } ?? [])
-        guard case .success(let output) = await execute(arguments, stdin: nil, timeout: 40) else { return nil }
+        guard case .success(let output) = await execute(arguments, stdin: nil, timeout: timeout) else { return nil }
         return try? JSONDecoder().decode(DoctorReport.self, from: output.stdout)
+    }
+
+    /// The `claude_login` check alone; nil when the doctor did not answer in time or did not list it.
+    func claudeLoggedIn() async -> Bool? {
+        guard let report = await doctor(only: "claude_login", timeout: 20) else { return nil }
+        return report.checks.first { $0.id == "claude_login" }?.ok
     }
 
     // MARK: Steps
@@ -175,7 +188,7 @@ final class SetupModel {
         }
     }
 
-    /// Marks a step the user chose to leave for later: Spotify, and Claude's login until it has its own screen.
+    /// Marks a step the user chose to leave for later: Spotify, and Claude's login.
     func skip(_ step: SetupStepID) {
         update(step) { $0.state = .skipped }
         record(step, .skipped, skippedByUser: true)
@@ -194,6 +207,7 @@ final class SetupModel {
 
     func finish() {
         pollTask?.cancel()
+        loginTerminal.stop()
         var state = (try? SetupState.load(from: stateURL)) ?? SetupState()
         state.finishedAt = Date()
         state.completed.insert(SetupStepID.done.rawValue)
@@ -201,7 +215,11 @@ final class SetupModel {
         update(.done) { $0.state = .done }
     }
 
-    func cancelPolling() { pollTask?.cancel() }
+    /// The window closed or the app is quitting: no poll and no `claude` child outlive it.
+    func cancelPolling(blocking: Bool = false) {
+        pollTask?.cancel()
+        loginTerminal.stop(blocking: blocking)
+    }
 
     // MARK: Waiting for Apple's installer
 
@@ -261,7 +279,9 @@ final class SetupModel {
     private func record(_ step: SetupStepID, _ status: SetupReport.Status, skippedByUser: Bool) {
         var state = SetupFlow.persisted(try? SetupState.load(from: stateURL), existingInstall: existingInstall, now: Date())
         switch status {
-        case .done: state.completed.insert(step.rawValue)
+        case .done:
+            state.completed.insert(step.rawValue)
+            state.skipped.remove(step.rawValue)
         case .skipped:
             if skippedByUser { state.skipped.insert(step.rawValue) } else { state.completed.insert(step.rawValue) }
         case .needsUser, .failed: return

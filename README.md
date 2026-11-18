@@ -15,6 +15,10 @@ Wisp does not bundle a model. It requires your own Claude Code installed and log
 
 Other projects use similar names: `marciovicente/wisp-ai` and Wispr Flow. Wisp here is unrelated to both.
 
+## Third-party software
+
+The setup wizard's terminal uses [SwiftTerm](https://github.com/migueldeicaza/SwiftTerm) (MIT License, Copyright (c) 2019-2026 Miguel de Icaza; it also carries notices from xterm.js, SourceLair and Christopher Jeffrey, see its LICENSE).
+
 ## Status
 
 Private repo for now.
