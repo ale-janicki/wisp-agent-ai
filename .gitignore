@@ -11,3 +11,4 @@ app/Resources/runtime/
 scripts/leak-patterns.local.txt
 build/
 dist/
+app/Local.xcconfig

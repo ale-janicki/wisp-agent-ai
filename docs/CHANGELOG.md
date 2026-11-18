@@ -7,12 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Entries are in descending chronological order (newest first).
 
-## [Unreleased] - 2026-11-17
+## [Unreleased]
+
+## [0.2.1] - 2026-11-18
+
+### Changed
+
+- Release and the maintainer's local builds are signed with a stable self-signed identity, "Wisp Self-Signed", instead of ad-hoc. The designated requirement is now the certificate, not the build's hash, so Keychain "Always Allow" (the Spotify login) and macOS permission grants survive rebuilds and updates; after updating from 0.2.0 they are asked one last time. `scripts/build-release.sh` uses `WISP_SIGN_ID` if set, else this identity when it is in the keychain, else ad-hoc. Contributors without it still build ad-hoc; `app/Local.xcconfig.example` shows the optional local override. Version 0.2.1 (build 3).
+
+### Fixed
+
+- CPU with the notch visible: the Wisp avatar now animates in Core Animation instead of a 30 fps SwiftUI timeline that re-laid out the whole pill or panel every frame (Release, idle: pill 2.5% -> 0.1%, panel 5.6-10.4% -> 0-1.1% depending on the tab). Opening Início no longer re-reads a week of Claude transcripts each time: the usage tile keeps what it read and reads only appended bytes (a repeat refresh went from 1.8 to 0.05 CPU-seconds on 370 MB of transcripts). Debug and `WISP_PERF` builds take `-WispOpenPanel <tab>` to open the panel on a tab and keep it open, and `-WispNoKeychain` to skip every keychain read and write (Spotify shows as not connected), for measuring without the keychain prompt.
+
+## [0.2.0] - 2026-11-18
 
 ### Added
 
 - Automatic updates with Sparkle 2.10.1: a daily check of the GitHub release feed; a new version shows the notch notice "Versão nova do Wisp — x.y.z" (new kind with its own switch in Ajustes > Avisos no notch, on by default), and a click opens Sparkle's window with release notes and "Install and Relaunch". Nothing installs without the user. Ajustes > Atualizações shows the version, "Verificar agora" and "Verificar automaticamente". Version 0.2.0 (build 2).
 - Release: `scripts/build-release.sh` also writes `dist/appcast.xml`, EdDSA-signed with the maintainer's Keychain key, pointing at `releases/download/v<version>/Wisp.dmg`; `scripts/publish-release.sh <version>` checks the tree is clean and pushed, tags and creates the GitHub release with the DMG and the appcast.
+
+## [Unreleased] - 2026-11-17
+
+### Added
+
 - App icon and a styled disk image: the Wisp mascot on a dark macOS tile (`AppIcon` asset catalog, 16 to 1024 px) shows in Finder, the Dock and Login Items, and `dist/Wisp.dmg` opens a 640x400 window with the title, the app on the left, an arrow to Aplicativos on the right and the icon as the volume icon (built with `dmgbuild` 2.0.0 via `uvx`). `scripts/render-art.sh` regenerates the icon set and the DMG background from the real avatar.
 - Release build: `scripts/build-release.sh` builds the Release app and packs `dist/Wisp.dmg` (drag to Applications) and `dist/Wisp.zip`. The default signature is ad-hoc with no notarization; `WISP_SIGN_ID` (Developer ID, hardened runtime) and `WISP_NOTARY_PROFILE` (notarization) are optional. pt-BR install guide in `docs/instalar.md`.
 - First-launch setup wizard in its own window: it waits for the runtime install ("Preparando o Wisp", with "tentar de novo" on failure), then walks system (optional Homebrew), login, brain, harness, Telegram (optional), Spotify (optional) and the profile, showing each step's real command under "detalhes". It can be run again from Ajustes > "Rodar o setup de novo"; existing installs are not sent through it.
