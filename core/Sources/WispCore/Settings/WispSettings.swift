@@ -134,7 +134,6 @@ public struct WispSettings: Codable, Equatable, Sendable {
     public var openAtLogin = true
     public var loginItemRegistered = false
     public var permissionMode: String?
-    /// The Ajustes tab the user last opened; nil or an unknown id opens the first one.
     public var settingsSection: String?
     var graphWasInvalid = false
 

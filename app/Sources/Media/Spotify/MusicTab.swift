@@ -561,7 +561,6 @@ enum SpotifyFormat {
 struct SpotifySettingsCard: View {
     private let settings = AppSettings.shared
     private let spotify = SpotifyModel.shared
-    /// Inside an Integrações dropdown: no title, no own card, the host row already says "Spotify".
     var embedded = false
     @State private var draft = ""
 

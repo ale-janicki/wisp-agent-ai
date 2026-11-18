@@ -14,7 +14,14 @@ Developer notes: traps, invariants and external-system quirks, grouped by module
 
 - `HexColor`: `#RRGGBB` only; the 3-digit shorthand is rejected, not expanded.
 - `WispSettings`: a custom theme picks accent, background and surface; the rest is derived. If the default text does not reach WCAG AA contrast (4.5) over a custom background, the side with better luminance is used. Saved tile order is always a permutation of `DashboardTileID.defaultOrder` (unknown ids and repeats dropped, missing appended). Files written before `dashboardOrder` existed decode to the default order. An unknown preset id (or "custom" without colors) falls back to the default lime.
+- `WispSettings.settingsSection`: the Ajustes tab last opened; nil or an unknown id opens the first one (Aparência).
 - `SettingsStore`, `ConversationStore`, `ClipboardStore`: written atomically; a corrupt file is moved to `<name>.bad` (a second corruption overwrites the older `.bad`) and defaults are used; the move is reported through the store's recovery note.
+
+## app / Settings
+
+- `IntegrationsPane`: one dropdown row per integration, one open at a time, all closed on arrival. `expandOnOpen` is a main-actor static set right before navigating to Ajustes > Integrações (the Música tab's "Abrir Ajustes") and cleared the first time the pane appears.
+- `SpotifySettingsCard(embedded: true)`: inside an Integrações dropdown it has no title and no card of its own, since the host row already says "Spotify".
+- `ToggleRow`: the whole row flips the switch (the switch itself ignores hits); an `accessory` before the switch keeps its own clicks.
 
 ## core / Memory, Routines, Profile
 
