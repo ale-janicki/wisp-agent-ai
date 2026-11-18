@@ -125,7 +125,7 @@ def setup_profile(
         if avatar_changed:
             staged = _stage_avatar(avatar, paths.config)
         if not profile_path.exists() or profile_path.read_text() != text:
-            atomic_write(profile_path, text)
+            atomic_write(profile_path, text, mode=0o600)
         if staged:
             os.replace(staged, target)
             staged = None

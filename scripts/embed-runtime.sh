@@ -17,6 +17,10 @@ if [ ! -x "$uv" ]; then
   exit 1
 fi
 
+case "$out" in
+  */runtime) ;;
+  *) echo "embed-runtime: refusing to replace $out (expected a path ending in /runtime)" >&2; exit 1 ;;
+esac
 rm -rf "$out"
 mkdir -p "$out/src" "$out/bin"
 cp "$uv" "$out/bin/uv"
