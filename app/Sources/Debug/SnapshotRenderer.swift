@@ -65,6 +65,12 @@ enum SnapshotRenderer {
             showing.settingsSection = section.rawValue
             AppSettings.shared.applyForSnapshot(showing)
             await render(shell, frame: layout.panel, notch: notch, to: directory, name: "7-panel-settings-\(section.rawValue)")
+            if section == .integrations {
+                IntegrationsPane.expandOnOpen = .spotify
+                shell.tab = .home
+                shell.tab = .settings
+                await render(shell, frame: layout.panel, notch: notch, to: directory, name: "7b-panel-settings-integrations-spotify")
+            }
         }
         var custom = WispSettings(
             theme: WispSettings.customTheme,

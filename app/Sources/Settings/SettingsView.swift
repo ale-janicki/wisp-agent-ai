@@ -113,8 +113,7 @@ struct SettingsView: View {
         case .notices:
             notices
         case .integrations:
-            music
-            SpotifySettingsCard()
+            IntegrationsPane(media: media)
         case .general:
             general
             updates
@@ -175,26 +174,6 @@ struct SettingsView: View {
                 ToggleRow(title: label, isOn: current[kind], enabled: !current.doNotDisturb) { on in
                     settings.setNotices { $0[kind] = on }
                 }
-            }
-        }
-    }
-
-    // MARK: Integrações
-
-    private var music: some View {
-        SettingsGroup(title: "Música") {
-            ForEach(Array(MediaPlayer.allCases.enumerated()), id: \.element) { index, player in
-                if index > 0 { Divider().overlay(Theme.stroke) }
-                HStack(alignment: .top, spacing: Theme.Space.m) {
-                    Text(player.name)
-                        .font(Theme.Font.bodyMedium)
-                        .foregroundStyle(Theme.textPrimary)
-                        .frame(width: 70, alignment: .leading)
-                    AutomationPromptView(media: media, player: player, showsGranted: true)
-                    Spacer(minLength: 0)
-                }
-                .padding(.vertical, Theme.Space.s)
-                .frame(minHeight: Theme.Layout.rowHeight)
             }
         }
     }
@@ -292,6 +271,123 @@ struct SettingsView: View {
                     }
                 }
                 .buttonStyle(CapsuleButtonStyle(kind: .ghost))
+            }
+        }
+    }
+}
+
+// MARK: Integrações
+
+/// One dropdown row per integration; one open at a time, all closed on arrival unless a deep link asks.
+struct IntegrationsPane: View {
+    enum Integration: CaseIterable { case spotify, music }
+
+    /// Set before opening Ajustes on Integrações (the Música tab's "Abrir Ajustes"); read once on appear.
+    @MainActor static var expandOnOpen: Integration?
+
+    @ObservedObject var media: NowPlayingService
+    private let spotify = SpotifyModel.shared
+    @State private var open: Integration?
+
+    private static let reflow = Animation.spring(response: 0.3, dampingFraction: 0.82)
+
+    var body: some View {
+        SettingsGroup(title: "Integrações") {
+            ForEach(Array(Integration.allCases.enumerated()), id: \.element) { index, item in
+                if index > 0 { Divider().overlay(Theme.stroke) }
+                row(item)
+            }
+        }
+        .onAppear {
+            if let pending = Self.expandOnOpen {
+                open = pending
+                Self.expandOnOpen = nil
+            }
+        }
+    }
+
+    private func row(_ item: Integration) -> some View {
+        let expanded = open == item
+        let state = status(item)
+        return VStack(alignment: .leading, spacing: 0) {
+            Button {
+                withAnimation(Self.reflow) { open = expanded ? nil : item }
+            } label: {
+                HStack(spacing: Theme.Space.m) {
+                    Image(systemName: icon(item))
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Theme.textSecondary)
+                        .frame(width: 20)
+                    Text(name(item))
+                        .font(Theme.Font.bodyMedium)
+                        .foregroundStyle(Theme.textPrimary)
+                    Spacer(minLength: Theme.Space.s)
+                    Circle().fill(state.color).frame(width: 6, height: 6)
+                    Text(state.text)
+                        .font(Theme.Font.body)
+                        .foregroundStyle(Theme.textSecondary)
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(Theme.textTertiary)
+                        .rotationEffect(.degrees(expanded ? 90 : 0))
+                }
+                .frame(minHeight: Theme.Layout.rowHeight)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityAddTraits(expanded ? .isSelected : [])
+            if expanded {
+                detail(item)
+                    .padding(.leading, 20 + Theme.Space.m)
+                    .padding(.vertical, Theme.Space.s)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
+        .clipped()
+    }
+
+    @ViewBuilder
+    private func detail(_ item: Integration) -> some View {
+        switch item {
+        case .spotify:
+            VStack(alignment: .leading, spacing: Theme.Space.m) {
+                AutomationPromptView(media: media, player: .spotify, showsGranted: true)
+                SpotifySettingsCard(embedded: true)
+            }
+        case .music:
+            AutomationPromptView(media: media, player: .music, showsGranted: true)
+        }
+    }
+
+    private func name(_ item: Integration) -> String {
+        switch item {
+        case .spotify: MediaPlayer.spotify.name
+        case .music: MediaPlayer.music.name
+        }
+    }
+
+    private func icon(_ item: Integration) -> String {
+        switch item {
+        case .spotify: "dot.radiowaves.left.and.right"
+        case .music: "music.note"
+        }
+    }
+
+    private func status(_ item: Integration) -> (text: String, color: Color) {
+        switch item {
+        case .spotify:
+            switch media.automationStatus(for: .spotify) {
+            case .denied, .notDetermined: return ("Sem permissão", Theme.error)
+            case .granted, .notRunning: break
+            }
+            if spotify.auth == .signedIn { return ("Conectado", Theme.ok) }
+            return spotify.hasClientID ? ("Não conectado", Theme.busy) : ("Não configurado", Theme.textTertiary)
+        case .music:
+            switch media.automationStatus(for: .music) {
+            case .granted: return ("Conectado", Theme.ok)
+            case .denied, .notDetermined: return ("Sem permissão", Theme.error)
+            case .notRunning: return ("Não configurado", Theme.textTertiary)
             }
         }
     }
