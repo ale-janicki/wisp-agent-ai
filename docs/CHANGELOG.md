@@ -11,6 +11,7 @@ Entries are in descending chronological order (newest first).
 
 ### Added
 
+- App icon and a styled disk image: the Wisp mascot on a dark macOS tile (`AppIcon` asset catalog, 16 to 1024 px) shows in Finder, the Dock and Login Items, and `dist/Wisp.dmg` opens a 640x400 window with the title, the app on the left, an arrow to Aplicativos on the right and the icon as the volume icon (built with `dmgbuild` 2.0.0 via `uvx`). `scripts/render-art.sh` regenerates the icon set and the DMG background from the real avatar.
 - Release build: `scripts/build-release.sh` builds the Release app and packs `dist/Wisp.dmg` (drag to Applications) and `dist/Wisp.zip`. The default signature is ad-hoc with no notarization; `WISP_SIGN_ID` (Developer ID, hardened runtime) and `WISP_NOTARY_PROFILE` (notarization) are optional. pt-BR install guide in `docs/instalar.md`.
 - First-launch setup wizard in its own window: it waits for the runtime install ("Preparando o Wisp", with "tentar de novo" on failure), then walks system (optional Homebrew), login, brain, harness, Telegram (optional), Spotify (optional) and the profile, showing each step's real command under "detalhes". It can be run again from Ajustes > "Rodar o setup de novo"; existing installs are not sent through it.
 - The wizard's login step is a real terminal (SwiftTerm): the user runs their own `claude` and types `/login`; the step turns done once the login is detected, and "Pular por enquanto" skips it.

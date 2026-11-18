@@ -1,7 +1,4 @@
 #!/usr/bin/env bash
-# Builds the Release app and packs dist/Wisp.dmg (drag to Applications) and dist/Wisp.zip.
-# Default is an ad-hoc signature (open source, no Developer ID). With WISP_SIGN_ID the app and the embedded uv are
-# signed with the hardened runtime and the apple-events entitlement; with WISP_NOTARY_PROFILE it is also notarized.
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -10,6 +7,7 @@ dist="$root/dist"
 sign_id="${WISP_SIGN_ID:--}"
 app="$build/Build/Products/Release/Wisp.app"
 uv="$app/Contents/Resources/runtime/bin/uv"
+dmgbuild_version="2.0.0"
 
 [ -x "$root/app/Resources/runtime/bin/uv" ] || "$root/scripts/fetch-uv.sh"
 
@@ -45,13 +43,11 @@ if [ -n "${WISP_NOTARY_PROFILE:-}" ]; then
   ditto -c -k --keepParent "$app" "$dist/Wisp.zip"
 fi
 
-stage="$build/dmg"
-rm -rf "$stage"
-mkdir -p "$stage"
-ditto "$app" "$stage/Wisp.app"
-ln -s /Applications "$stage/Aplicativos"
-hdiutil create -volname "Wisp" -srcfolder "$stage" -fs HFS+ -format UDZO -ov "$dist/Wisp.dmg" >/dev/null
+volume_icon="$app/Contents/Resources/AppIcon.icns"
+[ -f "$volume_icon" ] || { echo "build-release: $volume_icon missing from the built app" >&2; exit 1; }
+uvx --from "dmgbuild==$dmgbuild_version" dmgbuild -s "$root/scripts/dmg-settings.py" \
+  -D app="$app" -D background="$root/scripts/dmg/background.png" -D icon="$volume_icon" \
+  "Wisp" "$dist/Wisp.dmg" >/dev/null
 [ "$sign_id" = "-" ] || codesign --force --sign "$sign_id" --timestamp "$dist/Wisp.dmg"
-rm -rf "$stage"
 
 echo "build-release: $dist/Wisp.dmg ($(du -h "$dist/Wisp.dmg" | awk '{print $1}')), $dist/Wisp.zip ($(du -h "$dist/Wisp.zip" | awk '{print $1}'))"
