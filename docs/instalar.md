@@ -1,0 +1,33 @@
+# Instalar o Wisp no Mac
+
+O Wisp precisa de um Mac com macOS 15 (Sequoia) ou mais novo e de internet na primeira abertura.
+
+## 1. Baixar e abrir o arquivo
+
+1. Baixe o arquivo `Wisp.zip`.
+2. Dê dois cliques nele (na pasta Downloads). O Mac cria o app **Wisp**.
+3. Arraste o **Wisp** para a pasta **Aplicativos**.
+
+## 2. Primeira vez: liberar o app
+
+O Wisp não vem da App Store, então o Mac desconfia dele na primeira abertura. É normal e só acontece uma vez.
+
+1. Abra a pasta **Aplicativos** e dê dois cliques no **Wisp**.
+2. Vai aparecer um aviso dizendo que o Mac não pôde verificar o app. Clique em **Concluído** (não clique em "Mover para o Lixo").
+3. Abra o menu Apple (a maçã no canto superior esquerdo da tela) > **Ajustes do Sistema** > **Privacidade e Segurança**.
+4. Role até a parte **Segurança**. Vai ter a frase sobre o Wisp ter sido bloqueado. Clique em **Abrir Mesmo Assim**.
+5. Digite a senha do Mac (ou use o Touch ID) e clique em **Abrir**.
+
+Nas versões antigas do macOS (14 e anteriores) também dava para clicar com o botão direito no app e escolher **Abrir**. No macOS 15 em diante isso não funciona mais: use os passos acima.
+
+## 3. Seguir o assistente
+
+O Wisp abre uma janela de configuração e te guia passo a passo. Na primeira vez ele baixa o que precisa, então pode levar alguns minutos. Se o Mac pedir permissão para algo (por exemplo, controlar o Spotify ou a Música), pode aceitar.
+
+Depois do último passo o Wisp fica no topo da tela, no meio, colado ao recorte da câmera (ou no meio da barra de cima, em Mac sem recorte). É só passar o mouse por ali.
+
+## Se algo der errado
+
+- Não apareceu o botão **Abrir Mesmo Assim**: tente abrir o Wisp de novo e volte em **Privacidade e Segurança**. O botão fica disponível por cerca de uma hora depois da tentativa.
+- A configuração parou: use **tentar de novo** na própria janela.
+- Ainda travou: mande uma foto da tela para quem te passou o app.

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Xcode run-script phase: copies the Python sources and the uv binary into the app's Resources/runtime and writes
-# runtime/VERSION (sha256 of uv.lock plus the sorted hashes of every copied source file).
+# runtime/VERSION (sha256 of uv.lock, the uv binary, plus the sorted hashes of every copied source file).
 # WISP_RUNTIME_OUT overrides the destination so the script can run outside Xcode.
 set -euo pipefail
 
@@ -28,5 +28,6 @@ git -C "$root" ls-files -z -- pyproject.toml uv.lock .python-version cli bot har
 
 {
   echo "uv.lock $(shasum -a 256 "$out/src/uv.lock" | awk '{print $1}')"
+  echo "uv $(shasum -a 256 "$out/bin/uv" | awk '{print $1}')"
   (cd "$out/src" && find . -type f -print0 | LC_ALL=C sort -z | xargs -0 shasum -a 256)
 } | shasum -a 256 | awk '{print $1}' > "$out/VERSION"
