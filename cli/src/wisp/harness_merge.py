@@ -1,5 +1,6 @@
 import copy
 import hashlib
+import re
 import shutil
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -31,10 +32,11 @@ def sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+PLACEHOLDER = re.compile(r"\{\{(\w+)\}\}")
+
+
 def render(text: str, values: Mapping[str, str]) -> str:
-    for key, value in values.items():
-        text = text.replace("{{" + key + "}}", value)
-    return text
+    return PLACEHOLDER.sub(lambda m: values.get(m.group(1), m.group(0)), text)
 
 
 BLOCK_KEY = "CLAUDE.md#block"

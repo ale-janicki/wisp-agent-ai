@@ -18,6 +18,8 @@ from wisp.report import StepReport
 from wisp.runner import SubprocessRunner
 from wisp.setup.brain import setup_brain
 from wisp.setup.harness import setup_harness
+from wisp.setup.profile import setup_profile
+from wisp.setup.shim import setup_shim
 from wisp.setup.system import setup_system
 from wisp.setup.telegram import setup_telegram
 from wisp.telegram_api import TelegramAPI
@@ -93,6 +95,19 @@ def _setup_telegram(args: argparse.Namespace) -> int:
     return _run_step("telegram", run)
 
 
+def _setup_profile(args: argparse.Namespace) -> int:
+    paths = WispPaths.current()
+
+    def run(cfg: WispConfig) -> StepReport:
+        user = args.user_name
+        if not user and not cfg.user_name:
+            user = SubprocessRunner().run(["id", "-F"]).stdout.strip() or None
+        avatar = Path(args.avatar).expanduser() if args.avatar else None
+        return setup_profile(paths, cfg, name=args.name, user_name=user, language=args.language, avatar=avatar, dry_run=args.dry_run)
+
+    return _run_step("profile", run)
+
+
 def _hook(args: argparse.Namespace) -> int:
     try:
         cfg, _ = _load_config_or_default()
@@ -132,6 +147,15 @@ def build_parser() -> argparse.ArgumentParser:
     action.add_argument("--skip", action="store_true")
     telegram.add_argument("--dry-run", action="store_true")
     telegram.add_argument("--json", action="store_true")
+    profile = steps.add_parser("profile")
+    profile.add_argument("--name", required=True)
+    profile.add_argument("--user-name")
+    profile.add_argument("--language", default="pt-BR")
+    profile.add_argument("--avatar")
+    profile.add_argument("--dry-run", action="store_true")
+    profile.add_argument("--json", action="store_true")
+    shim = steps.add_parser("shim")
+    shim.add_argument("--json", action="store_true")
     add_topic_parser(sub)
     hook = sub.add_parser("hook")
     hook.add_argument("which", choices=["boot", "brain-commit"])
@@ -150,6 +174,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _setup_system(args)
     if args.command == "setup" and args.step == "telegram":
         return _setup_telegram(args)
+    if args.command == "setup" and args.step == "profile":
+        return _setup_profile(args)
+    if args.command == "setup" and args.step == "shim":
+        return _run_step("shim", lambda cfg: setup_shim(WispPaths.current()))
     if args.command == "hook":
         return _hook(args)
     if args.command == "topic":
