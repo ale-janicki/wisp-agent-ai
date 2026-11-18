@@ -4,9 +4,9 @@ O Wisp precisa de um Mac com macOS 15 (Sequoia) ou mais novo e de internet na pr
 
 ## 1. Baixar e abrir o arquivo
 
-1. Baixe o arquivo `Wisp.zip`.
-2. Dê dois cliques nele (na pasta Downloads). O Mac cria o app **Wisp**.
-3. Arraste o **Wisp** para a pasta **Aplicativos**.
+1. Baixe o arquivo `Wisp.dmg`.
+2. Dê dois cliques nele (na pasta Downloads). Abre uma janela com o **Wisp** e a pasta **Aplicativos**.
+3. Arraste o **Wisp** para cima da pasta **Aplicativos**. Pronto, pode fechar essa janela.
 
 ## 2. Primeira vez: liberar o app
 
@@ -25,6 +25,8 @@ Nas versões antigas do macOS (14 e anteriores) também dava para clicar com o b
 O Wisp abre uma janela de configuração e te guia passo a passo. Na primeira vez ele baixa o que precisa, então pode levar alguns minutos. Se o Mac pedir permissão para algo (por exemplo, controlar o Spotify ou a Música), pode aceitar.
 
 Depois do último passo o Wisp fica no topo da tela, no meio, colado ao recorte da câmera (ou no meio da barra de cima, em Mac sem recorte). É só passar o mouse por ali.
+
+A partir daí o Wisp abre sozinho toda vez que você ligar o Mac. Se o Mac mostrar um aviso de "item de início adicionado", pode deixar. Para desligar, use **Abrir ao ligar o Mac** nos Ajustes do Wisp.
 
 ## Se algo der errado
 
