@@ -90,7 +90,7 @@ struct HomeDashboard: View {
                 AlertsTile(alerts: dashboard.alerts, command: alertsCommand)
             }
         default:
-            LastConversationTile(model: model, preview: dashboard.lastConversation, open: openConversation)
+            ConversationsTile(model: model) { openConversation(nil) }
         }
     }
 
@@ -362,82 +362,107 @@ private struct AlertRow: View {
     }
 }
 
-// MARK: - Última conversa
+// MARK: - Conversas
 
-private struct LastConversationTile: View {
+private struct ConversationsTile: View {
     var model: ConversationViewModel
-    var preview: LastConversationModel
-    var open: (ConversationRecord?) -> Void
-    @State private var hovering = false
+    var open: () -> Void
 
-    private static let shown = 3
+    private static let minRowHeight: CGFloat = 38
+    private static let rowGap: CGFloat = 2
 
-    private var current: [ConversationMessage] {
-        model.state.messages.filter { $0.role == .user || $0.role == .assistant }
+    private struct Item: Identifiable {
+        let id: String
+        let title: String
+        let date: Date?
+        let telegram: Bool
+        let held: StatusColor?
+        let preview: String?
+        let action: () -> Void
     }
 
-    private var usesPreview: Bool { current.isEmpty && model.currentTitle == nil }
-
-    private var messages: [ConversationMessage] {
-        let source = usesPreview ? preview.messages.filter { $0.role == .user || $0.role == .assistant } : current
-        return Array(source.suffix(Self.shown))
-    }
-
-    private var title: String? {
-        usesPreview ? preview.record?.title : model.currentTitle
+    private var items: [Item] {
+        let sections = model.sections
+        let local = sections.wisp.map { record in
+            Item(id: record.id.uuidString, title: record.title, date: record.updatedAt, telegram: false,
+                 held: model.heldDot(record.id), preview: model.preview(record), action: { model.open(record) })
+        }
+        let topics = sections.telegram.map { entry in
+            Item(id: "t\(entry.topic.thread)", title: entry.record?.title ?? entry.topic.name,
+                 date: entry.record?.updatedAt ?? entry.topic.lastUsed, telegram: true,
+                 held: entry.record.flatMap { model.heldDot($0.id) }, preview: model.preview(entry), action: { model.open(entry) })
+        }
+        return (local + topics).sorted { ($0.date ?? .distantPast) > ($1.date ?? .distantPast) }
     }
 
     var body: some View {
-        DashboardTile(title: "Última conversa", icon: "bubble.left.and.bubble.right.fill", trailing: title) {
-            Group {
-                if usesPreview, preview.loading {
-                    VStack(alignment: .leading, spacing: Theme.Space.s) {
-                        HStack { Spacer(); Skeleton(cornerRadius: Theme.Radius.bubble).frame(width: 140, height: 28) }
-                        Skeleton(cornerRadius: Theme.Radius.bubble).frame(width: 200, height: 28)
-                    }
-                    .frame(maxHeight: .infinity, alignment: .bottom)
-                } else if messages.isEmpty {
-                    Text("Nenhuma conversa ainda")
-                        .font(Theme.Font.body)
-                        .foregroundStyle(Theme.textSecondary)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else {
-                    let shown = messages
-                    GeometryReader { geo in
-                        ViewThatFits(in: .vertical) {
-                            ForEach(Array(stride(from: shown.count, to: 0, by: -1)), id: \.self) { count in
-                                bubbles(Array(shown.suffix(count)), width: geo.size.width)
-                            }
+        let all = items
+        DashboardTile(title: "Conversas", icon: "bubble.left.and.bubble.right.fill", trailing: all.isEmpty ? nil : "\(all.count)") {
+            if all.isEmpty {
+                Text("Nenhuma conversa ainda")
+                    .font(Theme.Font.body)
+                    .foregroundStyle(Theme.textSecondary)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                GeometryReader { geo in
+                    let fit = max(1, Int((geo.size.height + Self.rowGap) / (Self.minRowHeight + Self.rowGap)))
+                    let height = (geo.size.height - Self.rowGap * CGFloat(fit - 1)) / CGFloat(fit)
+                    VStack(alignment: .leading, spacing: Self.rowGap) {
+                        ForEach(all.prefix(fit)) { item in
+                            row(item, height: height)
                         }
-                        .frame(width: geo.size.width, height: geo.size.height, alignment: .bottom)
                     }
-                    .clipped()
-                    .allowsHitTesting(false)
+                    .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
                 }
             }
         }
-        .overlay {
-            RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous)
-                .strokeBorder(hovering ? Theme.accent.opacity(0.35) : .clear, lineWidth: 1)
-        }
-        .contentShape(RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous))
-        .onTapGesture { open(usesPreview ? preview.record : nil) }
-        .onHover { hovering = $0 }
-        .pointerStyle(.link)
-        .help("Abrir em Conversa")
-        .onAppear(perform: loadPreview)
-        .onChange(of: model.records) { _, _ in loadPreview() }
+        .task { model.fillPreviews() }
     }
 
-    private func bubbles(_ shown: [ConversationMessage], width: CGFloat) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            ForEach(shown) { message in
-                MessageRow(message: message, maxWidth: width * 0.85, lineLimit: 2)
+    private func row(_ item: Item, height: CGFloat) -> some View {
+        Button {
+            item.action()
+            open()
+        } label: {
+            HStack(spacing: Theme.Space.s) {
+                if item.telegram {
+                    Image(systemName: "paperplane.fill")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(Theme.accent)
+                        .frame(width: 24, height: 24)
+                        .background(Theme.accent.opacity(0.18), in: Circle())
+                } else {
+                    WispAvatar(size: 24, animates: false, imagePath: model.profile.persona.avatar)
+                }
+                VStack(alignment: .leading, spacing: 1) {
+                    HStack(spacing: 6) {
+                        if let held = item.held { HeldDot(color: held) }
+                        Text(item.title)
+                            .font(Theme.Font.body)
+                            .foregroundStyle(Theme.textSecondary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                        Spacer(minLength: 4)
+                        if let date = item.date {
+                            Text(ConversationRow.relative(date))
+                                .font(Theme.Font.caption)
+                                .foregroundStyle(Theme.textTertiary)
+                                .lineLimit(1)
+                                .fixedSize()
+                        }
+                    }
+                    if let preview = item.preview {
+                        Text(preview)
+                            .font(Theme.Font.caption)
+                            .foregroundStyle(Theme.textTertiary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
+                }
             }
         }
-    }
-
-    private func loadPreview() {
-        preview.load(model.records.first, cwd: expandTilde(model.profile.agent.cwd), statusPrefix: model.profile.agent.statusPrefix)
+        .buttonStyle(RowButtonStyle(height: height))
+        .padding(.horizontal, -Theme.Space.m)
+        .help(item.title)
     }
 }

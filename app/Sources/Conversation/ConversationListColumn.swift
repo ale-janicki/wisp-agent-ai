@@ -25,6 +25,7 @@ struct ConversationListColumn: View {
             rows
         }
         .task {
+            model.fillPreviews()
             while !Task.isCancelled {
                 await model.refreshTelegram()
                 try? await Task.sleep(for: Self.refreshInterval)
@@ -42,6 +43,7 @@ struct ConversationListColumn: View {
                             record: record,
                             selected: record.id == model.currentId,
                             held: model.heldDot(record.id),
+                            preview: model.preview(record),
                             open: { model.open(record) },
                             delete: { model.delete(record) }
                         )
@@ -169,6 +171,7 @@ private struct TelegramSection: View {
                         selected: model.linkedThread == entry.topic.thread,
                         closing: telegram.closing.contains(entry.topic.thread),
                         held: entry.record.flatMap { model.heldDot($0.id) },
+                        preview: model.preview(entry),
                         open: {
                             guard !dragging else { return }
                             model.open(entry)
@@ -256,13 +259,14 @@ private struct TopicRow: View {
     let selected: Bool
     let closing: Bool
     let held: StatusColor?
+    var preview: String?
     let open: () -> Void
     let close: () -> Void
     let blocked: () -> Bool
     @State private var hovering = false
     @State private var confirming = false
 
-    fileprivate static let height: CGFloat = 44
+    fileprivate static let height: CGFloat = 52
 
     var body: some View {
         if confirming {
@@ -298,6 +302,13 @@ private struct TopicRow: View {
                         .font(Theme.Font.caption)
                         .foregroundStyle(Theme.textTertiary)
                         .lineLimit(1)
+                    if let preview {
+                        Text(preview)
+                            .font(Theme.Font.caption)
+                            .foregroundStyle(Theme.textTertiary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
                 }
                 .padding(.trailing, (hovering && !entry.topic.fixed) || closing ? 24 : 0)
             }
@@ -330,15 +341,16 @@ private struct TopicRow: View {
     }
 }
 
-private struct ConversationRow: View {
+struct ConversationRow: View {
     let record: ConversationRecord
     let selected: Bool
     let held: StatusColor?
+    var preview: String?
     let open: () -> Void
     let delete: () -> Void
     @State private var hovering = false
 
-    private static let height: CGFloat = 44
+    private static let height: CGFloat = 52
 
     var body: some View {
         Button(action: open) {
@@ -355,6 +367,13 @@ private struct ConversationRow: View {
                     .font(Theme.Font.caption)
                     .foregroundStyle(Theme.textTertiary)
                     .lineLimit(1)
+                if let preview {
+                    Text(preview)
+                        .font(Theme.Font.caption)
+                        .foregroundStyle(Theme.textTertiary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
             }
             .padding(.trailing, hovering ? 24 : 0)
         }
@@ -389,7 +408,7 @@ private struct ConversationRow: View {
 }
 
 /// A conversation with messages in the outbox: amber while they wait, red when one was not sent.
-private struct HeldDot: View {
+struct HeldDot: View {
     let color: StatusColor
 
     var body: some View {

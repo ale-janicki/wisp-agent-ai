@@ -10,6 +10,8 @@ final class NoticeCenter {
     private(set) var queue = NoticeQueue()
     /// Counts cards landing (a new one, or new content in the one shown), for the arrival glow.
     private(set) var arrivals = 0
+    /// The loudest tone among notices that landed and were neither opened nor dismissed; the pill shows a dot for it.
+    private(set) var unseen: Notice.Tone?
 
     @ObservationIgnored weak var shell: ShellController?
     @ObservationIgnored var onChange: () -> Void = {}
@@ -41,6 +43,7 @@ final class NoticeCenter {
         let outcome = queue.offer(notice, settings: settings, visible: visible, now: Date())
         log.info("notice \(notice.kind.rawValue, privacy: .public) \(String(describing: outcome), privacy: .public)")
         guard outcome != .suppressed else { return }
+        unseen = Self.louder(unseen, notice.tone)
         changed()
     }
 
@@ -52,12 +55,16 @@ final class NoticeCenter {
 
     func dismiss() {
         queue.dismiss(now: Date())
+        if queue.current == nil { unseen = nil }
         changed()
     }
 
     /// The panel moved (opened, tab, conversation) or a switch changed: drop what is now on screen or off.
     func prune() {
         seen.settingsChanged(settings)
+        if shell?.state == .panel || settings.doNotDisturb {
+            unseen = nil
+        }
         let before = queue
         queue.prune(settings: settings, visible: visible, now: Date())
         if queue != before { changed() }
@@ -65,11 +72,24 @@ final class NoticeCenter {
 
     func open() {
         guard let notice = queue.take(now: Date()) else { return }
+        if queue.current == nil { unseen = nil }
         changed()
         shell?.open(notice.target)
     }
 
     @ObservationIgnored private var shownKey: String?
+
+    private static func louder(_ old: Notice.Tone?, _ new: Notice.Tone) -> Notice.Tone {
+        func rank(_ tone: Notice.Tone) -> Int {
+            switch tone {
+            case .normal: 0
+            case .warning: 1
+            case .alert: 2
+            }
+        }
+        guard let old else { return new }
+        return rank(new) > rank(old) ? new : old
+    }
 
     private func changed() {
         let key = queue.current.map { "\($0.sourceId)|\($0.time.timeIntervalSince1970)" }
@@ -172,6 +192,8 @@ final class NoticeCenter {
         timer?.cancel()
         queue.hover(true, now: Date())
     }
+
+    func setUnseenForSnapshot(_ tone: Notice.Tone?) { unseen = tone }
 
     static func samples(persona: String, now: Date = Date()) -> [Notice] {
         [

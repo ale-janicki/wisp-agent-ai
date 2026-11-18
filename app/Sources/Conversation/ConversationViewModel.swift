@@ -25,12 +25,15 @@ final class ConversationViewModel {
     private(set) var attachmentNotice: String?
     private(set) var held: [HeldMessage] = []
     private(set) var inFlight: UUID?
+    /// Last-message previews read from transcript tails, by `previewKey`; an empty value means "nothing to show".
+    private(set) var tailPreviews: [String: String] = [:]
 
     @ObservationIgnored weak var shell: ShellController? {
         didSet { shell?.restTarget = { [weak self] in self?.restTarget() ?? .rest } }
     }
     @ObservationIgnored private let store: ConversationStore
     @ObservationIgnored private let outbox: Outbox
+    @ObservationIgnored private var tailsLoading: Set<String> = []
     @ObservationIgnored private var drainTask: Task<Void, Never>?
     @ObservationIgnored private var drainSleeping = false
     @ObservationIgnored private var outboxBroken = false
@@ -144,6 +147,56 @@ final class ConversationViewModel {
 
     var sections: ConversationSections {
         TelegramTopics.sections(records: records, topics: telegram.loadedTopics, order: AppSettings.shared.settings.telegramOrder)
+    }
+
+    // MARK: Last-message preview
+
+    private static func previewKey(sessionId: String, stamp: Date?) -> String {
+        "\(sessionId)|\(stamp?.timeIntervalSince1970 ?? 0)"
+    }
+
+    /// The row's last-message line: the stored one when it is current, else what the transcript tail gave (see `fillPreviews`).
+    func preview(_ record: ConversationRecord) -> String? {
+        if let stored = ConversationPreview.display(record.lastPreview, from: record.lastFrom) { return stored }
+        guard let sessionId = record.sessionId else { return nil }
+        return tailPreviews[Self.previewKey(sessionId: sessionId, stamp: record.updatedAt)].flatMap { $0.isEmpty ? nil : $0 }
+    }
+
+    func preview(_ entry: TelegramEntry) -> String? {
+        let topic = entry.topic
+        if let record = entry.record, record.updatedAt >= (topic.lastUsed ?? .distantPast),
+           let stored = ConversationPreview.display(record.lastPreview, from: record.lastFrom) {
+            return stored
+        }
+        return tailPreviews[Self.previewKey(sessionId: topic.sessionId, stamp: topic.lastUsed)].flatMap { $0.isEmpty ? nil : $0 }
+    }
+
+    /// Reads, off the main actor and only from the end of each transcript, the previews the list still lacks.
+    func fillPreviews() {
+        let sections = self.sections
+        struct Job { let key: String; let sessionId: String; let cwd: String; let linked: Bool }
+        var jobs: [Job] = []
+        for record in sections.wisp where record.lastPreview == nil {
+            guard let sessionId = record.sessionId else { continue }
+            jobs.append(Job(key: Self.previewKey(sessionId: sessionId, stamp: record.updatedAt), sessionId: sessionId,
+                            cwd: expandTilde(record.cwd ?? profile.agent.cwd), linked: record.telegramThread != nil))
+        }
+        for entry in sections.telegram {
+            if let record = entry.record, record.updatedAt >= (entry.topic.lastUsed ?? .distantPast), record.lastPreview != nil { continue }
+            jobs.append(Job(key: Self.previewKey(sessionId: entry.topic.sessionId, stamp: entry.topic.lastUsed),
+                            sessionId: entry.topic.sessionId, cwd: expandTilde(entry.topic.cwd), linked: true))
+        }
+        let prefix = profile.agent.statusPrefix
+        for job in jobs where tailPreviews[job.key] == nil && tailsLoading.insert(job.key).inserted {
+            Task { [weak self] in
+                let found = await Task.detached(priority: .utility) {
+                    ConversationPreview.load(sessionId: job.sessionId, cwd: job.cwd, statusPrefix: prefix, telegramHTML: job.linked)
+                }.value
+                guard let self else { return }
+                self.tailsLoading.remove(job.key)
+                self.tailPreviews[job.key] = found.flatMap { ConversationPreview.display($0.text, from: $0.from) } ?? ""
+            }
+        }
     }
 
     // MARK: Onboarding
@@ -378,6 +431,7 @@ final class ConversationViewModel {
 
     func refreshTelegram() async {
         await telegram.refresh()
+        fillPreviews()
         shell?.notices.topicsLoaded(telegram.loadedTopics, following: linkedThread, records: records, statusPrefix: profile.agent.statusPrefix)
         guard let thread = linkedThread,
               let topic = telegram.loadedTopics?.first(where: { $0.thread == thread }),
@@ -465,7 +519,9 @@ final class ConversationViewModel {
                 title: records.first { $0.id == conversationId }?.title ?? String(title.prefix(Self.titleLimit)),
                 updatedAt: Date(),
                 telegramThread: created.thread,
-                cwd: created.cwd
+                cwd: created.cwd,
+                lastPreview: records.first { $0.id == conversationId }?.lastPreview,
+                lastFrom: records.first { $0.id == conversationId }?.lastFrom
             )
             do {
                 try store.upsert(record)
@@ -924,13 +980,16 @@ final class ConversationViewModel {
 
     private func persist() {
         guard let first = state.messages.first(where: { $0.role == .user }) else { return }
+        let last = ConversationPreview.last(of: state.messages)
         let record = ConversationRecord(
             id: currentId,
             sessionId: state.sessionId,
             title: currentTitle ?? String((MessageAttachments.parse(first.text)?.summary ?? first.text).prefix(Self.titleLimit)),
             updatedAt: Date(),
             telegramThread: linkedThread,
-            cwd: sessionCwd
+            cwd: sessionCwd,
+            lastPreview: last?.text,
+            lastFrom: last?.from
         )
         currentTitle = record.title
         do {
