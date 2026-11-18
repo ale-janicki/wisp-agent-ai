@@ -1,18 +1,13 @@
 import Foundation
 
-/// One `can_use_tool` control request: a tool call the CLI holds until the host answers.
 public struct PermissionRequest: Identifiable, Equatable, Sendable {
     public let id: String
     public let toolName: String
     public let toolUseId: String?
-    /// "rodar mkdir x", "editar ~/notes.txt": what follows "O Claude quer".
     public let summary: String
     public let detail: String
-    /// The tool input as the CLI sent it, echoed back as `updatedInput` on allow.
     public let inputJSON: String
-    /// The `addRules` suggestions that write a settings file, as a JSON array; nil when the CLI offered none.
     public let persistJSON: String?
-    /// The rules "Sempre permitir" adds, e.g. `Bash(touch x *)`.
     public let persistRules: [String]
 
     public var canPersist: Bool { persistJSON != nil }
@@ -34,7 +29,6 @@ public struct PermissionRequest: Identifiable, Equatable, Sendable {
         self.persistRules = persistRules
     }
 
-    /// The `request` object of a `control_request` line; nil when it is not a `can_use_tool` with an id.
     public init?(requestId: String, request: [String: Any], home: String = NSHomeDirectory()) {
         guard request["subtype"] as? String == "can_use_tool", !requestId.isEmpty else { return nil }
         let tool = request["tool_name"] as? String ?? ""
@@ -53,7 +47,6 @@ public struct PermissionRequest: Identifiable, Equatable, Sendable {
         )
     }
 
-    /// Only rules saved to a settings file count as "always"; `setMode` and anything scoped to the session do not.
     private static func persists(_ suggestion: [String: Any]) -> Bool {
         suggestion["type"] as? String == "addRules" && suggestion["behavior"] as? String == "allow"
             && suggestion["destination"] as? String != "session"
@@ -125,12 +118,9 @@ public enum PermissionDecision: Equatable, Sendable {
     public var allows: Bool { self != .deny }
 }
 
-/// The host's half of the CLI control protocol over stream-json stdin.
 public enum ClaudeControl {
-    /// Claude reads this as the tool result and carries on without the tool.
     public static let denyMessage = "O usuário negou esta ação no Wisp. Não tente de novo do mesmo jeito; siga sem ela ou pergunte o que fazer."
 
-    /// One `control_response` line, newline included.
     public static func response(to request: PermissionRequest, _ decision: PermissionDecision) -> Data {
         var answer: [String: Any]
         switch decision {
