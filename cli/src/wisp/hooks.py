@@ -1,3 +1,5 @@
+import os
+import re
 import sys
 import time
 from datetime import date
@@ -12,6 +14,8 @@ PENDENCIAS_LINES = 60
 COMMIT_BUDGET_SECONDS = 10
 GIT_EMAIL = "wisp@localhost"
 BOOT_LABELS = {"pt": ("Hoje", "Cérebro", "Pendências"), "en": ("Today", "Brain", "Pendências")}
+GUARD_TOKEN_SPLIT = re.compile(r"[\s;|&<>(){}\"'`=,:]+")
+GUARD_MESSAGE = "wisp: blocked access to the Wisp secrets folder ({where})"
 HELD_NOTE = "Arquivo {rel} ficou fora do commit por parecer conter um segredo"
 
 
@@ -95,3 +99,75 @@ def _commit(cfg: WispConfig, runner: Runner) -> None:
     if git("add", "--", *safe).exit != 0:
         return
     git(*identity, "commit", "-q", "-m", f"chore: save the brain {date.today().isoformat()}", "--", *safe)
+
+
+def _secret_roots(paths: WispPaths) -> list[Path]:
+    declared = [paths.config / "secrets", paths.home / ".config" / "wisp" / "secrets"]
+    normal = [Path(os.path.normpath(r)) for r in declared]
+    return list(dict.fromkeys(normal + [r.resolve() for r in normal]))
+
+
+def _expand(token: str, paths: WispPaths, cwd: Path) -> Path:
+    home = str(paths.home)
+    token = re.sub(r"\$\{?HOME\}?", lambda _: home, token)
+    token = re.sub(r"\$\{?XDG_CONFIG_HOME\}?", lambda _: str(paths.config.parent), token)
+    token = home + token[1:] if token == "~" or token.startswith("~/") else token
+    path = Path(token)
+    return Path(os.path.normpath(path if path.is_absolute() else cwd / path))
+
+
+def _under(path: Path, root: Path) -> bool:
+    return path == root or root in path.parents
+
+
+def _touches_secrets(text: str, paths: WispPaths, cwd: Path, *, ancestors: bool) -> bool:
+    roots = _secret_roots(paths)
+    config = paths.config
+    for token in filter(None, GUARD_TOKEN_SPLIT.split(text)):
+        if "/" not in token and not token.startswith("~") and token != "secrets":
+            continue
+        for candidate in {_expand(token, paths, cwd), _expand(token, paths, cwd).resolve()}:
+            if any(_under(candidate, root) for root in roots):
+                return True
+            if ancestors and any(_under(root, candidate) and _under(candidate, config) for root in roots):
+                return True
+    return False
+
+
+def _strings(value) -> list[str]:
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, dict):
+        return [s for v in value.values() for s in _strings(v)]
+    if isinstance(value, list):
+        return [s for v in value for s in _strings(v)]
+    return []
+
+
+def hook_guard_secrets(payload: dict, paths: WispPaths) -> str | None:
+    """Returns the reason to block this tool call, or None when it may run."""
+    tool_input = payload.get("tool_input")
+    if not isinstance(tool_input, dict):
+        return None
+    cwd = Path(payload["cwd"]) if isinstance(payload.get("cwd"), str) and payload["cwd"] else paths.home
+    is_shell = payload.get("tool_name") == "Bash"
+    texts = _strings(tool_input)
+    if is_shell:
+        texts = [re.sub(r"\$\{(\w+)\}", r"$\1", re.sub(r"/{2,}", "/", s)) for s in texts]
+    for text in texts:
+        if _touches_secrets(text, paths, cwd, ancestors=not is_shell):
+            return GUARD_MESSAGE.format(where=payload.get("tool_name") or "tool")
+        if is_shell and re.search(r"wisp/\{[^}]*secrets", text):
+            return GUARD_MESSAGE.format(where="Bash")
+        if is_shell and _shell_enters_config(text, paths, cwd) and re.search(r"(^|[\s/])secrets(/|\s|$|[\"'])", text):
+            return GUARD_MESSAGE.format(where="Bash")
+    return None
+
+
+def _shell_enters_config(text: str, paths: WispPaths, cwd: Path) -> bool:
+    roots = [r.parent for r in _secret_roots(paths)]
+    for token in filter(None, GUARD_TOKEN_SPLIT.split(text)):
+        if "/" in token or token.startswith("~"):
+            if any(_under(_expand(token, paths, cwd), r) for r in roots):
+                return True
+    return False

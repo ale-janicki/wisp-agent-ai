@@ -1,11 +1,12 @@
 import subprocess
 from datetime import date
+from pathlib import Path
 
 import pytest
 
 from wisp.cli import main
 from wisp.config import WispConfig
-from wisp.hooks import hook_boot, hook_brain_commit
+from wisp.hooks import hook_boot, hook_brain_commit, hook_guard_secrets
 from wisp.paths import WispPaths
 from wisp.runner import FakeRunner, SubprocessRunner
 
@@ -153,3 +154,72 @@ def test_held_file_is_noted_once_in_pendencias(fake_home):
     assert text.count("Arquivo chaves.md ficou fora do commit por parecer conter um segredo") == 1
     assert "sk-" not in text
     assert _git(brain, "status", "--porcelain") == "?? chaves.md"
+
+
+GUARD_CASES = [
+    ("Bash", {"command": "cat ~/.config/wisp/secrets/telegram-token"}),
+    ("Bash", {"command": "cat $HOME/.config/wisp/secrets/x"}),
+    ("Bash", {"command": 'cat "${HOME}/.config/wisp/secrets/x"'}),
+    ("Bash", {"command": "cat ~/.config/wisp/../wisp/secrets/x"}),
+    ("Bash", {"command": "cat ~/.config/wisp/{config.json,secrets/x}"}),
+    ("Bash", {"command": "cat ~/.config//wisp/./secrets/x"}),
+    ("Bash", {"command": "head -c 20 /home/u/.config/wisp/secrets/x"}),
+    ("Bash", {"command": "cd ~/.config/wisp && cat secrets/x"}),
+    ("Bash", {"command": "cp ~/.config/wisp/secrets/x /tmp/out"}),
+    ("Bash", {"command": "echo hi; base64 ~/.config/wisp/secrets/x"}),
+    ("Read", {"file_path": "/home/u/.config/wisp/secrets/telegram-token"}),
+    ("Read", {"file_path": "~/.config/wisp/secrets/x"}),
+    ("Edit", {"file_path": "/home/u/.config/wisp/x/../secrets/x", "old_string": "a", "new_string": "b"}),
+    ("Write", {"file_path": "/home/u/.config/wisp/secrets/new", "content": "x"}),
+    ("Grep", {"pattern": "token", "path": "/home/u/.config/wisp"}),
+    ("Grep", {"pattern": "token", "path": "~/.config/wisp/secrets"}),
+    ("Glob", {"pattern": "~/.config/wisp/secrets/*"}),
+    ("Glob", {"pattern": "*", "path": "/home/u/.config/wisp/secrets"}),
+]
+
+
+@pytest.mark.parametrize("tool,tool_input", GUARD_CASES)
+def test_guard_blocks_secrets_folder_references(tool, tool_input):
+    paths = WispPaths.for_os("Linux", Path("/home/u"), {})
+    reason = hook_guard_secrets({"tool_name": tool, "tool_input": tool_input, "cwd": "/home/u/work"}, paths)
+    assert reason and "secrets" in reason
+
+
+def test_guard_follows_the_configured_config_dir_and_symlinks(tmp_path):
+    real = tmp_path / "real-config"
+    (real / "wisp/secrets").mkdir(parents=True)
+    link = tmp_path / "link"
+    link.symlink_to(real)
+    paths = WispPaths.for_os("Linux", tmp_path, {"XDG_CONFIG_HOME": str(real)})
+    assert hook_guard_secrets({"tool_name": "Read", "tool_input": {"file_path": str(real / "wisp/secrets/t")}}, paths)
+    assert hook_guard_secrets({"tool_name": "Read", "tool_input": {"file_path": str(link / "wisp/secrets/t")}}, paths)
+    assert hook_guard_secrets({"tool_name": "Bash", "tool_input": {"command": f"cat {link}/wisp/secrets/t"}}, paths)
+
+
+@pytest.mark.parametrize("tool,tool_input", [
+    ("Bash", {"command": "ls ~/.config/wisp"}),
+    ("Bash", {"command": "cat ~/.config/wisp/config.json"}),
+    ("Bash", {"command": "git status"}),
+    ("Bash", {"command": "echo secrets are safe"}),
+    ("Read", {"file_path": "/home/u/work/secrets.md"}),
+    ("Read", {"file_path": "/home/u/.config/wisp/secrets-old/x"}),
+    ("Grep", {"pattern": "secrets", "path": "/home/u/work"}),
+    ("Glob", {"pattern": "**/*.py"}),
+])
+def test_guard_lets_other_calls_through(tool, tool_input):
+    paths = WispPaths.for_os("Linux", Path("/home/u"), {})
+    assert hook_guard_secrets({"tool_name": tool, "tool_input": tool_input, "cwd": "/home/u/work"}, paths) is None
+
+
+def test_guard_cli_exits_2_on_block_and_0_otherwise(fake_home, monkeypatch, capsys):
+    import io
+    import json
+
+    blocked = {"tool_name": "Bash", "tool_input": {"command": f"cat {fake_home}/.config/wisp/secrets/t"}}
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(blocked)))
+    assert main(["hook", "guard-secrets"]) == 2
+    assert "secrets" in capsys.readouterr().err
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps({"tool_name": "Bash", "tool_input": {"command": "ls"}})))
+    assert main(["hook", "guard-secrets"]) == 0
+    monkeypatch.setattr("sys.stdin", io.StringIO("not json"))
+    assert main(["hook", "guard-secrets"]) == 2

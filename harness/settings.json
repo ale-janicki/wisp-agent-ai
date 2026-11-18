@@ -23,6 +23,17 @@
     ]
   },
   "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|Read|Edit|MultiEdit|Write|NotebookEdit|Grep|Glob",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$HOME\"/.local/bin/wisp hook guard-secrets"
+          }
+        ]
+      }
+    ],
     "SessionStart": [
       {
         "hooks": [

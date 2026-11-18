@@ -51,13 +51,13 @@ def _brew_script(home, signature):
 
 class InstallingRunner(FakeRunner):
     def __init__(self, home, installer: RunResult):
-        super().__init__(_script(home, claude=False, extra={("/bin/bash", "-c"): installer}))
+        super().__init__(_script(home, claude=False, extra={("curl", "--fail"): OK, ("/bin/bash",): installer}))
         self.claude = home / ".local/bin/claude"
         self.installer = installer
 
     def run(self, argv, **kw):
         result = super().run(argv, **kw)
-        if argv[:2] == ["/bin/bash", "-c"] and self.installer.exit == 0:
+        if argv[:1] == ["/bin/bash"] and self.installer.exit == 0:
             self.script[(str(self.claude), "--version")] = RunResult([], 0, "2.1.0\n", "")
         return result
 
@@ -88,11 +88,25 @@ def test_clt_missing_opens_installer_and_needs_user(fake_home):
 def test_claude_missing_runs_official_installer(fake_home):
     runner = InstallingRunner(fake_home, OK)
     report = _run(runner, fake_home)
-    installer = next(c for c in runner.calls if c[:2] == ["/bin/bash", "-c"])
-    assert "https://claude.ai/install.sh" in installer[2]
+    download = next(c for c in runner.calls if c[:1] == ["curl"])
+    script = str(fake_home / ".local/state/wisp/downloads/claude-install.sh")
+    assert download[-1] == "https://claude.ai/install.sh"
+    assert {"--fail", "--tlsv1.2"} <= set(download) and download[download.index("--proto") + 1] == "=https"
+    assert download[download.index("-o") + 1] == script
+    assert runner.calls.index(download) < runner.calls.index(["/bin/bash", script])
+    assert not any("|" in " ".join(c) or c[:2] == ["/bin/bash", "-c"] for c in runner.calls)
+    assert not (fake_home / ".local/state/wisp/downloads/claude-install.sh").exists()
     assert report.status == "done" and report.summary == "o Claude foi instalado"
     assert report.data["claude"] == str(fake_home / ".local/bin/claude")
     assert load_config().claude_bin == str(fake_home / ".local/bin/claude")
+
+
+def test_claude_download_failure_never_runs_the_script(fake_home):
+    runner = InstallingRunner(fake_home, OK)
+    runner.script[("curl", "--fail")] = RunResult([], 22, "", "curl: (22) The requested URL returned error: 404")
+    report = _run(runner, fake_home)
+    assert report.status == "failed"
+    assert not any(c[:1] == ["/bin/bash"] for c in runner.calls)
 
 
 def test_claude_install_failure_is_failed_with_output(fake_home):
@@ -184,8 +198,8 @@ def test_malformed_homebrew_asset_is_failed_not_a_traceback(fake_home):
     assert not any(c[0] in ("pkgutil", "open") for c in runner.calls)
 
 
-def test_piped_installer_failure_bash_exits_zero_claude_still_missing(fake_home):
-    runner = FakeRunner(_script(fake_home, claude=False, extra={("/bin/bash", "-c"): RunResult([], 0, "", "curl: (6) could not resolve host")}))
+def test_installer_script_exits_zero_but_claude_still_missing(fake_home):
+    runner = FakeRunner(_script(fake_home, claude=False, extra={("curl", "--fail"): OK, ("/bin/bash",): RunResult([], 0, "", "curl: (6) could not resolve host")}))
     report = _run(runner, fake_home)
     assert report.status == "failed"
     assert "could not resolve host" in " ".join(d.output for d in report.details)

@@ -12,7 +12,7 @@ from wisp.config import WispConfig, load_config
 from wisp.doctor import run_doctor
 from wisp.fsops import OutsideHome
 from wisp.jobs import NotSupportedHere, manager_for
-from wisp.hooks import hook_boot, hook_brain_commit
+from wisp.hooks import hook_boot, hook_brain_commit, hook_guard_secrets
 from wisp.paths import WispPaths
 from wisp.report import StepReport
 from wisp.runner import SubprocessRunner
@@ -108,7 +108,22 @@ def _setup_profile(args: argparse.Namespace) -> int:
     return _run_step("profile", run)
 
 
+def _guard_secrets() -> int:
+    try:
+        payload = json.load(sys.stdin)
+        reason = hook_guard_secrets(payload if isinstance(payload, dict) else {}, WispPaths.current())
+    except Exception as e:
+        print(f"wisp hook guard-secrets: {type(e).__name__}", file=sys.stderr)
+        return 2
+    if reason:
+        print(reason, file=sys.stderr)
+        return 2
+    return 0
+
+
 def _hook(args: argparse.Namespace) -> int:
+    if args.which == "guard-secrets":
+        return _guard_secrets()
     try:
         cfg, _ = _load_config_or_default()
         if args.which == "boot":
@@ -158,7 +173,7 @@ def build_parser() -> argparse.ArgumentParser:
     shim.add_argument("--json", action="store_true")
     add_topic_parser(sub)
     hook = sub.add_parser("hook")
-    hook.add_argument("which", choices=["boot", "brain-commit"])
+    hook.add_argument("which", choices=["boot", "brain-commit", "guard-secrets"])
     return parser
 
 

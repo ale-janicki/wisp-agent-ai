@@ -9,7 +9,8 @@ from wisp.paths import WispPaths
 from wisp.report import Detail, StepReport
 from wisp.runner import Runner
 
-CLAUDE_INSTALL_SCRIPT = "curl -fsSL https://claude.ai/install.sh | bash"
+CLAUDE_INSTALL_URL = "https://claude.ai/install.sh"
+CLAUDE_DOWNLOAD_FLAGS = ["--fail", "--silent", "--show-error", "--location", "--proto", "=https", "--proto-redir", "=https", "--tlsv1.2"]
 BREW_RELEASE_API = "https://api.github.com/repos/Homebrew/brew/releases/latest"
 BREW_DOWNLOAD_PREFIX = "https://github.com/Homebrew/brew/releases/download/"
 BREW_BINARIES = ("/opt/homebrew/bin/brew", "/usr/local/bin/brew")
@@ -31,9 +32,16 @@ def _record(runner: Runner, details: list[Detail], argv: list[str], timeout: flo
 
 
 def _install_claude(runner: Runner, paths: WispPaths, cfg: WispConfig, details: list[Detail]) -> Path | None:
-    argv = ["/bin/bash", "-c", CLAUDE_INSTALL_SCRIPT]
-    if _record(runner, details, argv, 600).exit != 0:
-        return None
+    downloads = paths.state / "downloads"
+    ensure_dir(downloads)
+    script = downloads / "claude-install.sh"
+    try:
+        if _record(runner, details, ["curl", *CLAUDE_DOWNLOAD_FLAGS, "-o", str(script), CLAUDE_INSTALL_URL], 120).exit != 0:
+            return None
+        if _record(runner, details, ["/bin/bash", str(script)], 600).exit != 0:
+            return None
+    finally:
+        script.unlink(missing_ok=True)
     return locate_claude(paths, cfg, runner)
 
 

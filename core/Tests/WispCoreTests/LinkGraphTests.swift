@@ -166,7 +166,7 @@ final class LinkGraphTests: XCTestCase {
 
     func testLiveVaultScanTimings() throws {
         try XCTSkipUnless(ProcessInfo.processInfo.environment["WISP_LIVE"] == "1")
-        let vault = NSHomeDirectory() + "/Documents/brain"
+        let vault = "/tmp/brain"
         let clock = ContinuousClock()
         var cold: LinkScan?
         let coldTime = try clock.measure { cold = try LinkGraphScanner.scan(root: vault) }
