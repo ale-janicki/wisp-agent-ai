@@ -14,3 +14,17 @@ final class CommandTemplateTests: XCTestCase {
         XCTAssertEqual(try result.get(), Data(tricky.utf8))
     }
 }
+
+final class CommandTemplateRawTests: XCTestCase {
+    func testRepeatedFlagQuotesEachValue() {
+        XCTAssertEqual(CommandTemplate.repeated("--anexo", ["/a b.jpg", "/c'd.pdf"]), #"--anexo '/a b.jpg' --anexo '/c'\''d.pdf'"#)
+        XCTAssertEqual(CommandTemplate.repeated("--anexo", []), "")
+    }
+
+    func testRawGoesInAsIsAndValuesCannotSmuggleOtherKeys() {
+        let filled = CommandTemplate.fill("t {anexos} -- {thread} {text}", ["thread": "5", "text": "{anexos}"],
+                                          raw: ["anexos": "--anexo '/x.jpg'"])
+        XCTAssertEqual(filled, "t --anexo '/x.jpg' -- '5' '{anexos}'")
+        XCTAssertEqual(CommandTemplate.fill("t {anexos} {text}", ["text": "oi"], raw: ["anexos": ""]), "t  'oi'")
+    }
+}

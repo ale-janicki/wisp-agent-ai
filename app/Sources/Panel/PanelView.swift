@@ -163,6 +163,10 @@ struct PanelView: View {
             text: $draft,
             placeholder: "Pergunte ao \(model.personaName)…",
             disabled: model.inputBlocked,
+            attachments: model.pendingAttachments,
+            notice: model.attachmentNotice,
+            onAttach: model.attach,
+            onRemove: model.detach,
             onSubmit: submit
         )
     }
@@ -181,6 +185,7 @@ private struct ConversationCard: View {
     var model: ConversationViewModel
     @Binding var draft: String
     var submit: () -> Void
+    @State private var dropping = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -208,12 +213,29 @@ private struct ConversationCard: View {
                 text: $draft,
                 placeholder: "Pergunte ao \(model.personaName)…",
                 disabled: model.inputBlocked,
+                attachments: model.pendingAttachments,
+                notice: model.attachmentNotice,
+                onAttach: model.attach,
+                onRemove: model.detach,
                 onSubmit: submit
             )
             .padding([.horizontal, .bottom], Theme.Space.m)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous))
+        .overlay {
+            if dropping {
+                RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous)
+                    .strokeBorder(Theme.accent, lineWidth: 2)
+                    .allowsHitTesting(false)
+            }
+        }
+        .dropDestination(for: URL.self) { urls, _ in
+            let files = urls.filter(\.isFileURL)
+            guard !files.isEmpty, !model.inputBlocked else { return false }
+            model.attach(files)
+            return true
+        } isTargeted: { dropping = $0 }
         .card()
     }
 }

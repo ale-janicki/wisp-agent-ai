@@ -6,11 +6,13 @@ public struct ConversationMessage: Equatable, Identifiable, Sendable {
     public let id: UUID
     public var role: Role
     public var text: String
+    public var time: Date?
 
-    public init(role: Role, text: String, id: UUID = UUID()) {
+    public init(role: Role, text: String, id: UUID = UUID(), time: Date? = nil) {
         self.id = id
         self.role = role
         self.text = text
+        self.time = time
     }
 }
 
@@ -35,7 +37,7 @@ public struct ConversationState: Equatable, Sendable {
 
 public enum ConversationReducer {
     public static func userSent(_ s: inout ConversationState, text: String) {
-        s.messages.append(ConversationMessage(role: .user, text: text))
+        s.messages.append(ConversationMessage(role: .user, text: text, time: Date()))
         s.status = nil
         s.pendingTurns += 1
         s.phase = .thinking(step: nil)

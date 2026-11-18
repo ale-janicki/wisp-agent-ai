@@ -148,9 +148,14 @@ final class TelegramModel {
         }
     }
 
-    func send(thread: Int, text: String) async -> TelegramFailure? {
-        guard let command = block?.send else { return TelegramFailure("Telegram não configurado") }
-        let filled = CommandTemplate.fill(command, ["thread": String(thread), "text": text])
+    /// `files` go through the profile's optional `{anexos}`; a profile without it can only send text.
+    func send(thread: Int, text: String, files: [String] = []) async -> TelegramFailure? {
+        guard let block, let command = block.send else { return TelegramFailure("Telegram não configurado") }
+        if !files.isEmpty, !block.sendsAttachments {
+            return TelegramFailure("o perfil não sabe mandar anexos ao Telegram (falta {anexos} no send)")
+        }
+        let filled = CommandTemplate.fill(command, ["thread": String(thread), "text": text],
+                                          raw: ["anexos": CommandTemplate.repeated("--anexo", files)])
         if case .failure(let error) = await Self.run(filled, timeout: Self.actionTimeout) {
             return TelegramFailure("Não consegui mandar ao Telegram: \(error.localizedDescription)")
         }

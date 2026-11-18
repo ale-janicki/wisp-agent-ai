@@ -14,6 +14,7 @@ public struct TranscriptParser: Sendable {
     private static let botRulePrefix = "[regra do topico]"
     private static let botContextPrefix = "[contexto do bot]"
     private static let botMessageMarker = "Mensagem do Ale:\n"
+    private static let timestampStyle = Date.ISO8601FormatStyle(includingFractionalSeconds: true)
 
     public let statusPrefix: String?
     public let telegramHTML: Bool
@@ -84,7 +85,8 @@ public struct TranscriptParser: Sendable {
             }
             skippingTurn = false
             flushReply()
-            messages.append(ConversationMessage(role: .user, text: Self.unwrapBotContext(trimmed)))
+            let time = (object["timestamp"] as? String).flatMap { try? Date($0, strategy: Self.timestampStyle) }
+            messages.append(ConversationMessage(role: .user, text: Self.unwrapBotContext(trimmed), time: time))
             prompts += 1
             turnOpen = true
         case "assistant":
