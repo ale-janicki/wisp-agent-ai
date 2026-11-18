@@ -15,6 +15,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+        #if DEBUG
+        if ArtRenderer.isRequested(ProcessInfo.processInfo.arguments) {
+            ArtRenderer.run(ProcessInfo.processInfo.arguments)
+            NSApp.terminate(nil)
+            return
+        }
+        #endif
         IdentityMigration.run()
         #if DEBUG
         if let directory = SnapshotRenderer.directory(from: ProcessInfo.processInfo.arguments) {
@@ -48,7 +55,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Task { await runtime.ensure() }
     }
 
-    /// "Rodar o setup de novo": the same window; steps that are already in place show as done.
     func showSetup() {
         presentSetup(homeOverride: nil, existingInstall: true)
     }
@@ -85,7 +91,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         #endif
     }
 
-    /// A finished wizard never returns, and a Mac with a profile but no setup state is an existing install.
     private static func setupNeeded() -> Bool {
         let state = try? SetupState.load(from: SetupModel.defaultStateURL)
         return SetupGate.shouldShowWizard(state: state, profileExists: profileExists())
