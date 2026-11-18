@@ -1,8 +1,9 @@
-# Bot upstream
+# Bot provenance
 
-`bot/src/wisp_bot/` is a copy of the owner's Telegram bot, generalized to a per-user config. Until the owner migrates, fixes land upstream first and are ported here by hand.
+`bot/src/wisp_bot/` started as a copy of a private single-user Telegram bot, generalized to a per-user `wisp.json` config. It is maintained in this repository; there is no public upstream to sync with.
 
-- Upstream: the upstream bot's repository, folder `telegram/<bot>/` (code, tests and `fixtures/`).
-- Upstream commit at copy time: `26dbd58db1d5bf820b06ab9d77009aeef52630fc`
-- `git status --short telegram` at copy time: clean (no modified or untracked files).
-- Copied: 18 modules, 15 test files, 5 fixtures. Baseline in the copy: 444 tests collected, 443 passed and 1 skipped (that test read a transcript from the owner's home, which the isolated test HOME does not have).
+What changed in the copy:
+
+- Configuration moved from hard-coded values to `wisp.json` (token file, user, group, brain, topic folder, state folder, persona), with `solo` (one machine) as the default hosting and `pair` (two machines over ssh) as an option.
+- Integrations specific to the original setup were removed (e-mail, job alerts, a market journal, power-loss handling, a brain-digest context and two machine-specific commands), with their tests. Brain sync and alerts run only when the user configures a command for them.
+- The tests that exercised the original harness's topic CLI and hooks were dropped; `cli/` carries its own tests for `wisp topic`.
