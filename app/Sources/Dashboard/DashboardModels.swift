@@ -21,6 +21,7 @@ final class UsageModel {
 
     @ObservationIgnored private var loading = false
     @ObservationIgnored private var loadedAt: Date?
+    @ObservationIgnored private let index = UsageIndex()
     @ObservationIgnored private let log = Logger(subsystem: AppIdentity.bundleID, category: "usage")
 
     private static let maxAge: TimeInterval = 60
@@ -42,8 +43,9 @@ final class UsageModel {
         loading = true
         Task { [weak self] in
             let started = Date()
-            let summary = await Task.detached(priority: .utility) { UsageAggregator.aggregate() }.value
-            guard let self else { return }
+            let index = self?.index
+            let summary = await Task.detached(priority: .utility) { index?.summary() }.value
+            guard let self, let summary else { return }
             self.log.info("usage aggregated in \(Date().timeIntervalSince(started), format: .fixed(precision: 2))s")
             self.summary = summary
             self.loadedAt = Date()
@@ -68,7 +70,6 @@ final class AlertsModel {
     @ObservationIgnored private var rerun = false
     @ObservationIgnored private var loadedAt: Date?
     @ObservationIgnored private var loadedCommand: String?
-    /// Every successful read, for the notch notices (a new id there is a new alert).
     @ObservationIgnored var onLoaded: (([AlertItem]) -> Void)?
 
     static let interval: Duration = .seconds(30)

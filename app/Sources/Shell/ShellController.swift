@@ -328,7 +328,7 @@ final class ShellController: ObservableObject {
             matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown],
             handler: { [weak self] _ in
                 MainActor.assumeIsolated {
-                    guard let self, self.state == .panel else { return }
+                    guard let self, self.state == .panel, !self.pinnedOpen else { return }
                     self.show(self.restTarget())
                 }
             }
@@ -376,6 +376,22 @@ final class ShellController: ObservableObject {
     }
 
     // MARK: Debug
+
+    #if DEBUG || WISP_PERF
+    private var pinnedOpen = false
+
+    func openPanelFromArguments() {
+        let args = ProcessInfo.processInfo.arguments
+        guard let index = args.firstIndex(of: "-WispOpenPanel"), args.indices.contains(index + 1),
+              let tab = PanelTab(rawValue: args[index + 1])
+        else { return }
+        pinnedOpen = true
+        self.tab = tab
+        show(.panel)
+    }
+    #else
+    private var pinnedOpen: Bool { false }
+    #endif
 
     #if DEBUG
     private func logFrontmost(_ label: String) {

@@ -91,6 +91,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         #if DEBUG
         shell.runDebugArguments()
         #endif
+        #if DEBUG || WISP_PERF
+        shell.openPanelFromArguments()
+        #endif
     }
 
     private static func setupNeeded() -> Bool {

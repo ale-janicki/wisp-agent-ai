@@ -17,104 +17,244 @@ struct WispAvatar: View {
                 .scaledToFill()
                 .frame(width: size, height: size)
                 .clipShape(RoundedRectangle(cornerRadius: size * 0.3, style: .continuous))
+        } else if animates, !reduceMotion {
+            AnimatedWispFigure(size: size, busy: busy, accent: Theme.accent)
+                .frame(width: size, height: size)
         } else {
-            let accent = Theme.accent
-            let gradient = LinearGradient(
-                colors: [accent, accent.mix(with: .white, by: 0.4)],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            TimelineView(.animation(minimumInterval: 1.0 / 30, paused: !animates || reduceMotion)) { context in
-                WispFigure(
-                    size: size,
-                    busy: busy,
-                    gradient: gradient,
-                    glow: accent,
-                    time: reduceMotion ? nil : context.date.timeIntervalSinceReferenceDate
-                )
-            }
-            .frame(width: size, height: size)
+            WispFigure(size: size, busy: busy, accent: Theme.accent)
         }
     }
 }
 
-/// `time` nil is the still figure ("Reduzir movimento"): no float, breath, blink or glance.
 private struct WispFigure: View {
     let size: CGFloat
     let busy: Bool
-    let gradient: LinearGradient
-    let glow: Color
-    let time: TimeInterval?
-
-    private static let blinkSlot: TimeInterval = 5.5
-    private static let blinkSpread: TimeInterval = 1.5
-    private static let blinkLength: TimeInterval = 0.16
-
-    private var t: TimeInterval { time ?? 0 }
-
-    private var breath: CGFloat { 1 + 0.015 * (1 - cos(2 * .pi * t / 3)) }
-
-    /// Floats up to 1.5 pt over 3 s; scales with the figure so a 16 pt pill avatar and a 36 pt panel one read alike.
-    private var float: CGFloat { -min(1.5, size * 0.06) * (1 - cos(2 * .pi * t / 3)) / 2 }
-
-    private var glance: CGFloat { busy ? sin(2 * .pi * t / 2.4) * size * 0.05 : 0 }
-
-    /// Soft pulse while the agent works; a steady mid glow when still.
-    private var glowOpacity: Double {
-        guard busy else { return 0.4 }
-        guard time != nil else { return 0.6 }
-        return 0.5 + 0.25 * sin(2 * .pi * t / 1.6)
-    }
-
-    /// One blink per slot at a pseudo-random spot, so the gap between two blinks is 4 to 7 s.
-    private var eyeOpen: CGFloat {
-        guard time != nil else { return 1 }
-        let slot = floor(t / Self.blinkSlot)
-        let into = t - slot * Self.blinkSlot
-        let start = Self.hash(slot) * Self.blinkSpread
-        let phase = into - start
-        guard phase >= 0, phase < Self.blinkLength else { return 1 }
-        return max(0.12, abs(cos(phase / Self.blinkLength * .pi)))
-    }
-
-    private static func hash(_ slot: Double) -> Double {
-        let x = sin(slot * 12.9898 + 78.233) * 43758.5453
-        return x - floor(x)
-    }
+    let accent: Color
 
     var body: some View {
         ZStack {
+            WispFigure.glow(size: size, accent: accent)
+                .opacity(busy ? 0.6 : WispFigure.restGlow)
+            WispFigure.shape(size: size, accent: accent)
+            WispFigure.eyes(size: size)
+        }
+        .frame(width: size, height: size)
+    }
+
+    static let restGlow = 0.4
+
+    static func gradient(_ accent: Color) -> LinearGradient {
+        LinearGradient(colors: [accent, accent.mix(with: .white, by: 0.4)], startPoint: .topLeading, endPoint: .bottomTrailing)
+    }
+
+    static func glowRadius(_ size: CGFloat) -> CGFloat { size * 0.14 }
+
+    static func glow(size: CGFloat, accent: Color) -> some View {
+        WispShape()
+            .fill(gradient(accent))
+            .blur(radius: glowRadius(size))
+            .frame(width: size, height: size)
+    }
+
+    static func shape(size: CGFloat, accent: Color) -> some View {
+        ZStack {
             WispShape()
-                .fill(gradient)
-                .blur(radius: size * 0.14)
-                .opacity(glowOpacity)
-            WispShape()
-                .fill(gradient)
+                .fill(gradient(accent))
             Ellipse()
                 .fill(Theme.avatarSheen)
                 .frame(width: size * 0.22, height: size * 0.14)
                 .rotationEffect(.degrees(-30))
                 .blur(radius: size * 0.04)
                 .offset(x: -size * 0.14, y: -size * 0.02)
-            eyes
         }
         .frame(width: size, height: size)
-        .scaleEffect(breath, anchor: .bottom)
-        .offset(y: float)
     }
 
-    private var eyes: some View {
-        HStack(spacing: size * 0.1) {
-            eye
-            eye
+    static func eyeSize(_ size: CGFloat) -> CGSize {
+        CGSize(width: max(1.6, size * 0.11), height: max(2.2, size * 0.17))
+    }
+
+    static func eyeSpacing(_ size: CGFloat) -> CGFloat { size * 0.1 }
+
+    static func eyeDrop(_ size: CGFloat) -> CGFloat { size * 0.13 }
+
+    static func eyes(size: CGFloat) -> some View {
+        let eye = eyeSize(size)
+        return HStack(spacing: eyeSpacing(size)) {
+            Ellipse().fill(Theme.onAccent).frame(width: eye.width, height: eye.height)
+            Ellipse().fill(Theme.onAccent).frame(width: eye.width, height: eye.height)
         }
-        .offset(x: glance, y: size * 0.13)
+        .offset(y: eyeDrop(size))
+    }
+}
+
+private struct AnimatedWispFigure: NSViewRepresentable {
+    let size: CGFloat
+    let busy: Bool
+    let accent: Color
+
+    func makeNSView(context: Context) -> WispFigureLayerView { WispFigureLayerView() }
+
+    func updateNSView(_ view: WispFigureLayerView, context: Context) {
+        view.configure(size: size, busy: busy, accent: accent)
     }
 
-    private var eye: some View {
-        Ellipse()
-            .fill(Theme.onAccent)
-            .frame(width: max(1.6, size * 0.11), height: max(2.2, size * 0.17) * eyeOpen)
+    @MainActor
+    final class WispFigureLayerView: NSView {
+        private let lift = CALayer()
+        private let glow = CALayer()
+        private let shape = CALayer()
+        private let glance = CALayer()
+        private let blink = CALayer()
+        private let eyes = [CAShapeLayer(), CAShapeLayer()]
+        private var drawn: (size: CGFloat, accent: Color, scale: CGFloat)?
+        private var animatedBusy: Bool?
+
+        private static let frameRate = CAFrameRateRange(minimum: 10, maximum: 30, preferred: 30)
+        private static let blinkSlot: CFTimeInterval = 5.5
+        private static let blinkSpread: CFTimeInterval = 1.5
+        private static let blinkLength: CFTimeInterval = 0.16
+        private static let blinkSlots = 3
+
+        override init(frame: NSRect) {
+            super.init(frame: frame)
+            wantsLayer = true
+            guard let root = layer else { return }
+            root.masksToBounds = false
+            lift.anchorPoint = CGPoint(x: 0.5, y: 0)
+            root.addSublayer(lift)
+            lift.addSublayer(glow)
+            lift.addSublayer(shape)
+            lift.addSublayer(glance)
+            glance.addSublayer(blink)
+            for eye in eyes { blink.addSublayer(eye) }
+        }
+
+        @available(*, unavailable)
+        required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+        override var isFlipped: Bool { false }
+
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+        override func viewDidChangeBackingProperties() {
+            super.viewDidChangeBackingProperties()
+            if let drawn { configure(size: drawn.size, busy: animatedBusy ?? false, accent: drawn.accent) }
+        }
+
+        func configure(size: CGFloat, busy: Bool, accent: Color) {
+            let scale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            if drawn?.size != size || drawn?.accent != accent || drawn?.scale != scale {
+                draw(size: size, accent: accent, scale: scale)
+                drawn = (size, accent, scale)
+                animatedBusy = nil
+            }
+            if animatedBusy != busy {
+                animate(size: size, busy: busy)
+                animatedBusy = busy
+            }
+            CATransaction.commit()
+        }
+
+        private func draw(size: CGFloat, accent: Color, scale: CGFloat) {
+            let bounds = CGRect(x: 0, y: 0, width: size, height: size)
+            lift.bounds = bounds
+            lift.position = CGPoint(x: size / 2, y: 0)
+            let pad = ceil(WispFigure.glowRadius(size) * 3)
+            glow.frame = bounds.insetBy(dx: -pad, dy: -pad)
+            glow.contents = Self.image(WispFigure.glow(size: size, accent: accent).padding(pad), scale: scale)
+            glow.contentsScale = scale
+            shape.frame = bounds
+            shape.contents = Self.image(WispFigure.shape(size: size, accent: accent), scale: scale)
+            shape.contentsScale = scale
+
+            let eye = WispFigure.eyeSize(size)
+            let spacing = WispFigure.eyeSpacing(size)
+            let centerY = size / 2 - WispFigure.eyeDrop(size)
+            glance.frame = bounds
+            blink.bounds = bounds
+            blink.anchorPoint = CGPoint(x: 0.5, y: centerY / size)
+            blink.position = CGPoint(x: size / 2, y: centerY)
+            let color = NSColor(Theme.onAccent).cgColor
+            for (index, layer) in eyes.enumerated() {
+                let side: CGFloat = index == 0 ? -1 : 1
+                let midX = size / 2 + side * (eye.width + spacing) / 2
+                let rect = CGRect(x: midX - eye.width / 2, y: centerY - eye.height / 2, width: eye.width, height: eye.height)
+                layer.frame = bounds
+                layer.path = CGPath(ellipseIn: rect, transform: nil)
+                layer.fillColor = color
+                layer.contentsScale = scale
+            }
+        }
+
+        private func animate(size: CGFloat, busy: Bool) {
+            for layer in [lift, glow, glance, blink] { layer.removeAllAnimations() }
+            let rise = min(1.5, size * 0.06)
+            let breathe = CABasicAnimation(keyPath: "transform")
+            breathe.fromValue = CATransform3DIdentity
+            breathe.toValue = CATransform3DScale(CATransform3DMakeTranslation(0, rise, 0), 1.03, 1.03, 1)
+            lift.add(Self.looping(breathe, half: 1.5), forKey: "breathe")
+            blink.add(Self.blinks(), forKey: "blink")
+            if busy {
+                let pulse = CABasicAnimation(keyPath: "opacity")
+                pulse.fromValue = 0.25
+                pulse.toValue = 0.75
+                glow.opacity = 0.5
+                glow.add(Self.looping(pulse, half: 0.8), forKey: "pulse")
+                let look = CABasicAnimation(keyPath: "transform.translation.x")
+                look.fromValue = -size * 0.05
+                look.toValue = size * 0.05
+                glance.add(Self.looping(look, half: 1.2), forKey: "glance")
+            } else {
+                glow.opacity = Float(WispFigure.restGlow)
+            }
+        }
+
+        private static func looping(_ animation: CABasicAnimation, half: CFTimeInterval) -> CABasicAnimation {
+            animation.duration = half
+            animation.autoreverses = true
+            animation.repeatCount = .infinity
+            animation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            animation.preferredFrameRateRange = frameRate
+            animation.isRemovedOnCompletion = false
+            return animation
+        }
+
+        private static func blinks() -> CAKeyframeAnimation {
+            let period = blinkSlot * Double(blinkSlots)
+            var times: [NSNumber] = [0]
+            var values: [NSNumber] = [1]
+            for slot in 0..<blinkSlots {
+                let start = Double(slot) * blinkSlot + hash(Double(slot)) * blinkSpread
+                for (offset, value) in [(0.0, 1.0), (blinkLength / 2, 0.12), (blinkLength, 1.0)] {
+                    times.append(NSNumber(value: (start + offset) / period))
+                    values.append(NSNumber(value: value))
+                }
+            }
+            times.append(1)
+            values.append(1)
+            let animation = CAKeyframeAnimation(keyPath: "transform.scale.y")
+            animation.keyTimes = times
+            animation.values = values
+            animation.duration = period
+            animation.repeatCount = .infinity
+            animation.preferredFrameRateRange = frameRate
+            animation.isRemovedOnCompletion = false
+            return animation
+        }
+
+        private static func hash(_ slot: Double) -> Double {
+            let x = sin(slot * 12.9898 + 78.233) * 43758.5453
+            return x - floor(x)
+        }
+
+        private static func image(_ view: some View, scale: CGFloat) -> CGImage? {
+            let renderer = ImageRenderer(content: view)
+            renderer.scale = scale
+            return renderer.cgImage
+        }
     }
 }
 

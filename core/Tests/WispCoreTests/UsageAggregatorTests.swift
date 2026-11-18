@@ -65,6 +65,31 @@ final class UsageAggregatorTests: XCTestCase {
         XCTAssertEqual(summary.totalTokens, 110)
     }
 
+    func testIndexReadsOnlyWhatChanged() throws {
+        let url = root.appendingPathComponent("p/a.jsonl")
+        try write([assistant(id: "m1", at: "2026-11-16T10:00:00Z", input: 1, output: 1)], to: "p/a.jsonl")
+        let index = UsageIndex(root: root)
+        XCTAssertEqual(index.summary(now: now, calendar: calendar).today.billableTokens, 2)
+
+        let handle = try FileHandle(forWritingTo: url)
+        try handle.seekToEnd()
+        try handle.write(contentsOf: Data((assistant(id: "m2", at: "2026-11-16T11:00:00Z", input: 10, output: 10) + "\n").utf8))
+        try handle.write(contentsOf: Data(assistant(id: "m3", at: "2026-11-16T12:00:00Z", input: 100, output: 100).utf8))
+        try handle.close()
+        XCTAssertEqual(index.summary(now: now, calendar: calendar).today.billableTokens, 222, "appended lines and a tail without newline")
+        XCTAssertEqual(index.summary(now: now, calendar: calendar).today.messages, 3, "the tail is not counted twice")
+
+        try write([assistant(id: "m9", at: "2026-11-16T09:00:00Z", input: 5, output: 0)], to: "p/a.jsonl")
+        XCTAssertEqual(index.summary(now: now, calendar: calendar).today.billableTokens, 5, "a rewritten, shorter file is read again")
+
+        try write([assistant(id: "m8", at: "2026-11-16T09:00:00Z", input: 7, output: 0)], to: "p/a.jsonl")
+        try FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(5)], ofItemAtPath: url.path)
+        XCTAssertEqual(index.summary(now: now, calendar: calendar).today.billableTokens, 7, "a file rewritten to the same size is read again")
+
+        try FileManager.default.removeItem(at: url)
+        XCTAssertEqual(index.summary(now: now, calendar: calendar).totalTokens, 0, "a deleted file drops out")
+    }
+
     func testMissingRootGivesSevenEmptyDays() {
         let summary = UsageAggregator.aggregate(root: root.appendingPathComponent("nope"), now: now, calendar: calendar)
         XCTAssertEqual(summary.days.count, 7)

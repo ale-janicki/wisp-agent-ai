@@ -10,7 +10,14 @@ enum SpotifyKeychain {
         case status(OSStatus)
     }
 
+    #if DEBUG || WISP_PERF
+    static let disabled = ProcessInfo.processInfo.arguments.contains("-WispNoKeychain")
+    #else
+    static let disabled = false
+    #endif
+
     static func load() -> SpotifyToken? {
+        guard !disabled else { return nil }
         var query = baseQuery
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
@@ -20,6 +27,7 @@ enum SpotifyKeychain {
     }
 
     static func save(_ token: SpotifyToken) throws {
+        guard !disabled else { return }
         let data = try JSONEncoder().encode(token)
         let update = SecItemUpdate(baseQuery as CFDictionary, [kSecValueData as String: data] as CFDictionary)
         if update == errSecSuccess { return }
@@ -33,12 +41,12 @@ enum SpotifyKeychain {
     }
 
     static func delete() {
+        guard !disabled else { return }
         SecItemDelete(baseQuery as CFDictionary)
     }
 
-    /// Copies the session saved under the previous bundle id's service, once, when this service has none.
-    /// The old item stays where it is.
     static func adoptLegacyItem(from legacyService: String) {
+        guard !disabled else { return }
         var probe = query(service)
         probe[kSecMatchLimit as String] = kSecMatchLimitOne
         let newExists = SecItemCopyMatching(probe as CFDictionary, nil) == errSecSuccess
