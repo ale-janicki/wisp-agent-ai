@@ -7,10 +7,13 @@ public struct ConversationRecord: Codable, Identifiable, Sendable, Equatable {
     public var updatedAt: Date
     public var telegramThread: Int?
     public var cwd: String?
+    public var lastPreview: String?
+    public var lastFrom: PreviewSide?
 
     public init(
         id: UUID, sessionId: String?, title: String, updatedAt: Date,
-        telegramThread: Int? = nil, cwd: String? = nil
+        telegramThread: Int? = nil, cwd: String? = nil,
+        lastPreview: String? = nil, lastFrom: PreviewSide? = nil
     ) {
         self.id = id
         self.sessionId = sessionId
@@ -18,6 +21,8 @@ public struct ConversationRecord: Codable, Identifiable, Sendable, Equatable {
         self.updatedAt = updatedAt
         self.telegramThread = telegramThread
         self.cwd = cwd
+        self.lastPreview = lastPreview
+        self.lastFrom = lastFrom
     }
 }
 

@@ -224,18 +224,34 @@ private struct PlaylistGrid: View {
     @ObservedObject var media: NowPlayingService
     let spotify: SpotifyModel
 
-    private static let tile: CGFloat = 104
-    private let columns = [GridItem(.adaptive(minimum: tile, maximum: tile), spacing: Theme.Space.m, alignment: .top)]
+    private static let minTile: CGFloat = 104
+    private static let inset: CGFloat = 12
+    @State private var width: CGFloat = 0
+
+    /// Columns that fill the whole row: as many as fit at the minimum size, then each grows to share the width.
+    private var layout: (columns: [GridItem], tile: CGFloat) {
+        let gap = Theme.Space.m
+        let cell = Self.minTile + Self.inset
+        let count = max(1, Int((width + gap) / (cell + gap)))
+        let slot = width > 0 ? (width - CGFloat(count - 1) * gap) / CGFloat(count) : cell
+        return (Array(repeating: GridItem(.fixed(slot), spacing: gap, alignment: .top), count: count), max(Self.minTile, slot - Self.inset))
+    }
 
     var body: some View {
+        content
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
+    }
+
+    @ViewBuilder private var content: some View {
         switch spotify.playlists {
         case .idle, .loading:
             VStack(alignment: .leading, spacing: 2) {
                 SectionCaption(text: "Suas playlists")
-                LazyVGrid(columns: columns, alignment: .leading, spacing: Theme.Space.m) {
+                LazyVGrid(columns: layout.columns, alignment: .leading, spacing: Theme.Space.m) {
                     ForEach(0..<5, id: \.self) { _ in
                         VStack(alignment: .leading, spacing: 6) {
-                            Skeleton(cornerRadius: Theme.Radius.artwork).frame(width: Self.tile, height: Self.tile)
+                            Skeleton(cornerRadius: Theme.Radius.artwork).frame(width: layout.tile, height: layout.tile)
                             Skeleton(cornerRadius: 4).frame(width: 72, height: 10)
                         }
                         .padding(6)
@@ -254,9 +270,9 @@ private struct PlaylistGrid: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 2) {
                     SectionCaption(text: "Suas playlists")
-                    LazyVGrid(columns: columns, alignment: .leading, spacing: Theme.Space.s) {
+                    LazyVGrid(columns: layout.columns, alignment: .leading, spacing: Theme.Space.s) {
                         ForEach(playlists) { playlist in
-                            PlaylistTile(playlist: playlist, size: Self.tile, busy: spotify.busyURI == playlist.uri) {
+                            PlaylistTile(playlist: playlist, size: layout.tile, busy: spotify.busyURI == playlist.uri) {
                                 spotify.open(playlist)
                             } play: {
                                 spotify.play(.context(playlist.uri), key: playlist.uri, media: media)

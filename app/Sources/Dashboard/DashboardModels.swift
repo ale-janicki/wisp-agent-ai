@@ -9,7 +9,6 @@ final class Dashboard {
 
     let usage = UsageModel()
     let alerts = AlertsModel()
-    let lastConversation = LastConversationModel()
 }
 
 @MainActor @Observable
@@ -124,42 +123,5 @@ final class AlertsModel {
 
     private static func name(of command: String) -> String {
         command.split(separator: " ").prefix { !$0.hasPrefix("-") }.joined(separator: " ")
-    }
-}
-
-@MainActor @Observable
-final class LastConversationModel {
-    private(set) var record: ConversationRecord?
-    private(set) var messages: [ConversationMessage] = []
-    private(set) var loading = false
-
-    @ObservationIgnored private var loadedKey: String?
-
-    func load(_ record: ConversationRecord?, cwd: String, statusPrefix: String?) {
-        guard let record else {
-            self.record = nil
-            messages = []
-            loadedKey = nil
-            return
-        }
-        let key = "\(record.id)|\(record.updatedAt.timeIntervalSince1970)"
-        guard key != loadedKey else { return }
-        loadedKey = key
-        self.record = record
-        guard let sessionId = record.sessionId else {
-            messages = []
-            return
-        }
-        loading = true
-        let linked = record.telegramThread != nil
-        let sessionCwd = record.cwd.map(expandTilde) ?? cwd
-        Task { [weak self] in
-            let history = await Task.detached {
-                TranscriptReader.load(sessionId: sessionId, cwd: sessionCwd, statusPrefix: statusPrefix, telegramHTML: linked)
-            }.value
-            guard let self, self.loadedKey == key else { return }
-            self.messages = history ?? []
-            self.loading = false
-        }
     }
 }

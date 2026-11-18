@@ -107,6 +107,7 @@ struct PanelView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                     .background(Theme.bg)
                     .transition(.move(edge: .trailing))
+                    .zIndex(1)
             }
         }
         .onChange(of: controller.tab) { _, tab in

@@ -48,6 +48,7 @@ enum SnapshotRenderer {
         await render(shell, frame: layout.active, notch: notch, to: directory, name: "2-pill-active")
         shell.pillText = previousText
         shell.statusColor = previousColor
+        await renderAvatarDot(shell, layout: layout, to: directory)
         await renderNotices(shell, layout: layout, to: directory)
 
         shell.setSnapshotState(.panel, notch: notch)
@@ -95,6 +96,45 @@ enum SnapshotRenderer {
     }
 
     private static let margin: CGFloat = 24
+
+    /// The pill with two theme colors, with and without an unseen notice (and a busy one), plus a larger avatar strip.
+    private static func renderAvatarDot(
+        _ shell: ShellController,
+        layout: (rest: CGRect, active: CGRect, panel: CGRect, notch: CGRect?),
+        to directory: URL
+    ) async {
+        let saved = AppSettings.shared.settings
+        let pink = WispSettings(
+            theme: WispSettings.customTheme,
+            custom: CustomTheme(accent: HexColor(0xF472B6), background: HexColor(0x0D1117), surface: HexColor(0x161B22))
+        )
+        let green = WispSettings(
+            theme: WispSettings.customTheme,
+            custom: CustomTheme(accent: HexColor(0x34D399), background: HexColor(0x0D1117), surface: HexColor(0x161B22))
+        )
+        for (name, settings) in [("pink", pink), ("green", green)] {
+            AppSettings.shared.applyForSnapshot(settings)
+            shell.setSnapshotState(.rest, notch: layout.notch)
+            shell.notices.setUnseenForSnapshot(nil)
+            await render(shell, frame: layout.rest, notch: layout.notch, to: directory, name: "d-\(name)-nothing")
+            shell.notices.setUnseenForSnapshot(.normal)
+            await render(shell, frame: layout.rest, notch: layout.notch, to: directory, name: "d-\(name)-unseen")
+            shell.notices.setUnseenForSnapshot(.alert)
+            await render(shell, frame: layout.rest, notch: layout.notch, to: directory, name: "d-\(name)-alert")
+            shell.notices.setUnseenForSnapshot(nil)
+            let avatars = HStack(spacing: 20) {
+                WispAvatar(size: 16)
+                WispAvatar(size: 36)
+                WispAvatar(size: 36, busy: true)
+                WispAvatar(size: 96, busy: true)
+            }
+            .padding(24)
+            .background(Theme.bg)
+            await renderView(avatars, size: CGSize(width: 340, height: 150), to: directory, name: "d-\(name)-avatars")
+        }
+        AppSettings.shared.applyForSnapshot(saved)
+        shell.notices.setUnseenForSnapshot(nil)
+    }
 
     /// The notch card: queued with "+2", an alert, a failed outbox message, a Mac without notch, and the floating
     /// copy over an open panel.
@@ -355,6 +395,10 @@ enum SnapshotRenderer {
             }
         }
         let size = CGSize(width: frame.width + 2 * margin, height: frame.height + margin)
+        await renderView(root, size: size, to: directory, name: name, settle: settle)
+    }
+
+    static func renderView(_ root: some View, size: CGSize, to directory: URL, name: String, settle: Duration = .milliseconds(900)) async {
         let host = NSHostingView(rootView: root.frame(width: size.width, height: size.height))
         host.frame = CGRect(origin: .zero, size: size)
         let window = NSWindow(

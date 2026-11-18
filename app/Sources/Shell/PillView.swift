@@ -175,7 +175,7 @@ extension PillView {
         return WispAvatar(
             size: 16,
             busy: busy,
-            animates: busy,
+            animates: !controller.presentsNotice,
             imagePath: controller.conversation.profile.persona.avatar
         )
         .opacity(controller.presentsNotice ? 0 : 1)
@@ -184,14 +184,29 @@ extension PillView {
         #endif
     }
 
+    /// Only what needs a look: an unseen notice (its tone) or a conversation in error.
+    private var dotColor: Color? {
+        if let tone = controller.notices.unseen {
+            switch tone {
+            case .normal: return Theme.accent
+            case .warning: return Theme.busy
+            case .alert: return Theme.error
+            }
+        }
+        return controller.statusColor == .error ? Theme.error : nil
+    }
+
+    @ViewBuilder
     private var dot: some View {
-        Circle()
-            .fill(controller.statusColor.color)
-            .frame(width: 7, height: 7)
-            .shadow(color: controller.statusColor.color.opacity(0.6), radius: 3)
-            #if DEBUG
-            .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }, action: { controller.debugReport("dot", $0) })
-            #endif
+        if let color = dotColor {
+            Circle()
+                .fill(color)
+                .frame(width: 7, height: 7)
+                .shadow(color: color.opacity(0.6), radius: 3)
+                #if DEBUG
+                .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }, action: { controller.debugReport("dot", $0) })
+                #endif
+        }
     }
 
     private var statusWing: some View {
