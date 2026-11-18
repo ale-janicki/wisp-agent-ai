@@ -62,6 +62,7 @@ final class AppSettings {
             let notices = settings.notices
             let openAtLogin = settings.openAtLogin
             let loginItemRegistered = settings.loginItemRegistered
+            let section = settings.settingsSection
             settings = .default
             settings.dashboardOrder = order
             settings.telegramOrder = topicOrder
@@ -71,6 +72,7 @@ final class AppSettings {
             settings.notices = notices
             settings.openAtLogin = openAtLogin
             settings.loginItemRegistered = loginItemRegistered
+            settings.settingsSection = section
         }
     }
 
@@ -116,6 +118,10 @@ final class AppSettings {
 
     func setPermissionMode(_ mode: String?) {
         update { $0.permissionMode = mode }
+    }
+
+    func setSettingsSection(_ id: String) {
+        update { $0.settingsSection = id }
     }
 
     #if DEBUG
