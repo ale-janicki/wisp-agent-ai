@@ -24,6 +24,7 @@ final class ShellController: ObservableObject {
     let conversation = ConversationViewModel()
     let media = NowPlayingService()
     let clipboard = ClipboardService()
+    let notices = NoticeCenter()
     private let panel = NotchPanel()
     private var anchorDisplayID: CGDirectDisplayID?
     private var openedByHover = false
@@ -33,6 +34,8 @@ final class ShellController: ObservableObject {
     private var hotKey: HotKey?
     private var screenObserver: NSObjectProtocol?
     private var previousApp: NSRunningApplication?
+    /// From a card's arrival until its fold finished the window keeps the card's size.
+    private var keepsNoticeFrame = false
 
     private static let dwell: Duration = .milliseconds(300)
     private static let animationDuration: TimeInterval = 0.25
@@ -44,6 +47,8 @@ final class ShellController: ObservableObject {
         host.hitShape = { [weak self] size in self?.pillHitPath(in: size) }
         panel.contentView = host
         conversation.shell = self
+        notices.shell = self
+        notices.onChange = { [weak self] in self?.noticesChanged() }
         panel.onInactiveMouseDown = { [weak self] in
             guard let self, self.state == .panel else { return }
             self.openedByHover = false
@@ -51,15 +56,63 @@ final class ShellController: ObservableObject {
         }
     }
 
+    // MARK: Notices
+
+    /// A card is at the notch (the panel shows its own floating copy instead).
+    var presentsNotice: Bool { state != .panel && notices.current != nil }
+    var pillExpanded: Bool { presentsNotice || state == .active }
+    var pillDrop: CGSize {
+        presentsNotice ? NotchGeometry.noticeSize : CGSize(width: NotchGeometry.activeWidth, height: NotchGeometry.stripHeight)
+    }
+    var pillRadius: CGFloat { presentsNotice ? Theme.Radius.card : Theme.Radius.pill }
+
+    /// The window grows at once and SwiftUI springs the shape; it shrinks only after the fold spring settled.
+    private func noticesChanged() {
+        if presentsNotice {
+            if keepsNoticeFrame {
+                updateMouseTransparency()
+            } else {
+                apply(animated: false, reason: "notice")
+            }
+        } else if keepsNoticeFrame {
+            shrinkTask?.cancel()
+            shrinkTask = Task { [weak self] in
+                try? await Task.sleep(for: NoticeMotion.settle)
+                guard !Task.isCancelled, let self else { return }
+                self.apply(animated: false, reason: "notice folded")
+            }
+        }
+    }
+
+    /// The card's click: the panel opens where the notice came from.
+    func open(_ target: NoticeTarget) {
+        let model = conversation
+        switch target {
+        case .conversation(let id):
+            // A conversation that is neither open nor in the index: the Conversa list, never some other conversation.
+            if id != model.currentId, let record = model.records.first(where: { $0.id == id }) { model.open(record) }
+            tab = .conversation
+        case .topic(let thread):
+            if model.linkedThread != thread {
+                if let entry = model.sections.telegram.first(where: { $0.topic.thread == thread }) {
+                    model.open(entry)
+                } else if let record = model.records.first(where: { $0.telegramThread == thread }) {
+                    model.open(record)
+                }
+            }
+            tab = .conversation
+        case .reminders:
+            tab = PanelTab.reminders.isAvailable(in: model.profile) ? .reminders : .home
+        }
+        pillClicked()
+    }
+
     private func pillHitPath(in size: CGSize) -> CGPath? {
         guard state != .panel else { return nil }
-        let width = max(NotchGeometry.activeWidth, pillBand.width)
-        let rect = CGRect(x: (size.width - width) / 2, y: 0, width: width, height: pillBand.height + NotchGeometry.stripHeight)
-        let shape = PillShape(
-            band: pillBand,
-            drop: CGSize(width: NotchGeometry.activeWidth, height: NotchGeometry.stripHeight),
-            progress: state == .active ? 1 : 0
-        )
+        let drop = pillDrop
+        let width = max(drop.width, pillBand.width)
+        let rect = CGRect(x: (size.width - width) / 2, y: 0, width: width, height: pillBand.height + drop.height)
+        let shape = PillShape(band: pillBand, drop: drop, progress: pillExpanded ? 1 : 0, radius: pillRadius)
         return shape.path(in: rect).cgPath
     }
 
@@ -73,6 +126,7 @@ final class ShellController: ObservableObject {
         let local = CGPoint(x: p.x - frame.minX, y: frame.maxY - p.y)
         let overPill = pillHitPath(in: frame.size)?.contains(local) ?? true
         panel.ignoresMouseEvents = !overPill
+        if presentsNotice { notices.hover(overPill) }
     }
 
     func start() {
@@ -81,6 +135,7 @@ final class ShellController: ObservableObject {
         if hotKey == nil { log.error("hotkey registration failed") }
         media.start()
         clipboard.start()
+        notices.start()
         screenObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification,
             object: nil,
@@ -179,18 +234,24 @@ final class ShellController: ObservableObject {
         NotchGeometry.frame(for: state, screen: screen.frame, notch: Self.notchRect(of: screen))
     }
 
+    private func windowFrame(on screen: NSScreen) -> CGRect {
+        guard state != .panel, keepsNoticeFrame else { return frame(for: state, on: screen) }
+        return NotchGeometry.noticeFrame(screen: screen.frame, notch: Self.notchRect(of: screen))
+    }
+
     private func apply(animated: Bool, reason: String) {
         guard let screen = anchorScreen else { return }
         shrinkTask?.cancel()
         shrinkTask = nil
-        let target = frame(for: state, on: screen)
+        keepsNoticeFrame = presentsNotice
+        let target = windowFrame(on: screen)
         let notch = Self.notchRect(of: screen)
         restHasNotch = notch != nil
         notchWidth = notch?.width ?? 0
         pillBand = NotchGeometry.topBand(screen: screen.frame, notch: notch).size
         let sameScreen = panel.screen.flatMap(Self.displayID(of:)) == Self.displayID(of: screen)
         var delta = ""
-        if state == .rest, let notch {
+        if state == .rest, !keepsNoticeFrame, let notch {
             let expected = notch.insetBy(dx: -36, dy: 0)
             let d = max(
                 abs(target.minX - expected.minX), abs(target.minY - expected.minY),
@@ -294,7 +355,7 @@ final class ShellController: ObservableObject {
         let p = NSEvent.mouseLocation
         switch state {
         case .rest:
-            let inside = restFrameContains(p)
+            let inside = !presentsNotice && restFrameContains(p)
             if inside, dwellTask == nil {
                 dwellTask = Task { [weak self] in
                     try? await Task.sleep(for: Self.dwell)
@@ -382,6 +443,13 @@ final class ShellController: ObservableObject {
             Task { [weak self] in
                 try? await Task.sleep(for: .seconds(3))
                 self?.show(.rest)
+            }
+        }
+        if args.contains("-WispDemoNotice") {
+            Task { [weak self] in
+                try? await Task.sleep(for: .seconds(2))
+                guard let self else { return }
+                for notice in NoticeCenter.samples(persona: self.conversation.personaName) { self.notices.post(notice) }
             }
         }
         if args.contains("-WispDemoToggle") {

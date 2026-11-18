@@ -75,6 +75,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func startShell() {
+        let finished = (try? SetupState.load(from: SetupModel.defaultStateURL))?.finishedAt != nil
+        LoginItemModel.shared.sync(setupFinished: finished)
         let shell = ShellController()
         self.shell = shell
         shell.start()

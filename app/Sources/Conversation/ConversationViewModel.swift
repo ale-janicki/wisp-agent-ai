@@ -378,6 +378,7 @@ final class ConversationViewModel {
 
     func refreshTelegram() async {
         await telegram.refresh()
+        shell?.notices.topicsLoaded(telegram.loadedTopics, following: linkedThread, records: records, statusPrefix: profile.agent.statusPrefix)
         guard let thread = linkedThread,
               let topic = telegram.loadedTopics?.first(where: { $0.thread == thread }),
               topic.sessionId != state.sessionId else { return }
@@ -676,6 +677,9 @@ final class ConversationViewModel {
             return await settle(message, failure)
         }
         guard release(message) else { return false }
+        if Notices.outboxSentIsNews(message, now: Date()) {
+            noticeOutbox(message, preview: "Enviada: \(message.text)", tone: .normal)
+        }
         if here(), !heldHere.contains(where: { !$0.isFailed }) {
             state.phase = .thinking(step: nil)
             syncPill()
@@ -709,6 +713,7 @@ final class ConversationViewModel {
         }
         held = outbox.all()
         log.error("held message failed (attempt \(next.attempts, privacy: .public)): \(sentence, privacy: .public)")
+        if next.isFailed { noticeOutbox(next, preview: "Não enviada: \(sentence)", tone: .alert) }
         guard message.conversationId == currentId else { return true }
         if next.isFailed {
             awaitingReply = false
@@ -782,6 +787,7 @@ final class ConversationViewModel {
         persist()
         logLatency()
         syncPill(result: true)
+        noticeReply()
     }
 
     private func unlink() {
@@ -901,6 +907,7 @@ final class ConversationViewModel {
             logLatency()
         }
         if isResult || state.phase != before { syncPill(result: isResult) }
+        if case .claude(.result(_, _, false, _)) = event { noticeReply() }
         #if DEBUG
         continueDemo(after: event)
         #endif
@@ -936,6 +943,41 @@ final class ConversationViewModel {
                 text: "não consegui salvar a conversa: \(error.localizedDescription)"
             ))
         }
+    }
+
+    // MARK: Notices
+
+    /// A reply landed in the open conversation; the notice center drops it when that conversation is on screen.
+    private func noticeReply() {
+        guard let shell, let last = state.messages.last, last.role == .assistant else { return }
+        shell.notices.post(Notice(
+            kind: .reply,
+            title: currentTitle ?? personaName,
+            preview: Notices.preview(last.text),
+            time: Date(),
+            target: linkedThread.map(NoticeTarget.topic) ?? .conversation(currentId)
+        ))
+    }
+
+    /// The conversation when Wisp knows it, else its topic; with neither the click lands on the Conversa list.
+    private func noticeTarget(for message: HeldMessage) -> NoticeTarget {
+        let known = message.conversationId == currentId || records.contains { $0.id == message.conversationId }
+        if !known, let thread = message.thread { return .topic(thread) }
+        return .conversation(message.conversationId)
+    }
+
+    private func noticeOutbox(_ message: HeldMessage, preview: String, tone: Notice.Tone) {
+        let title = records.first { $0.id == message.conversationId }?.title
+            ?? (message.conversationId == currentId ? currentTitle : nil)
+        shell?.notices.post(Notice(
+            sourceId: "outbox:\(message.id.uuidString)",
+            kind: .outbox,
+            title: title ?? "Fila do Telegram",
+            preview: Notices.preview(preview),
+            time: Date(),
+            target: noticeTarget(for: message),
+            tone: tone
+        ))
     }
 
     // MARK: Pill

@@ -48,6 +48,8 @@ struct PillView: View {
             }
             .ignoresSafeArea()
         .animation(.spring(response: 0.3, dampingFraction: 0.85), value: controller.state)
+        .animation(Self.drop, value: noticeKey)
+        .onChange(of: screenKey) { controller.notices.prune() }
         #if DEBUG
         .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }, action: { controller.debugReport("root", $0) })
         #endif
@@ -61,8 +63,28 @@ struct PillView: View {
                 lineWidth: 1
             )
             PanelView(controller: controller, media: media, model: controller.conversation)
+            if let notice = controller.notices.current {
+                panelNotice(notice)
+                    .padding(.top, controller.pillBand.height + Theme.Space.s)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
         }
         .clipShape(panelShape)
+    }
+
+    /// With the panel open on another tab the card floats over it, under the notch.
+    private func panelNotice(_ notice: Notice) -> some View {
+        let shape = RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous)
+        return NoticeCard(notice: notice, badge: controller.notices.queue.badge, avatarPath: avatarPath) {
+            controller.notices.dismiss()
+        }
+        .frame(width: NotchGeometry.noticeSize.width, height: NotchGeometry.noticeSize.height)
+        .background(Theme.surface.opacity(0.82), in: shape)
+        .glass(cornerRadius: Theme.Radius.card)
+        .contentShape(shape)
+        .onTapGesture { controller.notices.open() }
+        .onHover { controller.notices.hover($0) }
+        .pointerStyle(.link)
     }
 
     private var panelFill: AnyShapeStyle {
@@ -76,30 +98,73 @@ struct PillView: View {
 
     private var pill: some View {
         let band = controller.pillBand
-        let shape = PillShape(
-            band: band,
-            drop: CGSize(width: NotchGeometry.activeWidth, height: NotchGeometry.stripHeight),
-            progress: isActive ? 1 : 0
-        )
+        let drop = controller.pillDrop
+        let notice = controller.presentsNotice ? controller.notices.current : nil
+        let shape = PillShape(band: band, drop: drop, progress: controller.pillExpanded ? 1 : 0, radius: controller.pillRadius)
         return ZStack(alignment: .top) {
             shape.fill(Theme.notch)
+            shape.stroke(Theme.accent, lineWidth: 1.5)
+                .phaseAnimator([0.0, 0.7, 0.0], trigger: controller.notices.arrivals) { glow, phase in
+                    glow.opacity(phase)
+                } animation: { phase in
+                    phase > 0 ? .easeOut(duration: 0.25) : .easeIn(duration: 1.1)
+                }
+                .allowsHitTesting(false)
             VStack(spacing: 0) {
                 bandContent.frame(width: band.width, height: band.height)
-                if isActive {
+                if let notice {
+                    NoticeCard(notice: notice, badge: controller.notices.queue.badge, avatarPath: avatarPath) {
+                        controller.notices.dismiss()
+                    }
+                    .frame(width: drop.width, height: drop.height)
+                    .transition(.asymmetric(
+                        insertion: .opacity.combined(with: .offset(y: -8)).animation(Self.drop.delay(0.08)),
+                        removal: .opacity.animation(.easeOut(duration: 0.12))
+                    ))
+                } else if isActive {
                     replyLine
                         .frame(width: NotchGeometry.activeWidth - 2 * Theme.Space.l, height: NotchGeometry.stripHeight)
                         .transition(.opacity)
                 }
             }
         }
-        .frame(
-            width: max(NotchGeometry.activeWidth, band.width),
-            height: band.height + NotchGeometry.stripHeight,
-            alignment: .top
-        )
+        .frame(width: max(drop.width, band.width), height: band.height + drop.height, alignment: .top)
         .contentShape(shape)
-        .onTapGesture { controller.pillClicked() }
+        .onTapGesture {
+            if notice != nil { controller.notices.open() } else { controller.pillClicked() }
+        }
+        .pointerStyle(notice != nil ? .link : nil)
     }
+}
+
+extension PillView {
+    /// A little bounce when the card lands; the content follows the shape with a short delay.
+    fileprivate static let drop = NoticeMotion.animation
+
+    fileprivate var avatarPath: String? { controller.conversation.profile.persona.avatar }
+
+    /// Changes when a card arrives at the notch, so the shape, the glow and the content animate once per card.
+    fileprivate var noticeKey: String? {
+        guard controller.presentsNotice, let notice = controller.notices.current else { return nil }
+        return "\(notice.sourceId)|\(notice.time.timeIntervalSince1970)"
+    }
+
+    /// Everything that decides what the user is looking at, plus the switches: a change prunes the queue.
+    fileprivate var screenKey: NoticeScreenKey {
+        let model = controller.conversation
+        return NoticeScreenKey(
+            state: controller.state, tab: controller.tab, conversation: model.currentId, thread: model.linkedThread,
+            settings: AppSettings.shared.settings.notices
+        )
+    }
+}
+
+private struct NoticeScreenKey: Equatable {
+    var state: PillState
+    var tab: PanelTab
+    var conversation: UUID
+    var thread: Int?
+    var settings: NoticeSettings
 }
 
 extension PillView {
@@ -113,6 +178,7 @@ extension PillView {
             animates: busy,
             imagePath: controller.conversation.profile.persona.avatar
         )
+        .opacity(controller.presentsNotice ? 0 : 1)
         #if DEBUG
         .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }, action: { controller.debugReport("avatar", $0) })
         #endif
@@ -171,10 +237,16 @@ struct PillShape: Shape {
     var band: CGSize
     var drop: CGSize
     var progress: CGFloat
+    var radius: CGFloat = Theme.Radius.pill
 
-    var animatableData: CGFloat {
-        get { progress }
-        set { progress = newValue }
+    /// The drop and the corner animate too, so the strip morphs into the notice card and back.
+    var animatableData: AnimatablePair<CGFloat, AnimatablePair<AnimatablePair<CGFloat, CGFloat>, CGFloat>> {
+        get { AnimatablePair(progress, AnimatablePair(AnimatablePair(drop.width, drop.height), radius)) }
+        set {
+            progress = newValue.first
+            drop = CGSize(width: newValue.second.first.first, height: newValue.second.first.second)
+            radius = newValue.second.second
+        }
     }
 
     func path(in rect: CGRect) -> Path {
@@ -186,7 +258,7 @@ struct PillShape: Shape {
         let bandLeft = rect.midX - band.width / 2
         let bandRight = rect.midX + band.width / 2
         let corner = min(Theme.Radius.pillShoulder, shoulder / 2)
-        let radius = min(Theme.Radius.pill, band.width / 2, bottom - top - (shoulder > 0 ? band.height + corner : 0))
+        let radius = min(self.radius, band.width / 2, bottom - top - (shoulder > 0 ? band.height + corner : 0))
 
         var path = Path()
         path.move(to: CGPoint(x: bandLeft, y: top))

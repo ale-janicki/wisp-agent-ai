@@ -69,6 +69,8 @@ final class AlertsModel {
     @ObservationIgnored private var rerun = false
     @ObservationIgnored private var loadedAt: Date?
     @ObservationIgnored private var loadedCommand: String?
+    /// Every successful read, for the notch notices (a new id there is a new alert).
+    @ObservationIgnored var onLoaded: (([AlertItem]) -> Void)?
 
     static let interval: Duration = .seconds(30)
 
@@ -88,7 +90,9 @@ final class AlertsModel {
             switch result {
             case .success(let data):
                 do {
-                    self.state = .loaded(try AlertList.parse(data))
+                    let items = try AlertList.parse(data)
+                    self.state = .loaded(items)
+                    self.onLoaded?(items)
                 } catch {
                     self.state = .failed("\(Self.name(of: command)) não tem saída JSON")
                 }

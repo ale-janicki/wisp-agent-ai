@@ -14,9 +14,11 @@ struct SettingsView: View {
                     .foregroundStyle(Theme.textPrimary)
                 colors
                 home
+                notices
                 music
                 SpotifySettingsCard()
                 clipboard
+                openAtLogin
                 setupAgain
                 if let notice = settings.notice {
                     Text(notice)
@@ -77,6 +79,56 @@ struct SettingsView: View {
         .card()
     }
 
+    // MARK: Avisos no notch
+
+    private static let noticeKinds: [(NoticeKind, String)] = [
+        (.reply, "Respostas"), (.telegram, "Telegram"), (.reminder, "Lembretes"), (.outbox, "Fila"),
+    ]
+
+    private var notices: some View {
+        let current = settings.settings.notices
+        return VStack(alignment: .leading, spacing: Theme.Space.m) {
+            HStack(spacing: Theme.Space.m) {
+                VStack(alignment: .leading, spacing: 2) {
+                    sectionTitle("Avisos no notch")
+                    Text("O que acontece com o painel fechado desce do notch por alguns segundos. Clique para abrir.")
+                        .font(Theme.Font.caption)
+                        .foregroundStyle(Theme.textSecondary)
+                }
+                Spacer()
+                Toggle("Não perturbe", isOn: Binding(
+                    get: { current.doNotDisturb },
+                    set: { on in settings.setNotices { $0.doNotDisturb = on } }
+                ))
+                .toggleStyle(.switch)
+                .tint(Theme.accent)
+                .font(Theme.Font.bodyMedium)
+                .foregroundStyle(Theme.textPrimary)
+                .pointerStyle(.link)
+            }
+            HStack(spacing: Theme.Space.xl) {
+                ForEach(Self.noticeKinds, id: \.0) { kind, label in
+                    Toggle(label, isOn: Binding(
+                        get: { current[kind] },
+                        set: { on in settings.setNotices { $0[kind] = on } }
+                    ))
+                    .toggleStyle(.switch)
+                    .controlSize(.small)
+                    .tint(Theme.accent)
+                    .font(Theme.Font.body)
+                    .foregroundStyle(Theme.textSecondary)
+                    .pointerStyle(.link)
+                }
+                Spacer(minLength: 0)
+            }
+            .disabled(current.doNotDisturb)
+            .opacity(current.doNotDisturb ? 0.5 : 1)
+        }
+        .padding(Theme.Space.l)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .card()
+    }
+
     // MARK: Música
 
     private var music: some View {
@@ -121,6 +173,50 @@ struct SettingsView: View {
         .padding(Theme.Space.l)
         .frame(maxWidth: .infinity, alignment: .leading)
         .card()
+    }
+
+    // MARK: Abrir ao ligar o Mac
+
+    private var openAtLogin: some View {
+        let login = LoginItemModel.shared
+        return HStack(spacing: Theme.Space.m) {
+            VStack(alignment: .leading, spacing: 2) {
+                sectionTitle("Abrir ao ligar o Mac")
+                Text(loginSentence(login))
+                    .font(Theme.Font.caption)
+                    .foregroundStyle(login.error == nil ? Theme.textSecondary : Theme.error)
+            }
+            Spacer()
+            if login.installed, login.status == .requiresApproval {
+                Button("Abrir Itens de Início") { login.openLoginItems() }
+                    .buttonStyle(CapsuleButtonStyle(kind: .ghost))
+            }
+            Toggle("Abrir ao ligar o Mac", isOn: Binding(
+                get: { login.installed ? login.isOn : settings.settings.openAtLogin },
+                set: { login.set($0) }
+            ))
+            .toggleStyle(.switch)
+            .tint(Theme.accent)
+            .labelsHidden()
+            .pointerStyle(.link)
+            .disabled(!login.installed)
+        }
+        .padding(Theme.Space.l)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .card()
+        .onAppear { login.refresh() }
+    }
+
+    private func loginSentence(_ login: LoginItemModel) -> String {
+        if let error = login.error { return error }
+        guard login.installed else { return "Disponível quando o Wisp estiver em Aplicativos." }
+        if login.removedByUser { return "Removido nos Ajustes do Sistema. Ligue de novo para o Wisp abrir sozinho." }
+        return switch login.status {
+        case .enabled: "O Wisp abre sozinho quando você entra no Mac."
+        case .requiresApproval: "O macOS pede sua aprovação em Itens de Início para o Wisp abrir sozinho."
+        case .notRegistered: "O Wisp não abre sozinho ao ligar o Mac."
+        case .notFound: "O macOS não encontrou o Wisp para abrir ao ligar."
+        }
     }
 
     // MARK: Setup

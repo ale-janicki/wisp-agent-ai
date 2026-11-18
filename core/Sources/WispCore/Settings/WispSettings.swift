@@ -131,6 +131,10 @@ public struct WispSettings: Codable, Equatable, Sendable {
     public var clipboardCapture = true
     public var spotifyClientID = ""
     public var graph = GraphControls()
+    public var notices = NoticeSettings()
+    public var openAtLogin = true
+    /// Wisp registered itself once; from then on a removal in System Settings is respected.
+    public var loginItemRegistered = false
     var graphWasInvalid = false
 
     public init(theme: String = ThemePreset.lime.id, custom: CustomTheme? = nil, dashboardOrder: [String] = DashboardTileID.defaultOrder) {
@@ -139,7 +143,7 @@ public struct WispSettings: Codable, Equatable, Sendable {
         self.dashboardOrder = DashboardTileID.normalized(dashboardOrder)
     }
 
-    private enum CodingKeys: String, CodingKey { case theme, custom, dashboardOrder, telegramOrder, clipboardCapture, spotifyClientID, graph }
+    private enum CodingKeys: String, CodingKey { case theme, custom, dashboardOrder, telegramOrder, clipboardCapture, spotifyClientID, graph, notices, openAtLogin, loginItemRegistered }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -149,6 +153,9 @@ public struct WispSettings: Codable, Equatable, Sendable {
         telegramOrder = try container.decodeIfPresent([Int].self, forKey: .telegramOrder) ?? []
         clipboardCapture = try container.decodeIfPresent(Bool.self, forKey: .clipboardCapture) ?? true
         spotifyClientID = try container.decodeIfPresent(String.self, forKey: .spotifyClientID) ?? ""
+        notices = (try? container.decodeIfPresent(NoticeSettings.self, forKey: .notices)) ?? NoticeSettings()
+        openAtLogin = try container.decodeIfPresent(Bool.self, forKey: .openAtLogin) ?? true
+        loginItemRegistered = try container.decodeIfPresent(Bool.self, forKey: .loginItemRegistered) ?? false
         do {
             graph = try container.decodeIfPresent(GraphControls.self, forKey: .graph) ?? GraphControls()
         } catch {
