@@ -15,6 +15,8 @@ final class AppSettings {
     @ObservationIgnored private var saveTask: Task<Void, Never>?
     @ObservationIgnored private let writeQueue = DispatchQueue(label: "com.owner.wisp.settings.write", qos: .utility)
     @ObservationIgnored private var unsaved = false
+    /// False under the DEBUG setup walkthrough's fake HOME: nothing reaches the real settings file.
+    @ObservationIgnored var persists = true
     @ObservationIgnored private let log = Logger(subsystem: "com.owner.wisp", category: "settings")
 
     private static let saveDelay: Duration = .milliseconds(400)
@@ -111,6 +113,7 @@ final class AppSettings {
     }
 
     private func scheduleSave() {
+        guard persists else { return }
         saveTask?.cancel()
         unsaved = true
         let snapshot = settings
