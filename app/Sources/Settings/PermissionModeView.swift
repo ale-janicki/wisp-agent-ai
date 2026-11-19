@@ -113,7 +113,7 @@ struct PermissionSettingsCard: View {
                 Text("Permissões do Claude")
                     .font(Theme.Font.title)
                     .foregroundStyle(Theme.textPrimary)
-                Text("Vale para as conversas do Wisp a partir da próxima mensagem.")
+                Text("Vale para as conversas do Wisp a partir da próxima mensagem; uma resposta em andamento termina no modo anterior.")
                     .font(Theme.Font.caption)
                     .foregroundStyle(Theme.textSecondary)
             }
