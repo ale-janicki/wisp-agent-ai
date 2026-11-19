@@ -376,7 +376,6 @@ private struct ConversationsTile: View {
         let title: String
         let date: Date?
         let telegram: Bool
-        let held: StatusColor?
         let preview: String?
         let action: () -> Void
     }
@@ -385,12 +384,12 @@ private struct ConversationsTile: View {
         let sections = model.sections
         let local = sections.wisp.map { record in
             Item(id: record.id.uuidString, title: record.title, date: record.updatedAt, telegram: false,
-                 held: model.heldDot(record.id), preview: model.preview(record), action: { model.open(record) })
+                 preview: model.preview(record), action: { model.open(record) })
         }
         let topics = sections.telegram.map { entry in
             Item(id: "t\(entry.topic.thread)", title: entry.record?.title ?? entry.topic.name,
                  date: entry.record?.updatedAt ?? entry.topic.lastUsed, telegram: true,
-                 held: entry.record.flatMap { model.heldDot($0.id) }, preview: model.preview(entry), action: { model.open(entry) })
+                 preview: model.preview(entry), action: { model.open(entry) })
         }
         return (local + topics).sorted { ($0.date ?? .distantPast) > ($1.date ?? .distantPast) }
     }
@@ -436,7 +435,6 @@ private struct ConversationsTile: View {
                 }
                 VStack(alignment: .leading, spacing: 1) {
                     HStack(spacing: 6) {
-                        if let held = item.held { HeldDot(color: held) }
                         Text(item.title)
                             .font(Theme.Font.body)
                             .foregroundStyle(Theme.textSecondary)

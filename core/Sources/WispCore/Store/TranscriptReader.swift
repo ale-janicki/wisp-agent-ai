@@ -23,6 +23,9 @@ public struct TranscriptParser: Sendable {
     private var messages: [ConversationMessage] = []
     private var pendingReply: [String] = []
     private var pendingId = UUID()
+    private var sendCalls: [String: [String]] = [:]
+    private var pendingSent: [String] = []
+    private var pendingLinks: [String] = []
     private var skippingTurn = false
     private var prompts = 0
     private var turnOpen = false
@@ -35,7 +38,7 @@ public struct TranscriptParser: Sendable {
 
     public var snapshot: Snapshot {
         var all = messages
-        if let reply = joinedReply { all.append(ConversationMessage(role: .assistant, text: reply, id: pendingId)) }
+        if let reply = openReply { all.append(reply) }
         return Snapshot(messages: all, prompts: prompts, turnOpen: turnOpen, status: status)
     }
 
@@ -59,9 +62,18 @@ public struct TranscriptParser: Sendable {
         return text.isEmpty ? nil : text
     }
 
+    private var openReply: ConversationMessage? {
+        let files = SentFiles.cards(sent: pendingSent, replyText: pendingLinks.joined(separator: "\n"))
+        guard joinedReply != nil || !files.isEmpty else { return nil }
+        return ConversationMessage(role: .assistant, text: joinedReply ?? "", id: pendingId, files: files)
+    }
+
     private mutating func flushReply() {
-        if let reply = joinedReply { messages.append(ConversationMessage(role: .assistant, text: reply, id: pendingId)) }
+        if let reply = openReply { messages.append(reply) }
         pendingReply = []
+        sendCalls = [:]
+        pendingSent = []
+        pendingLinks = []
         pendingId = UUID()
     }
 
@@ -75,6 +87,14 @@ public struct TranscriptParser: Sendable {
 
         switch type {
         case "user":
+            if let results = message["content"] as? [[String: Any]] {
+                for item in results where item["type"] as? String == "tool_result" {
+                    guard let id = item["tool_use_id"] as? String, let paths = sendCalls.removeValue(forKey: id),
+                          item["is_error"] as? Bool != true else { continue }
+                    for path in paths where !pendingSent.contains(path) { pendingSent.append(path) }
+                }
+                return
+            }
             guard let raw = message["content"] as? String else { return }
             let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty, !Self.wrapperPrefixes.contains(where: trimmed.hasPrefix),
@@ -92,9 +112,16 @@ public struct TranscriptParser: Sendable {
         case "assistant":
             guard !skippingTurn, message["model"] as? String != Self.syntheticModel,
                   let items = message["content"] as? [[String: Any]] else { return }
+            for item in items where item["type"] as? String == "tool_use" {
+                guard item["name"] as? String == "Bash", let id = item["id"] as? String,
+                      let command = (item["input"] as? [String: Any])?["command"] as? String else { continue }
+                let paths = SentFiles.enviarFiles(in: command)
+                if !paths.isEmpty { sendCalls[id] = paths }
+            }
             for item in items where item["type"] as? String == "text" {
                 guard let text = item["text"] as? String else { continue }
                 let parts = ReplyFormatter.split(text, statusPrefix: statusPrefix)
+                pendingLinks.append(parts.body)
                 let body = (telegramHTML ? TelegramHTML.markdown(parts.body) : parts.body)
                     .trimmingCharacters(in: .whitespacesAndNewlines)
                 if !body.isEmpty { pendingReply.append(body) }

@@ -18,10 +18,9 @@
     "telegram": {
       "status": "/opt/wisp/venv/bin/wisp topic status --json",
       "list": "/opt/wisp/venv/bin/wisp topic listar --json",
-      "create": "/opt/wisp/venv/bin/wisp topic novo --cwd {cwd} -- {name}",
-      "send": "/opt/wisp/venv/bin/wisp topic falar --sem-pull --origem Wisp {anexos} -- {thread} {text}",
+      "share": "/opt/wisp/venv/bin/wisp topic compartilhar --session={session} --cwd={cwd} --nome={name} --json",
+      "post": "/opt/wisp/venv/bin/wisp topic postar --json",
       "close": "/opt/wisp/venv/bin/wisp topic encerrar --sem-pull {thread}",
-      "claim": "/opt/wisp/venv/bin/wisp topic assumir --json --thread {thread}",
       "attachments": "/state/anexos"
     }
   }

@@ -18,6 +18,7 @@ public enum BlockCommandError: Error, Equatable, LocalizedError {
 public enum BlockCommand {
     public static func run(
         _ command: String,
+        stdin: Data? = nil,
         timeout: TimeInterval = 5,
         path: String? = ClaudeLocator.cachedLoginShellPATH,
         shell: String = "/bin/zsh"
@@ -26,11 +27,13 @@ public enum BlockCommand {
         if let path { environment["PATH"] = path }
         let out = Pipe()
         let err = Pipe()
+        let input = stdin.map { _ in Pipe() }
 
         let pid: pid_t
         do {
             pid = try ProcessCore.spawn(
                 shell, arguments: ["-c", command], environment: environment,
+                stdin: input?.fileHandleForReading.fileDescriptor,
                 stdout: out.fileHandleForWriting.fileDescriptor, stderr: err.fileHandleForWriting.fileDescriptor
             )
         } catch {
@@ -38,6 +41,8 @@ public enum BlockCommand {
         }
         try? out.fileHandleForWriting.close()
         try? err.fileHandleForWriting.close()
+        try? input?.fileHandleForReading.close()
+        if let stdin, let input { ProcessCore.feed(stdin, to: input) }
         let output = PipeDrain(out)
         let errors = PipeDrain(err)
 

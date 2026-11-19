@@ -1,7 +1,7 @@
 import Foundation
 
 public enum NoticeKind: String, Codable, CaseIterable, Sendable {
-    case reply, telegram, reminder, outbox, update, approval
+    case reply, telegram, reminder, update, approval
 }
 
 public enum NoticeTarget: Hashable, Sendable {
@@ -51,7 +51,6 @@ public struct NoticeSettings: Codable, Equatable, Sendable {
     public var reply = true
     public var telegram = true
     public var reminder = true
-    public var outbox = true
     public var update = true
     public var approval = true
     public var doNotDisturb = false
@@ -64,7 +63,6 @@ public struct NoticeSettings: Codable, Equatable, Sendable {
             case .reply: reply
             case .telegram: telegram
             case .reminder: reminder
-            case .outbox: outbox
             case .update: update
             case .approval: approval
             }
@@ -74,7 +72,6 @@ public struct NoticeSettings: Codable, Equatable, Sendable {
             case .reply: reply = newValue
             case .telegram: telegram = newValue
             case .reminder: reminder = newValue
-            case .outbox: outbox = newValue
             case .update: update = newValue
             case .approval: approval = newValue
             }
@@ -83,14 +80,13 @@ public struct NoticeSettings: Codable, Equatable, Sendable {
 
     public func allows(_ kind: NoticeKind) -> Bool { !doNotDisturb && self[kind] }
 
-    private enum CodingKeys: String, CodingKey { case reply, telegram, reminder, outbox, update, approval, doNotDisturb }
+    private enum CodingKeys: String, CodingKey { case reply, telegram, reminder, update, approval, doNotDisturb }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         reply = try container.decodeIfPresent(Bool.self, forKey: .reply) ?? true
         telegram = try container.decodeIfPresent(Bool.self, forKey: .telegram) ?? true
         reminder = try container.decodeIfPresent(Bool.self, forKey: .reminder) ?? true
-        outbox = try container.decodeIfPresent(Bool.self, forKey: .outbox) ?? true
         update = try container.decodeIfPresent(Bool.self, forKey: .update) ?? true
         approval = try container.decodeIfPresent(Bool.self, forKey: .approval) ?? true
         doNotDisturb = try container.decodeIfPresent(Bool.self, forKey: .doNotDisturb) ?? false
@@ -228,7 +224,6 @@ public struct NoticeBaselines: Equatable, Sendable {
 
 public enum Notices {
     public static let previewLimit = 140
-    public static let heldLongEnough: TimeInterval = 30
 
     public static func newAlerts(old: [AlertItem]?, new: [AlertItem]) -> [AlertItem] {
         guard let old else { return [] }
@@ -244,10 +239,6 @@ public enum Notices {
             guard let previous = before[topic.thread] else { return !wispThreads.contains(topic.thread) }
             return topic.turns > previous.turns || (topic.lastUsed ?? .distantPast) > (previous.lastUsed ?? .distantPast)
         }
-    }
-
-    public static func outboxSentIsNews(_ message: HeldMessage, now: Date) -> Bool {
-        message.attempts > 0 || now.timeIntervalSince(message.heldAt) >= heldLongEnough
     }
 
     public static func preview(_ text: String) -> String {

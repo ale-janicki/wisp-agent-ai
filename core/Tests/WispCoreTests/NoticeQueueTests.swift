@@ -77,7 +77,7 @@ final class NoticeQueueTests: XCTestCase {
         var queue = NoticeQueue()
         let visible: Set<NoticeTarget> = [.conversation(conversation), .topic(thread)]
         XCTAssertEqual(queue.offer(notice(.topic(thread)), settings: all, visible: visible, now: t0), .suppressed)
-        XCTAssertEqual(queue.offer(notice(.conversation(conversation), kind: .outbox), settings: all, visible: visible, now: t0), .suppressed)
+        XCTAssertEqual(queue.offer(notice(.conversation(conversation), kind: .reply), settings: all, visible: visible, now: t0), .suppressed)
         XCTAssertNil(queue.current)
         XCTAssertEqual(queue.offer(notice(.topic(7)), settings: all, visible: visible, now: t0), .shown)
     }
@@ -253,15 +253,6 @@ final class NoticeQueueTests: XCTestCase {
         )
     }
 
-    func testOutboxSentIsNewsOnlyWhenTheMessageReallyWaited() {
-        let quick = HeldMessage(conversationId: conversation, thread: 1, text: "oi", heldAt: t0)
-        XCTAssertFalse(Notices.outboxSentIsNews(quick, now: at(2)))
-        XCTAssertTrue(Notices.outboxSentIsNews(quick, now: at(Notices.heldLongEnough)))
-        var retried = quick
-        retried.attempts = 1
-        XCTAssertTrue(Notices.outboxSentIsNews(retried, now: at(1)))
-    }
-
     func testPreviewIsOneTidyLine() {
         XCTAssertEqual(Notices.preview("  oi\n\n  tudo   bem? "), "oi tudo bem?")
         let long = String(repeating: "a", count: Notices.previewLimit + 20)
@@ -278,7 +269,7 @@ final class NoticeQueueTests: XCTestCase {
         XCTAssertTrue(NoticeKind.allCases.allSatisfy(fresh.allows))
         let partial = try JSONDecoder().decode(NoticeSettings.self, from: Data(#"{"telegram":false}"#.utf8))
         XCTAssertFalse(partial[.telegram])
-        XCTAssertTrue(partial[.reply] && partial[.reminder] && partial[.outbox] && partial[.update])
+        XCTAssertTrue(partial[.reply] && partial[.reminder] && partial[.update])
         let saved = try JSONDecoder().decode(WispSettings.self, from: Data(#"{"theme":"lime"}"#.utf8))
         XCTAssertEqual(saved.notices, NoticeSettings())
         var changed = WispSettings.default

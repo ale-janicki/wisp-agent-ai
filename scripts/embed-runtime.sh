@@ -26,8 +26,10 @@ mkdir -p "$out/src" "$out/bin"
 cp "$uv" "$out/bin/uv"
 
 # Only tracked files ship, so the VERSION hash never depends on local junk (caches, scratch files).
+# A tracked file deleted on disk but not yet committed is skipped instead of failing the build.
 git -C "$root" ls-files -z -- pyproject.toml uv.lock .python-version cli bot harness vault-template \
   | { grep -zvE '^(cli|bot)/tests/' || true; } \
+  | (cd "$root" && while IFS= read -r -d '' f; do if [ -f "$f" ]; then printf '%s\0' "$f"; fi; done) \
   | rsync -a --from0 --files-from=- "$root/" "$out/src/"
 
 {

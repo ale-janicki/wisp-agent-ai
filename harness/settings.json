@@ -30,6 +30,14 @@
           {
             "type": "command",
             "command": "\"$HOME\"/.local/bin/wisp hook guard-secrets"
+          },
+          {
+            "type": "command",
+            "command": "\"$HOME\"/.local/bin/wisp hook guard-telegram"
+          },
+          {
+            "type": "command",
+            "command": "\"$HOME\"/.local/bin/wisp hook guard-destructive"
           }
         ]
       }

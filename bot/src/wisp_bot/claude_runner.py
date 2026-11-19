@@ -1,10 +1,5 @@
-"""Invoca o Claude Code sem bloquear o loop do bot.
-
-O turno do Geral precisa ser curto: por isso tudo aqui e asyncio e o processo
-roda solto. Nada neste modulo pode usar subprocess sincrono.
-"""
 from __future__ import annotations
-import asyncio, json, logging, os, re, shutil
+import asyncio, json, logging, os, re, shutil, sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Awaitable, Callable
@@ -15,32 +10,76 @@ from .hosting import HOST
 
 log = logging.getLogger("wisp.claude")
 
-# O Claude escreve markdown; o Telegram nao renderiza markdown. Sem esta instrucao
-# a resposta chega com ** e ## crus na tela.
+TELEGRAM_FILES = """To send the user a file or an image (screenshots and images you create too) in this Telegram topic, run
+`"$WISP_BIN" topic enviar --thread="$WISP_TOPIC_THREAD" <absolute file>` (add --legenda="text" for a caption).
+Never call the Telegram API directly and never read the bot token; files go only through `wisp topic enviar`.
+A guard blocks direct API use and token reads.
+Never say you cannot send files.
+"""
+
+ON_THE_PHONE = "The user is on the phone: ask any question as plain text at the end of your reply."
+DISALLOWED_ALWAYS = "AskUserQuestion"
+
 TELEGRAM_STYLE = """You are answering through Telegram. Format rules, they are hard:
-- Allowed tags ONLY: <b> <i> <u> <s> <code> <pre> <a href="">. Nothing else.
-- NEVER use markdown: no **bold**, no ##heading, no ---, no | tables |, no ``` fences.
-  Use <pre> for code blocks and <code> for inline code.
-- Escape &, < and > as &amp; &lt; &gt; when they are literal text.
+- Write normal Markdown: **bold**, *italic*, `inline code`, ``` fenced code blocks ```, [text](https://url) links,
+  "- " lists. NEVER write HTML tags (no <b>, <a>, <code>): the same session is shown in a Mac app that renders Markdown.
+- No # headings, no --- rules, no | tables |: Telegram cannot show them.
 - Be short: aim for 8-12 lines. Offer detail instead of dumping it.
 - No running commentary ("now I'll run X..."): only the final answer reaches the user.
 - A pending question is asked once; do not repeat it in every later message.
+- """ + ON_THE_PHONE + """
 Keep every other convention from CLAUDE.md. If it asks for a STATUS block, emit it
 normally and do not mention it: the bot strips it before sending.
-"""
+""" + TELEGRAM_FILES
+
+WISP_BIN = str(Path(sys.executable).parent / "wisp")
 
 
-CLAUDE_BIN = _CFG.claude_bin     # o caminho que o setup gravou no wisp.json; vence o PATH
+GUARD_MATCHER = "Bash|Read|Edit|MultiEdit|Write|NotebookEdit|Grep|Glob"
+GUARD_HOOKS = ("guard-secrets", "guard-telegram", "guard-destructive")
 
-# agent.permissionMode do profile.json (o mesmo que o app grava). O Telegram ainda nao mostra
-# pedidos de aprovacao: "default" (pedir) vira "auto". Sem valor, o bot segue sem pedir, como sempre.
+
+def guard_settings(wisp_bin: str) -> dict:
+    quoted = "'" + wisp_bin.replace("'", "'\\''") + "'"
+    hooks = [{"type": "command", "command": f"{quoted} hook {name}"} for name in GUARD_HOOKS]
+    return {"hooks": {"PreToolUse": [{"matcher": GUARD_MATCHER, "hooks": hooks}]}}
+
+
+def guard_settings_path() -> Path:
+    return _CFG.state_dir / "guard-settings.json"
+
+
+def write_guard_settings(path: Path | None = None, wisp_bin: str | None = None) -> Path:
+    path = path or guard_settings_path()
+    text = json.dumps(guard_settings(wisp_bin or WISP_BIN), indent=2) + "\n"
+    try:
+        if path.read_text("utf-8") == text:
+            return path
+    except OSError:
+        pass
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(text, "utf-8")
+    os.replace(tmp, path)
+    return path
+
+
+def guard_binary_problem(wisp_bin: str | None = None) -> str | None:
+    path = wisp_bin or WISP_BIN
+    if not os.path.isfile(path):
+        return f"o comando do Wisp nao existe em {path}"
+    if not os.access(path, os.X_OK):
+        return f"o comando do Wisp nao e executavel em {path}"
+    return None
+
+
+CLAUDE_BIN = _CFG.claude_bin
+
 PERMISSAO_PADRAO = "bypassPermissions"
 _PERMISSAO_NO_BOT = {"default": "auto", "manual": "auto", "auto": "auto", "bypassPermissions": "bypassPermissions"}
-# Perfil que e link (gerenciado fora do Wisp): o app guarda a escolha nos proprios ajustes.
 AJUSTES_DO_APP = Path.home() / "Library" / "Application Support" / "Wisp" / "settings.json"
-# Conta que recusa o modo auto: o turno roda de novo uma vez neste modo, nunca em bypass.
 PERMISSAO_SEM_AUTO = "acceptEdits"
-_auto_recusado = False      # recusa ja vista neste processo: os proximos turnos nem tentam auto
+_auto_recusado = False
 
 
 def _modo_em(arquivo: Path, *chaves: str) -> str | None:
@@ -54,8 +93,6 @@ def _modo_em(arquivo: Path, *chaves: str) -> str | None:
 
 
 def permission_source() -> tuple[str, str]:
-    """(modo do bot, de onde veio). Mesma ordem do app (PermissionSetting.cliMode): os ajustes do
-    Wisp, que so existem enquanto o perfil e link, e depois o perfil."""
     wisp = _modo_em(AJUSTES_DO_APP, "permissionMode")
     if wisp:
         return _PERMISSAO_NO_BOT[wisp], "ajustes do Wisp"
@@ -66,12 +103,10 @@ def permission_source() -> tuple[str, str]:
 
 
 def permission_mode() -> str:
-    """Lido a cada turno, para uma troca no app valer sem reiniciar o bot; ilegivel = padrao."""
     return permission_source()[0]
 
 
 def auto_recusado(returncode: int | None, stderr: str, modo_init: str | None) -> bool:
-    """O CLI recusou `--permission-mode auto` na partida: saiu com erro, sem init, citando o modo."""
     if returncode == 0 or modo_init is not None:
         return False
     texto = stderr.lower()
@@ -79,8 +114,6 @@ def auto_recusado(returncode: int | None, stderr: str, modo_init: str | None) ->
 
 
 def claude_bin() -> str:
-    """Resolve o binario. Servico launchd/systemd nao herda PATH de shell de login, entao
-    depender do PATH aqui e o caminho certo para um FileNotFoundError silencioso."""
     if CLAUDE_BIN and os.path.isfile(os.path.expanduser(CLAUDE_BIN)):
         return os.path.expanduser(CLAUDE_BIN)
     found = shutil.which("claude")
@@ -92,8 +125,8 @@ def claude_bin() -> str:
 
 CHAVE_OAUTH = "claude-oauth-expirado"
 _AUTH = ("oauth session expired", "failed to authenticate", "not logged in", "please run /login")
-_alerta_aberto = False      # add ja disparado neste processo, resolve pendente
-_resolvido_boot = False     # 1o sucesso do processo ja tentou fechar alerta de antes do restart
+_alerta_aberto = False
+_resolvido_boot = False
 _soltas: set[asyncio.Task] = set()
 
 
@@ -103,7 +136,6 @@ def falha_de_auth(*textos: str) -> bool:
 
 
 async def _alerta(*args: str) -> bool:
-    """O mesmo alert_cmd do hosting; sem ele, no-op."""
     return await hosting.rodar_alerta(*args)
 
 
@@ -114,8 +146,6 @@ def _solta(coro) -> None:
 
 
 def alertar_oauth() -> None:
-    """Login do CLI expirou: todo job do bot falha em silencio. Um add por processo; o
-    alert_cmd tambem nao deve repetir chave aberta de mesmo nivel."""
     global _alerta_aberto
     if _alerta_aberto:
         return
@@ -127,12 +157,11 @@ def alertar_oauth() -> None:
                            f"Login do Claude CLI expirou no host {HOST}: todo job do bot (Geral, topicos) "
                            "esta falhando. Conserto: rodar `claude` e `/login` nessa maquina.")
         if not ok:
-            _alerta_aberto = False        # nao chegou: a proxima falha tenta de novo
+            _alerta_aberto = False
     _solta(add())
 
 
 def fechar_oauth() -> None:
-    """1o sucesso apos alerta aberto, ou 1o sucesso do processo (alerta de antes do restart)."""
     global _alerta_aberto, _resolvido_boot
     if _resolvido_boot and not _alerta_aberto:
         return
@@ -149,12 +178,10 @@ class Result:
     cost_usd: float | None = None
 
 
-LIMITE_LINHA = 32 * 1024 * 1024   # linha de tool_result passa fácil de 64KB (default do StreamReader)
+LIMITE_LINHA = 32 * 1024 * 1024
 
 
 def rotulo(item: dict) -> str:
-    """Rotulo geral do que o Claude esta fazendo, a partir de um bloco tool_use.
-    Pedido de 14/10: resumo amplo ("acessando a pasta x", "validando"), nunca o comando cru."""
     nome = item.get("name") or ""
     i = item.get("input") or {}
     base = lambda p: os.path.basename(str(p or "").rstrip("/"))
@@ -198,30 +225,35 @@ async def run(prompt: str, *, session_id: str, cwd: str, started: bool,
               env: dict | None = None, no_tools: bool = False,
               on_event: Callable[[str], None] | None = None,
               on_text: Callable[[str], Awaitable[None] | None] | None = None) -> Result:
-    """Um turno. `started` decide entre criar a sessao e retomar. `on_event`
-    recebe um rotulo curto a cada tool_use (cosmetico: erro nele e ignorado).
-    `on_text` recebe cada bloco de texto do assistant assim que chega; se for
-    async, roda como task e o turno so retorna depois de todas terminarem."""
     global _auto_recusado
     modo, fonte = permission_source()
     if modo == "auto" and _auto_recusado:
         modo, fonte = PERMISSAO_SEM_AUTO, f"{fonte}; a conta recusou auto"
     log.info("permissao do turno: %s (%s)", modo, fonte)
+    problema = guard_binary_problem()
+    if problema:
+        log.error("nao consegui ativar as travas do Wisp: %s", problema)
+        return Result(False, f"não consegui ativar as travas do Wisp: {problema}")
+    try:
+        settings = write_guard_settings()
+    except OSError as e:
+        log.error("nao consegui gravar as travas do Wisp: %s", e)
+        return Result(False, f"não consegui ativar as travas do Wisp: {e.strerror or type(e).__name__}")
 
     def comando(modo: str) -> list[str]:
         cmd = [claude_bin(), "--print", "--output-format", "stream-json", "--verbose",
                "--permission-mode", modo,
                "--append-system-prompt", TELEGRAM_STYLE + extra_prompt]
         cmd += ["--resume", session_id] if started else ["--session-id", session_id]
+        cmd += ["--settings", str(settings)]
         if model:
             cmd += ["--model", model]
-        if disallowed:
-            cmd += ["--disallowedTools", disallowed]
-        if no_tools:              # entrada nao confiavel: sem ferramentas nem MCP
+        cmd += ["--disallowedTools", ",".join(t for t in (DISALLOWED_ALWAYS, disallowed) if t)]
+        if no_tools:
             cmd += ["--tools", "", "--strict-mcp-config"]
         return cmd
 
-    cwd = os.path.expanduser(cwd)  # topics.json pode guardar "~/..." (vincular): sem expandir, isdir falha
+    cwd = os.path.expanduser(cwd)
     if not os.path.isdir(cwd):
         return Result(False, f"cwd nao existe: {cwd}")
 
@@ -229,7 +261,6 @@ async def run(prompt: str, *, session_id: str, cwd: str, started: bool,
                                       on_event=on_event, on_text=on_text)
     if not recusou:
         return resultado
-    # Nunca cai para bypass: quem escolheu "Sem pedir" nao chega aqui (nao pede auto).
     _auto_recusado = True
     log.warning("o claude recusou --permission-mode auto; o turno roda de novo em %s", PERMISSAO_SEM_AUTO)
     resultado, _ = await _turno(comando(PERMISSAO_SEM_AUTO), PERMISSAO_SEM_AUTO, prompt, cwd=cwd,
@@ -240,19 +271,18 @@ async def run(prompt: str, *, session_id: str, cwd: str, started: bool,
 async def _turno(cmd: list[str], modo: str, prompt: str, *, cwd: str, timeout: int, env: dict | None,
                  on_event: Callable[[str], None] | None,
                  on_text: Callable[[str], Awaitable[None] | None] | None) -> tuple[Result, bool]:
-    """Roda o processo uma vez. O bool diz se o CLI recusou o modo auto pedido."""
     try:
         proc = await asyncio.create_subprocess_exec(
             *cmd, cwd=cwd, stdin=asyncio.subprocess.PIPE,
-            env={**os.environ, "WISP_SKIP_PULL": "1", **(env or {})}, limit=LIMITE_LINHA,
+            env={**os.environ, "WISP_SKIP_PULL": "1", "WISP_BIN": WISP_BIN, **(env or {})}, limit=LIMITE_LINHA,
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
     except FileNotFoundError:
         return Result(False, f"binario do claude nao encontrado: {claude_bin()}"), False
 
-    parciais: list[str] = []      # texto do assistant + linhas nao-JSON, p/ fallback
+    parciais: list[str] = []
     final: dict | None = None
-    modo_init: str | None = None      # o modo que o CLI diz estar usando, na linha system/init
-    tarefas: list[asyncio.Task] = []   # envios de on_text em voo
+    modo_init: str | None = None
+    tarefas: list[asyncio.Task] = []
 
     def emitir_texto(texto: str) -> None:
         if not on_text:
@@ -262,10 +292,9 @@ async def _turno(cmd: list[str], modo: str, prompt: str, *, cwd: str, timeout: i
             if asyncio.iscoroutine(r) or isinstance(r, asyncio.Future):
                 tarefas.append(asyncio.ensure_future(r))
         except Exception:
-            pass                                  # cosmetico: nunca quebra o turno
+            pass
 
     async def esperar_textos() -> None:
-        # os parciais saem antes da resposta final: a ordem importa
         if tarefas:
             await asyncio.gather(*tarefas, return_exceptions=True)
 
@@ -301,7 +330,7 @@ async def _turno(cmd: list[str], modo: str, prompt: str, *, cwd: str, timeout: i
                         try:
                             on_event(rotulo(item))
                         except Exception:
-                            pass                  # cosmetico: nunca quebra o turno
+                            pass
 
     async def tudo() -> bytes:
         proc.stdin.write(prompt.encode("utf-8"))
@@ -310,14 +339,13 @@ async def _turno(cmd: list[str], modo: str, prompt: str, *, cwd: str, timeout: i
             proc.stdin.close()
         except (BrokenPipeError, ConnectionResetError):
             pass
-        # stderr drenado junto com stdout: pipe cheio travaria o processo
         _, err_b, _ = await asyncio.gather(ler_stdout(), proc.stderr.read(), proc.wait())
         return err_b
 
     async def matar() -> None:
         proc.kill()
         try:
-            await asyncio.wait_for(proc.wait(), 5)   # colhe o processo, sem zumbi
+            await asyncio.wait_for(proc.wait(), 5)
         except Exception:
             pass
 
@@ -328,7 +356,6 @@ async def _turno(cmd: list[str], modo: str, prompt: str, *, cwd: str, timeout: i
         await esperar_textos()
         return Result(False, f"estourou {timeout}s e foi morto"), False
     except Exception as e:
-        # linha acima do limite etc: sem isso o processo ficaria solto
         await matar()
         await esperar_textos()
         return Result(False, f"leitura do claude falhou: {type(e).__name__}: {e}"), False
@@ -349,7 +376,6 @@ async def _turno(cmd: list[str], modo: str, prompt: str, *, cwd: str, timeout: i
     fechar_oauth()
 
     if final is None:
-        # sem linha result o texto parcial ainda e util: melhor entregar que engolir
         return Result(True, "\n".join(parciais)[-3500:] or "(resposta vazia)"), False
 
     return Result(
@@ -360,9 +386,6 @@ async def _turno(cmd: list[str], modo: str, prompt: str, *, cwd: str, timeout: i
     ), False
 
 
-# O CLAUDE.md obriga o bloco STATUS em toda resposta, e a regra vence o
-# --append-system-prompt: medido em 28/09, ele veio mesmo com instrucao contraria.
-# No Telegram o bloco e ruido, entao removo aqui em vez de torcer pelo prompt.
 _STATUS = re.compile(r"\n*(?:```[a-z]*\n)?STATUS\s*[·.].*\Z", re.S | re.I)
 
 

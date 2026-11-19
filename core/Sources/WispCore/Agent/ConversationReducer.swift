@@ -7,12 +7,14 @@ public struct ConversationMessage: Equatable, Identifiable, Sendable {
     public var role: Role
     public var text: String
     public var time: Date?
+    public var files: [String]
 
-    public init(role: Role, text: String, id: UUID = UUID(), time: Date? = nil) {
+    public init(role: Role, text: String, id: UUID = UUID(), time: Date? = nil, files: [String] = []) {
         self.id = id
         self.role = role
         self.text = text
         self.time = time
+        self.files = files
     }
 }
 
@@ -21,7 +23,6 @@ public struct ConversationState: Equatable, Sendable {
         case idle
         case thinking(step: String?)
         case failed(String)
-        case held(String)
     }
 
     public var messages: [ConversationMessage] = []
@@ -32,12 +33,13 @@ public struct ConversationState: Equatable, Sendable {
     public var fiveHour: Double? { rateLimit?.fiveHour?.utilization }
     public var subscription: Bool?
     public var pendingTurns = 0
-    /// Tool calls the CLI holds for the user, oldest first; the first one is on screen.
     public var approvals: [PermissionRequest] = []
-    /// The mode the CLI reported at init.
     public var permissionMode: String?
-    /// Tools the user denied this turn; the result lists them as denials too, and they need no settings hint.
     public var userDenials: [String] = []
+    public var hookBlocks = 0
+    public var pendingSends: [String: [String]] = [:]
+    public var turnSentFiles: [String] = []
+    public var sentToTelegram: [String] = []
 
     public init() {}
 }
@@ -47,24 +49,30 @@ public enum ConversationReducer {
         s.messages.append(ConversationMessage(role: .user, text: text, id: id, time: time))
         s.status = nil
         s.pendingTurns += 1
-        if case .held = s.phase { return }
         s.phase = .thinking(step: nil)
-    }
-
-    /// The message waits in the outbox for the bot; later messages of the conversation queue behind it.
-    public static func held(_ s: inout ConversationState, reason: String) {
-        s.phase = .held(reason)
     }
 
     public static func sessionDiscarded(_ s: inout ConversationState) {
         s.pendingTurns = 0
         s.approvals = []
         s.userDenials = []
+        clearTurnFiles(&s)
+    }
+
+    private static func clearTurnFiles(_ s: inout ConversationState) {
+        s.hookBlocks = 0
+        s.pendingSends = [:]
+        s.turnSentFiles = []
+    }
+
+    public static func processRestarted(_ s: inout ConversationState) {
+        s.approvals = []
+        s.userDenials = []
+        clearTurnFiles(&s)
     }
 
     public static let awaitingApprovalStep = "esperando tua aprovação"
 
-    /// The user answered the request on screen (or one queued behind it); the turn goes on.
     public static func approvalAnswered(_ s: inout ConversationState, id: String, decision: PermissionDecision) {
         guard let index = s.approvals.firstIndex(where: { $0.id == id }) else { return }
         let request = s.approvals.remove(at: index)
@@ -96,6 +104,7 @@ public enum ConversationReducer {
             s.pendingTurns = 0
             s.approvals = []
             s.userDenials = []
+            clearTurnFiles(&s)
             s.phase = .failed(tail.isEmpty ? "claude encerrou (código \(code))" : "claude encerrou (código \(code)): \(tail)")
         }
     }
@@ -115,7 +124,8 @@ public enum ConversationReducer {
             resumeAfterApprovals(&s)
         case .thinking:
             if s.phase == .idle { s.phase = .thinking(step: nil) }
-        case .text(let text):
+        case .text(let rawText):
+            let text = TelegramHTML.markdown(rawText)
             if let last = s.messages.last, last.role == .assistant {
                 s.messages[s.messages.count - 1].text = last.text + "\n\n" + text
             } else {
@@ -125,6 +135,16 @@ public enum ConversationReducer {
             let step = summary.isEmpty ? name : "\(name): \(summary)"
             s.messages.append(ConversationMessage(role: .tool, text: step))
             if s.approvals.isEmpty { s.phase = .thinking(step: step) }
+        case .fileSend(let id, let paths):
+            s.pendingSends[id] = paths
+        case .toolResult(let id, let isError, let text):
+            let paths = s.pendingSends.removeValue(forKey: id)
+            if !isError, let paths {
+                for path in paths where !s.turnSentFiles.contains(path) { s.turnSentFiles.append(path) }
+            } else if isError, let reason = ToolBlock.hookReason(in: text) {
+                s.hookBlocks += 1
+                s.messages.append(ConversationMessage(role: .system, text: ToolBlock.notice(reason: reason)))
+            }
         case .usage(let rateLimit):
             s.rateLimit = rateLimit
         case .result(let sessionId, let text, let isError, let denials):
@@ -136,20 +156,27 @@ public enum ConversationReducer {
                 if let index = denials.firstIndex(of: tool) { denials.remove(at: index) }
             }
             s.userDenials = []
+            denials.removeFirst(min(s.hookBlocks, denials.count))
+            let sent = s.turnSentFiles
+            clearTurnFiles(&s)
+            s.sentToTelegram = sent
             if isError {
                 s.pendingTurns = 0
                 s.phase = .failed(text.isEmpty ? "erro" : text)
                 return
             }
-            let parts = ReplyFormatter.split(text, statusPrefix: statusPrefix)
+            let split = ReplyFormatter.split(text, statusPrefix: statusPrefix)
+            let parts = (body: TelegramHTML.markdown(split.body), status: split.status)
+            let cards = SentFiles.cards(sent: sent, replyText: split.body)
             if let last = s.messages.last, last.role == .assistant {
-                if parts.body.isEmpty {
+                if parts.body.isEmpty, cards.isEmpty {
                     s.messages.removeLast()
                 } else {
                     s.messages[s.messages.count - 1].text = parts.body
+                    s.messages[s.messages.count - 1].files = cards
                 }
-            } else if !parts.body.isEmpty {
-                s.messages.append(ConversationMessage(role: .assistant, text: parts.body))
+            } else if !parts.body.isEmpty || !cards.isEmpty {
+                s.messages.append(ConversationMessage(role: .assistant, text: parts.body, files: cards))
             }
             for tool in denials {
                 s.messages.append(ConversationMessage(

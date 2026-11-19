@@ -1,19 +1,3 @@
-"""A sessao do Claude atravessando Mac <-> PC.
-
-O jsonl da sessao mora em ~/.claude/projects/<slug>/<session_id>.jsonl, onde slug e o
-cwd absoluto com tudo que nao e letra/numero trocado por "-". Copiar o jsonl para o
-slug do cwd onde se vai retomar basta para `claude --resume <id>` recuperar o contexto
-inteiro, mesmo que os campos "cwd" la dentro apontem para um caminho que nao existe
-nesta maquina (verificado 14/10).
-
-Quem inicia e SEMPRE o Mac (o PC nao alcanca o Mac). A copia vai so pelo canal ssh:
-a sessao pode ter segredo, entao nunca passa por git nem pelo brain. O shell remoto
-e o cmd.exe, que come binario: o arquivo viaja em base64, em fluxo (nunca inteiro na
-memoria), e a integridade e conferida por sha256.
-
-O PC nao puxa; pede. Ele deixa <state_dir>/sessao-pedidos/<id>.json e o bot do
-Mac, que olha o PC a cada tick de hosting, empurra o jsonl.
-"""
 from __future__ import annotations
 import base64, hashlib, json, logging, os, re, shlex, shutil, signal, subprocess, threading, time, uuid
 from pathlib import Path
@@ -31,7 +15,6 @@ _FIM = "WISP_SESSAO_EOF"
 
 
 def valido(session_id: str) -> bool:
-    """O id vai para dentro de um script bash: so passa o que parece um uuid."""
     return bool(_ID.match(session_id or ""))
 
 
@@ -44,14 +27,11 @@ def caminho(session_id: str, cwd: str) -> Path:
 
 
 def achar_local(session_id: str) -> Path | None:
-    """O jsonl em qualquer slug desta maquina (o cwd pode ter mudado de caminho). Com copias
-    em mais de um slug devolve a MAIOR (jsonl so cresce: maior = mais completa)."""
     copias = sorted(PROJETOS.glob(f"*/{session_id}.jsonl"))
     return max(copias, key=lambda p: p.stat().st_size) if copias else None
 
 
 def mais_nova(cwd: str) -> str | None:
-    """session_id do jsonl mais recente do slug do cwd."""
     d = PROJETOS / slug(cwd)
     arqs = sorted(d.glob("*.jsonl"), key=lambda p: p.stat().st_mtime) if d.is_dir() else []
     return arqs[-1].stem if arqs else None
@@ -61,17 +41,14 @@ VIVA_S = 120
 
 
 def _outras_copias(session_id: str, manter: Path) -> None:
-    """Uma copia por maquina: apaga o mesmo id nos outros slugs. So chamar com `manter` existente."""
     if not manter.exists():
         return
     for p in PROJETOS.glob(f"*/{session_id}.jsonl"):
-        # escrita nos ultimos 2 min = pode ser um claude vivo nela: apagar perderia o que ele grava
         if p != manter and time.time() - p.stat().st_mtime > VIVA_S:
             p.unlink(missing_ok=True)
 
 
 def _trocar_sem_encolher(tmp: Path, alvo: Path) -> None:
-    """tmp vira alvo, a menos que alvo ja seja maior: nenhum caminho encolhe uma sessao."""
     if alvo.exists() and alvo.stat().st_size > tmp.stat().st_size:
         tmp.unlink(missing_ok=True)
         raise RuntimeError("copia local mais nova")
@@ -86,7 +63,6 @@ def _copiar(origem: Path, destino: Path) -> None:
 
 
 def garantir_local(session_id: str, cwd: str) -> bool:
-    """Deixa o jsonl no slug do cwd em que vai ser retomado. False = nao ha jsonl aqui."""
     if not valido(session_id):
         return False
     alvo = caminho(session_id, cwd)
@@ -109,7 +85,6 @@ def _sha(p: Path) -> str:
 
 
 def _matar_grupo(p: subprocess.Popen) -> None:
-    """SIGKILL no grupo do processo (ele nasceu com start_new_session): ssh e filhos nao sobram."""
     try:
         os.killpg(p.pid, signal.SIGKILL)
     except (ProcessLookupError, PermissionError):
@@ -124,19 +99,16 @@ def _matar_em(p: subprocess.Popen, s: float) -> threading.Timer:
 
 
 def _tmp_unico(alvo: Path) -> Path:
-    """Nome de tmp so deste escritor: dois buscar_do_pc da mesma sessao (bot e espelho) nao dividem o arquivo."""
     return alvo.with_name(f"{alvo.name}.{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp")
 
 
 def sem_par() -> str:
-    """Por que nao ha ssh ao PC: modo solo, ou o arquivo do par que nao da host/usuario."""
     if hosting.MODO != "pair":
         return "modo solo: há uma máquina só, não há outra de onde trazer a sessão"
     return f"config do PC ausente ou incompleta ({hosting.PC_CFG})"
 
 
 def ssh_pc(script: str, prazo: float) -> tuple[int, str]:
-    """Um ssh ao PC com o script pelo stdin, no proprio grupo; no estouro mata o grupo inteiro. (124, "") = estourou."""
     argv = hosting.pc_argv()
     if argv is None:
         return 2, ""
@@ -154,11 +126,10 @@ def ssh_pc(script: str, prazo: float) -> tuple[int, str]:
     return p.returncode, out.decode("utf-8", "replace")
 
 
-TRAZER_S = 45.0                  # o assumir do Wisp tem 75 s no total; o pull da sessao cabe aqui dentro
+TRAZER_S = 45.0
 
 
 def trazer_se_maior(session_id: str, cwd_local: str, prazo: float = TRAZER_S) -> str:
-    """Mac: traz o jsonl do PC se a copia de la e maior. 'local' | 'trazida' | 'falhou'. Bloqueia (ssh)."""
     if not valido(session_id):
         return "local"
     t0 = time.monotonic()
@@ -176,8 +147,6 @@ def trazer_se_maior(session_id: str, cwd_local: str, prazo: float = TRAZER_S) ->
 
 
 def buscar_do_pc(session_id: str, cwd_local: str, timeout_s: float = TIMEOUT_S) -> Path:
-    """PC -> Mac. Levanta RuntimeError com o motivo se nao deu. timeout_s: teto do ssh (mata o grupo).
-    A copia do PC vence a do Mac: so se busca quando a nota diz session_host=pc."""
     if not valido(session_id):
         raise RuntimeError(f"session_id invalido: {session_id!r}")
     argv = hosting.pc_argv()
@@ -199,7 +168,7 @@ def buscar_do_pc(session_id: str, cwd_local: str, timeout_s: float = TIMEOUT_S) 
         p.stdin.write(script.encode())
         p.stdin.close()
         with tmp.open("wb") as f:
-            for linha in p.stdout:                 # em fluxo: cada linha de 76 chars e completa
+            for linha in p.stdout:
                 linha = linha.strip()
                 if linha.startswith(b"SHA:"):
                     sha_pc = linha[4:].decode()
@@ -208,7 +177,7 @@ def buscar_do_pc(session_id: str, cwd_local: str, timeout_s: float = TIMEOUT_S) 
                     h.update(bloco)
                     f.write(bloco)
         rc = p.wait()
-    except Exception as e:                     # base64 ruim (binascii.Error), disco, pipe
+    except Exception as e:
         tmp.unlink(missing_ok=True)
         raise RuntimeError(f"copia do PC corrompida ({type(e).__name__})") from e
     finally:
@@ -227,7 +196,6 @@ def buscar_do_pc(session_id: str, cwd_local: str, timeout_s: float = TIMEOUT_S) 
 
 
 def enviar_ao_pc(session_id: str, cwd_pc: str, timeout_s: float = TIMEOUT_S) -> None:
-    """Mac -> PC. cwd_pc pode comecar com "~" (resolve no HOME do PC). timeout_s limita este envio."""
     if not valido(session_id):
         raise RuntimeError(f"session_id invalido: {session_id!r}")
     origem = achar_local(session_id)
@@ -255,7 +223,6 @@ def enviar_ao_pc(session_id: str, cwd_pc: str, timeout_s: float = TIMEOUT_S) -> 
     try:
         p.stdin.write(cabeca.encode())
         with origem.open("rb") as f:
-            # multiplo de 57 bytes = linhas de 76 chars sem padding no meio
             for bloco in iter(lambda: f.read(57 * 4096), b""):
                 p.stdin.write(base64.encodebytes(bloco))
         p.stdin.write(cauda.encode())
@@ -273,7 +240,6 @@ def enviar_ao_pc(session_id: str, cwd_pc: str, timeout_s: float = TIMEOUT_S) -> 
 
 
 def pedir(session_id: str, cwd_pc: str) -> Path:
-    """No PC: pede ao Mac que empurre a sessao para ca."""
     PEDIDOS.mkdir(parents=True, exist_ok=True)
     f = PEDIDOS / f"{session_id}.json"
     tmp = f.with_suffix(".tmp")
@@ -283,11 +249,9 @@ def pedir(session_id: str, cwd_pc: str) -> Path:
     return f
 
 
-# ---- a nota do topico manda na sessao: o host que assume retoma a MESMA, nao abre outra ----
-
-ESPERA_PEDIDO_S = 45.0           # o Mac olha o PC a cada 30s ocioso; 20s perdia a janela
-EMPURRADAS = hosting.DIR / "empurradas.json"    # sid -> mtime do que o PC ja tem
-ESPELHO = hosting.DIR / "espelho.json"          # sid -> mtime (no PC) do que o Mac ja copiou
+ESPERA_PEDIDO_S = 45.0
+EMPURRADAS = hosting.DIR / "empurradas.json"
+ESPELHO = hosting.DIR / "espelho.json"
 
 
 def tamanho_local(session_id: str) -> int:
@@ -296,31 +260,26 @@ def tamanho_local(session_id: str) -> int:
 
 
 def a_trazer(m: dict, local_sid: str, host: str, tam_local: int) -> str | None:
-    """sid que a nota manda usar e que este host ainda nao tem em dia, ou None.
-    tam_local = bytes do jsonl desta maquina (0 = nao tem). A nota guarda o tamanho do jsonl
-    quando o turno acabou (session_size): copia local menor = defasada."""
     sid = m.get("session_id", "")
     if not valido(sid) or m.get("status") == "terminal":
         return None
     if m.get("session_started") == "false":
-        return sid if sid != local_sid else None       # sessao nova, sem jsonl: so apontar
+        return sid if sid != local_sid else None
     if sid == local_sid and m.get("session_host", host) == host:
         return None
     tam_nota = int(m["session_size"]) if str(m.get("session_size", "")).isdigit() else 0
     if sid == local_sid and tam_local and tam_local >= tam_nota:
-        return None                                    # as duas pontas tem copia igual
+        return None
     return sid
 
 
 def trazer(sid: str, cwd: str, m: dict, host: str) -> bool:
-    """Deixa o jsonl da sessao `sid` pronto aqui, em dia com a nota. False = nao deu (cai no
-    CONTINUACAO/RETORNO). Bloqueia (ssh, espera): chamar por asyncio.to_thread."""
     tam_nota = int(m["session_size"]) if str(m.get("session_size", "")).isdigit() else 0
     dono = m.get("session_host", "")
     tam = tamanho_local(sid)
     if tam and (tam >= tam_nota > 0 or dono in ("", host)):
         try:
-            return garantir_local(sid, cwd)            # a copia daqui ja e a mais nova
+            return garantir_local(sid, cwd)
         except OSError as e:
             log.warning("sessao %s: copia local falhou: %s", sid, e)
             return False
@@ -339,11 +298,11 @@ def trazer(sid: str, cwd: str, m: dict, host: str) -> bool:
                 time.sleep(1)
             log.warning("sessao %s: o Mac nao empurrou em %ds", sid, int(ESPERA_PEDIDO_S))
             return False
-    except (RuntimeError, OSError) as e:      # OSError: disco, copia, ssh nao abriu
+    except (RuntimeError, OSError) as e:
         log.warning("sessao %s: nao trouxe de %s: %s", sid, dono, e)
         return False
     try:
-        return garantir_local(sid, cwd)                # dono == este host mas o store nao a tinha
+        return garantir_local(sid, cwd)
     except OSError as e:
         log.warning("sessao %s: copia local falhou: %s", sid, e)
         return False
@@ -370,14 +329,11 @@ def _gravar_json(p: Path, d: dict) -> None:
 
 
 def mudadas(candidatas: dict[str, tuple[str, float]], registro: dict) -> list[tuple[str, str]]:
-    """candidatas: sid -> (cwd, mtime atual). Devolve (sid, cwd) dos que mudaram desde o registro,
-    do mais recente para o mais antigo."""
     novas = [(mt, sid, cwd) for sid, (cwd, mt) in candidatas.items() if mt > float(registro.get(sid, 0))]
     return [(sid, cwd) for _, sid, cwd in sorted(novas, reverse=True)]
 
 
 def pendentes(candidatas: dict[str, str]) -> list[tuple[str, str]]:
-    """(sid, cwd) das candidatas cujo jsonl local mudou desde o ultimo envio ao PC."""
     reg = _json(EMPURRADAS)
     return mudadas(_com_mtime(candidatas), reg)
 
@@ -392,9 +348,6 @@ def _com_mtime(candidatas: dict[str, str]) -> dict[str, tuple[str, float]]:
 
 
 def empurrar_mudadas(candidatas: dict[str, str], prazo_s: float) -> int:
-    """Mac -> PC antes de ceder a leitura: manda as sessoes que mudaram desde o ultimo envio.
-    candidatas: sid -> cwd. Para ao estourar o prazo; cada envio tambem respeita o que resta
-    dele. Devolve quantas foram."""
     fim, feitas = time.monotonic() + prazo_s, 0
     reg = _json(EMPURRADAS)
     com_mtime = _com_mtime(candidatas)
@@ -415,7 +368,6 @@ def empurrar_mudadas(candidatas: dict[str, str], prazo_s: float) -> int:
 
 
 def mtimes_no_pc(sids: list[str]) -> dict[str, tuple[float, int]]:
-    """(mtime epoch do PC, bytes) do jsonl de cada sid, numa chamada ssh so. {} se o PC nao respondeu."""
     sids = [s for s in sids if valido(s)]
     argv = hosting.pc_argv()
     if not sids or argv is None:
@@ -436,27 +388,22 @@ def mtimes_no_pc(sids: list[str]) -> dict[str, tuple[float, int]]:
     return out
 
 
-DIVERGE_FOLGA_S = 5.0            # NTP nos dois: relogios diferem pouco
+DIVERGE_FOLGA_S = 5.0
 
 
 def divergiu(tam_pc: int, mt_pc: float, copias_locais: list[tuple[int, float]]) -> bool:
-    """O Mac gravou numa copia menor DEPOIS da ultima gravacao do PC: os dois cresceram da mesma
-    base. Tamanho sozinho escolheria um vencedor e perderia o ramo do outro."""
     return any(tam < tam_pc and mt > mt_pc + DIVERGE_FOLGA_S for tam, mt in copias_locais)
 
 
 def deve_espelhar(meta: dict | None, tam_pc: int, copias_locais: list[tuple[int, float]], agora: float,
                   mt_pc: float | None = None) -> bool:
-    """So copia PC -> Mac se a copia do PC e estritamente mais nova que toda copia daqui.
-    copias_locais: (bytes, mtime) de cada jsonl do sid neste Mac. jsonl so cresce: tamanho manda.
-    mt_pc (mtime da copia do PC): com ele, copia daqui gravada depois = divergencia, nao espelha."""
     m = meta or {}
     if m.get("status") == "terminal" or str(m.get("onde", "")).startswith("terminal"):
-        return False                                   # no terminal: ninguem espelha por cima
+        return False
     if m.get("session_host") == "mac":
-        return False                                   # o Mac e o dono
+        return False
     for tam, mt in copias_locais:
-        if tam >= tam_pc or agora - mt <= VIVA_S:      # igual/maior, ou claude vivo gravando
+        if tam >= tam_pc or agora - mt <= VIVA_S:
             return False
     if mt_pc is not None and divergiu(tam_pc, mt_pc, copias_locais):
         return False
@@ -464,9 +411,6 @@ def deve_espelhar(meta: dict | None, tam_pc: int, copias_locais: list[tuple[int,
 
 
 def espelhar_do_pc(candidatas: dict[str, str], metas: dict[str, dict | None] | None = None) -> int:
-    """PC -> Mac enquanto o PC le o Telegram: copia o que mudou la desde a ultima copia, para
-    o Mac ja ter a sessao quando o PC desligar. candidatas: sid -> cwd local. metas: sid -> nota
-    do topico (dona/terminal nao se espelha). Devolve quantas."""
     pc = mtimes_no_pc(list(candidatas))
     reg = _json(ESPELHO)
     feitas, agora = 0, time.time()
@@ -474,7 +418,7 @@ def espelhar_do_pc(candidatas: dict[str, str], metas: dict[str, dict | None] | N
         locais = [(p.stat().st_size, p.stat().st_mtime) for p in PROJETOS.glob(f"*/{sid}.jsonl")]
         if divergiu(pc[sid][1], pc[sid][0], locais):
             log.warning("espelho: %s DIVERGIU (o Mac gravou depois do PC); nao copio por cima", sid)
-            reg[sid] = pc[sid][0]                  # avisa uma vez por mudanca do PC, nao a cada tick
+            reg[sid] = pc[sid][0]
             _gravar_json(ESPELHO, reg)
             continue
         if not deve_espelhar((metas or {}).get(sid), pc[sid][1], locais, agora):
@@ -490,20 +434,17 @@ def espelhar_do_pc(candidatas: dict[str, str], metas: dict[str, dict | None] | N
     return feitas
 
 
-# ---- turno do Mac em voo na hora da cessao: o PC espera o jsonl inteiro antes de retomar ----
-
-EM_VOO = hosting.DIR / "em-voo-mac.json"    # no PC: key -> {"sid", "ts"}
-EM_VOO_MAX_S = 1800.0            # entrada mais velha que isto e lixo (Mac caiu no meio do turno)
+EM_VOO = hosting.DIR / "em-voo-mac.json"
+EM_VOO_MAX_S = 1800.0
 EM_VOO_ESPERA_S = 600.0
 
 
 def em_voo_vivo(marcador: dict, key: str, agora: float, max_s: float = EM_VOO_MAX_S) -> dict | None:
-    """A entrada do marcador para `key` se ainda vale (bem formada e com menos de max_s), senao None."""
     e = marcador.get(key) if isinstance(marcador, dict) else None
     if not isinstance(e, dict) or not valido(str(e.get("sid", ""))):
         return None
     ts = _num(e.get("ts"))
-    return e if ts > 0 and -60 <= agora - ts <= max_s else None      # 60s de folga de relogio
+    return e if ts > 0 and -60 <= agora - ts <= max_s else None
 
 
 def _num(v) -> float:
@@ -518,7 +459,6 @@ def ler_em_voo(path: Path | None = None) -> dict:
 
 
 def tirar_em_voo(key: str, path: Path | None = None) -> None:
-    """No PC: larga a entrada de `key` (espera estourou). O Mac reescreve o arquivo inteiro de todo jeito."""
     p = path or EM_VOO
     d = _json(p)
     if d.pop(key, None) is not None:
@@ -526,13 +466,10 @@ def tirar_em_voo(key: str, path: Path | None = None) -> None:
 
 
 def contar_turno(cont: dict[str, int], key: str) -> None:
-    """Um turno do Mac entrou em `key` (antes de esperar o lock: o enfileirado tambem conta)."""
     cont[key] = cont.get(key, 0) + 1
 
 
 def soltar_turno(cont: dict[str, int], key: str) -> bool:
-    """Um turno do Mac saiu de `key`. True so quando foi o ultimo (nenhum segurando nem na fila):
-    so ai a copia do Mac esta quieta e o marcador pode cair."""
     n = cont.get(key, 0) - 1
     if n > 0:
         cont[key] = n
@@ -542,19 +479,13 @@ def soltar_turno(cont: dict[str, int], key: str) -> bool:
 
 
 def apos_escrita_marcador(ok: bool, falhas: int, max_tentativas: int) -> tuple[str, int]:
-    """Decide o que fazer com a chave depois de reescrever o marcador no PC. ("remover", n): gravou,
-    tira da lista. ("tentar", n): falhou, mantem e tenta de novo. ("largar", n): estourou o teto."""
     if ok:
         return "remover", falhas
     falhas += 1
     return ("tentar" if falhas < max_tentativas else "largar"), falhas
 
 
-# ---- candidatas do espelho: o topics.json do proprio PC, nao as notas (que chegam em ate 5 min) ----
-
 def ler_topicos_pc(texto: str) -> tuple[str, list[tuple[str, str, str]]] | None:
-    """Saida do ssh ("HOME=<home do PC>" e depois o topics.json) -> (home_pc, [(key, sid, cwd_pc)])
-    dos topicos com sessao iniciada. None se nao deu para ler."""
     home, resto = "", []
     for linha in texto.splitlines():
         if not home and linha.startswith("HOME="):
@@ -575,8 +506,6 @@ def ler_topicos_pc(texto: str) -> tuple[str, list[tuple[str, str, str]]] | None:
 
 
 def cwd_espelho(cwd_pc: str, home_pc: str, home_mac: str, existe, cwd_store: str, padrao: str) -> str:
-    """cwd do PC -> cwd do Mac: o que fica sob o HOME do PC vai para o mesmo lugar sob o HOME do
-    Mac (como o "~" da nota). Nao existe aqui? o cwd do store do Mac; senao o padrao."""
     if cwd_pc == home_pc or cwd_pc.startswith(home_pc.rstrip("/") + "/"):
         cand = home_mac + cwd_pc[len(home_pc.rstrip("/")):]
     else:
@@ -587,7 +516,6 @@ def cwd_espelho(cwd_pc: str, home_pc: str, home_mac: str, existe, cwd_store: str
 
 
 def topicos_no_pc() -> tuple[str, list[tuple[str, str, str]]] | None:
-    """Le o topics.json do PC por ssh (script pelo stdin). None = ssh falhou ou nao leu."""
     argv = hosting.pc_argv()
     if argv is None:
         return None
@@ -601,19 +529,11 @@ def topicos_no_pc() -> tuple[str, list[tuple[str, str, str]]] | None:
     return ler_topicos_pc(r.stdout.decode("utf-8", "replace"))
 
 
-# ---- decisoes puras do turno (sem telegram, testaveis) ----
-
 def decidir_prompt(segue: bool, motivo: str | None, nota: str, started: bool,
                    tem_historia: bool, outro_host: str | None, host: str) -> str:
-    """Qual prompt o turno usa: "segue" (so a mensagem, a sessao tem o contexto), "continuacao"
-    (sessao nova mas o topico tem historia), "retorno" (outro host respondeu por ultimo) ou "puro".
-    Reset automatico apaga a sessao: o `segue` calculado antes dele nao vale mais.
-    `segue` com o Log terminando no outro host tambem vira "retorno" (a sessao adotada e mantida)."""
     if motivo:
         segue = False
     if segue:
-        # a sessao esta em dia, mas se o outro host respondeu por ultimo no Log (linha mais nova
-        # que qualquer turno deste host) a nota mudou sem este host saber: relê a nota
         if nota and outro_host and outro_host != host:
             return "retorno"
         return "segue"
@@ -625,6 +545,4 @@ def decidir_prompt(segue: bool, motivo: str | None, nota: str, started: bool,
 
 
 def avisar_fila(lk) -> bool:
-    """Avisar "entra na fila" so se o turno anterior ainda segura o lock. Ler ANTES de qualquer
-    coisa pegar o lock (o alinhar_sessao pega), senao fica sempre False."""
     return lk.locked()

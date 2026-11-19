@@ -250,3 +250,15 @@ def test_two_writing_runs_in_one_second_keep_both_backups(fake_home, monkeypatch
     _run(fake_home)
     _run(fake_home, _cfg(fake_home, persona="Bia"))
     assert len(list((fake_home / ".local/state/wisp/backups").iterdir())) == 2
+
+
+def test_existing_agent_file_is_kept_and_reported(fake_home):
+    agents = fake_home / ".claude/agents"
+    agents.mkdir(parents=True)
+    (agents / "operator.md").write_text("my own operator")
+    report = _run(fake_home)
+    _run(fake_home, _cfg(fake_home, user_name="Sol"))
+    assert (agents / "operator.md").read_text() == "my own operator"
+    assert report.data["conflicts"] != "0"
+    files = json.loads((fake_home / ".config/wisp/harness-installed.json").read_text())["files"]
+    assert "agents/operator.md" not in files

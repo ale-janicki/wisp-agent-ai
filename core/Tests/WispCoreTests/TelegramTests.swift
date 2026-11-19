@@ -20,16 +20,14 @@ final class TelegramTopicsTests: XCTestCase {
         XCTAssertThrowsError(try TelegramTopics.parseTopics(Data(#"[{"thread": "x"}]"#.utf8)))
     }
 
-    func testParsesStatusAndCreated() throws {
+    func testParsesStatusAndShared() throws {
         XCTAssertEqual(
             try TelegramTopics.parseStatus(Data(#"{"up": true, "host": "mac", "state": "active", "age_s": 2}"#.utf8)),
             TelegramStatus(up: true, host: "mac", state: "active")
         )
         XCTAssertFalse(try TelegramTopics.parseStatus(Data(#"{"up": false, "host": "mac", "state": null, "age_s": null}"#.utf8)).up)
-        let created = try TelegramTopics.parseCreated(Data(#"{"thread": 77, "session_id": "s-77", "cwd": "/Users/test", "name": "oi"}"#.utf8))
-        XCTAssertEqual(created.thread, 77)
-        XCTAssertEqual(created.sessionId, "s-77")
-        XCTAssertEqual(created.cwd, "/Users/test")
+        let shared = try TelegramTopics.parseShared(Data(#"{"thread": 77, "session_id": "s-77", "name": "oi"}"#.utf8))
+        XCTAssertEqual(shared, TelegramShared(thread: 77, name: "oi", sessionId: "s-77"))
     }
 
     func testParsesTheReadingHostOfEveryTopic() throws {
@@ -44,46 +42,70 @@ final class TelegramTopicsTests: XCTestCase {
         XCTAssertEqual(topics[1].turns, 2)
     }
 
-    func testStatusSaysWhoReadsTelegram() throws {
-        func reading(_ json: String) throws -> TelegramReading {
-            try TelegramTopics.parseStatus(Data(json.utf8)).reading
-        }
-        XCTAssertEqual(try reading(#"{"up": true, "host": "mac", "state": "active", "age_s": 1, "reader": "mac"}"#), .here)
-        XCTAssertEqual(try reading(#"{"up": false, "host": "mac", "state": "standby", "age_s": 3, "reader": "pc"}"#), .elsewhere("pc"))
-        XCTAssertEqual(try reading(#"{"up": false, "host": "mac", "state": "standby", "age_s": 3, "reader": null}"#), .nobody)
-        XCTAssertEqual(try reading(#"{"up": false, "host": "mac", "state": "standby", "age_s": 3, "reader": "mac"}"#), .nobody)
-        XCTAssertEqual(try reading(#"{"up": true, "host": "mac", "state": "active", "age_s": 1}"#), .here)
-        XCTAssertEqual(try reading(#"{"up": false, "host": "mac", "state": null, "age_s": null}"#), .nobody)
-        XCTAssertEqual(TelegramTopics.hostName("pc"), "PC")
-        XCTAssertEqual(TelegramTopics.hostName("mac"), "Mac")
-    }
-
-    func testTopicNameIsTheFirstMessageOnOneLineCutAt40() {
-        XCTAssertEqual(TelegramTopics.topicName(from: "  responda só:\n ok  "), "responda só: ok")
-        let long = TelegramTopics.topicName(from: String(repeating: "abcde ", count: 20))
-        XCTAssertEqual(long.count, 40)
-        XCTAssertTrue(long.hasSuffix("…"))
-    }
-
-    func testLinkedConversationShowsOnceAsItsTopic() {
-        let linked = ConversationRecord(id: UUID(), sessionId: "s-9", title: "a", updatedAt: Date(timeIntervalSince1970: 2), telegramThread: 9)
-        let older = ConversationRecord(id: UUID(), sessionId: "s-9", title: "a", updatedAt: Date(timeIntervalSince1970: 1), telegramThread: 9)
-        let closed = ConversationRecord(id: UUID(), sessionId: "s-5", title: "b", updatedAt: Date(), telegramThread: 5)
+    func testSectionsFollowTheSessionNotTheStoredThread() {
+        let shared = ConversationRecord(id: UUID(), sessionId: "s-9", title: "a", updatedAt: Date(timeIntervalSince1970: 2))
+        let older = ConversationRecord(id: UUID(), sessionId: "s-9", title: "a", updatedAt: Date(timeIntervalSince1970: 1))
+        let staleThread = ConversationRecord(id: UUID(), sessionId: "s-5", title: "b", updatedAt: Date(), telegramThread: 5)
         let local = ConversationRecord(id: UUID(), sessionId: "s-1", title: "c", updatedAt: Date())
+        let blank = ConversationRecord(id: UUID(), sessionId: nil, title: "d", updatedAt: Date())
         let topics = [
             TelegramTopic(thread: 9, name: "a", sessionId: "s-9", cwd: "/"),
             TelegramTopic(thread: 3, name: "bot", sessionId: "s-3", cwd: "/"),
         ]
 
-        let sections = TelegramTopics.sections(records: [linked, older, closed, local], topics: topics)
-        XCTAssertEqual(sections.wisp.map(\.id), [closed.id, local.id])
+        let sections = TelegramTopics.sections(records: [shared, older, staleThread, local, blank], topics: topics)
+        XCTAssertEqual(sections.wisp.map(\.id), [staleThread.id, local.id, blank.id])
         XCTAssertEqual(sections.telegram.map(\.id), [9, 3])
-        XCTAssertEqual(sections.telegram[0].record?.id, linked.id)
+        XCTAssertEqual(sections.telegram[0].record?.id, shared.id)
         XCTAssertNil(sections.telegram[1].record)
 
-        let unread = TelegramTopics.sections(records: [linked, local], topics: nil)
-        XCTAssertEqual(unread.wisp.map(\.id), [linked.id, local.id])
+        let unread = TelegramTopics.sections(records: [shared, local], topics: nil)
+        XCTAssertEqual(unread.wisp.map(\.id), [shared.id, local.id])
         XCTAssertTrue(unread.telegram.isEmpty)
+    }
+
+    func testSharingMovesAConversationBetweenSectionsWithoutCopyingIt() {
+        let record = ConversationRecord(id: UUID(), sessionId: "s-1", title: "c", updatedAt: Date())
+        let before = TelegramTopics.sections(records: [record], topics: [])
+        XCTAssertEqual(before.wisp.map(\.id), [record.id])
+        XCTAssertTrue(before.telegram.isEmpty)
+        let topic = TelegramTopic(thread: 4, name: "c", sessionId: "s-1", cwd: "/")
+        let after = TelegramTopics.sections(records: [record], topics: [topic])
+        XCTAssertTrue(after.wisp.isEmpty)
+        XCTAssertEqual(after.telegram.map(\.id), [4])
+        XCTAssertEqual(after.telegram[0].record?.id, record.id)
+        XCTAssertEqual(TelegramTopics.topic(forSession: "s-1", in: [topic])?.thread, 4)
+        XCTAssertNil(TelegramTopics.topic(forSession: "s-2", in: [topic]))
+        XCTAssertNil(TelegramTopics.topic(forSession: nil, in: [topic]))
+    }
+
+    func testPostPayloadIsTheContractJSON() throws {
+        let post = TelegramPost(thread: 12, user: "oi \"x\"", reply: "olá\nmundo")
+        let object = try XCTUnwrap(try JSONSerialization.jsonObject(with: post.payload) as? [String: Any])
+        XCTAssertEqual(object["thread"] as? Int, 12)
+        XCTAssertEqual(object["user"] as? String, "oi \"x\"")
+        XCTAssertEqual(object["reply"] as? String, "olá\nmundo")
+        XCTAssertEqual(object.count, 3)
+    }
+
+    func testPostPayloadCarriesAttachmentPathsOnlyWhenThereAreSome() throws {
+        let post = TelegramPost(thread: 12, user: "oi", reply: "ok", files: ["/tmp/a.png", "/tmp/b.pdf"])
+        let object = try XCTUnwrap(try JSONSerialization.jsonObject(with: post.payload) as? [String: Any])
+        XCTAssertEqual(object["arquivos"] as? [String], ["/tmp/a.png", "/tmp/b.pdf"])
+        XCTAssertEqual(object.count, 4)
+        let topics = [TelegramTopic(thread: 4, name: "c", sessionId: "s-1", cwd: "/")]
+        XCTAssertEqual(TelegramTopics.mirror(sessionId: "s-1", topics: topics, user: "u", reply: "r", files: ["/x"])?.files, ["/x"])
+    }
+
+    func testAMirrorFollowsOnlyConversationsInTelegram() {
+        let topics = [TelegramTopic(thread: 4, name: "c", sessionId: "s-1", cwd: "/")]
+        XCTAssertEqual(
+            TelegramTopics.mirror(sessionId: "s-1", topics: topics, user: "oi", reply: "olá"),
+            TelegramPost(thread: 4, user: "oi", reply: "olá"))
+        XCTAssertNil(TelegramTopics.mirror(sessionId: "s-2", topics: topics, user: "oi", reply: "olá"), "unshared stays local")
+        XCTAssertNil(TelegramTopics.mirror(sessionId: nil, topics: topics, user: "oi", reply: "olá"))
+        XCTAssertNil(TelegramTopics.mirror(sessionId: "s-1", topics: nil, user: "oi", reply: "olá"), "topics unread")
+        XCTAssertNil(TelegramTopics.mirror(sessionId: "s-1", topics: topics, user: "oi", reply: " \n"), "no reply, nothing to post")
     }
 
     func testFixedTopicsParseAndPinFirstIncludingThreadZero() throws {
@@ -97,7 +119,7 @@ final class TelegramTopicsTests: XCTestCase {
         XCTAssertEqual(topics.map(\.fixed), [false, true, true, false])
         let sections = TelegramTopics.sections(records: [], topics: topics)
         XCTAssertEqual(sections.telegram.map(\.id), [0, 45, 7, 3])
-        let linked = ConversationRecord(id: UUID(), sessionId: "s-0", title: "g", updatedAt: Date(), telegramThread: 0)
+        let linked = ConversationRecord(id: UUID(), sessionId: "s-0", title: "g", updatedAt: Date())
         let withGeneral = TelegramTopics.sections(records: [linked], topics: topics)
         XCTAssertEqual(withGeneral.telegram[0].record?.id, linked.id)
         XCTAssertTrue(withGeneral.wisp.isEmpty)
@@ -144,51 +166,18 @@ final class TelegramTopicsTests: XCTestCase {
         XCTAssertEqual(back.telegramOrder, [5, 0, 9])
     }
 
-    func testParsesTheClaimAndItsFailureSentence() throws {
-        XCTAssertEqual(
-            try TelegramTopics.parseClaim(Data(#"{"ok": true, "reader": "mac", "waited_s": 7.4, "session": "trazida"}"#.utf8)),
-            TelegramClaim(ok: true, reader: "mac", waitedSeconds: 7.4)
-        )
-        XCTAssertFalse(try TelegramTopics.parseClaim(Data(#"{"ok": false}"#.utf8)).ok)
-        XCTAssertThrowsError(try TelegramTopics.parseClaim(Data("mac le o Telegram".utf8)))
-        XCTAssertEqual(
-            TelegramTopics.claimFailure("some-topic-tool: nao consegui falar com o PC (ssh); a mensagem nao foi enviada"),
-            "nao consegui falar com o PC (ssh); a mensagem nao foi enviada"
-        )
-        XCTAssertEqual(TelegramTopics.claimFailure("o comando passou de 75 s"), "o comando passou de 75 s")
-        XCTAssertEqual(TelegramTopics.claimFailure("aviso: a outra maquina nao respondeu"), "aviso: a outra maquina nao respondeu")
-    }
-
-    func testClaimNeedFollowsTheReaderAndTheLastClaim() throws {
-        func need(_ json: String) throws -> TelegramClaimNeed {
-            try TelegramTopics.parseStatus(Data(json.utf8)).claimNeed
-        }
-        XCTAssertEqual(try need(#"{"up": false, "host": "mac", "reader": "pc", "claim": "pc"}"#), .handOff("pc"))
-        XCTAssertEqual(try need(#"{"up": true, "host": "mac", "reader": "mac", "claim": "mac"}"#), .none)
-        XCTAssertEqual(try need(#"{"up": true, "host": "mac", "reader": "mac", "claim": "pc"}"#), .refresh)
-        XCTAssertEqual(try need(#"{"up": true, "host": "mac", "reader": "mac", "claim": "none"}"#), .refresh)
-        XCTAssertEqual(try need(#"{"up": true, "host": "mac", "reader": "mac", "claim": null}"#), .refresh)
-        XCTAssertEqual(try need(#"{"up": true, "host": "mac", "reader": "mac"}"#), .refresh)
-        XCTAssertEqual(try need(#"{"up": false, "host": "mac", "reader": null, "claim": "pc"}"#), .none)
-        XCTAssertEqual(try need(#"{"up": true, "reader": "mac", "claim": "pc"}"#), .none)
-    }
-
-    func testClaimIsOptionalInTheBlock() throws {
-        let json = #"{"status": "s", "list": "l", "create": "c", "send": "m", "close": "x"}"#
-        let block = try JSONDecoder().decode(TelegramBlock.self, from: Data(json.utf8))
-        XCTAssertTrue(block.isComplete)
-        XCTAssertNil(block.claim)
-        let withClaim = try JSONDecoder().decode(
-            TelegramBlock.self,
-            from: Data(#"{"status": "s", "list": "l", "create": "c", "send": "m", "close": "x", "claim": "a {thread}"}"#.utf8)
-        )
-        XCTAssertEqual(withClaim.claim, "a {thread}")
-    }
-
-    func testBlockIsCompleteOnlyWithEveryCommand() {
-        XCTAssertTrue(TelegramBlock(status: "s", list: "l", create: "c", send: "m", close: "x").isComplete)
-        XCTAssertFalse(TelegramBlock(status: "s", list: "l", create: "c", send: "", close: "x").isComplete)
+    func testBlockNeedsReadAndCloseAndShareAndPostAreOptional() throws {
+        XCTAssertTrue(TelegramBlock(status: "s", list: "l", close: "x").isComplete)
+        XCTAssertFalse(TelegramBlock(status: "s", list: "l", close: "").isComplete)
         XCTAssertFalse(TelegramBlock().isComplete)
+        let old = try JSONDecoder().decode(
+            TelegramBlock.self, from: Data(#"{"status":"s","list":"l","create":"c","send":"m","close":"x","claim":"a"}"#.utf8))
+        XCTAssertTrue(old.isComplete)
+        XCTAssertFalse(old.canShare)
+        XCTAssertFalse(old.canPost)
+        let full = try JSONDecoder().decode(
+            TelegramBlock.self, from: Data(#"{"status":"s","list":"l","share":"c {session}","post":"p","close":"x"}"#.utf8))
+        XCTAssertTrue(full.canShare && full.canPost)
     }
 
     func testRecordWithoutLinkFieldsStillDecodesAndLinkRoundTrips() throws {
@@ -220,6 +209,79 @@ final class TelegramHTMLTests: XCTestCase {
         XCTAssertEqual(TelegramHTML.markdown("<pre>let a = 1\nlet b = 2</pre>"), "```\nlet a = 1\nlet b = 2\n```")
         XCTAssertEqual(TelegramHTML.markdown("1 &lt; 2 &amp;&amp; &amp;lt;"), "1 < 2 && &lt;")
         XCTAssertEqual(TelegramHTML.markdown("**já markdown** e <tag desconhecida>"), "**já markdown** e <tag desconhecida>")
+    }
+
+    func testTheTagsOfOldHistoryReadCleanly() {
+        XCTAssertEqual(TelegramHTML.markdown("<strong>a</strong> <em>b</em> <s>c</s> <u>d</u>"), "**a** *b* ~~c~~ d")
+        XCTAssertEqual(TelegramHTML.markdown("linha<br>outra<br/>fim"), "linha\noutra\nfim")
+        XCTAssertEqual(TelegramHTML.markdown("<blockquote>citado\nem duas</blockquote>depois"), "> citado\n> em duasdepois")
+        XCTAssertEqual(TelegramHTML.markdown("&lt;b&gt; &quot;x&quot; &amp; y"), "<b> \"x\" & y")
+        XCTAssertEqual(
+            TelegramHTML.markdown(#"<b>Slack:</b> <a href="https://a.dev/x?y=1&amp;z=2">doc</a> <code>a&lt;b</code>"#),
+            "**Slack:** [doc](https://a.dev/x?y=1&z=2) `a<b`"
+        )
+    }
+
+    func testMarkdownTheModelWroteItselfIsLeftAlone() {
+        XCTAssertEqual(TelegramHTML.markdown("use `<b>x</b>` e <b>y</b>"), "use `<b>x</b>` e **y**")
+        XCTAssertEqual(TelegramHTML.markdown("```html\n<i>a</i> &lt;\n```\n<i>b</i>"), "```html\n<i>a</i> &lt;\n```\n*b*")
+        XCTAssertEqual(TelegramHTML.markdown("**sem html** a < b"), "**sem html** a < b")
+    }
+}
+
+final class AgentInstructionsTests: XCTestCase {
+    private func fixture(_ name: String) throws -> String {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        return try String(contentsOf: root.appendingPathComponent("cli/tests/fixtures/contract/\(name)"), encoding: .utf8)
+    }
+
+    func testTelegramFilesInstructionMatchesTheBotsFixture() throws {
+        XCTAssertEqual(AgentInstructions.telegramFiles, try fixture("telegram-files-instruction.txt"))
+    }
+
+    func testAppInstructionMatchesTheFixture() throws {
+        XCTAssertEqual(AgentInstructions.appFiles, try fixture("app-files-instruction.txt"))
+    }
+
+    func testAnAppTurnInASharedTopicStillGetsTheAppInstructionPlusEnv() {
+        let context = AgentInstructions.context(thread: 42, wispBinary: "/tmp/a b/bin/wisp")
+        XCTAssertTrue(context.prompt.hasPrefix(AgentInstructions.appFiles))
+        XCTAssertTrue(context.prompt.contains("file:///abs/path"))
+        XCTAssertTrue(context.prompt.contains("also a Telegram topic"))
+        XCTAssertTrue(context.prompt.contains("explicitly asks"))
+        XCTAssertTrue(context.prompt.contains("topic enviar --thread=\"$WISP_TOPIC_THREAD\""))
+        XCTAssertEqual(context.environment, ["WISP_BIN": "/tmp/a b/bin/wisp", "WISP_TOPIC_THREAD": "42"])
+        XCTAssertEqual(context.thread, 42)
+    }
+
+    func testOutsideTelegramThereIsNoTelegramSendInstruction() {
+        for context in [AgentInstructions.context(thread: nil, wispBinary: "/bin/wisp"),
+                        AgentInstructions.context(thread: 7, wispBinary: nil)] {
+            XCTAssertEqual(context.prompt, AgentInstructions.appFiles)
+            XCTAssertTrue(context.environment.isEmpty)
+            XCTAssertNil(context.thread)
+        }
+    }
+
+    func testAppTextDoesNotSendFilesThroughTelegram() {
+        XCTAssertFalse(AgentInstructions.appFiles.contains("files go only through"))
+        XCTAssertFalse(AgentInstructions.appFiles.contains("topic enviar"))
+        XCTAssertTrue(AgentInstructions.appFiles.contains("[name](file:///abs/path/name.ext)"))
+    }
+
+    func testBothTextsForbidTheTokenAndTheDirectApi() {
+        for text in [AgentInstructions.appFiles, AgentInstructions.telegramFiles] {
+            XCTAssertTrue(text.contains("Never call the Telegram API directly and never read the bot token"))
+        }
+    }
+
+    func testWispBinaryComesFromTheListTemplateUnquoted() {
+        XCTAssertEqual(TelegramBlock(list: "/opt/wisp topic listar --json").binary, "/opt/wisp")
+        XCTAssertEqual(TelegramBlock(list: "'/tmp/a b/bin/wisp' topic listar --json").binary, "/tmp/a b/bin/wisp")
+        XCTAssertEqual(TelegramBlock(list: "\"/tmp/a b/wisp\" topic listar --json").binary, "/tmp/a b/wisp")
+        XCTAssertNil(TelegramBlock(list: "my-script list --json").binary)
+        XCTAssertNil(TelegramBlock().binary)
     }
 }
 
@@ -330,11 +392,203 @@ private final class Locked<Value>: @unchecked Sendable {
 }
 
 final class TelegramAttachmentsBlockTests: XCTestCase {
-    func testAttachmentsFolderAndSendTemplateDecode() throws {
-        let json = #"{"send":"x {anexos} -- {thread} {text}","attachments":"~/.wisp-telegram/anexos"}"#
+    func testAttachmentsFolderDecodes() throws {
+        let json = #"{"attachments":"~/.wisp-telegram/anexos"}"#
         let block = try JSONDecoder().decode(TelegramBlock.self, from: Data(json.utf8))
         XCTAssertEqual(block.attachments, "~/.wisp-telegram/anexos")
-        XCTAssertTrue(block.sendsAttachments)
-        XCTAssertFalse(TelegramBlock(send: "x -- {thread} {text}").sendsAttachments)
+    }
+}
+
+
+final class TelegramBlockDerivationTests: XCTestCase {
+    func testOldProfileGetsShareAndPostFromTheListCommand() {
+        let block = TelegramBlock(status: "wisp status", list: "wisp topic listar --json", close: "wisp close")
+        let derived = block.derivingActions()
+        XCTAssertEqual(derived.share, "wisp topic compartilhar --session={session} --cwd={cwd} --nome={name} --json")
+        XCTAssertEqual(derived.post, "wisp topic postar --json")
+        XCTAssertTrue(derived.canShare && derived.canPost)
+    }
+
+    func testQuotedBinaryIsKeptVerbatim() {
+        let block = TelegramBlock(list: "'/tmp/a b/bin/wisp' topic listar --json")
+        let derived = block.derivingActions()
+        XCTAssertEqual(derived.share, "'/tmp/a b/bin/wisp' topic compartilhar --session={session} --cwd={cwd} --nome={name} --json")
+        XCTAssertEqual(derived.post, "'/tmp/a b/bin/wisp' topic postar --json")
+    }
+
+    func testCustomListCommandDerivesNothing() {
+        let block = TelegramBlock(list: "my-script list --json")
+        XCTAssertEqual(block.derivingActions(), block)
+        XCTAssertFalse(block.derivingActions().canShare)
+    }
+
+    func testExistingShareAndPostAreNotOverwritten() {
+        let block = TelegramBlock(list: "wisp topic listar --json", share: "mine {session}", post: "mine-post")
+        XCTAssertEqual(block.derivingActions(), block)
+    }
+}
+
+final class FileLinksTests: XCTestCase {
+    private var dir: URL!
+
+    override func setUpWithError() throws {
+        dir = FileManager.default.temporaryDirectory.appendingPathComponent("filelinks-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    }
+
+    override func tearDownWithError() throws { try? FileManager.default.removeItem(at: dir) }
+
+    private func make(_ name: String) throws -> String {
+        let url = dir.appendingPathComponent(name)
+        try Data("x".utf8).write(to: url)
+        return url.resolvingSymlinksInPath().path
+    }
+
+    private func paths(_ text: String) -> [String] { FileLinks.absolutePaths(in: text, home: dir.appendingPathComponent("home")) }
+
+    func testCollectsExistingFilesInOrderAndDeduplicates() throws {
+        let a = try make("a.pdf"), b = try make("b b.png")
+        let text = "veja [a](file://\(a)) e [b](file://\(dir.path)/b%20b.png) e de novo [a](file://\(a))"
+        XCTAssertEqual(paths(text).map { URL(fileURLWithPath: $0).resolvingSymlinksInPath().path }, [a, b])
+    }
+
+    func testIgnoresHttpMissingRelativeAndDirectories() throws {
+        _ = try make("ok.txt")
+        let text = "[x](https://example.com/a.pdf) [y](file://\(dir.path)/missing.txt) [z](file://relative/a.txt) [d](file://\(dir.path))"
+        XCTAssertEqual(paths(text), [])
+    }
+
+    func testSkipsTheFoldersTheBotNeverSends() throws {
+        let home = dir.appendingPathComponent("home")
+        let ssh = home.appendingPathComponent(".ssh")
+        try FileManager.default.createDirectory(at: ssh, withIntermediateDirectories: true)
+        try Data("k".utf8).write(to: ssh.appendingPathComponent("id"))
+        XCTAssertEqual(FileLinks.absolutePaths(in: "[k](file://\(ssh.path)/id)", home: home), [])
+    }
+
+    func testDenyListIgnoresCase() throws {
+        let home = dir.appendingPathComponent("home")
+        let ssh = home.appendingPathComponent(".ssh")
+        let wisp = home.appendingPathComponent(".config/wisp")
+        for folder in [ssh, wisp] {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            try Data("k".utf8).write(to: folder.appendingPathComponent("id"))
+        }
+        for path in ["\(home.path)/.SSH/id", "\(home.path)/.Ssh/id", "\(home.path)/.Config/WISP/id", "\(home.path)/.config/Wisp/id"] {
+            XCTAssertEqual(FileLinks.absolutePaths(in: "[k](file://\(path))", home: home), [], path)
+        }
+    }
+
+    private func denyContract() throws -> (names: [String], globs: [String], dirs: [String], marker: String, bytes: Int) {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("cli/tests/fixtures/contract/send-denylist.json")
+        let json = try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as! [String: Any]
+        return (json["names"] as! [String], json["globs"] as! [String], json["dirs"] as! [String],
+                json["content_marker"] as! String, json["content_bytes"] as! Int)
+    }
+
+    private func deniedSamples() throws -> [String] {
+        let c = try denyContract()
+        return c.names + c.globs.map { $0.replacingOccurrences(of: "*", with: "x") }
+    }
+
+    func testDenyListMatchesTheBotContract() throws {
+        let c = try denyContract()
+        XCTAssertEqual(FileLinks.denyNames, c.names)
+        XCTAssertEqual(FileLinks.denyGlobs, c.globs)
+        XCTAssertEqual(FileLinks.denyDirs, c.dirs)
+        XCTAssertEqual(FileLinks.contentMarker, Data(c.marker.utf8))
+        XCTAssertEqual(FileLinks.contentBytes, c.bytes)
+    }
+
+    func testDeniedFileNamesAnywhereAndAnyCase() throws {
+        let home = dir.appendingPathComponent("home")
+        let docs = home.appendingPathComponent("docs")
+        try FileManager.default.createDirectory(at: docs, withIntermediateDirectories: true)
+        for name in try deniedSamples() {
+            for variant in [name, name.uppercased()] {
+                let file = docs.appendingPathComponent(variant)
+                try Data("s".utf8).write(to: file)
+                XCTAssertEqual(FileLinks.absolutePaths(in: "[k](file://\(file.path))", home: home), [], variant)
+            }
+        }
+    }
+
+    func testSymlinkToDeniedFileIsDenied() throws {
+        let home = dir.appendingPathComponent("home")
+        let vault = home.appendingPathComponent("cofre")
+        try FileManager.default.createDirectory(at: vault, withIntermediateDirectories: true)
+        for name in try deniedSamples() {
+            let target = vault.appendingPathComponent(name)
+            try Data("s".utf8).write(to: target)
+            let link = home.appendingPathComponent("foto-\(name).txt")
+            try FileManager.default.createSymbolicLink(at: link, withDestinationURL: target)
+            XCTAssertEqual(FileLinks.absolutePaths(in: "[k](file://\(link.path))", home: home), [], name)
+        }
+    }
+
+    func testDeniedFoldersIgnoreCase() throws {
+        let home = dir.appendingPathComponent("home")
+        for folder in try denyContract().dirs {
+            let root = home.appendingPathComponent(folder)
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            try Data("s".utf8).write(to: root.appendingPathComponent("dado.txt"))
+            for variant in [folder, folder.uppercased()] {
+                let path = home.appendingPathComponent(variant).appendingPathComponent("dado.txt").path
+                XCTAssertEqual(FileLinks.absolutePaths(in: "[k](file://\(path))", home: home), [], variant)
+            }
+        }
+    }
+
+    func testSimilarNamesAreStillSent() throws {
+        let home = dir.appendingPathComponent("home")
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        let file = home.appendingPathComponent("envio.txt")
+        try Data("s".utf8).write(to: file)
+        XCTAssertEqual(FileLinks.absolutePaths(in: "[k](file://\(file.path))", home: home).count, 1)
+    }
+
+    private func sent(_ name: String, _ bytes: Data) throws -> Int {
+        let home = dir.appendingPathComponent("home")
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        let file = home.appendingPathComponent(name)
+        try bytes.write(to: file)
+        return FileLinks.absolutePaths(in: "[k](file://\(file.path))", home: home).count
+    }
+
+    func testKeynoteDeckZipIsSent() throws {
+        XCTAssertEqual(try sent("deck.key", Data([0x50, 0x4B, 0x03, 0x04]) + Data(repeating: 0x6A, count: 400)), 1)
+    }
+
+    func testPrivateKeyContentIsDeniedWhateverTheName() throws {
+        XCTAssertEqual(try sent("notes.txt", Data(("-----BEGIN " + "OPENSSH PRIVATE KEY-----\nabc").utf8)), 0)
+        XCTAssertEqual(try sent("server.key", Data(("-----BEGIN " + "RSA PRIVATE KEY-----\nabc").utf8)), 0)
+    }
+
+    func testMarkerBeyondTheLimitIsSentAndAtTheLimitIsDenied() throws {
+        let marker = FileLinks.contentMarker
+        let pad = Data(repeating: 0x61, count: FileLinks.contentBytes - marker.count)
+        XCTAssertEqual(try sent("limit.txt", pad + marker), 0)
+        XCTAssertEqual(try sent("long.txt", Data([0x61]) + pad + marker), 1)
+    }
+
+    func testEmptyFileIsSent() throws {
+        XCTAssertEqual(try sent("empty.txt", Data()), 1)
+    }
+
+    func testUnreadableFileIsDenied() throws {
+        let home = dir.appendingPathComponent("home")
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        let file = home.appendingPathComponent("closed.txt")
+        try Data("ok".utf8).write(to: file)
+        try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: file.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path) }
+        XCTAssertEqual(FileLinks.absolutePaths(in: "[k](file://\(file.path))", home: home).count, 0)
+    }
+
+    func testCapsAtTenFiles() throws {
+        let text = try (0..<13).map { "[f](file://\(try make("f\($0).txt")))" }.joined(separator: " ")
+        XCTAssertEqual(paths(text).count, FileLinks.maxFiles)
     }
 }
