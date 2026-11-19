@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Entries are in descending chronological order (newest first).
 
-## [Unreleased]
+## [0.2.2] - 2026-11-18
 
 ### Added
 
@@ -19,6 +19,7 @@ Entries are in descending chronological order (newest first).
 ### Changed
 
 - Ajustes is split into tabs at the top (Aparência, Claude, Avisos, Integrações, Geral, Sobre) instead of one long scroll of cards; only the selected tab's content scrolls. Each card is a header over aligned rows (label left, control right), and a switch row flips from anywhere on the row. The last tab opened is kept in `settings.json` (`settingsSection`) and reopens next time; "Abrir Ajustes" from the Spotify steps in Música lands on Integrações. Sobre is new: version, GitHub link, license (GPL-3.0) and Avisos de terceiros, which moved there from the Setup card.
+- Version 0.2.2 (build 4).
 
 ## [0.2.1] - 2026-11-18
 
