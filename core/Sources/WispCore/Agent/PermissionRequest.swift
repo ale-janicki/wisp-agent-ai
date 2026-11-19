@@ -87,12 +87,44 @@ public struct PermissionRequest: Identifiable, Equatable, Sendable {
     }
 
     /// The summary flattens whitespace, so a second line reads as an argument; a separator chains another
-    /// command the summary may cut. Either way the user has to see the full command.
+    /// command the summary may cut. Either way the user has to see the full command. Any other tool that
+    /// acts locks too when its input carries something the summary leaves out (a file's new content, an
+    /// MCP tool's other arguments); reads and searches only show where they look.
     static func requiresExpansion(tool: String, input: [String: Any], summaryTruncated: Bool) -> Bool {
         if summaryTruncated { return true }
-        guard tool == "Bash" || tool == "PowerShell", let command = input["command"] as? String else { return false }
-        return command.trimmingCharacters(in: .whitespacesAndNewlines).contains(where: \.isNewline)
-            || chainsCommands(command)
+        switch tool {
+        case "Bash", "PowerShell":
+            guard let command = input["command"] as? String else { return false }
+            return command.trimmingCharacters(in: .whitespacesAndNewlines).contains(where: \.isNewline)
+                || chainsCommands(command)
+        case "Read", "Glob", "Grep", "WebFetch", "WebSearch":
+            return false
+        case "Edit", "MultiEdit", "Write":
+            return hidesContent(input, shown: shownKey(input, "file_path"))
+        case "NotebookEdit":
+            return hidesContent(input, shown: shownKey(input, "notebook_path"))
+        default:
+            return hidesContent(input, shown: firstStringKey(input))
+        }
+    }
+
+    /// The path key counts as shown only when the summary could print it.
+    private static func shownKey(_ input: [String: Any], _ key: String) -> String? {
+        (input[key] as? String).map { !$0.split(whereSeparator: \.isWhitespace).isEmpty } == true ? key : nil
+    }
+
+    private static func hidesContent(_ input: [String: Any], shown: String?) -> Bool {
+        input.contains { key, value in key != shown && !isBlank(value) }
+    }
+
+    private static func isBlank(_ value: Any) -> Bool {
+        switch value {
+        case is NSNull: true
+        case let text as String: text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        case let list as [Any]: list.isEmpty
+        case let object as [String: Any]: object.isEmpty
+        default: false
+        }
     }
 
     /// `;`, `&&`, `||`, `|`, a lone `&`, backticks, `$(`, `<(` or `>(`. Redirections (`2>&1`, `&>`) are not
@@ -136,9 +168,14 @@ public struct PermissionRequest: Identifiable, Equatable, Sendable {
     }
 
     private static func firstString(_ input: [String: Any]) -> String? {
-        input.keys.sorted().lazy.compactMap { input[$0] as? String }
-            .map { $0.split(whereSeparator: \.isWhitespace).joined(separator: " ") }
-            .first { !$0.isEmpty }
+        firstStringKey(input).flatMap { input[$0] as? String }.map { $0.split(whereSeparator: \.isWhitespace).joined(separator: " ") }
+    }
+
+    /// The key whose value the generic summary shows: the alphabetically first non-blank string.
+    private static func firstStringKey(_ input: [String: Any]) -> String? {
+        input.keys.sorted().first { key in
+            (input[key] as? String).map { !$0.split(whereSeparator: \.isWhitespace).isEmpty } ?? false
+        }
     }
 
     static func detail(tool: String, input: [String: Any], description: String?) -> String {
