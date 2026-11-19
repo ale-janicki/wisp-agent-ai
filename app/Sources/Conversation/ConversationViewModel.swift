@@ -1032,6 +1032,10 @@ final class ConversationViewModel {
         if state.pendingTurns == 0 {
             discardSession()
         } else {
+            if !restartAfterTurn {
+                state.messages.append(ConversationMessage(
+                    role: .system, text: "o novo modo de permissão vale depois desta resposta"))
+            }
             restartAfterTurn = true
         }
     }
