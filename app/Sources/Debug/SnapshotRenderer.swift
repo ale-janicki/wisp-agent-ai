@@ -59,12 +59,25 @@ enum SnapshotRenderer {
         shell.tab = .home
         await render(shell, frame: layout.panel, notch: notch, to: directory, name: "3-panel-home-fresh")
         shell.tab = .settings
-        await render(shell, frame: layout.panel, notch: notch, to: directory, name: "7-panel-settings")
         let saved = AppSettings.shared.settings
-        AppSettings.shared.applyForSnapshot(WispSettings(
+        for section in SettingsSection.allCases {
+            var showing = saved
+            showing.settingsSection = section.rawValue
+            AppSettings.shared.applyForSnapshot(showing)
+            await render(shell, frame: layout.panel, notch: notch, to: directory, name: "7-panel-settings-\(section.rawValue)")
+            if section == .integrations {
+                IntegrationsPane.expandOnOpen = .spotify
+                shell.tab = .home
+                shell.tab = .settings
+                await render(shell, frame: layout.panel, notch: notch, to: directory, name: "7b-panel-settings-integrations-spotify")
+            }
+        }
+        var custom = WispSettings(
             theme: WispSettings.customTheme,
             custom: CustomTheme(accent: HexColor(0xF472B6), background: HexColor(0x0D1117), surface: HexColor(0x161B22))
-        ))
+        )
+        custom.settingsSection = SettingsSection.appearance.rawValue
+        AppSettings.shared.applyForSnapshot(custom)
         await render(shell, frame: layout.panel, notch: notch, to: directory, name: "8-panel-settings-custom")
         shell.tab = .home
         await render(shell, frame: layout.panel, notch: notch, to: directory, name: "9-panel-home-custom")

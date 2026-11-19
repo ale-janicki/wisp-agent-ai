@@ -137,6 +137,7 @@ public struct WispSettings: Codable, Equatable, Sendable {
     public var loginItemRegistered = false
     /// The permission mode chosen in Wisp while the profile is a link Wisp does not write through; nil otherwise.
     public var permissionMode: String?
+    public var settingsSection: String?
     var graphWasInvalid = false
 
     public init(theme: String = ThemePreset.lime.id, custom: CustomTheme? = nil, dashboardOrder: [String] = DashboardTileID.defaultOrder) {
@@ -145,7 +146,7 @@ public struct WispSettings: Codable, Equatable, Sendable {
         self.dashboardOrder = DashboardTileID.normalized(dashboardOrder)
     }
 
-    private enum CodingKeys: String, CodingKey { case theme, custom, dashboardOrder, telegramOrder, clipboardCapture, spotifyClientID, graph, notices, openAtLogin, loginItemRegistered, permissionMode }
+    private enum CodingKeys: String, CodingKey { case theme, custom, dashboardOrder, telegramOrder, clipboardCapture, spotifyClientID, graph, notices, openAtLogin, loginItemRegistered, permissionMode, settingsSection }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -159,6 +160,7 @@ public struct WispSettings: Codable, Equatable, Sendable {
         openAtLogin = try container.decodeIfPresent(Bool.self, forKey: .openAtLogin) ?? true
         loginItemRegistered = try container.decodeIfPresent(Bool.self, forKey: .loginItemRegistered) ?? false
         permissionMode = try? container.decodeIfPresent(String.self, forKey: .permissionMode)
+        settingsSection = try? container.decodeIfPresent(String.self, forKey: .settingsSection)
         do {
             graph = try container.decodeIfPresent(GraphControls.self, forKey: .graph) ?? GraphControls()
         } catch {

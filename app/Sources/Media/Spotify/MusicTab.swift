@@ -187,7 +187,7 @@ struct SpotifySetupSteps: View {
                 }
             }
             step(3, "Em APIs used, marque Web API e salve.") { EmptyView() }
-            step(4, "Copie o Client ID do app e cole em Ajustes > Spotify.") {
+            step(4, "Copie o Client ID do app e cole em Ajustes > Integrações.") {
                 if let openSettings {
                     Button("Abrir Ajustes", action: openSettings)
                         .buttonStyle(CapsuleButtonStyle(kind: .accent))
@@ -561,15 +561,36 @@ enum SpotifyFormat {
 struct SpotifySettingsCard: View {
     private let settings = AppSettings.shared
     private let spotify = SpotifyModel.shared
+    var embedded = false
     @State private var draft = ""
 
     var body: some View {
+        if embedded {
+            content
+                .onAppear(perform: load)
+        } else {
+            content
+                .padding(Theme.Space.l)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .card()
+                .onAppear(perform: load)
+        }
+    }
+
+    private func load() {
+        draft = settings.settings.spotifyClientID
+        spotify.bootstrap()
+    }
+
+    private var content: some View {
         VStack(alignment: .leading, spacing: Theme.Space.m) {
             HStack(spacing: Theme.Space.m) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Spotify")
-                        .font(Theme.Font.title)
-                        .foregroundStyle(Theme.textPrimary)
+                    if !embedded {
+                        Text("Spotify")
+                            .font(Theme.Font.title)
+                            .foregroundStyle(Theme.textPrimary)
+                    }
                     Text(status)
                         .font(Theme.Font.caption)
                         .foregroundStyle(Theme.textSecondary)
@@ -598,13 +619,6 @@ struct SpotifySettingsCard: View {
             if !spotify.hasClientID {
                 SpotifySetupSteps()
             }
-        }
-        .padding(Theme.Space.l)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .card()
-        .onAppear {
-            draft = settings.settings.spotifyClientID
-            spotify.bootstrap()
         }
     }
 

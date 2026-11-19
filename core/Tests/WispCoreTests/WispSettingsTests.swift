@@ -93,6 +93,14 @@ final class WispSettingsTests: XCTestCase {
         XCTAssertEqual(SettingsStore(directory: dir).settings.dashboardOrder, ["conversation", "alerts", "usage", "music"])
     }
 
+    func testSettingsSectionRoundTripsAndOldFilesHaveNone() throws {
+        XCTAssertNil(try JSONDecoder().decode(WispSettings.self, from: Data(#"{"theme":"lime"}"#.utf8)).settingsSection)
+        var settings = WispSettings.default
+        settings.settingsSection = "notices"
+        try SettingsStore(directory: dir).save(settings)
+        XCTAssertEqual(SettingsStore(directory: dir).settings.settingsSection, "notices")
+    }
+
     func testGraphControlsDefaultWhenKeyIsMissing() throws {
         let settings = try JSONDecoder().decode(WispSettings.self, from: Data(#"{"theme":"lime"}"#.utf8))
         XCTAssertEqual(settings.graph, GraphControls())
