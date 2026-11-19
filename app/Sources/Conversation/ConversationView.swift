@@ -57,7 +57,12 @@ struct ConversationView: View {
                                 case .tools(let group): ToolsRow(messages: group)
                                 }
                             }
-                            if model.isThinking { TypingRow(name: model.personaName) }
+                            if let request = model.state.approvals.first {
+                                ApprovalCard(request: request, queued: model.state.approvals.count - 1) { model.answer(request, $0) }
+                                    .id(request.id)
+                            } else if model.isThinking {
+                                TypingRow(name: model.personaName)
+                            }
                             if case .failed(let reason) = model.state.phase {
                                 FailureRow(reason: reason) { model.retry() }
                             }
@@ -227,6 +232,104 @@ private struct TypingRow: View {
         .padding(.horizontal, Theme.Space.m)
         .frame(height: 30)
         .background(Theme.surfaceHi, in: RoundedRectangle(cornerRadius: Theme.Radius.bubble, style: .continuous))
+    }
+}
+
+/// A tool call the CLI holds until the user answers; one at a time, the rest wait behind it.
+struct ApprovalCard: View {
+    let request: PermissionRequest
+    let queued: Int
+    let answer: (PermissionDecision) -> Void
+    @State private var expanded: Bool
+    /// The full input was open at least once; until then a summary that can hide part of it holds Permitir.
+    @State private var seenFull: Bool
+
+    init(request: PermissionRequest, queued: Int, expanded: Bool = false, answer: @escaping (PermissionDecision) -> Void) {
+        self.request = request
+        self.queued = queued
+        self.answer = answer
+        _expanded = State(initialValue: expanded)
+        _seenFull = State(initialValue: expanded)
+    }
+
+    private var locked: Bool { request.requiresExpansion && !seenFull }
+    private var lockedLabel: String {
+        request.toolName == "Bash" || request.toolName == "PowerShell" ? "comando longo — veja inteiro" : "veja o conteúdo inteiro"
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Theme.Space.s) {
+            HStack(spacing: Theme.Space.s) {
+                Circle().fill(Theme.busy).frame(width: 7, height: 7)
+                Text(ConversationReducer.awaitingApprovalStep)
+                    .font(Theme.Font.caption)
+                    .foregroundStyle(Theme.textSecondary)
+                Spacer(minLength: 0)
+                if queued > 0 {
+                    Text("+\(queued) na fila")
+                        .font(Theme.Font.caption)
+                        .foregroundStyle(Theme.textTertiary)
+                }
+            }
+            Text("O Claude quer \(request.summary)")
+                .font(Theme.Font.bodyMedium)
+                .foregroundStyle(Theme.textPrimary)
+                .lineLimit(3)
+                .truncationMode(.middle)
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+            Button {
+                let opening = !expanded
+                withAnimation(.easeOut(duration: 0.18)) { expanded = opening }
+                if opening { seenFull = true }
+            } label: {
+                HStack(spacing: 4) {
+                    if locked {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.system(size: 10))
+                    }
+                    Text(locked ? lockedLabel : "detalhes")
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 9, weight: .bold))
+                        .rotationEffect(.degrees(expanded ? 90 : 0))
+                }
+                .font(locked ? Theme.Font.bodyMedium : Theme.Font.caption)
+                .foregroundStyle(locked ? Theme.busy : Theme.textSecondary)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .pointerStyle(.link)
+            if expanded {
+                ScrollView {
+                    Text(request.detail)
+                        .font(Theme.Font.tool)
+                        .foregroundStyle(Theme.textSecondary)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(Theme.Space.s)
+                }
+                .frame(maxHeight: 220)
+                .background(Theme.surfaceHi, in: RoundedRectangle(cornerRadius: Theme.Radius.bubble, style: .continuous))
+                .transition(.opacity)
+            }
+            HStack(spacing: Theme.Space.s) {
+                Button("Permitir") { answer(.allow) }
+                    .buttonStyle(CapsuleButtonStyle())
+                    .disabled(locked)
+                    .help(locked ? "Abra o comando inteiro antes de permitir" : "")
+                if request.canPersist {
+                    Button("Sempre permitir") { answer(.allowAlways) }
+                        .buttonStyle(CapsuleButtonStyle(kind: .ghost))
+                        .disabled(locked)
+                        .help(locked ? "Abra o comando inteiro antes de permitir" : "Salva no Claude: \(request.persistRules.joined(separator: ", "))")
+                }
+                Spacer(minLength: 0)
+                Button("Negar") { answer(.deny) }
+                    .buttonStyle(CapsuleButtonStyle(kind: .error))
+            }
+        }
+        .padding(Theme.Space.m)
+        .background(Theme.busy.opacity(0.1), in: RoundedRectangle(cornerRadius: Theme.Radius.bubble, style: .continuous))
     }
 }
 

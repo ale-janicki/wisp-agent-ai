@@ -74,6 +74,8 @@ struct NoticeCard: View {
                    tint: notice.tone == .alert ? Theme.error : Theme.accent)
         case .update:
             symbol("arrow.down.circle.fill", tint: Theme.accent)
+        case .approval:
+            symbol("hand.raised.fill", tint: Theme.busy)
         }
     }
 

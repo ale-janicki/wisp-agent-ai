@@ -114,6 +114,10 @@ final class AppSettings {
         update { change(&$0.notices) }
     }
 
+    func setPermissionMode(_ mode: String?) {
+        update { $0.permissionMode = mode }
+    }
+
     #if DEBUG
     func applyForSnapshot(_ settings: WispSettings) {
         self.settings = settings
