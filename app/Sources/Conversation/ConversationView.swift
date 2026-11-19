@@ -253,6 +253,9 @@ struct ApprovalCard: View {
     }
 
     private var locked: Bool { request.requiresExpansion && !seenFull }
+    private var lockedLabel: String {
+        request.toolName == "Bash" || request.toolName == "PowerShell" ? "comando longo — veja inteiro" : "veja o conteúdo inteiro"
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Space.s) {
@@ -285,7 +288,7 @@ struct ApprovalCard: View {
                         Image(systemName: "exclamationmark.triangle.fill")
                             .font(.system(size: 10))
                     }
-                    Text(locked ? "comando longo — veja inteiro" : "detalhes")
+                    Text(locked ? lockedLabel : "detalhes")
                     Image(systemName: "chevron.right")
                         .font(.system(size: 9, weight: .bold))
                         .rotationEffect(.degrees(expanded ? 90 : 0))
