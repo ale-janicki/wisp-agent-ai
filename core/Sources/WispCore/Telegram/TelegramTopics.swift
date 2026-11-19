@@ -8,7 +8,6 @@ public struct TelegramTopic: Decodable, Identifiable, Sendable, Equatable {
     public var turns: Int
     public var lastUsed: Date?
     public var host: String?
-    /// Geral and Journals: the bot refuses to close them.
     public var fixed: Bool
 
     public var id: Int { thread }
@@ -52,74 +51,46 @@ public struct TelegramTopic: Decodable, Identifiable, Sendable, Equatable {
     }
 }
 
-public enum TelegramReading: Sendable, Equatable {
-    case here
-    case elsewhere(String)
-    case nobody
-}
-
-public enum TelegramClaimNeed: Sendable, Equatable {
-    case none
-    case refresh
-    case handOff(String)
-}
-
 public struct TelegramStatus: Decodable, Sendable, Equatable {
     public var up: Bool
     public var host: String?
     public var state: String?
-    public var reader: String?
-    public var claim: String?
 
-    public init(up: Bool, host: String? = nil, state: String? = nil, reader: String? = nil, claim: String? = nil) {
+    public init(up: Bool, host: String? = nil, state: String? = nil) {
         self.up = up
         self.host = host
         self.state = state
-        self.reader = reader
-        self.claim = claim
-    }
-
-    public var reading: TelegramReading {
-        if up { return .here }
-        guard let reader, !reader.isEmpty, reader != host else { return .nobody }
-        return .elsewhere(reader)
-    }
-
-    public var claimNeed: TelegramClaimNeed {
-        switch reading {
-        case .elsewhere(let reader): .handOff(reader)
-        case .nobody: .none
-        case .here:
-            if let host, !host.isEmpty, claim != host { .refresh } else { .none }
-        }
     }
 }
 
-public struct TelegramCreated: Decodable, Sendable, Equatable {
+public struct TelegramShared: Decodable, Sendable, Equatable {
     public var thread: Int
+    public var name: String
     public var sessionId: String
-    public var cwd: String
 
     private enum CodingKeys: String, CodingKey {
-        case thread, cwd
+        case thread, name
         case sessionId = "session_id"
     }
 }
 
-public struct TelegramClaim: Decodable, Sendable, Equatable {
-    public var ok: Bool
-    public var reader: String?
-    public var waitedSeconds: Double?
+public struct TelegramPost: Sendable, Equatable {
+    public var thread: Int
+    public var user: String
+    public var reply: String
+    public var files: [String] = []
 
-    public init(ok: Bool, reader: String? = nil, waitedSeconds: Double? = nil) {
-        self.ok = ok
-        self.reader = reader
-        self.waitedSeconds = waitedSeconds
+    public init(thread: Int, user: String, reply: String, files: [String] = []) {
+        self.thread = thread
+        self.user = user
+        self.reply = reply
+        self.files = files
     }
 
-    private enum CodingKeys: String, CodingKey {
-        case ok, reader
-        case waitedSeconds = "waited_s"
+    public var payload: Data {
+        var body: [String: Any] = ["thread": thread, "user": user, "reply": reply]
+        if !files.isEmpty { body["arquivos"] = files }
+        return (try? JSONSerialization.data(withJSONObject: body, options: [.sortedKeys])) ?? Data("{}".utf8)
     }
 }
 
@@ -136,8 +107,6 @@ public struct ConversationSections: Sendable, Equatable {
 }
 
 public enum TelegramTopics {
-    public static let nameLimit = 40
-
     public static func parseTopics(_ data: Data) throws -> [TelegramTopic] {
         try JSONDecoder().decode([TelegramTopic].self, from: data)
     }
@@ -146,41 +115,25 @@ public enum TelegramTopics {
         try JSONDecoder().decode(TelegramStatus.self, from: data)
     }
 
-    public static func parseCreated(_ data: Data) throws -> TelegramCreated {
-        try JSONDecoder().decode(TelegramCreated.self, from: data)
+    public static func parseShared(_ data: Data) throws -> TelegramShared {
+        try JSONDecoder().decode(TelegramShared.self, from: data)
     }
 
-    public static func parseClaim(_ data: Data) throws -> TelegramClaim {
-        try JSONDecoder().decode(TelegramClaim.self, from: data)
+    public static func mirror(sessionId: String?, topics: [TelegramTopic]?, user: String, reply: String, files: [String] = []) -> TelegramPost? {
+        guard let topic = topic(forSession: sessionId, in: topics),
+              !reply.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        return TelegramPost(thread: topic.thread, user: user, reply: reply, files: files)
     }
 
-    /// A topic command's error without the tool-name prefix some commands put first (`some-tool: …`).
-    public static func claimFailure(_ message: String) -> String {
-        guard let range = message.range(of: #"^[a-z0-9]+(-[a-z0-9]+)+: "#, options: .regularExpression) else { return message }
-        return String(message[range.upperBound...])
+    public static func topic(forSession sessionId: String?, in topics: [TelegramTopic]?) -> TelegramTopic? {
+        guard let sessionId, let topics else { return nil }
+        return topics.first { $0.sessionId == sessionId }
     }
 
-    public static func hostName(_ host: String) -> String {
-        switch host.lowercased() {
-        case "pc": "PC"
-        case "mac": "Mac"
-        default: host
-        }
-    }
-
-    public static func topicName(from message: String) -> String {
-        let line = message.split(whereSeparator: \.isWhitespace).joined(separator: " ")
-        guard line.count > nameLimit else { return line }
-        return String(line.prefix(nameLimit - 1)).trimmingCharacters(in: .whitespaces) + "…"
-    }
-
-    /// Geral then Journals first (by thread), the rest in the order the CLI gave (last use).
     static func pinned(_ topics: [TelegramTopic]) -> [TelegramTopic] {
         topics.filter(\.fixed).sorted { $0.thread < $1.thread } + topics.filter { !$0.fixed }
     }
 
-    /// Without a saved order: `pinned`. With one: threads it does not know (new topics) on top by last use,
-    /// then the saved ones in their saved order; saved ids no longer listed are skipped.
     static func ordered(_ topics: [TelegramTopic], saved: [Int]) -> [TelegramTopic] {
         guard !saved.isEmpty else { return pinned(topics) }
         let byThread = Dictionary(topics.map { ($0.thread, $0) }, uniquingKeysWith: { first, _ in first })
@@ -194,16 +147,16 @@ public enum TelegramTopics {
 
     public static func sections(records: [ConversationRecord], topics: [TelegramTopic]?, order: [Int] = []) -> ConversationSections {
         guard let topics else { return ConversationSections(wisp: records, telegram: []) }
-        let threads = Set(topics.map(\.thread))
-        var linked: [Int: ConversationRecord] = [:]
+        let sessions = Set(topics.map(\.sessionId))
+        var linked: [String: ConversationRecord] = [:]
         for record in records {
-            guard let thread = record.telegramThread, threads.contains(thread) else { continue }
-            if let current = linked[thread], current.updatedAt >= record.updatedAt { continue }
-            linked[thread] = record
+            guard let sessionId = record.sessionId, sessions.contains(sessionId) else { continue }
+            if let current = linked[sessionId], current.updatedAt >= record.updatedAt { continue }
+            linked[sessionId] = record
         }
         return ConversationSections(
-            wisp: records.filter { record in record.telegramThread.map { !threads.contains($0) } ?? true },
-            telegram: ordered(topics, saved: order).map { TelegramEntry(topic: $0, record: linked[$0.thread]) }
+            wisp: records.filter { record in record.sessionId.map { !sessions.contains($0) } ?? true },
+            telegram: ordered(topics, saved: order).map { TelegramEntry(topic: $0, record: linked[$0.sessionId]) }
         )
     }
 }
@@ -211,30 +164,50 @@ public enum TelegramTopics {
 public struct TelegramBlock: Codable, Sendable, Equatable {
     public var status: String?
     public var list: String?
-    public var create: String?
-    public var send: String?
+    public var share: String?
+    public var post: String?
     public var close: String?
-    public var claim: String?
-    /// Folder the bot accepts attachments from (`<folder>/<yyyy-MM-dd>/…`); Wisp copies picked files there.
     public var attachments: String?
 
-    /// `send` passes files through an optional `{anexos}` (repeated `--anexo 'path'`); without it, text only.
-    public var sendsAttachments: Bool { (send ?? "").contains("{anexos}") }
-
     public init(
-        status: String? = nil, list: String? = nil, create: String? = nil, send: String? = nil,
-        close: String? = nil, claim: String? = nil, attachments: String? = nil
+        status: String? = nil, list: String? = nil, share: String? = nil, post: String? = nil,
+        close: String? = nil, attachments: String? = nil
     ) {
         self.status = status
         self.list = list
-        self.create = create
-        self.send = send
+        self.share = share
+        self.post = post
         self.close = close
-        self.claim = claim
         self.attachments = attachments
     }
 
     public var isComplete: Bool {
-        [status, list, create, send, close].allSatisfy { !($0 ?? "").isEmpty }
+        [status, list, close].allSatisfy { !($0 ?? "").isEmpty }
     }
+
+    public func derivingActions() -> TelegramBlock {
+        let suffix = " topic listar --json"
+        guard let list, list.hasSuffix(suffix) else { return self }
+        let bin = String(list.dropLast(suffix.count))
+        guard !bin.trimmingCharacters(in: .whitespaces).isEmpty else { return self }
+        var derived = self
+        if (share ?? "").isEmpty {
+            derived.share = "\(bin) topic compartilhar --session={session} --cwd={cwd} --nome={name} --json"
+        }
+        if (post ?? "").isEmpty { derived.post = "\(bin) topic postar --json" }
+        return derived
+    }
+
+    public var binary: String? {
+        let suffix = " topic listar --json"
+        guard let list, list.hasSuffix(suffix) else { return nil }
+        var bin = String(list.dropLast(suffix.count)).trimmingCharacters(in: .whitespaces)
+        if bin.count >= 2, let first = bin.first, first == bin.last, first == "\"" || first == "'" {
+            bin = String(bin.dropFirst().dropLast())
+        }
+        return bin.isEmpty ? nil : bin
+    }
+
+    public var canShare: Bool { !(share ?? "").isEmpty }
+    public var canPost: Bool { !(post ?? "").isEmpty }
 }

@@ -37,14 +37,20 @@ struct ConversationListColumn: View {
         let sections = model.sections
         return ScrollView {
             VStack(alignment: .leading, spacing: 2) {
-                section("Wisp") {
+                section("Local") {
                     ForEach(sections.wisp) { record in
                         ConversationRow(
                             record: record,
                             selected: record.id == model.currentId,
-                            held: model.heldDot(record.id),
                             preview: model.preview(record),
+                            activity: model.activity(id: record.id, sessionId: record.sessionId),
+                            canShare: model.canShare(record),
+                            away: model.isAway(record),
+                            canPhone: model.canContinueOnPhone(record),
                             open: { model.open(record) },
+                            share: { model.share(record) },
+                            phone: { model.continueOnPhone(record) },
+                            backToMac: { model.returnToMac(record) },
                             delete: { model.delete(record) }
                         )
                     }
@@ -109,7 +115,7 @@ private struct TelegramSection: View {
         switch telegram.link {
         case .notConfigured: nil
         case .checking: Theme.textTertiary
-        case .up, .remote: Theme.ok
+        case .up: Theme.ok
         case .down: Theme.error
         }
     }
@@ -121,7 +127,6 @@ private struct TelegramSection: View {
             } else {
                 switch telegram.link {
                 case .down(let reason): note("Bot fora: \(reason)")
-                case .remote(let host): note("Telegram lido pelo \(host)")
                 case .notConfigured, .checking, .up: EmptyView()
                 }
                 switch telegram.topics {
@@ -170,8 +175,12 @@ private struct TelegramSection: View {
                         entry: entry,
                         selected: model.linkedThread == entry.topic.thread,
                         closing: telegram.closing.contains(entry.topic.thread),
-                        held: entry.record.flatMap { model.heldDot($0.id) },
                         preview: model.preview(entry),
+                        activity: model.activity(id: entry.record?.id, sessionId: entry.topic.sessionId),
+                        away: model.isAway(entry),
+                        canPhone: model.telegram.canPost && !model.isSharing,
+                        phone: { model.continueOnPhone(entry) },
+                        backToMac: { model.returnToMac(entry) },
                         open: {
                             guard !dragging else { return }
                             model.open(entry)
@@ -258,8 +267,12 @@ private struct TopicRow: View {
     let entry: TelegramEntry
     let selected: Bool
     let closing: Bool
-    let held: StatusColor?
     var preview: String?
+    var activity: RowActivity = .none
+    var away = false
+    var canPhone = false
+    var phone: () -> Void = {}
+    var backToMac: () -> Void = {}
     let open: () -> Void
     let close: () -> Void
     let blocked: () -> Bool
@@ -270,20 +283,23 @@ private struct TopicRow: View {
 
     var body: some View {
         if confirming {
-            HStack(spacing: 6) {
-                Text("Encerrar no Telegram?")
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Encerrar «\(entry.topic.name)»?")
                     .font(Theme.Font.caption)
                     .foregroundStyle(Theme.textSecondary)
                     .lineLimit(1)
-                Spacer(minLength: 0)
-                Button("Sim") {
-                    confirming = false
-                    close()
+                    .truncationMode(.middle)
+                HStack(spacing: 6) {
+                    Button("Encerrar") {
+                        confirming = false
+                        close()
+                    }
+                    .buttonStyle(CompactCapsuleStyle(accent: true))
+                    Button("Cancelar") { confirming = false }
+                        .buttonStyle(CompactCapsuleStyle(accent: false))
                 }
-                .buttonStyle(CompactCapsuleStyle(accent: true))
-                Button("Não") { confirming = false }
-                    .buttonStyle(CompactCapsuleStyle(accent: false))
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, Theme.Space.m)
             .frame(height: Self.height)
             .background(Theme.surfaceHi, in: RoundedRectangle(cornerRadius: Theme.Radius.nav, style: .continuous))
@@ -291,12 +307,13 @@ private struct TopicRow: View {
             Button(action: open) {
                 VStack(alignment: .leading, spacing: 1) {
                     HStack(spacing: 6) {
-                        if let held { HeldDot(color: held) }
                         Text(entry.topic.name)
                             .font(Theme.Font.body)
                             .foregroundStyle(selected ? Theme.textPrimary : Theme.textSecondary)
                             .lineLimit(1)
                             .truncationMode(.tail)
+                        ActivityMark(activity: activity)
+                        PhoneBadge(away: away)
                     }
                     Text(closing ? "encerrando…" : caption)
                         .font(Theme.Font.caption)
@@ -330,6 +347,14 @@ private struct TopicRow: View {
                 }
             }
             .onHover { hovering = $0 }
+            .contextMenu {
+                if away {
+                    Button("Voltar ao Mac", action: backToMac)
+                } else {
+                    Button("Continuar no celular", action: phone)
+                        .disabled(!canPhone || closing)
+                }
+            }
             .help(entry.topic.name)
         }
     }
@@ -341,12 +366,48 @@ private struct TopicRow: View {
     }
 }
 
+private struct PhoneBadge: View {
+    let away: Bool
+
+    var body: some View {
+        if away {
+            Image(systemName: "iphone")
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundStyle(Theme.textTertiary)
+                .help("Continuando no celular")
+        }
+    }
+}
+
+private struct ActivityMark: View {
+    let activity: RowActivity
+
+    var body: some View {
+        switch activity {
+        case .none:
+            EmptyView()
+        case .thinking:
+            ProgressView().controlSize(.mini).help("Respondendo…")
+        case .attention:
+            Circle().fill(Theme.accent).frame(width: 6, height: 6).help("Precisa de atenção")
+        case .sharing:
+            ProgressView().controlSize(.mini).help("Compartilhando no Telegram…")
+        }
+    }
+}
+
 struct ConversationRow: View {
     let record: ConversationRecord
     let selected: Bool
-    let held: StatusColor?
     var preview: String?
+    var activity: RowActivity = .none
+    var canShare = false
+    var away = false
+    var canPhone = false
     let open: () -> Void
+    var share: () -> Void = {}
+    var phone: () -> Void = {}
+    var backToMac: () -> Void = {}
     let delete: () -> Void
     @State private var hovering = false
 
@@ -356,12 +417,13 @@ struct ConversationRow: View {
         Button(action: open) {
             VStack(alignment: .leading, spacing: 1) {
                 HStack(spacing: 6) {
-                    if let held { HeldDot(color: held) }
                     Text(record.title)
                         .font(Theme.Font.body)
                         .foregroundStyle(selected ? Theme.textPrimary : Theme.textSecondary)
                         .lineLimit(1)
                         .truncationMode(.tail)
+                    ActivityMark(activity: activity)
+                    PhoneBadge(away: away)
                 }
                 Text(Self.relative(record.updatedAt))
                     .font(Theme.Font.caption)
@@ -390,6 +452,14 @@ struct ConversationRow: View {
         }
         .onHover { hovering = $0 }
         .contextMenu {
+            Button("Compartilhar no Telegram", action: share)
+                .disabled(!canShare)
+            if away {
+                Button("Voltar ao Mac", action: backToMac)
+            } else {
+                Button("Continuar no celular", action: phone)
+                    .disabled(!canPhone)
+            }
             Button("Apagar conversa", role: .destructive, action: delete)
         }
         .help(record.title)
@@ -404,17 +474,5 @@ struct ConversationRow: View {
             return "ontem, \(time)"
         }
         return "\(date.formatted(.dateTime.day().month(.abbreviated).locale(locale))), \(time)"
-    }
-}
-
-/// A conversation with messages in the outbox: amber while they wait, red when one was not sent.
-struct HeldDot: View {
-    let color: StatusColor
-
-    var body: some View {
-        Circle()
-            .fill(color.color)
-            .frame(width: 6, height: 6)
-            .help(color == .error ? "Uma mensagem não foi enviada" : "Mensagens na fila do Telegram")
     }
 }

@@ -15,7 +15,19 @@ COMMIT_BUDGET_SECONDS = 10
 GIT_EMAIL = "wisp@localhost"
 BOOT_LABELS = {"pt": ("Hoje", "Cérebro", "Pendências"), "en": ("Today", "Brain", "Pendências")}
 GUARD_TOKEN_SPLIT = re.compile(r"[\s;|&<>(){}\"'`=,:]+")
-GUARD_MESSAGE = "wisp: blocked access to the Wisp secrets folder ({where})"
+GUARD_PREFIX = "wisp-guard:"
+GUARD_MESSAGE = GUARD_PREFIX + " blocked access to the Wisp secrets folder ({where}). Best-effort defense in depth"
+TELEGRAM_GUARD_MESSAGE = (
+    GUARD_PREFIX + " the Wisp bot's token and config are off limits ({where}). Best-effort defense in depth. "
+    'In the app reply with a [name](file:///abs/path) link; in Telegram, only when the user asked, run '
+    '"$WISP_BIN" topic enviar --thread="$WISP_TOPIC_THREAD" <absolute file>'
+)
+TELEGRAM_API = re.compile(r"api\.telegram\.org", re.I)
+WISP_BOT_NAME = re.compile(r"\bwisp_bot\b|\bload_bot_config\b|\bBotConfig\b")
+BOT_CONFIG_LOADER = re.compile(r"\bload_bot_config\b|\bload_settings\b|\bBotConfig\b|\bCURRENT\b")
+TOKEN_ATTRIBUTE = re.compile(r"\.token\b")
+TELEGRAM_SHELL_TOOLS = {"Bash"}
+TELEGRAM_WRITE_TOOLS = {"Write", "Edit", "MultiEdit", "NotebookEdit"}
 HELD_NOTE = "Arquivo {rel} ficou fora do commit por parecer conter um segredo"
 
 
@@ -145,7 +157,6 @@ def _strings(value) -> list[str]:
 
 
 def hook_guard_secrets(payload: dict, paths: WispPaths) -> str | None:
-    """Returns the reason to block this tool call, or None when it may run."""
     tool_input = payload.get("tool_input")
     if not isinstance(tool_input, dict):
         return None
@@ -171,3 +182,65 @@ def _shell_enters_config(text: str, paths: WispPaths, cwd: Path) -> bool:
             if any(_under(_expand(token, paths, cwd), r) for r in roots):
                 return True
     return False
+
+
+def _wisp_roots(paths: WispPaths) -> list[Path]:
+    declared = [paths.config, paths.home / ".config" / "wisp"]
+    normal = [Path(os.path.normpath(r)) for r in declared]
+    return list(dict.fromkeys(_fold(r) for r in normal + [r.resolve() for r in normal]))
+
+
+def _fold(path: Path) -> Path:
+    return Path(str(path).casefold())
+
+
+def _token_paths(cfg: WispConfig, paths: WispPaths) -> set[Path]:
+    declared = [paths.config / "secrets" / "telegram-token"]
+    if cfg.telegram and cfg.telegram.token_file:
+        declared.append(_expand(cfg.telegram.token_file, paths, paths.home))
+    return {_fold(p) for path in declared for p in (path, path.resolve())}
+
+
+def _names_wisp_files(text: str, paths: WispPaths, cwd: Path, roots: list[Path], token_paths: set[Path]) -> bool:
+    for token in filter(None, GUARD_TOKEN_SPLIT.split(text)):
+        if "/" not in token and not token.startswith("~"):
+            continue
+        expanded = _expand(token, paths, cwd)
+        for candidate in {_fold(expanded), _fold(expanded.resolve())}:
+            if candidate in token_paths or any(_under(candidate, root) for root in roots):
+                return True
+    return False
+
+
+def _in_wisp_checkout(file_path: str, cwd: Path) -> bool:
+    path = Path(os.path.normpath(Path(file_path).expanduser() if Path(file_path).is_absolute() else cwd / file_path))
+    return any((root / "bot/src/wisp_bot").is_dir() and (root / "cli/src/wisp").is_dir() for root in path.parents)
+
+
+def _reads_bot_token(text: str) -> bool:
+    return bool(TOKEN_ATTRIBUTE.search(text) and WISP_BOT_NAME.search(text) and BOT_CONFIG_LOADER.search(text))
+
+
+def hook_guard_telegram(payload: dict, paths: WispPaths, cfg: WispConfig) -> str | None:
+    tool_input = payload.get("tool_input")
+    if not isinstance(tool_input, dict):
+        return None
+    tool = payload.get("tool_name") or "tool"
+    cwd = Path(payload["cwd"]) if isinstance(payload.get("cwd"), str) and payload["cwd"] else paths.home
+    roots, token_paths = _wisp_roots(paths), _token_paths(cfg, paths)
+    message = TELEGRAM_GUARD_MESSAGE.format(where=tool)
+    texts = _strings(tool_input)
+    if tool in TELEGRAM_SHELL_TOOLS:
+        texts = [re.sub(r"\$\{(\w+)\}", r"$\1", re.sub(r"/{2,}", "/", s)) for s in texts]
+    file_path = tool_input.get("file_path") or tool_input.get("notebook_path")
+    code = list(texts)
+    if tool in TELEGRAM_WRITE_TOOLS and isinstance(file_path, str) and _in_wisp_checkout(file_path, cwd):
+        code = []
+        texts = [file_path]
+    if any(_names_wisp_files(text, paths, cwd, roots, token_paths) for text in texts):
+        return message
+    if any(_reads_bot_token(text) for text in code):
+        return message
+    if any(TELEGRAM_API.search(text) and WISP_BOT_NAME.search(text) for text in code):
+        return message
+    return None

@@ -7,7 +7,7 @@ What Wisp installs into a new user's `~/.claude`, and what it leaves out. Source
 | Source | Destination | Scrubbed |
 |---|---|---|
 | `kit/CLAUDE.md` + `harness/CLAUDE.md` (memory rules) | `claude-md-block.md` | Rewritten in English; persona, user, brain path and language became placeholders; markers `wisp:begin/end` added; dropped the marketing and finance routing, the fixed vault name, and the author's routing table |
-| (new) | `settings.json` | Fragment with only `permissions` and `hooks`; hooks call `wisp hook`, never an interpreter |
+| (new) | `settings.json` | Fragment with only `permissions` and `hooks`; hooks call `wisp hook` (`guard-secrets`, `guard-telegram`, `guard-destructive`, `boot`, `brain-commit`), never an interpreter. The three guards also run without this harness: the app and the bot pass them to every `claude` they start with `--settings` |
 | `harness/agents/reader.md` | `agents/reader.md` | Owner and ecosystem name became `{{PERSONA_NAME}}'s harness` |
 | `harness/agents/operator.md` | `agents/operator.md` | Same; dropped the engineering-standard path; owner became `{{USER_NAME}}` |
 | `harness/agents/reviewer.md` | `agents/reviewer.md` | Same; dropped the pointer to the end-to-end reviewer |
@@ -22,7 +22,7 @@ What Wisp installs into a new user's `~/.claude`, and what it leaves out. Source
 | The 122 linked skills and 12 linked hooks | Symlinks into another organisation's shared skills repository; not the author's to redistribute |
 | `general/` skills of the other organisation's shared skills repository | NEEDS-ALE, not shipped: ask whether any may ship |
 | `agents/reviewer-e2e.md` | Needs a browser tool and a login store; only used at commit time |
-| `hooks/status-gate`, `hooks/vault-gate` and every other hook | Depend on the author's binaries and vault layout; Wisp has its own two hooks |
+| `hooks/status-gate`, `hooks/vault-gate` and every other hook | Depend on the author's binaries and vault layout; Wisp has its own hooks |
 | `commands/commit-push`, `check`, `e2e`, `e2e-video`, `repo-sync`, `run-migration`, `deploy-status`, `update-changelog`, `task-new`, `tasks`, `show-tasks`, `start`, `soul`, `open-code` | Coding workflow for developers |
 | `commands/daily-start`, `me-avisa`, `topico`, `create-context` | Call the author's own binaries (calendar, mail, alerts, topic CLI) |
 | `skills/marketeiro`, `skills/finance` and the kit's skills | Personal brand and finance data of the author; not generic |

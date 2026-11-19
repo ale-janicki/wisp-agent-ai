@@ -1,4 +1,3 @@
-"""PC fora da LAN (Host is down) conta como leitura valida de 'down'; timeout/recusa seguem ilegiveis."""
 import asyncio
 import time
 import types
@@ -21,10 +20,10 @@ def test_ssh_host_inalcancavel(err, esperado):
 
 
 @pytest.mark.parametrize("rc_ssh,windows,esperado", [
-    (hosting.RC_LAN_INALCANCAVEL, False, "down"),   # host down + Windows mudo
-    (124, False, None),                             # timeout + Windows mudo
-    (255, False, None),                             # recusa/auth
-    (hosting.RC_LAN_INALCANCAVEL, True, "down"),    # Windows responde: caminho RC_PC_WINDOWS
+    (hosting.RC_LAN_INALCANCAVEL, False, "down"),
+    (124, False, None),
+    (255, False, None),
+    (hosting.RC_LAN_INALCANCAVEL, True, "down"),
 ])
 def test_estado_do_pc_lan(monkeypatch, rc_ssh, windows, esperado):
     monkeypatch.setattr(hosting, "mac_na_lan_do_pc", lambda: True)
@@ -89,8 +88,6 @@ def test_host_down_pc_host_hostname_e_ilegivel(monkeypatch):
     assert _fora_ou_dentro(monkeypatch, cfg, "192.168.0.75") is None
 
 
-# ---- estado "off": o PC avisa que desligou de proposito ----
-
 def _saida_estado(estado, ts, agora=1000):
     return f'{{"host": "pc", "state": "{estado}", "ts": {ts}}}\n\n{agora}\n'
 
@@ -108,11 +105,11 @@ def test_interpretar_demais_estados_inalterados():
 
 
 @pytest.mark.parametrize("faltas,ativo,bloqueado,esperado", [
-    (0, False, False, ("manter", 1)),      # 1a leitura off: so conta
-    (1, False, False, ("ativar", 2)),      # 2a leitura off seguida: ativa
+    (0, False, False, ("manter", 1)),
+    (1, False, False, ("ativar", 2)),
     (5, False, False, ("ativar", 6)),
-    (1, False, True, ("manter", 2)),       # conflito vence
-    (1, True, False, ("manter", 2)),       # ja ativo
+    (1, False, True, ("manter", 2)),
+    (1, True, False, ("manter", 2)),
     (0, True, False, ("manter", 1)),
 ])
 def test_decidir_mac_off_ativa_so_na_segunda_leitura(faltas, ativo, bloqueado, esperado):
@@ -241,7 +238,7 @@ def test_vigia_mac_ativo_mata_o_ssh_e_volta_no_standby(monkeypatch):
             await asyncio.sleep(0.01)
         morto, n = procs[0].morto, len(procs)
         await asyncio.sleep(0.1)
-        assert len(procs) == n                      # ativo: nao reconecta
+        assert len(procs) == n
         h.estado = "standby"
         h._mudanca.set()
         for _ in range(200):
@@ -270,8 +267,8 @@ def test_pc_argv_real_extra_antes_do_destino(monkeypatch):
     base = hosting.pc_argv()
     com = hosting.pc_argv(extra=hosting.OPCOES_VIGIA)
     assert com[0] == "ssh" and com[1:5] == hosting.OPCOES_VIGIA
-    assert com[5:] == base[1:]                         # o resto, na mesma ordem
-    assert com[-2:] == ["u@1.2.3.4", "bash -s"]        # destino, depois o comando remoto por ultimo
+    assert com[5:] == base[1:]
+    assert com[-2:] == ["u@1.2.3.4", "bash -s"]
     assert "ServerAliveInterval=5" not in base
 
 
@@ -290,11 +287,11 @@ def test_esperar_ciclo_com_vigia_off_interrompe_e_sem_off_espera_o_prazo(monkeyp
         h = hosting.Hosting(object(), None, None)
         h._vigia_ligada = True
         t0 = time.monotonic()
-        await h._esperar_ciclo(0.1)                    # sem off: vence o prazo
+        await h._esperar_ciclo(0.1)
         prazo = time.monotonic() - t0
         h._off.set()
         t0 = time.monotonic()
-        await h._esperar_ciclo(30)                     # com off: volta na hora
+        await h._esperar_ciclo(30)
         return prazo, time.monotonic() - t0
     prazo, com_off = asyncio.run(asyncio.wait_for(cenario(), 5))
     assert prazo >= 0.09 and com_off < 1
@@ -303,11 +300,9 @@ def test_esperar_ciclo_com_vigia_off_interrompe_e_sem_off_espera_o_prazo(monkeyp
 def _mac_com_leituras(monkeypatch, leituras, off_antes=False, grace=None, fechou=False, bloqueado=False,
                       eventos=None, sondas=(False, False), atraso=0.0, mudo=False, roteadores=(True, True), lans=(True,), ativo=False,
                       lido_extra=None):
-    """Roda _rodar_mac com estado_do_pc roteirizado e relogio falso; devolve (ativacoes, esperas, h, lidas, cedidos).
-    `sondas`: o que cada pc_responde devolve; `atraso`: segundos entre o sinal e o ciclo. Para ao esgotar as leituras. `eventos` registra a ordem: ("espera", t), "sonda", "le", ("ativar", relogio), ("motivo", m)."""
     monkeypatch.setattr(hosting, "HOST", "mac")
     eventos = [] if eventos is None else eventos
-    checagens, publicados = [], []               # (mac, claim_idade) de cada leitura; (estado, extra) de cada gravar_estado
+    checagens, publicados = [], []
     monkeypatch.setattr(hosting, "gravar_estado", lambda e, extra=None: publicados.append((e, extra)))
     relogio = [1000.0]
     monkeypatch.setattr(hosting, "time", types.SimpleNamespace(monotonic=lambda: relogio[0], time=time.time))
@@ -396,7 +391,7 @@ def _mac_com_leituras(monkeypatch, leituras, off_antes=False, grace=None, fechou
 @pytest.mark.parametrize("lido", ["active", "grace"])
 def test_off_velho_com_leitura_viva_nao_ativa_e_cede(monkeypatch, lido):
     ativacoes, esperas, h, lidas, cedidos = _mac_com_leituras(monkeypatch, [lido], off_antes=True)
-    assert ativacoes == [] and len(lidas) == 1 and not h._off.is_set()   # sempre le de verdade
+    assert ativacoes == [] and len(lidas) == 1 and not h._off.is_set()
     assert (len(cedidos) == 1) == (lido == "grace")
 
 
@@ -421,8 +416,6 @@ def test_leitura_down_segue_com_check_standby(monkeypatch):
     _, esperas, _, _, _ = _mac_com_leituras(monkeypatch, ["down"])
     assert esperas == [hosting.CHECK_STANDBY_S]
 
-
-# ---- o PC fechou a sessao (SIGTERM no desligamento): segundo sinal da vigia ----
 
 @pytest.mark.parametrize("err,esperado", [
     ("Connection to 192.168.0.71 closed by remote host.\n", True),
@@ -456,14 +449,14 @@ async def _rodar_vigia_ate_eof(h, procs, n=1):
 
 @pytest.mark.parametrize("linhas,stderr,esperado", [
     ([b'{"state": "active"}\n'], FECHOU, True),
-    ([], FECHOU, False),                                          # nunca conectou de verdade
-    ([b'{"state": "active"}\n'], b"", False),                    # EOF mudo
+    ([], FECHOU, False),
+    ([b'{"state": "active"}\n'], b"", False),
     ([b'{"state": "active"}\n'], b"Timeout, server x not responding.\n", False),
     ([b'{"state": "active"}\n'], b"Connection closed by 1.2.3.4 port 22\n", False),
 ])
 def test_vigia_sinal_de_sessao_fechada(monkeypatch, linhas, stderr, esperado):
     async def cenario():
-        monkeypatch.setattr(hosting, "mac_na_lan_do_pc", lambda: False)   # o Timeout so vira sinal "mudo" na LAN
+        monkeypatch.setattr(hosting, "mac_na_lan_do_pc", lambda: False)
         h, _, procs = _vigia(monkeypatch, linhas, False, stderr)
         await _rodar_vigia_ate_eof(h, procs)
         return h
@@ -513,7 +506,7 @@ def test_vigia_stderr_grande_nao_trava(monkeypatch):
         h, _, procs = _vigia(monkeypatch, [b'{"state": "active"}\n'], False, b"x" * 500_000 + FECHOU)
         await asyncio.wait_for(_rodar_vigia_ate_eof(h, procs), 5)
         return h
-    asyncio.run(cenario())          # nao travar e nao levantar
+    asyncio.run(cenario())
 
 
 def test_fechou_duas_sondas_mudas_ativa_sem_ler_o_estado_em_fechou_ativa_s(monkeypatch):
@@ -537,7 +530,6 @@ def test_fechou_primeira_sonda_responde_so_uma_sonda_e_ciclo_normal(monkeypatch)
 
 def test_fechou_segunda_sonda_responde_ciclo_normal_e_none_nao_ativa(monkeypatch):
     eventos = []
-    # None zera as faltas: o "off" seguinte e so a primeira leitura off
     ativacoes, _, h, lidas, _ = _mac_com_leituras(monkeypatch, [None, "off"], fechou=True, eventos=eventos,
                                                   sondas=(False, True))
     assert eventos.count("sonda") == 2 and ativacoes == [] and len(lidas) == 2
@@ -598,8 +590,6 @@ def test_decidir_mac_fechou():
     assert hosting.decidir_mac("fechou", 0, False, bloqueado=True)[0] == "manter"
 
 
-# ---- o PC morreu sem avisar: o ssh da vigia estoura (ServerAlive) ----
-
 @pytest.mark.parametrize("err,esperado", [
     ("Timeout, server 192.168.0.71 not responding.\n", True),
     ("Timeout, server pc-test not responding.", True),
@@ -621,10 +611,10 @@ MUDO = b"Timeout, server 192.168.0.71 not responding.\n"
 
 @pytest.mark.parametrize("linhas,stderr,lan,tipo", [
     ([b'{"state": "active"}\n'], MUDO, True, "mudo"),
-    ([], MUDO, True, None),                                   # nunca conectou
-    ([b'{"state": "active"}\n'], MUDO, False, None),         # Mac fora da LAN do PC
+    ([], MUDO, True, None),
+    ([b'{"state": "active"}\n'], MUDO, False, None),
     ([b'{"state": "active"}\n'], b"", True, None),
-    ([b'{"state": "active"}\n'], FECHOU, True, "fechou"),    # fechou pelo PC segue igual
+    ([b'{"state": "active"}\n'], FECHOU, True, "fechou"),
 ])
 def test_vigia_sinal_mudo_ou_fechou(monkeypatch, linhas, stderr, lan, tipo):
     async def cenario():
@@ -671,12 +661,12 @@ def _roteador(monkeypatch, route_rc, route_out, ping_rc):
 
 @pytest.mark.parametrize("route_rc,route_out,ping_rc,esperado", [
     (0, "   route to: default\n    gateway: 192.168.0.1\n", 0, True),
-    (0, "   gateway: 192.168.0.1\n", 2, False),               # ping falhou
-    (0, "   gateway: 192.168.0.1\n", 124, False),             # ping estourou
-    (0, "   route to: default\n", 0, False),                   # sem gateway
-    (0, "   gateway: fe80::1%en0\n", 0, False),                # IPv6
+    (0, "   gateway: 192.168.0.1\n", 2, False),
+    (0, "   gateway: 192.168.0.1\n", 124, False),
+    (0, "   route to: default\n", 0, False),
+    (0, "   gateway: fe80::1%en0\n", 0, False),
     (0, "   gateway: link#14\n", 0, False),
-    (124, "", 0, False),                                       # route estourou
+    (124, "", 0, False),
     (1, "   gateway: 192.168.0.1\n", 0, False),
 ])
 def test_roteador_responde(monkeypatch, route_rc, route_out, ping_rc, esperado):
@@ -736,7 +726,6 @@ def test_mudo_ignorado_se_o_mac_ja_le(monkeypatch):
 
 
 def test_mudo_descartado_e_leitura_none_deixa_faltas_zeradas(monkeypatch):
-    # sinal descartado (PC respondeu), leitura None zera as faltas, "off" seguinte e so a primeira
     ativacoes, _, h, lidas, _ = _mac_com_leituras(monkeypatch, [None, "off"], mudo=True, sondas=(True,))
     assert ativacoes == [] and len(lidas) == 2
 
@@ -747,10 +736,7 @@ def test_decidir_mac_mudo():
     assert hosting.decidir_mac("mudo", 0, False, bloqueado=True)[0] == "manter"
 
 
-# ---- desativar reentrante: 409 em voo + "o PC voltou" no mesmo instante ----
-
 class _UpdaterFalso:
-    """stop() espera um portao e levanta RuntimeError se o updater ja nao roda (como o do python-telegram-bot)."""
     def __init__(self):
         self.rodando, self.paradas, self.portao = True, 0, asyncio.Event()
 
@@ -804,16 +790,16 @@ def test_409_em_voo_e_ceder_do_loop_nao_derrubam_o_hosting(monkeypatch):
         monkeypatch.setattr(hosting, "estado_do_pc", le)
         async def vigia_parado(): await asyncio.Event().wait()
         h._vigiar_pc = vigia_parado
-        h.conflito()                                   # desativar em voo, preso no stop()
+        h.conflito()
         antes = h.bloqueado_ate
         await asyncio.sleep(0.05)
 
         async def espera(t):
             up.portao.set()
-            raise asyncio.CancelledError               # um ciclo so
+            raise asyncio.CancelledError
         h._esperar_ciclo = espera
-        with pytest.raises(asyncio.CancelledError):    # RuntimeError aqui = hosting morreu
-            await asyncio.wait_for(h._rodar_mac(), 2)  # preso no stop() = TimeoutError (falha), nao trava a suite
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(h._rodar_mac(), 2)
         await asyncio.wait_for(h._cessao, 2)
         return h, up, antes
     h, up, antes = asyncio.run(asyncio.wait_for(cenario(), 5))
@@ -823,7 +809,7 @@ def test_409_em_voo_e_ceder_do_loop_nao_derrubam_o_hosting(monkeypatch):
 def test_desativar_com_stop_que_falha_limpa_a_trava(monkeypatch):
     async def cenario():
         up = _UpdaterFalso()
-        up.rodando = False                             # stop() vai levantar
+        up.rodando = False
         up.portao.set()
         h, _ = _hosting_ativo(monkeypatch, up)
         with pytest.raises(RuntimeError):
@@ -832,8 +818,6 @@ def test_desativar_com_stop_que_falha_limpa_a_trava(monkeypatch):
     h = asyncio.run(cenario())
     assert h._soltando is False and h.estado == "active"
 
-
-# ---- leitor segue o ultimo claim do Wisp (17/11): Mac <-> PC pelo claim, sem "o PC ganha" ----
 
 import json as _json
 import os as _os
@@ -851,14 +835,14 @@ def test_interpretar_standby_com_claim_do_mac_e_cedeu():
     assert hosting.interpretar_estado_pc(0, _estado_com_claim("standby", "mac")) == "cedeu"
     assert hosting.interpretar_estado_pc(0, _estado_com_claim("standby", None)) == "down"
     assert hosting.interpretar_estado_pc(0, _estado_com_claim("standby", "pc")) == "down"
-    assert hosting.interpretar_estado_pc(0, _estado_com_claim("standby", "mac", ts=900)) == "down"   # velho = sem bot
-    assert hosting.interpretar_estado_pc(0, _estado_com_claim("active", "mac")) == "active"          # ainda num turno
+    assert hosting.interpretar_estado_pc(0, _estado_com_claim("standby", "mac", ts=900)) == "down"
+    assert hosting.interpretar_estado_pc(0, _estado_com_claim("active", "mac")) == "active"
     assert hosting.interpretar_estado_pc(0, _estado_com_claim("grace", "pc")) == "grace"
 
 
 @pytest.mark.parametrize("ativo,bloqueado,esperado", [
-    (False, False, "ativar"),          # o PC soltou: o Mac le na primeira checagem
-    (False, True, "manter"),           # 409 recente segue valendo
+    (False, False, "ativar"),
+    (False, True, "manter"),
     (True, False, "manter"),
 ])
 def test_decidir_mac_cedeu(ativo, bloqueado, esperado):
@@ -925,7 +909,7 @@ def test_script_estado_pc_grava_mac_visto_e_a_saida_nao_muda(tmp_path):
     mtime, st = hosting.ler_mac_visto(d / "mac-seen.json")
     assert st == "active" and abs(mtime - time.time()) < 5
     (d / "mac-seen.json").unlink()
-    r = _bash(hosting.script_estado_pc(), tmp_path)           # a CLI so le: nao finge ser o bot do Mac
+    r = _bash(hosting.script_estado_pc(), tmp_path)
     assert r.returncode == 0 and not (d / "mac-seen.json").exists()
 
 
@@ -975,15 +959,15 @@ def test_gravar_estado_no_pc_leva_o_claim_e_no_mac_nao(monkeypatch, tmp_path):
 
 
 @pytest.mark.parametrize("claim,ativo,ocupado,idade,mac_ativo,parado,esperado", [
-    (None, False, False, 0, False, 0, "ler"),          # sem claim: o PC le como sempre (grace)
+    (None, False, False, 0, False, 0, "ler"),
     ("pc", False, False, 999, False, 0, "ler"),
     ("pc", True, False, 999, False, 0, "manter"),
-    ("mac", True, True, 5, False, 0, "esperar"),       # turno rodando: nunca solta no meio
+    ("mac", True, True, 5, False, 0, "esperar"),
     ("mac", True, False, 5, False, 0, "soltar"),
-    ("mac", False, False, 5, True, 0, "manter"),       # o Mac le
-    ("mac", False, False, 5, False, 30, "manter"),     # o Mac ainda esta ativando
-    ("mac", False, False, 5, False, 61, "retomar"),    # o Mac vive mas nao le: o claim volta
-    ("mac", False, False, 91, False, 0, "tomar"),      # o Mac sumiu (dormiu/desligou)
+    ("mac", False, False, 5, True, 0, "manter"),
+    ("mac", False, False, 5, False, 30, "manter"),
+    ("mac", False, False, 5, False, 61, "retomar"),
+    ("mac", False, False, 91, False, 0, "tomar"),
     ("mac", True, True, 91, False, 0, "tomar"),
 ])
 def test_decidir_pc(claim, ativo, ocupado, idade, mac_ativo, parado, esperado):
@@ -991,8 +975,6 @@ def test_decidir_pc(claim, ativo, ocupado, idade, mac_ativo, parado, esperado):
 
 
 class _PC:
-    """O laco do PC com relogio falso e arquivos num tmp: o claim, a checagem do Mac, o host-state e o peer-yielded."""
-
     def __init__(self, monkeypatch, tmp_path, claim=None, ativo=False, ocupado=False):
         self.relogio = [1_800_000_000.0]
         monkeypatch.setattr(hosting, "HOST", "pc")
@@ -1003,8 +985,8 @@ class _PC:
             monkeypatch.setattr(hosting, nome, tmp_path / arq if arq else tmp_path)
         self.tmp, self.ativacoes, self.paradas, self.soltas, self.ocupado = tmp_path, [], [], [], [ocupado]
         self.ao_dormir = None
-        self.ocupa_ao_parar = False                   # um update ja lido vira handler logo depois do updater.stop
-        self.religar_falha = 0                        # quantas chamadas de start_polling ainda levantam
+        self.ocupa_ao_parar = False
+        self.religar_falha = 0
         pc = self
 
         async def dorme(t):
@@ -1058,15 +1040,15 @@ class _PC:
 def test_pc_lendo_e_claim_do_mac_espera_o_turno_e_depois_solta(monkeypatch, tmp_path):
     pc = _PC(monkeypatch, tmp_path, claim="pc", ativo=True, ocupado=True)
     pc.mac_checou()
-    hosting.gravar_claim("mac")                       # o Wisp do Mac pediu (ssh Mac->PC)
+    hosting.gravar_claim("mac")
     pc.passos(3)
-    assert pc.h.ativo and pc.paradas == [] and pc.soltas == []       # turno rodando: segue lendo
+    assert pc.h.ativo and pc.paradas == [] and pc.soltas == []
     assert pc.publicado() == "active"
-    pc.ocupado[0] = False                             # o turno acabou
+    pc.ocupado[0] = False
     pc.mac_checou()
     pc.passos(1)
     assert not pc.h.ativo and len(pc.paradas) == 1 and len(pc.soltas) == 1
-    assert pc.publicado() == "cedeu"                  # o que o Mac le na checagem seguinte
+    assert pc.publicado() == "cedeu"
     pc.mac_checou("active")
     pc.passos(30)
     assert not pc.h.ativo and pc.ativacoes == [] and hosting.ler_claim()["host"] == "mac"
@@ -1076,7 +1058,7 @@ def test_pc_turno_que_chega_durante_o_push_segura_a_soltura(monkeypatch, tmp_pat
     pc = _PC(monkeypatch, tmp_path, claim="mac", ativo=True)
     pc.mac_checou()
 
-    async def soltar(): pc.ocupado[0] = True          # mensagem do celular chegou enquanto empurrava as notas
+    async def soltar(): pc.ocupado[0] = True
     pc.h.antes_de_soltar = soltar
     pc.passos(1)
     assert pc.h.ativo and pc.paradas == []
@@ -1086,14 +1068,14 @@ def test_pc_religar_falha_com_trabalho_chegando_nao_publica_standby_e_insiste(mo
     pc = _PC(monkeypatch, tmp_path, claim="mac", ativo=True)
     pc.mac_checou()
     pc.religar_falha = 1
-    pc.ocupa_ao_parar = True                          # chega trabalho durante o hand-off
-    pc.passos(1)                                      # para o updater, ve ocupado, religar levanta
-    assert pc.h.ativo and pc.publicado() == "active"  # nunca standby/cedeu: o Mac nao pode ler agora
+    pc.ocupa_ao_parar = True
+    pc.passos(1)
+    assert pc.h.ativo and pc.publicado() == "active"
     assert pc.ativacoes == [] and len(pc.paradas) == 1
     pc.mac_checou()
-    pc.passos(1)                                      # proximo passo: religar de novo
+    pc.passos(1)
     assert len(pc.ativacoes) == 1 and pc.h.ativo and pc.publicado() == "active"
-    assert pc.h._sem_leitura is False and len(pc.paradas) == 1   # nao parou de novo
+    assert pc.h._sem_leitura is False and len(pc.paradas) == 1
 
 
 def test_pc_religar_falha_varias_vezes_segue_ativo_ate_conseguir(monkeypatch, tmp_path):
@@ -1114,25 +1096,25 @@ def test_pc_em_standby_pelo_mac_e_claim_do_pc_volta_pelo_grace(monkeypatch, tmp_
     pc.mac_checou("active")
     pc.passos(2)
     assert not pc.h.ativo and pc.publicado() == "cedeu"
-    hosting.gravar_claim("pc")                        # o Wisp do PC pediu
+    hosting.gravar_claim("pc")
 
-    def mac_cede():                                   # o Mac ve o grace e grava peer-yielded
+    def mac_cede():
         if hosting.ler_estado_local().get("state") == "grace":
             (tmp_path / "peer-yielded").touch()
     pc.ao_dormir = mac_cede
     pc.passos(1)
     assert pc.h.ativo and len(pc.ativacoes) == 1
-    assert pc.ativacoes[0] - pc.relogio[0] < 5        # nao esperou o grace inteiro
+    assert pc.ativacoes[0] - pc.relogio[0] < 5
 
 
 def test_pc_reboot_mantem_o_claim_do_mac(monkeypatch, tmp_path):
     pc = _PC(monkeypatch, tmp_path, claim="mac")
     p = tmp_path / "mac-seen.json"
     p.write_text('{"state": "active"}')
-    _os.utime(p, (pc.relogio[0] - 600, pc.relogio[0] - 600))   # o PC ficou 10 min desligado
+    _os.utime(p, (pc.relogio[0] - 600, pc.relogio[0] - 600))
     pc.passos(int(hosting.GRACE_S) + 10)
     assert not pc.h.ativo and pc.ativacoes == [] and pc.publicado() == "cedeu"
-    pc.mac_checou("active")                           # o Mac segue checando: o PC nunca le
+    pc.mac_checou("active")
     pc.passos(int(hosting.MAC_FRESCO_S))
     pc.mac_checou("active")
     pc.passos(int(hosting.MAC_FRESCO_S))
@@ -1142,9 +1124,9 @@ def test_pc_reboot_mantem_o_claim_do_mac(monkeypatch, tmp_path):
 def test_pc_mac_sumiu_o_claim_volta_e_le_sem_grace(monkeypatch, tmp_path):
     pc = _PC(monkeypatch, tmp_path, claim="mac")
     pc.mac_checou("active")
-    pc.passos(int(hosting.MAC_FRESCO_S) + 2)          # o Mac fechou a tampa: nenhuma checagem mais
+    pc.passos(int(hosting.MAC_FRESCO_S) + 2)
     assert pc.h.ativo and len(pc.ativacoes) == 1 and hosting.ler_claim()["host"] == "pc"
-    pc.mac_checou("standby")                          # o Mac acorda: o claim ja e do PC, nada de flapping
+    pc.mac_checou("standby")
     pc.passos(30)
     assert pc.h.ativo and pc.paradas == []
 
@@ -1152,7 +1134,7 @@ def test_pc_mac_sumiu_o_claim_volta_e_le_sem_grace(monkeypatch, tmp_path):
 def test_pc_mac_vivo_sem_ler_retoma_pelo_grace(monkeypatch, tmp_path):
     pc = _PC(monkeypatch, tmp_path, claim="mac")
     pc.h._precisa_grace = True
-    for _ in range(int(hosting.MAC_ESPERA_S) + 5):    # o Mac checa (409 recente) mas nao le
+    for _ in range(int(hosting.MAC_ESPERA_S) + 5):
         pc.mac_checou("standby")
         pc.passos(1)
         if pc.h.ativo:
@@ -1197,7 +1179,7 @@ def test_pc_ativacao_falhou_insiste_a_cada_batida(monkeypatch, tmp_path):
     pc.h.app = types.SimpleNamespace(updater=Updater)
     pc.passos(12)
     assert not pc.h.ativo and hosting.ler_estado_local()["state"] == "grace"
-    assert 2 <= len(tentativas) <= 4                  # o grace, depois a cada BATIDA_S (nao a cada segundo)
+    assert 2 <= len(tentativas) <= 4
 
 
 def test_409_no_pc_nao_cede_mesmo_com_claim_do_mac(monkeypatch, tmp_path):
@@ -1205,8 +1187,6 @@ def test_409_no_pc_nao_cede_mesmo_com_claim_do_mac(monkeypatch, tmp_path):
     pc.h.conflito()
     assert pc.h.ativo and pc.h._cessao is None
 
-
-# ---- fix round 1 (17/11): achados da revisao do A3 ----
 
 from wisp_bot import topicos as _topicos
 
@@ -1232,7 +1212,7 @@ def test_sync_no_estouro_mata_o_grupo_inteiro(monkeypatch, tmp_path):
     assert asyncio.run(_topicos.push_agora(0.5)) is False
     assert time.monotonic() - t0 < 5
     time.sleep(0.2)
-    assert _sobra(marca) == ""                         # o "git" filho do brain-sync nao sobrevive
+    assert _sobra(marca) == ""
 
 
 def test_sync_cancelado_mata_o_grupo_inteiro(monkeypatch, tmp_path):
@@ -1258,7 +1238,6 @@ import threading as _threading
 
 
 def _pc_que_serve(tmp_path, monkeypatch, conteudo: bytes, pausa: float = 0.02):
-    """pc_argv = um bash local que serve `conteudo` como o script do buscar_do_pc, devagar (linha a linha)."""
     import hashlib
     b64 = _base64.encodebytes(conteudo).decode().split()
     corpo = "".join(f"echo {l}; sleep {pausa}\n" for l in b64)
@@ -1323,10 +1302,10 @@ def test_pc_trabalho_que_chega_depois_do_stop_religa_e_nunca_publica_cedeu(monke
         @staticmethod
         async def stop():
             pc.paradas.append(pc.relogio[0])
-            pc.ocupado[0] = True                       # um update ja lido virou turno (anexo, pedido da fila)
+            pc.ocupado[0] = True
     pc.h.app = types.SimpleNamespace(updater=Updater)
     pc.passos(1)
-    assert pc.h.ativo and len(pc.paradas) == 1 and len(pc.ativacoes) == 1   # parou, viu o turno, religou
+    assert pc.h.ativo and len(pc.paradas) == 1 and len(pc.ativacoes) == 1
     assert "standby" not in publicados and pc.publicado() == "active"
 
 
@@ -1340,10 +1319,10 @@ def test_pc_soltando_espera_a_fila_de_updates_esvaziar(monkeypatch, tmp_path):
         async def start_polling(**kw): pc.ativacoes.append(pc.relogio[0])
         @staticmethod
         async def stop():
-            fila.put_nowait("update")                 # o ultimo getUpdates trouxe uma mensagem
+            fila.put_nowait("update")
     pc.h.app = types.SimpleNamespace(updater=Updater, update_queue=fila)
 
-    def handler():                                    # o PTB tira da fila e o handler conta o turno
+    def handler():
         if not fila.empty():
             fila.get_nowait()
             pc.ocupado[0] = True
@@ -1354,7 +1333,7 @@ def test_pc_soltando_espera_a_fila_de_updates_esvaziar(monkeypatch, tmp_path):
 
 def test_pc_nao_solta_para_mac_bloqueado_e_retoma_se_ja_soltou(monkeypatch, tmp_path):
     pc = _PC(monkeypatch, tmp_path, claim="mac", ativo=True)
-    pc.mac_checou("bloqueado")                        # o Mac levou 409 ha pouco: nao pode ler
+    pc.mac_checou("bloqueado")
     pc.passos(5)
     assert pc.h.ativo and pc.paradas == [] and hosting.ler_claim()["host"] == "mac"
     (tmp_path / "b").mkdir()
@@ -1362,7 +1341,7 @@ def test_pc_nao_solta_para_mac_bloqueado_e_retoma_se_ja_soltou(monkeypatch, tmp_
     pc2.h._precisa_grace = True
     pc2.mac_checou("bloqueado")
     pc2.passos(1)
-    assert pc2.h.ativo and hosting.ler_claim()["host"] == "pc"   # PC em standby: o claim volta e le ja
+    assert pc2.h.ativo and hosting.ler_claim()["host"] == "pc"
 
 
 def test_script_estado_pc_grava_mac_bloqueado(tmp_path):
@@ -1374,9 +1353,9 @@ def test_script_estado_pc_grava_mac_bloqueado(tmp_path):
 
 def test_mac_bloqueado_manda_bloqueado_na_checagem_e_publica_o_fim(monkeypatch):
     _, _, h, _, _ = _mac_com_leituras(monkeypatch, ["down"], bloqueado=True)
-    assert h.checagens_teste == [("bloqueado", None)]           # o PC fica sabendo que o Mac nao pode ler
+    assert h.checagens_teste == [("bloqueado", None)]
     estado, extra = h.publicados_teste[-1]
-    assert estado == "standby" and extra["bloqueado_ate"] > time.time()   # a CLI recusa na hora
+    assert estado == "standby" and extra["bloqueado_ate"] > time.time()
     _, _, h, _, _ = _mac_com_leituras(monkeypatch, ["down"])
     assert h.checagens_teste == [("standby", None)]
 
@@ -1384,11 +1363,11 @@ def test_mac_bloqueado_manda_bloqueado_na_checagem_e_publica_o_fim(monkeypatch):
 def test_pc_tomar_nao_atropela_claim_novo_do_mac(monkeypatch, tmp_path):
     pc = _PC(monkeypatch, tmp_path, claim="mac")
     pc.mac_checou("active")
-    pc.relogio[0] += hosting.MAC_FRESCO_S + 5          # o Mac sumiu...
+    pc.relogio[0] += hosting.MAC_FRESCO_S + 5
     real = hosting.ler_mac_visto
     n = [0]
 
-    def visto(path=None):                             # ...e o Wisp do Mac grava um claim novo no meio da volta
+    def visto(path=None):
         n[0] += 1
         r = real(path)
         if n[0] == 1:
@@ -1414,8 +1393,8 @@ def test_script_entregar_claim_respeita_claim_mais_novo_do_pc(tmp_path):
     f.write_text(_json.dumps({"host": "pc", "ts": int(time.time()) - 600}))
     assert _bash(hosting.script_entregar_claim(60), tmp_path).returncode == 0
     c = hosting.ler_claim(f)
-    assert c["host"] == "mac" and abs(c["ts"] - (time.time() - 60)) < 5      # datado de quando o Wisp pediu
-    f.write_text(_json.dumps({"host": "pc", "ts": int(time.time()) - 10}))   # o Wisp do PC pediu depois
+    assert c["host"] == "mac" and abs(c["ts"] - (time.time() - 60)) < 5
+    f.write_text(_json.dumps({"host": "pc", "ts": int(time.time()) - 10}))
     _bash(hosting.script_entregar_claim(60), tmp_path)
     assert hosting.ler_claim(f)["host"] == "pc"
     f.unlink()
@@ -1426,13 +1405,13 @@ def test_script_entregar_claim_respeita_claim_mais_novo_do_pc(tmp_path):
 def test_mac_entrega_o_claim_pendente_e_nao_cede_ao_grace_lido_antes(monkeypatch, tmp_path):
     monkeypatch.setattr(hosting, "CLAIM_PENDENTE", tmp_path / "claim-pendente.json")
     _, _, h, _, cedidos = _mac_com_leituras(monkeypatch, ["grace"], ativo=True)
-    assert cedidos == [1] and not h.ativo              # sem claim pendente: cede ao grace como sempre
+    assert cedidos == [1] and not h.ativo
     hosting.gravar_claim_pendente()
     _, _, h, _, cedidos = _mac_com_leituras(monkeypatch, ["grace"], ativo=True,
                                             lido_extra={"claim": "pc", "entregue": True})
-    assert cedidos == [] and h.ativo                   # o PC bootou no grace; o claim do Wisp acabou de chegar la
+    assert cedidos == [] and h.ativo
     assert h.checagens_teste[0][1] is not None
-    assert hosting.idade_claim_pendente() is None      # entregue: sai do Mac
+    assert hosting.idade_claim_pendente() is None
 
 
 def test_mac_publica_o_claim_lido_do_pc(monkeypatch):
@@ -1451,7 +1430,7 @@ def test_turno_rodando_conta_anexo_na_janela(monkeypatch):
     monkeypatch.setattr(_bot, "_locks", {})
     assert _bot._turno_rodando() is False
     _bot._anexos_pendentes["-1:9"] = {"itens": ["- a.jpg"]}
-    assert _bot._turno_rodando() is True              # o turno nasce em 3 s: o PC nao pode soltar agora
+    assert _bot._turno_rodando() is True
 
 
 def test_turno_rodando_conta_pedido_da_fila_e_handler_em_curso(monkeypatch):
@@ -1464,7 +1443,7 @@ def test_turno_rodando_conta_pedido_da_fila_e_handler_em_curso(monkeypatch):
 
         async def pedido(): await solta.wait()
         t = _bot._disparar(pedido())
-        assert _bot._turno_rodando() is True          # contado ja no disparo, antes de a task rodar
+        assert _bot._turno_rodando() is True
         solta.set()
         await t
         await asyncio.sleep(0)
@@ -1477,7 +1456,7 @@ def test_turno_rodando_conta_pedido_da_fila_e_handler_em_curso(monkeypatch):
             await sai.wait()
         h = asyncio.ensure_future(_bot._contado(handler)(None, None))
         await entrou.wait()
-        assert _bot._turno_rodando() is True          # update ja lido, handler ainda antes do turno
+        assert _bot._turno_rodando() is True
         sai.set()
         await h
         assert _bot._turno_rodando() is False
@@ -1510,7 +1489,7 @@ def test_abrir_topico_conta_o_primeiro_turno_desde_o_disparo(monkeypatch):
 
     async def cenario():
         await _bot.abrir_topico(Bot(), -1, "x", "/tmp", "faz algo")
-        vistos.append(_bot._turno_rodando())          # a task ainda nem rodou
+        vistos.append(_bot._turno_rodando())
         soltar.set()
         for _ in range(5):
             await asyncio.sleep(0)
@@ -1542,63 +1521,6 @@ def test_encerrar_conta_o_fechar_desde_o_disparo(monkeypatch):
         vistos.append(_bot._turno_rodando())
     asyncio.run(cenario())
     assert vistos == [True, False]
-
-
-def _ctl_trazer(monkeypatch, segurar_lock: bool):
-    monkeypatch.setattr(_bot, "HOST", "mac")
-    monkeypatch.setattr(_bot, "_locks", {})
-    monkeypatch.setattr(_bot, "_key_da_thread", lambda thread: f"-1:{thread}")
-    vistos, feitos = [], {}
-
-    def trazer(sid, cwd, prazo):
-        vistos.append((sid, prazo, _bot.lock_for("-1:9").locked()))
-        return "trazida"
-    monkeypatch.setattr(_bot.sessao, "trazer_se_maior", trazer)
-    monkeypatch.setattr(_bot.ctl, "gravar_done", lambda id_, res: feitos.update({id_: res}))
-
-    async def cenario():
-        lk = _bot.lock_for("-1:9")
-        if segurar_lock:
-            await lk.acquire()
-        await _bot.ctl_executar(types.SimpleNamespace(bot=None), {"id": "abc", "op": "trazer", "thread": 9,
-                                                                  "session_id": SID_BOT, "cwd": "/nao/existe",
-                                                                  "prazo": 30, "at": time.time()}, "local")
-    asyncio.run(cenario())
-    return vistos, feitos["abc"]
-
-
-def test_ctl_trazer_puxa_sob_o_lock_do_topico(monkeypatch):
-    vistos, res = _ctl_trazer(monkeypatch, False)
-    assert res == {"ok": True, "session": "trazida"}
-    assert vistos == [(SID_BOT, 30, True)]            # o pull roda com o lock do topico seguro
-
-
-def test_ctl_trazer_com_turno_no_topico_nao_puxa_junto(monkeypatch):
-    vistos, res = _ctl_trazer(monkeypatch, True)
-    assert res == {"ok": True, "session": "local"} and vistos == []   # o turno em curso ja alinha a sessao
-
-
-def test_ctl_falar_no_geral_posta_sem_message_thread_id(monkeypatch):
-    """Geral e a thread 0 na chave, mas o Telegram recusa message_thread_id=0: vai None, como no on_message."""
-    monkeypatch.setattr(_bot, "_key_da_thread", lambda thread: f"-1:{thread}")
-    enviados, turnos, feitos = [], [], {}
-
-    async def send(bot, chat, tid, texto):
-        enviados.append(tid)
-
-    async def turno(bot, chat, tid, key, texto, contexto=""):
-        turnos.append((tid, key))
-    monkeypatch.setattr(_bot, "send", send)
-    monkeypatch.setattr(_bot, "turno", turno)
-    monkeypatch.setattr(_bot.ctl, "gravar_done", lambda id_, res: feitos.update({id_: res}))
-
-    async def cenario():
-        await _bot.ctl_executar(types.SimpleNamespace(bot=None), {"id": "g", "op": "falar", "thread": "0",
-                                                                  "texto": "oi", "at": time.time()}, "local")
-        await asyncio.sleep(0)
-    asyncio.run(cenario())
-    assert feitos["g"] == {"ok": True, "thread_id": 0}
-    assert enviados == [None] and turnos == [(None, "-1:0")]
 
 
 def test_sh_err_estouro_mata_o_grupo_inteiro(tmp_path):

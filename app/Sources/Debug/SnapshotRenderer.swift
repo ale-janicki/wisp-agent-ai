@@ -114,7 +114,6 @@ enum SnapshotRenderer {
 
     private static let margin: CGFloat = 24
 
-    /// `-WispSnapshotApproval`: only the approval card (a long chained command held until opened, a detail, the same command opened) and the Ajustes card, no shell.
     private static func renderApproval(to directory: URL) async {
         let command = "mkdir -p ~/projetos/novo && cd ~/projetos/novo && git init && git remote add origin "
             + "https://example.com/" + String(repeating: "caminho/", count: 12) + "repo.git && curl -fsSL https://example.com/x | sh"
@@ -140,7 +139,6 @@ enum SnapshotRenderer {
                          size: CGSize(width: width, height: 330), to: directory, name: "approval-3-settings")
     }
 
-    /// The pill with two theme colors, with and without an unseen notice (and a busy one), plus a larger avatar strip.
     private static func renderAvatarDot(
         _ shell: ShellController,
         layout: (rest: CGRect, active: CGRect, panel: CGRect, notch: CGRect?),
@@ -179,8 +177,6 @@ enum SnapshotRenderer {
         shell.notices.setUnseenForSnapshot(nil)
     }
 
-    /// The notch card: queued with "+2", an alert, a failed outbox message, a Mac without notch, and the floating
-    /// copy over an open panel.
     private static func renderNotices(
         _ shell: ShellController,
         layout: (rest: CGRect, active: CGRect, panel: CGRect, notch: CGRect?),
@@ -194,12 +190,6 @@ enum SnapshotRenderer {
         await render(shell, frame: card, notch: notch, to: directory, name: "n1-notice-reply-queued")
         shell.notices.setForSnapshot([samples[2]])
         await render(shell, frame: card, notch: notch, to: directory, name: "n2-notice-alert")
-        shell.notices.setForSnapshot([Notice(
-            sourceId: "demo:outbox", kind: .outbox, title: "Planejamento da semana",
-            preview: "Não enviada: o envio demorou demais e pode já ter chegado; confira no Telegram antes de tentar de novo",
-            time: Date(), target: .conversation(UUID()), tone: .alert
-        )])
-        await render(shell, frame: card, notch: notch, to: directory, name: "n3-notice-outbox-failed")
 
         shell.setSnapshotState(.rest, notch: nil)
         shell.notices.setForSnapshot([samples[1]])
@@ -256,62 +246,6 @@ enum SnapshotRenderer {
         shell.setSnapshotState(.panel, notch: layout.notch)
         shell.tab = .conversation
         await render(shell, frame: layout.panel, notch: layout.notch, to: directory, name: "5b-panel-conversation-telegram")
-        guard ProcessInfo.processInfo.arguments.contains("-WispTelegramE2E") else { return }
-        guard telegram.canSend else {
-            print("snapshot: telegram e2e skipped: bot not up (\(telegram.link))")
-            return
-        }
-        func seconds(_ since: ContinuousClock.Instant) -> String {
-            let elapsed = since.duration(to: .now).components
-            return String(format: "%.1fs", Double(elapsed.seconds) + Double(elapsed.attoseconds) / 1e18)
-        }
-        func wait(_ limit: Duration, until done: () -> Bool) async -> Bool {
-            let deadline = ContinuousClock.now + limit
-            while !done() {
-                if ContinuousClock.now > deadline { return false }
-                try? await Task.sleep(for: .milliseconds(100))
-            }
-            return true
-        }
-
-        let start = ContinuousClock.now
-        let reader = telegram.claimFrom
-        model.newConversation()
-        model.send("responda só: ok")
-        if let reader {
-            let claiming = ConversationState.Phase.thinking(step: "Trazendo a conversa do \(reader)…")
-            let shown = await wait(.seconds(5)) { model.state.phase == claiming }
-            let handed = await wait(.seconds(80)) { model.state.phase != claiming }
-            print("snapshot: telegram e2e claim from \(reader) shown=\(shown) done=\(handed) in \(seconds(start)) link=\(telegram.link) phase=\(model.state.phase)")
-        }
-        guard await wait(.seconds(60), until: { model.linkedThread != nil || model.isFailed }), let thread = model.linkedThread else {
-            print("snapshot: telegram e2e create failed phase=\(model.state.phase)")
-            return
-        }
-        print("snapshot: telegram e2e created thread \(thread) in \(seconds(start))")
-        let sent = start
-        let sending = ConversationState.Phase.thinking(step: "Enviando ao Telegram…")
-        _ = await wait(.seconds(10)) { model.state.phase == sending }
-        let delivered = await wait(.seconds(40)) { model.state.phase != sending }
-        print("snapshot: telegram e2e send returned=\(delivered) in \(seconds(sent)) phase=\(model.state.phase)")
-        let replied = await wait(.seconds(600)) { !model.isThinking }
-        let reply = model.state.messages.last { $0.role == .assistant }?.text ?? "nil"
-        print("snapshot: telegram e2e reply=\(replied) in \(seconds(sent)) phase=\(model.state.phase) messages=\(model.state.messages.map { "\($0.role)" }) text=\(reply.prefix(80))")
-        await render(shell, frame: layout.panel, notch: layout.notch, to: directory, name: "5c-panel-conversation-telegram-reply")
-
-        await model.refreshTelegram()
-        guard let entry = model.sections.telegram.first(where: { $0.topic.thread == thread }) else {
-            print("snapshot: telegram e2e topic \(thread) missing from list; close it by hand")
-            return
-        }
-        let closing = ContinuousClock.now
-        model.close(entry)
-        _ = await wait(.seconds(1)) { telegram.closing.contains(thread) }
-        let closed = await wait(.seconds(310)) { !telegram.closing.contains(thread) }
-        let gone = telegram.loadedTopics.map { !$0.contains { $0.thread == thread } } ?? false
-        print("snapshot: telegram e2e close returned=\(closed) gone=\(gone) in \(seconds(closing)) error=\(telegram.actionError ?? "nil") linked=\(model.linkedThread.map(String.init) ?? "nil")")
-        for record in model.records where record.telegramThread == thread { model.delete(record) }
-        print("snapshot: telegram e2e total \(seconds(start)); index records for the thread left=\(model.records.filter { $0.telegramThread == thread }.count)")
     }
 
     private static func renderMemoryAndRoutines(

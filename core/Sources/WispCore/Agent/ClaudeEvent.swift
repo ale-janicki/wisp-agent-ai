@@ -4,6 +4,8 @@ public enum ClaudeEvent: Sendable, Equatable {
     case thinking
     case text(String)
     case toolUse(name: String, summary: String)
+    case fileSend(toolUseId: String, paths: [String])
+    case toolResult(toolUseId: String, isError: Bool, text: String)
     case permissionRequest(PermissionRequest)
     case permissionCancelled(id: String)
     case usage(RateLimit)

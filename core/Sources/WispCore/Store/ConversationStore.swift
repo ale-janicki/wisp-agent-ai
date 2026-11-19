@@ -9,11 +9,14 @@ public struct ConversationRecord: Codable, Identifiable, Sendable, Equatable {
     public var cwd: String?
     public var lastPreview: String?
     public var lastFrom: PreviewSide?
+    public var titleGenerated: Bool
+    public var awayOnPhone: Bool
 
     public init(
         id: UUID, sessionId: String?, title: String, updatedAt: Date,
         telegramThread: Int? = nil, cwd: String? = nil,
-        lastPreview: String? = nil, lastFrom: PreviewSide? = nil
+        lastPreview: String? = nil, lastFrom: PreviewSide? = nil, titleGenerated: Bool = false,
+        awayOnPhone: Bool = false
     ) {
         self.id = id
         self.sessionId = sessionId
@@ -23,6 +26,22 @@ public struct ConversationRecord: Codable, Identifiable, Sendable, Equatable {
         self.cwd = cwd
         self.lastPreview = lastPreview
         self.lastFrom = lastFrom
+        self.titleGenerated = titleGenerated
+        self.awayOnPhone = awayOnPhone
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        sessionId = try c.decodeIfPresent(String.self, forKey: .sessionId)
+        title = try c.decode(String.self, forKey: .title)
+        updatedAt = try c.decode(Date.self, forKey: .updatedAt)
+        telegramThread = try c.decodeIfPresent(Int.self, forKey: .telegramThread)
+        cwd = try c.decodeIfPresent(String.self, forKey: .cwd)
+        lastPreview = try c.decodeIfPresent(String.self, forKey: .lastPreview)
+        lastFrom = try c.decodeIfPresent(PreviewSide.self, forKey: .lastFrom)
+        titleGenerated = try c.decodeIfPresent(Bool.self, forKey: .titleGenerated) ?? false
+        awayOnPhone = try c.decodeIfPresent(Bool.self, forKey: .awayOnPhone) ?? false
     }
 }
 

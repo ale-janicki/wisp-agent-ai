@@ -1,0 +1,36 @@
+{
+  "names": [
+    ".env",
+    ".netrc",
+    ".git-credentials",
+    ".pgpass",
+    ".npmrc",
+    ".pypirc"
+  ],
+  "globs": [
+    ".env.*",
+    "id_rsa*",
+    "id_ed25519*",
+    "id_ecdsa*",
+    "*.pem",
+    "*.p12",
+    "*.pfx",
+    "*.keychain",
+    "*.keychain-db"
+  ],
+  "dirs": [
+    ".ssh",
+    ".gnupg",
+    ".aws",
+    "Library/Keychains",
+    ".config/wisp",
+    ".kube",
+    ".docker",
+    ".config/gcloud",
+    ".azure",
+    ".config/gh",
+    ".password-store"
+  ],
+  "content_marker": "PRIVATE KEY-----",
+  "content_bytes": 4096
+}

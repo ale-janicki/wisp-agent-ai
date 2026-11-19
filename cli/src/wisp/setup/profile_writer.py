@@ -6,7 +6,6 @@ from wisp.fsops import atomic_write
 
 
 def check_writable(profile_path: Path) -> None:
-    """A profile that is a symlink belongs to someone else's setup: the block is never written through it."""
     if profile_path.is_symlink():
         raise ValueError("o perfil é gerenciado fora do Wisp; o Wisp não o altera")
 
@@ -22,8 +21,6 @@ def _load(profile_path: Path) -> dict:
 
 
 def render_persona(profile_path: Path, *, name: str, user_name: str, language: str, avatar: str | None, brain: str | None) -> str:
-    """Profile text with persona/agent set and the brain blocks pointed at the current brain (their other keys kept); every other key is kept.
-    `persona.user` is the key the CLI adds for the user's name (the Swift `Persona` ignores it until it reads it)."""
     check_writable(profile_path)
     profile = _load(profile_path)
     persona = profile.get("persona", {})
@@ -48,10 +45,9 @@ def _telegram_block(wisp_bin: str, attachments: str | None) -> dict:
     block = {
         "status": f"{wisp} topic status --json",
         "list": f"{wisp} topic listar --json",
-        "create": f"{wisp} topic novo --cwd {{cwd}} -- {{name}}",
-        "send": f"{wisp} topic falar --sem-pull --origem Wisp {{anexos}} -- {{thread}} {{text}}",
+        "share": f"{wisp} topic compartilhar --session={{session}} --cwd={{cwd}} --nome={{name}} --json",
+        "post": f"{wisp} topic postar --json",
         "close": f"{wisp} topic encerrar --sem-pull {{thread}}",
-        "claim": f"{wisp} topic assumir --json --thread {{thread}}",
     }
     if attachments:
         block["attachments"] = attachments
@@ -61,9 +57,6 @@ def _telegram_block(wisp_bin: str, attachments: str | None) -> dict:
 def render_telegram_block(
     profile_path: Path, wisp_bin: str, attachments: str | None = None, *, name: str = "Wisp", language: str = "pt-BR"
 ) -> str:
-    """Profile text with blocks.telegram set, every other key kept. A profile without persona/agent (none yet, or one
-    written by an older Telegram step) gets the defaults the app needs to decode it; the profile step fills them in later.
-    `{anexos}` stays in the send template so the profile matches the app once `wisp topic falar` accepts attachments."""
     check_writable(profile_path)
     profile = _load(profile_path)
     if not profile.get("persona"):
@@ -81,7 +74,6 @@ def set_telegram_block(
 
 
 def has_telegram_block(profile_path: Path) -> bool:
-    """True when a profile Wisp may write (not a symlink) carries blocks.telegram; an unreadable one counts as none."""
     if profile_path.is_symlink() or not profile_path.is_file():
         return False
     try:

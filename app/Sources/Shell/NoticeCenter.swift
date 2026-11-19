@@ -3,14 +3,10 @@ import Observation
 import os
 import WispCore
 
-/// Feeds the notch card: every source posts here, `NoticeQueue` decides, the shell resizes and draws it.
-/// Nothing goes to the macOS Notification Center.
 @MainActor @Observable
 final class NoticeCenter {
     private(set) var queue = NoticeQueue()
-    /// Counts cards landing (a new one, or new content in the one shown), for the arrival glow.
     private(set) var arrivals = 0
-    /// The loudest tone among notices that landed and were neither opened nor dismissed; the pill shows a dot for it.
     private(set) var unseen: Notice.Tone?
 
     @ObservationIgnored weak var shell: ShellController?
@@ -20,7 +16,6 @@ final class NoticeCenter {
     @ObservationIgnored private var seen = NoticeBaselines()
     @ObservationIgnored private let log = Logger(subsystem: AppIdentity.bundleID, category: "notices")
 
-    /// With the panel closed nothing else reads the alerts or the topics, so this does, at a calm pace.
     private static let pollInterval: Duration = .seconds(60)
 
     var current: Notice? { queue.current }
@@ -59,7 +54,6 @@ final class NoticeCenter {
         changed()
     }
 
-    /// The panel moved (opened, tab, conversation) or a switch changed: drop what is now on screen or off.
     func prune() {
         seen.settingsChanged(settings)
         if shell?.state == .panel || settings.doNotDisturb {
@@ -111,7 +105,6 @@ final class NoticeCenter {
         }
     }
 
-    /// What the user is looking at right now; a notice for it would only repeat the screen.
     private var visible: Set<NoticeTarget> {
         guard let shell, shell.state == .panel else { return [] }
         let model = shell.conversation
@@ -158,13 +151,13 @@ final class NoticeCenter {
         }
     }
 
-    /// A topic that moved gets the last line of its transcript; one Wisp opened gets its title and counts as a reply.
     func topicsLoaded(_ topics: [TelegramTopic]?, following: Int?, records: [ConversationRecord], statusPrefix: String?) {
         guard let topics else { return }
-        let wispThreads = Set(records.compactMap(\.telegramThread))
+        let wispSessions = Set(records.compactMap(\.sessionId))
+        let wispThreads = Set(topics.filter { wispSessions.contains($0.sessionId) }.map(\.thread))
         let news = seen.topicsRead(topics, following: following, wispThreads: wispThreads, settings: settings)
         for topic in news {
-            let record = records.first { $0.telegramThread == topic.thread }
+            let record = records.first { $0.sessionId == topic.sessionId }
             let sessionId = topic.sessionId
             let cwd = expandTilde(topic.cwd)
             Task { [weak self] in
