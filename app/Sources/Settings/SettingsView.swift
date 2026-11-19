@@ -2,35 +2,70 @@ import AppKit
 import SwiftUI
 import WispCore
 
+enum SettingsSection: String, CaseIterable, Identifiable {
+    case appearance, claude, notices, integrations, general, about
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .appearance: "Aparência"
+        case .claude: "Claude"
+        case .notices: "Avisos"
+        case .integrations: "Integrações"
+        case .general: "Geral"
+        case .about: "Sobre"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .appearance: "paintpalette.fill"
+        case .claude: "sparkles"
+        case .notices: "bell.fill"
+        case .integrations: "puzzlepiece.extension.fill"
+        case .general: "gearshape.fill"
+        case .about: "info.circle.fill"
+        }
+    }
+
+    static func saved(_ id: String?) -> SettingsSection {
+        id.flatMap(SettingsSection.init(rawValue:)) ?? .appearance
+    }
+
+    @MainActor func open() {
+        AppSettings.shared.setSettingsSection(rawValue)
+    }
+}
+
 struct SettingsView: View {
     @ObservedObject var media: NowPlayingService
     private let settings = AppSettings.shared
 
+    private static let repository = URL(string: "https://github.com/ale-janicki/wisp-agent-ai")!
+
+    private var section: SettingsSection { .saved(settings.settings.settingsSection) }
+
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: Theme.Layout.cardGap) {
-                Text("Ajustes")
-                    .font(Theme.Font.heading)
-                    .foregroundStyle(Theme.textPrimary)
-                colors
-                home
-                PermissionSettingsCard()
-                notices
-                music
-                SpotifySettingsCard()
-                clipboard
-                updates
-                openAtLogin
-                setupAgain
-                if let notice = settings.notice {
-                    Text(notice)
-                        .font(Theme.Font.caption)
-                        .foregroundStyle(Theme.busy)
+        VStack(alignment: .leading, spacing: Theme.Space.m) {
+            Text("Ajustes")
+                .font(Theme.Font.heading)
+                .foregroundStyle(Theme.textPrimary)
+            tabBar
+            ScrollView {
+                VStack(alignment: .leading, spacing: Theme.Layout.cardGap) {
+                    pane
+                    if let notice = settings.notice {
+                        Text(notice)
+                            .font(Theme.Font.caption)
+                            .foregroundStyle(Theme.busy)
+                    }
                 }
             }
-            .padding(.top, Theme.Space.xs)
+            .scrollIndicators(.hidden)
+            .id(section)
         }
-        .scrollIndicators(.hidden)
+        .padding(.top, Theme.Space.xs)
         .onAppear {
             NSColorPanel.shared.level = NSWindow.Level(rawValue: NotchPanel.windowLevel.rawValue + 1)
             media.refresh()
@@ -40,48 +75,81 @@ struct SettingsView: View {
         }
     }
 
-    // MARK: Cores
+    // MARK: Tabs
+
+    private var tabBar: some View {
+        HStack(spacing: 2) {
+            ForEach(SettingsSection.allCases) { tab in
+                let selected = tab == section
+                Button { tab.open() } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: tab.icon)
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(selected ? Theme.accent : Theme.textSecondary)
+                        Text(tab.title)
+                            .font(Theme.Font.bodyMedium)
+                            .foregroundStyle(selected ? Theme.accentText : Theme.textSecondary)
+                            .lineLimit(1)
+                    }
+                }
+                .buttonStyle(RowButtonStyle(highlight: selected ? .accent : .none))
+                .fixedSize()
+                .accessibilityAddTraits(selected ? .isSelected : [])
+            }
+            Spacer(minLength: 0)
+        }
+    }
+
+    @ViewBuilder
+    private var pane: some View {
+        switch section {
+        case .appearance:
+            colors
+            order
+        case .claude:
+            PermissionSettingsCard()
+        case .notices:
+            notices
+        case .integrations:
+            IntegrationsPane(media: media)
+        case .general:
+            general
+            updates
+        case .about:
+            about
+        }
+    }
+
+    // MARK: Aparência
 
     private var colors: some View {
-        VStack(alignment: .leading, spacing: Theme.Space.l) {
-            HStack {
-                sectionTitle("Cores")
-                Spacer()
-                Button("Restaurar padrão") { settings.restoreDefaults() }
-                    .buttonStyle(CapsuleButtonStyle(kind: .ghost))
-                    .disabled(settings.settings.theme == WispSettings.default.theme && settings.settings.custom == nil)
-            }
+        SettingsGroup(title: "Cores") {
+            Button("Restaurar padrão") { settings.restoreDefaults() }
+                .buttonStyle(CapsuleButtonStyle(kind: .ghost))
+                .disabled(settings.settings.theme == WispSettings.default.theme && settings.settings.custom == nil)
+        } content: {
             ThemePicker()
+                .padding(.vertical, Theme.Space.xs)
         }
-        .padding(Theme.Space.l)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .card()
     }
 
-    // MARK: Início
-
-    private var home: some View {
-        HStack(spacing: Theme.Space.m) {
-            VStack(alignment: .leading, spacing: 2) {
-                sectionTitle("Início")
-                Text("Arraste os cartões do Início e os tópicos da Conversa para reordenar.")
-                    .font(Theme.Font.caption)
-                    .foregroundStyle(Theme.textSecondary)
+    private var order: some View {
+        SettingsGroup(title: "Ordem", caption: "Arraste os cartões do Início e os tópicos da Conversa para reordenar.") {
+            SettingsRow(title: "Cartões do Início") {
+                Button("Restaurar ordem") { settings.restoreDashboardOrder() }
+                    .buttonStyle(CapsuleButtonStyle(kind: .ghost))
+                    .disabled(settings.settings.dashboardOrder == DashboardTileID.defaultOrder)
             }
-            Spacer()
-            Button("Restaurar ordem dos tópicos") { settings.restoreTelegramOrder() }
-                .buttonStyle(CapsuleButtonStyle(kind: .ghost))
-                .disabled(settings.settings.telegramOrder.isEmpty)
-            Button("Restaurar ordem do Início") { settings.restoreDashboardOrder() }
-                .buttonStyle(CapsuleButtonStyle(kind: .ghost))
-                .disabled(settings.settings.dashboardOrder == DashboardTileID.defaultOrder)
+            Divider().overlay(Theme.stroke)
+            SettingsRow(title: "Tópicos da Conversa") {
+                Button("Restaurar ordem") { settings.restoreTelegramOrder() }
+                    .buttonStyle(CapsuleButtonStyle(kind: .ghost))
+                    .disabled(settings.settings.telegramOrder.isEmpty)
+            }
         }
-        .padding(Theme.Space.l)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .card()
     }
 
-    // MARK: Avisos no notch
+    // MARK: Avisos
 
     private static let noticeKinds: [(NoticeKind, String)] = [
         (.reply, "Respostas"), (.telegram, "Telegram"), (.reminder, "Lembretes"), (.outbox, "Fila"), (.update, "Atualizações"),
@@ -90,152 +158,56 @@ struct SettingsView: View {
 
     private var notices: some View {
         let current = settings.settings.notices
-        return VStack(alignment: .leading, spacing: Theme.Space.m) {
-            HStack(spacing: Theme.Space.m) {
-                VStack(alignment: .leading, spacing: 2) {
-                    sectionTitle("Avisos no notch")
-                    Text("O que acontece com o painel fechado desce do notch por alguns segundos. Clique para abrir.")
-                        .font(Theme.Font.caption)
-                        .foregroundStyle(Theme.textSecondary)
-                }
-                Spacer()
-                Toggle("Não perturbe", isOn: Binding(
-                    get: { current.doNotDisturb },
-                    set: { on in settings.setNotices { $0.doNotDisturb = on } }
-                ))
-                .toggleStyle(.switch)
-                .tint(Theme.accent)
-                .font(Theme.Font.bodyMedium)
-                .foregroundStyle(Theme.textPrimary)
-                .pointerStyle(.link)
-            }
-            HStack(spacing: Theme.Space.xl) {
-                ForEach(Self.noticeKinds, id: \.0) { kind, label in
-                    Toggle(label, isOn: Binding(
-                        get: { current[kind] },
-                        set: { on in settings.setNotices { $0[kind] = on } }
-                    ))
-                    .toggleStyle(.switch)
-                    .controlSize(.small)
-                    .tint(Theme.accent)
-                    .font(Theme.Font.body)
-                    .foregroundStyle(Theme.textSecondary)
-                    .pointerStyle(.link)
-                }
-                Spacer(minLength: 0)
-            }
-            .disabled(current.doNotDisturb)
-            .opacity(current.doNotDisturb ? 0.5 : 1)
-        }
-        .padding(Theme.Space.l)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .card()
-    }
-
-    // MARK: Música
-
-    private var music: some View {
-        VStack(alignment: .leading, spacing: Theme.Space.m) {
-            sectionTitle("Música")
-            ForEach(MediaPlayer.allCases, id: \.self) { player in
-                HStack(alignment: .top, spacing: Theme.Space.m) {
-                    Text(player.name)
-                        .font(Theme.Font.bodyMedium)
-                        .foregroundStyle(Theme.textPrimary)
-                        .frame(width: 70, alignment: .leading)
-                    AutomationPromptView(media: media, player: player, showsGranted: true)
-                    Spacer(minLength: 0)
+        return SettingsGroup(
+            title: "Avisos no notch",
+            caption: "O que acontece com o painel fechado desce do notch por alguns segundos. Clique para abrir."
+        ) {
+            ToggleRow(
+                title: "Não perturbe",
+                detail: "Nenhum aviso desce do notch enquanto estiver ligado.",
+                isOn: current.doNotDisturb
+            ) { on in settings.setNotices { $0.doNotDisturb = on } }
+            ForEach(Self.noticeKinds, id: \.0) { kind, label in
+                Divider().overlay(Theme.stroke)
+                ToggleRow(title: label, isOn: current[kind], enabled: !current.doNotDisturb) { on in
+                    settings.setNotices { $0[kind] = on }
                 }
             }
         }
-        .padding(Theme.Space.l)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .card()
     }
 
-    // MARK: Copiados
+    // MARK: Geral
 
-    private var clipboard: some View {
-        HStack(spacing: Theme.Space.m) {
-            VStack(alignment: .leading, spacing: 2) {
-                sectionTitle("Copiados")
-                Text("Guardar o que você copia enquanto o Wisp roda. Senhas de gerenciadores nunca entram.")
-                    .font(Theme.Font.caption)
-                    .foregroundStyle(Theme.textSecondary)
-            }
-            Spacer()
-            Toggle("Guardar copiados", isOn: Binding(
-                get: { settings.settings.clipboardCapture },
-                set: { settings.setClipboardCapture($0) }
-            ))
-            .toggleStyle(.switch)
-            .tint(Theme.accent)
-            .labelsHidden()
-            .pointerStyle(.link)
-        }
-        .padding(Theme.Space.l)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .card()
-    }
-
-    // MARK: Atualizações
-
-    private var updates: some View {
-        let updater = UpdateModel.shared
-        return HStack(spacing: Theme.Space.m) {
-            VStack(alignment: .leading, spacing: 2) {
-                sectionTitle("Atualizações")
-                Text(updater.available.map { "Versão \(updater.version). A \($0) já está disponível." } ?? "Versão \(updater.version).")
-                    .font(Theme.Font.caption)
-                    .foregroundStyle(Theme.textSecondary)
-            }
-            Spacer()
-            Button(updater.available == nil ? "Verificar agora" : "Ver atualização") { updater.showUpdate() }
-                .buttonStyle(CapsuleButtonStyle(kind: .ghost))
-            Toggle("Verificar automaticamente", isOn: Binding(
-                get: { updater.automaticChecks },
-                set: { updater.setAutomaticChecks($0) }
-            ))
-            .toggleStyle(.switch)
-            .tint(Theme.accent)
-            .font(Theme.Font.bodyMedium)
-            .foregroundStyle(Theme.textPrimary)
-            .pointerStyle(.link)
-        }
-        .padding(Theme.Space.l)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .card()
-    }
-
-    // MARK: Abrir ao ligar o Mac
-
-    private var openAtLogin: some View {
+    private var general: some View {
         let login = LoginItemModel.shared
-        return HStack(spacing: Theme.Space.m) {
-            VStack(alignment: .leading, spacing: 2) {
-                sectionTitle("Abrir ao ligar o Mac")
-                Text(loginSentence(login))
-                    .font(Theme.Font.caption)
-                    .foregroundStyle(login.error == nil ? Theme.textSecondary : Theme.error)
+        return SettingsGroup(title: "Geral") {
+            ToggleRow(
+                title: "Abrir ao ligar o Mac",
+                detail: loginSentence(login),
+                detailColor: login.error == nil ? Theme.textSecondary : Theme.error,
+                isOn: login.installed ? login.isOn : settings.settings.openAtLogin,
+                enabled: login.installed
+            ) { login.set($0) } accessory: {
+                if login.installed, login.status == .requiresApproval {
+                    Button("Abrir Itens de Início") { login.openLoginItems() }
+                        .buttonStyle(CapsuleButtonStyle(kind: .ghost))
+                }
             }
-            Spacer()
-            if login.installed, login.status == .requiresApproval {
-                Button("Abrir Itens de Início") { login.openLoginItems() }
+            Divider().overlay(Theme.stroke)
+            ToggleRow(
+                title: "Guardar copiados",
+                detail: "Guarda o que você copia enquanto o Wisp roda. Senhas de gerenciadores nunca entram.",
+                isOn: settings.settings.clipboardCapture
+            ) { settings.setClipboardCapture($0) }
+            Divider().overlay(Theme.stroke)
+            SettingsRow(
+                title: "Setup",
+                detail: "Abre de novo o passo a passo que prepara o Wisp. O que já está pronto aparece marcado."
+            ) {
+                Button("Rodar o setup de novo") { (NSApp.delegate as? AppDelegate)?.showSetup() }
                     .buttonStyle(CapsuleButtonStyle(kind: .ghost))
             }
-            Toggle("Abrir ao ligar o Mac", isOn: Binding(
-                get: { login.installed ? login.isOn : settings.settings.openAtLogin },
-                set: { login.set($0) }
-            ))
-            .toggleStyle(.switch)
-            .tint(Theme.accent)
-            .labelsHidden()
-            .pointerStyle(.link)
-            .disabled(!login.installed)
         }
-        .padding(Theme.Space.l)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .card()
         .onAppear { login.refresh() }
     }
 
@@ -251,21 +223,45 @@ struct SettingsView: View {
         }
     }
 
-    // MARK: Setup
+    private var updates: some View {
+        let updater = UpdateModel.shared
+        return SettingsGroup(title: "Atualizações") {
+            SettingsRow(
+                title: "Versão \(updater.version)",
+                detail: updater.available.map { "A \($0) já está disponível." }
+            ) {
+                Button(updater.available == nil ? "Verificar agora" : "Ver atualização") { updater.showUpdate() }
+                    .buttonStyle(CapsuleButtonStyle(kind: updater.available == nil ? .ghost : .accent))
+            }
+            Divider().overlay(Theme.stroke)
+            ToggleRow(title: "Verificar automaticamente", isOn: updater.automaticChecks) { updater.setAutomaticChecks($0) }
+        }
+    }
 
-    private var setupAgain: some View {
-        HStack(spacing: Theme.Space.m) {
-            VStack(alignment: .leading, spacing: 2) {
-                sectionTitle("Setup")
-                Text("Abre de novo o passo a passo que prepara o Wisp. O que já está pronto aparece marcado.")
-                    .font(Theme.Font.caption)
+    // MARK: Sobre
+
+    private var about: some View {
+        SettingsGroup(title: "Wisp") {
+            SettingsRow(title: "Versão") {
+                Text(UpdateModel.shared.version)
+                    .font(Theme.Font.body)
+                    .foregroundStyle(Theme.textSecondary)
+                    .textSelection(.enabled)
+            }
+            Divider().overlay(Theme.stroke)
+            SettingsRow(title: "Código", detail: "github.com/ale-janicki/wisp-agent-ai") {
+                Button("Abrir no GitHub") { NSWorkspace.shared.open(Self.repository) }
+                    .buttonStyle(CapsuleButtonStyle(kind: .ghost))
+            }
+            Divider().overlay(Theme.stroke)
+            SettingsRow(title: "Licença", detail: "Software livre: você pode usar, estudar, mudar e redistribuir.") {
+                Text("GPL-3.0")
+                    .font(Theme.Font.body)
                     .foregroundStyle(Theme.textSecondary)
             }
-            Spacer()
-            VStack(alignment: .trailing, spacing: Theme.Space.s) {
-                Button("Rodar o setup de novo") { (NSApp.delegate as? AppDelegate)?.showSetup() }
-                    .buttonStyle(CapsuleButtonStyle(kind: .ghost))
-                Button("Avisos de terceiros") {
+            Divider().overlay(Theme.stroke)
+            SettingsRow(title: "Avisos de terceiros", detail: "Licenças do SwiftTerm e do Sparkle, que vêm dentro do Wisp.") {
+                Button("Abrir avisos") {
                     for name in ["SwiftTerm-LICENSE", "Sparkle-LICENSE"] {
                         if let notice = Bundle.main.url(forResource: name, withExtension: "txt", subdirectory: "ThirdParty") {
                             NSWorkspace.shared.open(notice)
@@ -275,15 +271,236 @@ struct SettingsView: View {
                 .buttonStyle(CapsuleButtonStyle(kind: .ghost))
             }
         }
+    }
+}
+
+// MARK: Integrações
+
+struct IntegrationsPane: View {
+    enum Integration: CaseIterable { case spotify, music }
+
+    @MainActor static var expandOnOpen: Integration?
+
+    @ObservedObject var media: NowPlayingService
+    private let spotify = SpotifyModel.shared
+    @State private var open: Integration?
+
+    private static let reflow = Animation.spring(response: 0.3, dampingFraction: 0.82)
+
+    var body: some View {
+        SettingsGroup(title: "Integrações") {
+            ForEach(Array(Integration.allCases.enumerated()), id: \.element) { index, item in
+                if index > 0 { Divider().overlay(Theme.stroke) }
+                row(item)
+            }
+        }
+        .onAppear {
+            if let pending = Self.expandOnOpen {
+                open = pending
+                Self.expandOnOpen = nil
+            }
+        }
+    }
+
+    private func row(_ item: Integration) -> some View {
+        let expanded = open == item
+        let state = status(item)
+        return VStack(alignment: .leading, spacing: 0) {
+            Button {
+                withAnimation(Self.reflow) { open = expanded ? nil : item }
+            } label: {
+                HStack(spacing: Theme.Space.m) {
+                    Image(systemName: icon(item))
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Theme.textSecondary)
+                        .frame(width: 20)
+                    Text(name(item))
+                        .font(Theme.Font.bodyMedium)
+                        .foregroundStyle(Theme.textPrimary)
+                    Spacer(minLength: Theme.Space.s)
+                    Circle().fill(state.color).frame(width: 6, height: 6)
+                    Text(state.text)
+                        .font(Theme.Font.body)
+                        .foregroundStyle(Theme.textSecondary)
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(Theme.textTertiary)
+                        .rotationEffect(.degrees(expanded ? 90 : 0))
+                }
+                .frame(minHeight: Theme.Layout.rowHeight)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityAddTraits(expanded ? .isSelected : [])
+            if expanded {
+                detail(item)
+                    .padding(.leading, 20 + Theme.Space.m)
+                    .padding(.vertical, Theme.Space.s)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
+        .clipped()
+    }
+
+    @ViewBuilder
+    private func detail(_ item: Integration) -> some View {
+        switch item {
+        case .spotify:
+            VStack(alignment: .leading, spacing: Theme.Space.m) {
+                AutomationPromptView(media: media, player: .spotify, showsGranted: true)
+                SpotifySettingsCard(embedded: true)
+            }
+        case .music:
+            AutomationPromptView(media: media, player: .music, showsGranted: true)
+        }
+    }
+
+    private func name(_ item: Integration) -> String {
+        switch item {
+        case .spotify: MediaPlayer.spotify.name
+        case .music: MediaPlayer.music.name
+        }
+    }
+
+    private func icon(_ item: Integration) -> String {
+        switch item {
+        case .spotify: "dot.radiowaves.left.and.right"
+        case .music: "music.note"
+        }
+    }
+
+    private func status(_ item: Integration) -> (text: String, color: Color) {
+        switch item {
+        case .spotify:
+            switch media.automationStatus(for: .spotify) {
+            case .denied, .notDetermined: return ("Sem permissão", Theme.error)
+            case .granted, .notRunning: break
+            }
+            if spotify.auth == .signedIn { return ("Conectado", Theme.ok) }
+            return spotify.hasClientID ? ("Não conectado", Theme.busy) : ("Não configurado", Theme.textTertiary)
+        case .music:
+            switch media.automationStatus(for: .music) {
+            case .granted: return ("Conectado", Theme.ok)
+            case .denied, .notDetermined: return ("Sem permissão", Theme.error)
+            case .notRunning: return ("Não configurado", Theme.textTertiary)
+            }
+        }
+    }
+}
+
+// MARK: Rows
+
+private struct SettingsGroup<Trailing: View, Content: View>: View {
+    let title: String
+    var caption: String?
+    @ViewBuilder let trailing: Trailing
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Theme.Space.s) {
+            HStack(spacing: Theme.Space.m) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(Theme.Font.title)
+                        .foregroundStyle(Theme.textPrimary)
+                    if let caption {
+                        Text(caption)
+                            .font(Theme.Font.caption)
+                            .foregroundStyle(Theme.textSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                Spacer(minLength: Theme.Space.s)
+                trailing
+            }
+            VStack(alignment: .leading, spacing: 0) {
+                content
+            }
+        }
         .padding(Theme.Space.l)
         .frame(maxWidth: .infinity, alignment: .leading)
         .card()
     }
+}
 
-    private func sectionTitle(_ text: String) -> some View {
-        Text(text)
-            .font(Theme.Font.title)
-            .foregroundStyle(Theme.textPrimary)
+extension SettingsGroup where Trailing == EmptyView {
+    init(title: String, caption: String? = nil, @ViewBuilder content: () -> Content) {
+        self.init(title: title, caption: caption, trailing: { EmptyView() }, content: content)
+    }
+}
+
+private struct SettingsRow<Control: View>: View {
+    let title: String
+    var detail: String?
+    @ViewBuilder let control: Control
+
+    var body: some View {
+        HStack(spacing: Theme.Space.m) {
+            RowLabel(title: title, detail: detail)
+            Spacer(minLength: Theme.Space.s)
+            control
+        }
+        .padding(.vertical, Theme.Space.s)
+        .frame(minHeight: Theme.Layout.rowHeight)
+    }
+}
+
+private struct ToggleRow<Accessory: View>: View {
+    let title: String
+    var detail: String?
+    var detailColor = Theme.textSecondary
+    let isOn: Bool
+    var enabled = true
+    let set: @MainActor (Bool) -> Void
+    @ViewBuilder let accessory: Accessory
+
+    var body: some View {
+        HStack(spacing: Theme.Space.m) {
+            RowLabel(title: title, detail: detail, detailColor: detailColor, dimmed: !enabled)
+            Spacer(minLength: Theme.Space.s)
+            accessory
+            Toggle(title, isOn: Binding(get: { isOn }, set: set))
+                .toggleStyle(.switch)
+                .controlSize(.small)
+                .tint(Theme.accent)
+                .labelsHidden()
+                .allowsHitTesting(false)
+                .disabled(!enabled)
+        }
+        .padding(.vertical, Theme.Space.s)
+        .frame(minHeight: Theme.Layout.rowHeight)
+        .contentShape(Rectangle())
+        .onTapGesture { if enabled { set(!isOn) } }
+        .pointerStyle(enabled ? .link : nil)
+    }
+}
+
+extension ToggleRow where Accessory == EmptyView {
+    init(title: String, detail: String? = nil, detailColor: Color = Theme.textSecondary, isOn: Bool, enabled: Bool = true,
+         set: @escaping @MainActor (Bool) -> Void) {
+        self.init(title: title, detail: detail, detailColor: detailColor, isOn: isOn, enabled: enabled, set: set) { EmptyView() }
+    }
+}
+
+private struct RowLabel: View {
+    let title: String
+    var detail: String?
+    var detailColor = Theme.textSecondary
+    var dimmed = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title)
+                .font(Theme.Font.bodyMedium)
+                .foregroundStyle(dimmed ? Theme.textTertiary : Theme.textPrimary)
+            if let detail {
+                Text(detail)
+                    .font(Theme.Font.caption)
+                    .foregroundStyle(detailColor)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
     }
 }
 

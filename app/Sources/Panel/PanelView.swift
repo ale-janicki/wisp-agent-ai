@@ -132,7 +132,12 @@ struct PanelView: View {
         case .agenda: AgendaTab(profile: model.profile)
         case .memory: MemoryTab(profile: model.profile)
         case .routines: RoutinesTab(profile: model.profile)
-        case .music: MusicTab(media: media) { controller.tab = .settings }
+        case .music:
+            MusicTab(media: media) {
+                IntegrationsPane.expandOnOpen = .spotify
+                SettingsSection.integrations.open()
+                controller.tab = .settings
+            }
         case .clipboard: ClipboardView(clipboard: controller.clipboard)
         case .myMac: MyMacTab()
         case .settings: SettingsView(media: media)

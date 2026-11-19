@@ -16,6 +16,10 @@ Entries are in descending chronological order (newest first).
 - Telegram bot: honours `agent.permissionMode` from the profile (or Wisp's own setting when the profile is a symlink) and logs the mode of each turn. Without it the bot keeps running without asking; "Pedir minha aprovação" runs as Automático there, since Telegram cannot show the card yet. If the account refuses Automático, the turn runs once more in `acceptEdits` (edits allowed, other commands refused), never without asking.
 - The approval card always shows the whole command or input in a scrollable block. When the one-line summary is cut, or a command spans several lines or chains commands (`;`, `&&`, `|`, `$(`...), the card says "comando longo — veja inteiro" and Permitir / Sempre permitir stay off until the full text was opened. The same lock holds for any tool whose input carries something the summary leaves out: the new content of a Write, Edit, MultiEdit or NotebookEdit, and the other arguments of an MCP or unknown tool ("veja o conteúdo inteiro"); reads and searches (Read, Glob, Grep, WebFetch, WebSearch) never lock. If the answer cannot reach Claude, the card stays and the chat says so.
 
+### Changed
+
+- Ajustes is split into tabs at the top (Aparência, Claude, Avisos, Integrações, Geral, Sobre) instead of one long scroll of cards; only the selected tab's content scrolls. Each card is a header over aligned rows (label left, control right), and a switch row flips from anywhere on the row. The last tab opened is kept in `settings.json` (`settingsSection`) and reopens next time; "Abrir Ajustes" from the Spotify steps in Música lands on Integrações. Sobre is new: version, GitHub link, license (GPL-3.0) and Avisos de terceiros, which moved there from the Setup card.
+
 ## [0.2.1] - 2026-11-18
 
 ### Changed
