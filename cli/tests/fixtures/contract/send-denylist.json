@@ -13,7 +13,6 @@
     "id_ed25519*",
     "id_ecdsa*",
     "*.pem",
-    "*.key",
     "*.p12",
     "*.pfx",
     "*.keychain",
@@ -31,5 +30,7 @@
     ".azure",
     ".config/gh",
     ".password-store"
-  ]
+  ],
+  "content_marker": "PRIVATE KEY-----",
+  "content_bytes": 4096
 }

@@ -5,8 +5,10 @@ public enum FileLinks {
     public static let maxBytes = 50 * 1024 * 1024
 
     static let denyNames = [".env", ".netrc", ".git-credentials", ".pgpass", ".npmrc", ".pypirc"]
-    static let denyGlobs = [".env.*", "id_rsa*", "id_ed25519*", "id_ecdsa*", "*.pem", "*.key", "*.p12", "*.pfx",
+    static let denyGlobs = [".env.*", "id_rsa*", "id_ed25519*", "id_ecdsa*", "*.pem", "*.p12", "*.pfx",
                             "*.keychain", "*.keychain-db"]
+    static let contentMarker = Data("PRIVATE KEY-----".utf8)
+    static let contentBytes = 4096
     static let denyDirs = [".ssh", ".gnupg", ".aws", "Library/Keychains", ".config/wisp", ".kube", ".docker",
                            ".config/gcloud", ".azure", ".config/gh", ".password-store"]
 
@@ -25,6 +27,7 @@ public enum FileLinks {
             var isDirectory: ObjCBool = false
             guard FileManager.default.fileExists(atPath: real, isDirectory: &isDirectory), !isDirectory.boolValue,
                   FileManager.default.isReadableFile(atPath: real),
+                  !hasDeniedContent(real),
                   let size = (try? FileManager.default.attributesOfItem(atPath: real))?[.size] as? Int, size <= maxBytes
             else { continue }
             guard seen.insert(real).inserted else { continue }
@@ -48,6 +51,17 @@ public enum FileLinks {
             url.deleteLastPathComponent()
         }
         return false
+    }
+
+    private static func hasDeniedContent(_ path: String) -> Bool {
+        guard let handle = FileHandle(forReadingAtPath: path) else { return true }
+        defer { try? handle.close() }
+        do {
+            let head = try handle.read(upToCount: contentBytes) ?? Data()
+            return head.range(of: contentMarker) != nil
+        } catch {
+            return true
+        }
     }
 
     private static func fileID(_ path: String) -> NSObject? {

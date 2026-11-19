@@ -479,12 +479,13 @@ final class FileLinksTests: XCTestCase {
         }
     }
 
-    private func denyContract() throws -> (names: [String], globs: [String], dirs: [String]) {
+    private func denyContract() throws -> (names: [String], globs: [String], dirs: [String], marker: String, bytes: Int) {
         let url = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("cli/tests/fixtures/contract/send-denylist.json")
-        let json = try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as! [String: [String]]
-        return (json["names"]!, json["globs"]!, json["dirs"]!)
+        let json = try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as! [String: Any]
+        return (json["names"] as! [String], json["globs"] as! [String], json["dirs"] as! [String],
+                json["content_marker"] as! String, json["content_bytes"] as! Int)
     }
 
     private func deniedSamples() throws -> [String] {
@@ -497,6 +498,8 @@ final class FileLinksTests: XCTestCase {
         XCTAssertEqual(FileLinks.denyNames, c.names)
         XCTAssertEqual(FileLinks.denyGlobs, c.globs)
         XCTAssertEqual(FileLinks.denyDirs, c.dirs)
+        XCTAssertEqual(FileLinks.contentMarker, Data(c.marker.utf8))
+        XCTAssertEqual(FileLinks.contentBytes, c.bytes)
     }
 
     func testDeniedFileNamesAnywhereAndAnyCase() throws {
@@ -544,6 +547,44 @@ final class FileLinksTests: XCTestCase {
         let file = home.appendingPathComponent("envio.txt")
         try Data("s".utf8).write(to: file)
         XCTAssertEqual(FileLinks.absolutePaths(in: "[k](file://\(file.path))", home: home).count, 1)
+    }
+
+    private func sent(_ name: String, _ bytes: Data) throws -> Int {
+        let home = dir.appendingPathComponent("home")
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        let file = home.appendingPathComponent(name)
+        try bytes.write(to: file)
+        return FileLinks.absolutePaths(in: "[k](file://\(file.path))", home: home).count
+    }
+
+    func testKeynoteDeckZipIsSent() throws {
+        XCTAssertEqual(try sent("deck.key", Data([0x50, 0x4B, 0x03, 0x04]) + Data(repeating: 0x6A, count: 400)), 1)
+    }
+
+    func testPrivateKeyContentIsDeniedWhateverTheName() throws {
+        XCTAssertEqual(try sent("notes.txt", Data(("-----BEGIN " + "OPENSSH PRIVATE KEY-----\nabc").utf8)), 0)
+        XCTAssertEqual(try sent("server.key", Data(("-----BEGIN " + "RSA PRIVATE KEY-----\nabc").utf8)), 0)
+    }
+
+    func testMarkerBeyondTheLimitIsSentAndAtTheLimitIsDenied() throws {
+        let marker = FileLinks.contentMarker
+        let pad = Data(repeating: 0x61, count: FileLinks.contentBytes - marker.count)
+        XCTAssertEqual(try sent("limit.txt", pad + marker), 0)
+        XCTAssertEqual(try sent("long.txt", Data([0x61]) + pad + marker), 1)
+    }
+
+    func testEmptyFileIsSent() throws {
+        XCTAssertEqual(try sent("empty.txt", Data()), 1)
+    }
+
+    func testUnreadableFileIsDenied() throws {
+        let home = dir.appendingPathComponent("home")
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        let file = home.appendingPathComponent("closed.txt")
+        try Data("ok".utf8).write(to: file)
+        try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: file.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path) }
+        XCTAssertEqual(FileLinks.absolutePaths(in: "[k](file://\(file.path))", home: home).count, 0)
     }
 
     func testCapsAtTenFiles() throws {

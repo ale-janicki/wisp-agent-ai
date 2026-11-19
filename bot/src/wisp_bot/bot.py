@@ -799,8 +799,10 @@ def bloco_anexos(origem: str, itens: list[str], texto: str) -> str:
 
 
 NEGADOS_NOMES = (".env", ".netrc", ".git-credentials", ".pgpass", ".npmrc", ".pypirc")
-NEGADOS_GLOBS = (".env.*", "id_rsa*", "id_ed25519*", "id_ecdsa*", "*.pem", "*.key", "*.p12", "*.pfx",
+NEGADOS_GLOBS = (".env.*", "id_rsa*", "id_ed25519*", "id_ecdsa*", "*.pem", "*.p12", "*.pfx",
                  "*.keychain", "*.keychain-db")
+NEGADOS_MARCADOR = b"PRIVATE KEY-----"
+NEGADOS_BYTES = 4096
 NEGADOS_PASTAS = (".ssh", ".gnupg", ".aws", "Library/Keychains", ".config/wisp", ".kube", ".docker",
                   ".config/gcloud", ".azure", ".config/gh", ".password-store")
 
@@ -820,6 +822,15 @@ def _negados() -> list[Path]:
 def _nome_negado(real: Path) -> bool:
     nome = real.name.casefold()
     return nome in NEGADOS_NOMES or any(fnmatch.fnmatchcase(nome, g) for g in NEGADOS_GLOBS)
+
+
+def _conteudo_negado(real: Path) -> str | None:
+    try:
+        with real.open("rb") as f:
+            cabeca = f.read(NEGADOS_BYTES)
+    except OSError:
+        return "nao pode ser lido"
+    return "contem uma chave privada" if NEGADOS_MARCADOR in cabeca else None
 
 
 def _fica_em_negado(real: Path, negados: list[Path]) -> bool:
@@ -852,6 +863,9 @@ def arquivos_validos(brutos) -> list[tuple[Path, int]]:
             raise ValueError(f"arquivo recusado: {real.name} fica numa pasta protegida")
         if not real.is_file():
             raise ValueError(f"arquivo recusado: {real.name or bruto!r} nao e um arquivo comum")
+        motivo = _conteudo_negado(real)
+        if motivo:
+            raise ValueError(f"arquivo recusado: {real.name} {motivo}")
         try:
             tamanho = real.stat().st_size
             with real.open("rb"):

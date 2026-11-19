@@ -42,6 +42,8 @@ def test_listas_iguais_ao_contrato():
     assert list(_bot.NEGADOS_NOMES) == CONTRATO["names"]
     assert list(_bot.NEGADOS_GLOBS) == CONTRATO["globs"]
     assert list(_bot.NEGADOS_PASTAS) == CONTRATO["dirs"]
+    assert _bot.NEGADOS_MARCADOR == CONTRATO["content_marker"].encode()
+    assert _bot.NEGADOS_BYTES == CONTRATO["content_bytes"]
 
 
 ARQUIVOS = CONTRATO["names"] + [g.replace("*", "x") for g in CONTRATO["globs"]]
@@ -80,3 +82,45 @@ def test_pasta_negada_ignora_maiusculas(casa, pasta):
 def test_nomes_parecidos_passam(casa, nome):
     (casa / nome).write_text("ok")
     assert [p for p, _ in _bot.arquivos_validos([str(casa / nome)])] == [casa / nome]
+
+
+def test_deck_key_zip_passa(casa):
+    (casa / "deck.key").write_bytes(b"PK\x03\x04" + b"junk" * 100)
+    assert [p for p, _ in _bot.arquivos_validos([str(casa / "deck.key")])] == [casa / "deck.key"]
+
+
+@pytest.mark.parametrize("nome,cabeca", [("notes.txt", b"-----BEGIN " + b"OPENSSH PRIVATE KEY-----\nabc"),
+                                         ("server.key", b"-----BEGIN " + b"RSA PRIVATE KEY-----\nabc")])
+def test_chave_privada_por_conteudo_recusada(casa, nome, cabeca):
+    (casa / nome).write_bytes(cabeca)
+    with pytest.raises(ValueError, match="chave privada"):
+        _bot.arquivos_validos([str(casa / nome)])
+
+
+def test_marcador_alem_do_limite_passa(casa):
+    marcador = CONTRATO["content_marker"].encode()
+    (casa / "longo.txt").write_bytes(b"a" * (CONTRATO["content_bytes"] - len(marcador) + 1) + marcador)
+    assert [p for p, _ in _bot.arquivos_validos([str(casa / "longo.txt")])] == [casa / "longo.txt"]
+
+
+def test_marcador_no_limite_recusado(casa):
+    marcador = CONTRATO["content_marker"].encode()
+    (casa / "limite.txt").write_bytes(b"a" * (CONTRATO["content_bytes"] - len(marcador)) + marcador)
+    with pytest.raises(ValueError, match="chave privada"):
+        _bot.arquivos_validos([str(casa / "limite.txt")])
+
+
+def test_arquivo_ilegivel_recusado(casa):
+    alvo = casa / "fechado.txt"
+    alvo.write_text("ok")
+    alvo.chmod(0)
+    try:
+        with pytest.raises(ValueError, match="nao pode ser lido"):
+            _bot.arquivos_validos([str(alvo)])
+    finally:
+        alvo.chmod(0o600)
+
+
+def test_arquivo_vazio_passa(casa):
+    (casa / "vazio.txt").write_bytes(b"")
+    assert [p for p, _ in _bot.arquivos_validos([str(casa / "vazio.txt")])] == [casa / "vazio.txt"]
