@@ -30,6 +30,9 @@ struct ProfileStepView: View {
             labeled("Cores") {
                 ThemePicker()
             }
+            labeled("Permissões do Claude") {
+                PermissionModePicker()
+            }
         }
     }
 

@@ -14,6 +14,7 @@ struct SettingsView: View {
                     .foregroundStyle(Theme.textPrimary)
                 colors
                 home
+                PermissionSettingsCard()
                 notices
                 music
                 SpotifySettingsCard()
@@ -84,6 +85,7 @@ struct SettingsView: View {
 
     private static let noticeKinds: [(NoticeKind, String)] = [
         (.reply, "Respostas"), (.telegram, "Telegram"), (.reminder, "Lembretes"), (.outbox, "Fila"), (.update, "Atualizações"),
+        (.approval, "Aprovações"),
     ]
 
     private var notices: some View {
