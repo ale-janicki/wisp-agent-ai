@@ -7,7 +7,7 @@ final class FileOpenPolicyTests: XCTestCase {
     }
 
     func testDocumentsOpen() {
-        for ext in ["txt", "md", "csv", "json", "png", "JPG", "heic", "mp4", "mov", "mp3", "m4a", "pdf", "html", "rtf",
+        for ext in ["txt", "md", "csv", "json", "png", "JPG", "heic", "mp4", "mov", "mp3", "m4a", "pdf", "rtf",
                     "docx", "xlsx", "pptx", "pages", "numbers", "key", "odt"] {
             XCTAssertEqual(action(ext), .open, ext)
         }
@@ -16,6 +16,12 @@ final class FileOpenPolicyTests: XCTestCase {
     func testProgramsScriptsAndBundlesAreRevealed() {
         for ext in ["app", "terminal", "command", "workflow", "pkg", "dmg", "jar", "webloc", "inetloc", "sh", "py", "scpt",
                     "zip", "tar", "gz", "docm", "exe", "unknownext123", ""] {
+            XCTAssertEqual(action(ext), .reveal, ext)
+        }
+    }
+
+    func testFilesThatInstallOrRunCodeOnOpenAreRevealed() {
+        for ext in ["mobileconfig", "jnlp", "ics", "webarchive", "html", "HTM", "xhtml", "svg", "svgz"] {
             XCTAssertEqual(action(ext), .reveal, ext)
         }
     }

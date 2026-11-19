@@ -14,6 +14,9 @@ Entries are in descending chronological order (newest first).
 - The Telegram bot and the Mac app are two surfaces of one conversation. The conversation is the Claude session: sharing it to Telegram opens a topic on the same session and the same folder (nothing is copied), and each surface runs its own turns. A per-session lock (`~/.local/state/wisp/locks/<session_id>.lock`) keeps the two from running a turn at once; when the bot has to wait for the app, the topic says "respondendo no app, esta vem logo depois".
 - Mac only: the app no longer routes a turn through the bot, and the "who is reading" claim (`wisp topic assumir`), `wisp topic falar` and the CLI `wisp topic puxar` (pulling a session between machines) are removed, along with the bot's `falar`, `adotar` and `trazer` requests. The new Telegram `/puxar` command is unrelated to the old CLI one: it lists app conversations to share into Telegram (below). `wisp topic status --json` always reports this Mac as reader and claim.
 
+- The files the agent may send to Telegram are screened by a wider deny-list, identical in the bot and in the app: any `.env`/`.env.*`, `.netrc`, `.git-credentials`, `.pgpass`, `.npmrc`, `.pypirc`, `id_rsa*`/`id_ed25519*`/`id_ecdsa*`, `*.pem`, `*.key`, `*.p12`, `*.pfx`, `*.keychain`, `*.keychain-db` (any folder, any case, also through a symlink), and the folders `~/.kube`, `~/.docker`, `~/.config/gcloud`, `~/.azure`, `~/.config/gh` and `~/.password-store` on top of the ones already blocked. One shared list in `cli/tests/fixtures/contract/send-denylist.json` keeps both sides equal in tests.
+- File-open policy: `.mobileconfig`, `.jnlp`, `.ics`, `.webarchive`, `.html`/`.htm`/`.xhtml` and `.svg` files a link points at are now revealed in Finder instead of opened.
+
 ### Removed
 
 - The bot's old terminal "vigia"/modo celular code (`vigia.py`, `_adotar_celular` and friends): nothing reached it any more.

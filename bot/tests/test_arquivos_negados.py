@@ -1,3 +1,6 @@
+import json
+from pathlib import Path
+
 import pytest
 
 from wisp_bot import bot as _bot
@@ -30,3 +33,50 @@ def test_negado_por_symlink(casa):
     (casa / "atalho").symlink_to(casa / ".ssh")
     with pytest.raises(ValueError, match="protegida"):
         _bot.arquivos_validos([str(casa / "atalho" / "id_ed25519")])
+
+
+CONTRATO = json.loads((Path(__file__).resolve().parents[2] / "cli/tests/fixtures/contract/send-denylist.json").read_text())
+
+
+def test_listas_iguais_ao_contrato():
+    assert list(_bot.NEGADOS_NOMES) == CONTRATO["names"]
+    assert list(_bot.NEGADOS_GLOBS) == CONTRATO["globs"]
+    assert list(_bot.NEGADOS_PASTAS) == CONTRATO["dirs"]
+
+
+ARQUIVOS = CONTRATO["names"] + [g.replace("*", "x") for g in CONTRATO["globs"]]
+
+
+@pytest.mark.parametrize("nome", ARQUIVOS)
+def test_nome_negado_em_qualquer_pasta(casa, nome):
+    (casa / "docs").mkdir()
+    for variante in (nome, nome.upper(), nome.title()):
+        alvo = casa / "docs" / variante
+        alvo.write_text("s")
+        with pytest.raises(ValueError, match="protegida"):
+            _bot.arquivos_validos([str(alvo)])
+
+
+@pytest.mark.parametrize("nome", ARQUIVOS)
+def test_symlink_para_arquivo_negado(casa, nome):
+    (casa / "cofre").mkdir()
+    (casa / "cofre" / nome).write_text("s")
+    (casa / "foto.txt").symlink_to(casa / "cofre" / nome)
+    with pytest.raises(ValueError, match="protegida"):
+        _bot.arquivos_validos([str(casa / "foto.txt")])
+
+
+@pytest.mark.parametrize("pasta", CONTRATO["dirs"])
+def test_pasta_negada_ignora_maiusculas(casa, pasta):
+    alvo = casa / pasta
+    alvo.mkdir(parents=True, exist_ok=True)
+    (alvo / "dado.txt").write_text("s")
+    for variante in (pasta, pasta.upper(), pasta.title()):
+        with pytest.raises(ValueError, match="protegida"):
+            _bot.arquivos_validos([str(casa / variante / "dado.txt")])
+
+
+@pytest.mark.parametrize("nome", ["envio.txt", "my.env.txt", "chave.keyx", "pem.txt", "x_id_rsa.txt"])
+def test_nomes_parecidos_passam(casa, nome):
+    (casa / nome).write_text("ok")
+    assert [p for p, _ in _bot.arquivos_validos([str(casa / nome)])] == [casa / nome]

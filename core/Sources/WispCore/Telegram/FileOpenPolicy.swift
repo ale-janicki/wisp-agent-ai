@@ -9,12 +9,13 @@ public enum FileOpenPolicy {
         "fileloc", "url", "scpt", "scptd", "osa", "saver", "prefpane", "plugin", "bundle", "kext", "appex", "xpc",
         "sh", "bash", "zsh", "csh", "ksh", "fish", "py", "rb", "pl", "js", "mjs", "lua", "php", "exe", "bat", "cmd", "msi",
         "ps1", "vbs", "docm", "xlsm", "pptm", "dotm", "xltm", "potm", "xlam", "ppam", "wsf", "lnk", "desktop", "scr",
+        "mobileconfig", "jnlp", "ics", "webarchive", "html", "htm", "xhtml", "svg", "svgz",
     ]
     private static let revealTypes: [UTType] = [
         .executable, .unixExecutable, .application, .applicationBundle, .script, .shellScript, .archive, .diskImage,
         .package, .bundle, .url, .internetLocation, .aliasFile, .symbolicLink,
     ]
-    private static let openTypes: [UTType] = [.text, .image, .movie, .audio, .pdf, .html, .rtf, .spreadsheet, .presentation]
+    private static let openTypes: [UTType] = [.text, .image, .movie, .audio, .pdf, .rtf, .spreadsheet, .presentation]
     private static let openIdentifierPrefixes = ["org.openxmlformats.", "com.apple.iwork.", "org.oasis-open.opendocument.",
                                                  "com.microsoft.word.", "com.microsoft.excel.", "com.microsoft.powerpoint.",
                                                  "com.apple.keynote.", "com.apple.numbers.", "com.apple.pages."]

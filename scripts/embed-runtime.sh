@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Xcode run-script phase: copies the Python sources and the uv binary into the app's Resources/runtime and writes
+# runtime/VERSION (sha256 of uv.lock, the uv binary, plus the sorted hashes of every copied source file).
+# WISP_RUNTIME_OUT overrides the destination so the script can run outside Xcode.
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -22,7 +25,9 @@ rm -rf "$out"
 mkdir -p "$out/src" "$out/bin"
 cp "$uv" "$out/bin/uv"
 
-git -C "$root" ls-files -z --cached --others --exclude-standard -- pyproject.toml uv.lock .python-version cli bot harness vault-template \
+# Only tracked files ship, so the VERSION hash never depends on local junk (caches, scratch files).
+# A tracked file deleted on disk but not yet committed is skipped instead of failing the build.
+git -C "$root" ls-files -z -- pyproject.toml uv.lock .python-version cli bot harness vault-template \
   | { grep -zvE '^(cli|bot)/tests/' || true; } \
   | (cd "$root" && while IFS= read -r -d '' f; do if [ -f "$f" ]; then printf '%s\0' "$f"; fi; done) \
   | rsync -a --from0 --files-from=- "$root/" "$out/src/"

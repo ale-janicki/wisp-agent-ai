@@ -4,8 +4,14 @@ public enum FileLinks {
     public static let maxFiles = 10
     public static let maxBytes = 50 * 1024 * 1024
 
+    static let denyNames = [".env", ".netrc", ".git-credentials", ".pgpass", ".npmrc", ".pypirc"]
+    static let denyGlobs = [".env.*", "id_rsa*", "id_ed25519*", "id_ecdsa*", "*.pem", "*.key", "*.p12", "*.pfx",
+                            "*.keychain", "*.keychain-db"]
+    static let denyDirs = [".ssh", ".gnupg", ".aws", "Library/Keychains", ".config/wisp", ".kube", ".docker",
+                           ".config/gcloud", ".azure", ".config/gh", ".password-store"]
+
     public static func absolutePaths(in text: String, home: URL = FileManager.default.homeDirectoryForCurrentUser) -> [String] {
-        let denied = [".ssh", ".gnupg", ".aws", "Library/Keychains", ".config/wisp"]
+        let denied = denyDirs
             .map { home.appendingPathComponent($0).resolvingSymlinksInPath().path }
         let deniedIDs = denied.compactMap { fileID($0) }
         var seen = Set<String>()
@@ -30,6 +36,8 @@ public enum FileLinks {
 
     private static func isDenied(_ real: String, denied: [String], deniedIDs: [NSObject]) -> Bool {
         let folded = real.lowercased()
+        let name = (folded as NSString).lastPathComponent
+        if denyNames.contains(name) || denyGlobs.contains(where: { fnmatch($0, name, 0) == 0 }) { return true }
         for root in denied {
             let rootFolded = root.lowercased()
             if folded == rootFolded || folded.hasPrefix(rootFolded + "/") { return true }

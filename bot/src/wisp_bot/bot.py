@@ -1,5 +1,5 @@
 from __future__ import annotations
-import asyncio, functools, html, json, logging, os, re, signal, sys, time
+import asyncio, fnmatch, functools, html, json, logging, os, re, signal, sys, time
 from types import SimpleNamespace
 from pathlib import Path
 
@@ -798,10 +798,16 @@ def bloco_anexos(origem: str, itens: list[str], texto: str) -> str:
             + "\n".join(itens) + "]\n\n" + (texto or ANEXO_SEM_TEXTO))
 
 
+NEGADOS_NOMES = (".env", ".netrc", ".git-credentials", ".pgpass", ".npmrc", ".pypirc")
+NEGADOS_GLOBS = (".env.*", "id_rsa*", "id_ed25519*", "id_ecdsa*", "*.pem", "*.key", "*.p12", "*.pfx",
+                 "*.keychain", "*.keychain-db")
+NEGADOS_PASTAS = (".ssh", ".gnupg", ".aws", "Library/Keychains", ".config/wisp", ".kube", ".docker",
+                  ".config/gcloud", ".azure", ".config/gh", ".password-store")
+
+
 def _negados() -> list[Path]:
     home = Path.home()
-    negados = [home / ".ssh", home / ".gnupg", home / ".aws", home / "Library" / "Keychains",
-               home / ".config" / "wisp"]
+    negados = [home / pasta for pasta in NEGADOS_PASTAS]
     try:
         tg = json.loads(config_path().read_text("utf-8")).get("telegram") or {}
         if tg.get("token_file"):
@@ -811,7 +817,14 @@ def _negados() -> list[Path]:
     return [p.resolve() for p in negados]
 
 
+def _nome_negado(real: Path) -> bool:
+    nome = real.name.casefold()
+    return nome in NEGADOS_NOMES or any(fnmatch.fnmatchcase(nome, g) for g in NEGADOS_GLOBS)
+
+
 def _fica_em_negado(real: Path, negados: list[Path]) -> bool:
+    if _nome_negado(real):
+        return True
     fold = Path(str(real).casefold())
     if any(fold.is_relative_to(Path(str(n).casefold())) for n in negados):
         return True

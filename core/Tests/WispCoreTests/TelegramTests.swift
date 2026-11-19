@@ -479,6 +479,73 @@ final class FileLinksTests: XCTestCase {
         }
     }
 
+    private func denyContract() throws -> (names: [String], globs: [String], dirs: [String]) {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("cli/tests/fixtures/contract/send-denylist.json")
+        let json = try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as! [String: [String]]
+        return (json["names"]!, json["globs"]!, json["dirs"]!)
+    }
+
+    private func deniedSamples() throws -> [String] {
+        let c = try denyContract()
+        return c.names + c.globs.map { $0.replacingOccurrences(of: "*", with: "x") }
+    }
+
+    func testDenyListMatchesTheBotContract() throws {
+        let c = try denyContract()
+        XCTAssertEqual(FileLinks.denyNames, c.names)
+        XCTAssertEqual(FileLinks.denyGlobs, c.globs)
+        XCTAssertEqual(FileLinks.denyDirs, c.dirs)
+    }
+
+    func testDeniedFileNamesAnywhereAndAnyCase() throws {
+        let home = dir.appendingPathComponent("home")
+        let docs = home.appendingPathComponent("docs")
+        try FileManager.default.createDirectory(at: docs, withIntermediateDirectories: true)
+        for name in try deniedSamples() {
+            for variant in [name, name.uppercased()] {
+                let file = docs.appendingPathComponent(variant)
+                try Data("s".utf8).write(to: file)
+                XCTAssertEqual(FileLinks.absolutePaths(in: "[k](file://\(file.path))", home: home), [], variant)
+            }
+        }
+    }
+
+    func testSymlinkToDeniedFileIsDenied() throws {
+        let home = dir.appendingPathComponent("home")
+        let vault = home.appendingPathComponent("cofre")
+        try FileManager.default.createDirectory(at: vault, withIntermediateDirectories: true)
+        for name in try deniedSamples() {
+            let target = vault.appendingPathComponent(name)
+            try Data("s".utf8).write(to: target)
+            let link = home.appendingPathComponent("foto-\(name).txt")
+            try FileManager.default.createSymbolicLink(at: link, withDestinationURL: target)
+            XCTAssertEqual(FileLinks.absolutePaths(in: "[k](file://\(link.path))", home: home), [], name)
+        }
+    }
+
+    func testDeniedFoldersIgnoreCase() throws {
+        let home = dir.appendingPathComponent("home")
+        for folder in try denyContract().dirs {
+            let root = home.appendingPathComponent(folder)
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            try Data("s".utf8).write(to: root.appendingPathComponent("dado.txt"))
+            for variant in [folder, folder.uppercased()] {
+                let path = home.appendingPathComponent(variant).appendingPathComponent("dado.txt").path
+                XCTAssertEqual(FileLinks.absolutePaths(in: "[k](file://\(path))", home: home), [], variant)
+            }
+        }
+    }
+
+    func testSimilarNamesAreStillSent() throws {
+        let home = dir.appendingPathComponent("home")
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        let file = home.appendingPathComponent("envio.txt")
+        try Data("s".utf8).write(to: file)
+        XCTAssertEqual(FileLinks.absolutePaths(in: "[k](file://\(file.path))", home: home).count, 1)
+    }
+
     func testCapsAtTenFiles() throws {
         let text = try (0..<13).map { "[f](file://\(try make("f\($0).txt")))" }.joined(separator: " ")
         XCTAssertEqual(paths(text).count, FileLinks.maxFiles)
