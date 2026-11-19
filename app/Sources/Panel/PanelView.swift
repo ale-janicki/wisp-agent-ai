@@ -207,6 +207,40 @@ private struct ConversationCard: View {
                         .font(Theme.Font.caption)
                         .foregroundStyle(Theme.textTertiary)
                         .lineLimit(1)
+                        .help(notice)
+                }
+                if model.isSharing, model.sharingSession == model.state.sessionId {
+                    ProgressView()
+                        .controlSize(.small)
+                        .frame(width: 24, height: 24)
+                        .help("Compartilhando no Telegram…")
+                } else if model.telegram.canShare, model.linkedThread == nil {
+                    Button {
+                        model.shareCurrent()
+                    } label: {
+                        Image(systemName: "paperplane")
+                    }
+                    .buttonStyle(CircleButtonStyle(size: 24))
+                    .disabled(!model.canShareCurrent)
+                    .help("Compartilhar no Telegram")
+                }
+                if model.isAwayCurrent {
+                    Button {
+                        model.returnToMacCurrent()
+                    } label: {
+                        Image(systemName: "iphone.slash")
+                    }
+                    .buttonStyle(CircleButtonStyle(size: 24))
+                    .help("Voltar ao Mac")
+                } else if model.telegram.canShare, model.telegram.canPost, !model.isSharing {
+                    Button {
+                        model.continueOnPhoneCurrent()
+                    } label: {
+                        Image(systemName: "iphone")
+                    }
+                    .buttonStyle(CircleButtonStyle(size: 24))
+                    .disabled(!model.canContinueOnPhoneCurrent)
+                    .help("Continuar no celular")
                 }
             }
             .frame(height: 26)

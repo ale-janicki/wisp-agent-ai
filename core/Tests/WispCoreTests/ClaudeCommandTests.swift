@@ -25,4 +25,20 @@ final class ClaudeCommandTests: XCTestCase {
              "--permission-mode", "auto", "--permission-prompt-tool", "stdio"]
         )
     }
+
+    func testAppendSystemPromptGoesBeforeThePermissionPromptTool() {
+        XCTAssertEqual(
+            ClaudeCommand.arguments(model: nil, resume: "abc", permissionMode: nil, appendSystemPrompt: "regras"),
+            ["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
+             "--resume", "abc", "--append-system-prompt", "regras", "--permission-prompt-tool", "stdio"]
+        )
+    }
+
+    func testSettingsGoBeforeThePermissionPromptTool() {
+        XCTAssertEqual(
+            ClaudeCommand.arguments(model: nil, resume: nil, settings: "/s/guards.json"),
+            ["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
+             "--settings", "/s/guards.json", "--permission-prompt-tool", "stdio"]
+        )
+    }
 }

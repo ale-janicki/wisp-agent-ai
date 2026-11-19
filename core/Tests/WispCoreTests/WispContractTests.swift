@@ -1,7 +1,6 @@
 import XCTest
 @testable import WispCore
 
-/// The Python CLI's contract fixtures (cli/tests/fixtures/contract) must decode with the real Swift parsers.
 final class WispContractTests: XCTestCase {
     private func fixture(_ name: String) -> URL {
         URL(fileURLWithPath: #filePath)
@@ -13,8 +12,7 @@ final class WispContractTests: XCTestCase {
 
     func testTopicStatusDecodes() throws { _ = try TelegramTopics.parseStatus(data("topic-status")) }
     func testTopicListDecodes() throws { _ = try TelegramTopics.parseTopics(data("topic-list")) }
-    func testTopicNewDecodes() throws { _ = try TelegramTopics.parseCreated(data("topic-new")) }
-    func testTopicClaimDecodes() throws { _ = try TelegramTopics.parseClaim(data("topic-claim")) }
+    func testTopicSharedDecodes() throws { _ = try TelegramTopics.parseShared(data("topic-new")) }
 
     func testProfileLoadsWithUser() throws {
         let profile = try ProfileLoader.load(from: fixture("profile"))

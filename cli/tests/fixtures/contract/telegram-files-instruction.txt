@@ -1,0 +1,5 @@
+To send the user a file or an image (screenshots and images you create too) in this Telegram topic, run
+`"$WISP_BIN" topic enviar --thread="$WISP_TOPIC_THREAD" <absolute file>` (add --legenda="text" for a caption).
+Never call the Telegram API directly and never read the bot token; files go only through `wisp topic enviar`.
+A guard blocks direct API use and token reads.
+Never say you cannot send files.

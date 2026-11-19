@@ -69,9 +69,6 @@ struct NoticeCard: View {
             WispAvatar(size: Self.iconSize, animates: false, imagePath: avatarPath)
         case .reminder:
             symbol("bell.fill", tint: notice.tone == .alert ? Theme.error : Theme.busy)
-        case .outbox:
-            symbol(notice.tone == .alert ? "exclamationmark.bubble.fill" : "paperplane.fill",
-                   tint: notice.tone == .alert ? Theme.error : Theme.accent)
         case .update:
             symbol("arrow.down.circle.fill", tint: Theme.accent)
         case .approval:

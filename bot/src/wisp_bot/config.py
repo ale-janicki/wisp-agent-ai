@@ -1,9 +1,3 @@
-"""Per-user settings of the bot, read from the wisp.json the CLI writes.
-
-The bot never imports `wisp`: the dependency stays one-way (the CLI imports the bot).
-`load_bot_config` is the strict read the bot runs before it starts; `CURRENT` is the
-lenient read the module constants use at import, which never touches the token.
-"""
 from __future__ import annotations
 import json, os, re, shlex
 from collections.abc import Mapping
@@ -15,11 +9,12 @@ DEFAULT_BRAIN = "~/Wisp/brain"
 DEFAULT_TOPICS_REL = "wisp/topicos"
 DEFAULT_STATE_DIR = "~/.local/state/wisp/bot"
 DEFAULT_PERSONA = "Wisp"
+DEFAULT_CONVERSATIONS = "~/Library/Application Support/Wisp/conversations.json"
 HOSTINGS = ("solo", "pair")
 
 
 class ConfigError(Exception):
-    """The config cannot start the bot. The message is one sentence naming the key."""
+    ...
 
 
 @dataclass(frozen=True)
@@ -39,6 +34,7 @@ class BotConfig:
     pair: dict | None
     system_topics: dict[int, str] = field(default_factory=dict)
     user_name: str = ""
+    conversations_file: Path = Path(DEFAULT_CONVERSATIONS).expanduser()
 
 
 def config_path(env: Mapping[str, str] = os.environ) -> Path:
@@ -59,7 +55,6 @@ def _expand(value: str, env: Mapping[str, str]) -> Path:
 
 
 def _command(value, key: str, env: Mapping[str, str]) -> list[str] | None:
-    """A command from the config: a string (shell words) or a list. `~` in the program is expanded."""
     if value in (None, "", []):
         return None
     if isinstance(value, str):
@@ -72,7 +67,6 @@ def _command(value, key: str, env: Mapping[str, str]) -> list[str] | None:
 
 
 def rel_seguro(rel: str) -> bool:
-    """A path relative to a home that is safe inside a double-quoted shell string."""
     return bool(re.fullmatch(r"[A-Za-z0-9._/-]+", rel)) and not rel.startswith("/") and ".." not in rel.split("/")
 
 
@@ -134,11 +128,11 @@ def _build(raw: dict, env: Mapping[str, str], strict: bool) -> BotConfig:
         persona=str(raw.get("persona") or DEFAULT_PERSONA),
         hosting=hosting, brain_sync_cmd=_command(tg.get("brain_sync_cmd"), "brain_sync_cmd", env),
         alert_cmd=_command(tg.get("alert_cmd"), "alert_cmd", env), pair=pair, system_topics=system_topics,
-        user_name=str(raw.get("user_name") or "").strip())
+        user_name=str(raw.get("user_name") or "").strip(),
+        conversations_file=_expand(str(tg.get("conversations_file") or DEFAULT_CONVERSATIONS), env))
 
 
 def _token(tg: dict, env: Mapping[str, str]) -> str:
-    """The token lives in a 0600 file, never in the environment or on argv."""
     if not tg.get("token_file"):
         raise ConfigError("telegram.token_file is missing.")
     path = _expand(str(tg["token_file"]), env)
@@ -152,12 +146,10 @@ def _token(tg: dict, env: Mapping[str, str]) -> str:
 
 
 def load_bot_config(env: Mapping[str, str] = os.environ) -> BotConfig:
-    """Strict: ConfigError unless the user, the chat and the token are all there."""
     return _build(_read(env), env, strict=True)
 
 
 def load_settings(env: Mapping[str, str] = os.environ) -> BotConfig:
-    """Lenient, for import time: no file or a broken one gives the defaults, and the token is never read."""
     try:
         raw = _read(env)
     except ConfigError:

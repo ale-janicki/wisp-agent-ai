@@ -12,7 +12,8 @@ from wisp.config import WispConfig, load_config
 from wisp.doctor import run_doctor
 from wisp.fsops import OutsideHome
 from wisp.jobs import NotSupportedHere, manager_for
-from wisp.hooks import hook_boot, hook_brain_commit, hook_guard_secrets
+from wisp.guard_destructive import hook_guard_destructive
+from wisp.hooks import hook_boot, hook_brain_commit, hook_guard_secrets, hook_guard_telegram
 from wisp.paths import WispPaths
 from wisp.report import StepReport
 from wisp.runner import SubprocessRunner
@@ -34,7 +35,7 @@ def emit(report: StepReport) -> int:
 def _load_config_or_default() -> tuple[WispConfig, str | None]:
     try:
         return load_config(), None
-    except (ValueError, TypeError, OSError) as e:
+    except (ValueError, TypeError, OSError):
         return WispConfig(), "não consegui ler o wisp.json; o Wisp usou os valores padrão"
 
 
@@ -113,7 +114,35 @@ def _guard_secrets() -> int:
         payload = json.load(sys.stdin)
         reason = hook_guard_secrets(payload if isinstance(payload, dict) else {}, WispPaths.current())
     except Exception as e:
-        print(f"wisp hook guard-secrets: {type(e).__name__}", file=sys.stderr)
+        print(f"wisp-guard: hook guard-secrets failed ({type(e).__name__})", file=sys.stderr)
+        return 2
+    if reason:
+        print(reason, file=sys.stderr)
+        return 2
+    return 0
+
+
+def _guard_telegram() -> int:
+    try:
+        payload = json.load(sys.stdin)
+        cfg, _ = _load_config_or_default()
+        reason = hook_guard_telegram(payload if isinstance(payload, dict) else {}, WispPaths.current(), cfg)
+    except Exception as e:
+        print(f"wisp-guard: hook guard-telegram failed ({type(e).__name__})", file=sys.stderr)
+        return 2
+    if reason:
+        print(reason, file=sys.stderr)
+        return 2
+    return 0
+
+
+def _guard_destructive() -> int:
+    try:
+        payload = json.load(sys.stdin)
+        cfg, _ = _load_config_or_default()
+        reason = hook_guard_destructive(payload if isinstance(payload, dict) else {}, WispPaths.current(), cfg)
+    except Exception as e:
+        print(f"wisp-guard: hook guard-destructive failed ({type(e).__name__})", file=sys.stderr)
         return 2
     if reason:
         print(reason, file=sys.stderr)
@@ -124,6 +153,10 @@ def _guard_secrets() -> int:
 def _hook(args: argparse.Namespace) -> int:
     if args.which == "guard-secrets":
         return _guard_secrets()
+    if args.which == "guard-telegram":
+        return _guard_telegram()
+    if args.which == "guard-destructive":
+        return _guard_destructive()
     try:
         cfg, _ = _load_config_or_default()
         if args.which == "boot":
@@ -173,7 +206,7 @@ def build_parser() -> argparse.ArgumentParser:
     shim.add_argument("--json", action="store_true")
     add_topic_parser(sub)
     hook = sub.add_parser("hook")
-    hook.add_argument("which", choices=["boot", "brain-commit", "guard-secrets"])
+    hook.add_argument("which", choices=["boot", "brain-commit", "guard-secrets", "guard-telegram", "guard-destructive"])
     return parser
 
 

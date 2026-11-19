@@ -150,6 +150,9 @@ public actor AgentSession {
     private let model: String?
     private let resume: String?
     private let permissionMode: String?
+    private let appendSystemPrompt: String?
+    private let settingsPath: String?
+    private let disallowedTools: [String]
     private let environmentOverrides: [String: String]
     private let state: SessionState
     private var process: Process?
@@ -160,6 +163,9 @@ public actor AgentSession {
         model: String?,
         resume: String?,
         permissionMode: String? = nil,
+        appendSystemPrompt: String? = nil,
+        settingsPath: String? = nil,
+        disallowedTools: [String] = [],
         environmentOverrides: [String: String] = [:]
     ) {
         self.executable = executable
@@ -167,6 +173,9 @@ public actor AgentSession {
         self.model = model
         self.resume = resume
         self.permissionMode = permissionMode
+        self.appendSystemPrompt = appendSystemPrompt
+        self.settingsPath = settingsPath
+        self.disallowedTools = disallowedTools
         self.environmentOverrides = environmentOverrides
         let (stream, continuation) = AsyncStream<SessionEvent>.makeStream()
         self.events = stream
@@ -179,7 +188,7 @@ public actor AgentSession {
 
         let process = Process()
         process.executableURL = executable
-        process.arguments = ClaudeCommand.arguments(model: model, resume: resume, permissionMode: permissionMode)
+        process.arguments = ClaudeCommand.arguments(model: model, resume: resume, permissionMode: permissionMode, appendSystemPrompt: appendSystemPrompt, settings: settingsPath, disallowedTools: disallowedTools)
         process.currentDirectoryURL = cwd
         process.environment = childEnvironment()
 
@@ -232,7 +241,6 @@ public actor AgentSession {
         try write(data)
     }
 
-    /// Answers a `can_use_tool` request; the CLI holds that tool call until this line lands.
     public func respond(to request: PermissionRequest, _ decision: PermissionDecision) throws {
         try write(ClaudeControl.response(to: request, decision))
     }

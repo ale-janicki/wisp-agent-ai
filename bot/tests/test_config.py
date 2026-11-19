@@ -1,4 +1,3 @@
-"""Per-user config: the bot reads wisp.json, never an owner default."""
 import asyncio
 import json
 import subprocess
@@ -23,10 +22,9 @@ def _write(tmp_path: Path, telegram: dict | None = None, **top) -> dict:
 
 
 def _constants(env: dict) -> dict:
-    """The module constants as a fresh interpreter resolves them under `env`."""
-    code = ("import json; from wisp_bot import abrir, ctl, hosting, store, topicos, vigia; "
+    code = ("import json; from wisp_bot import abrir, ctl, hosting, store, topicos; "
             "print(json.dumps({'store': str(store.STORE), 'ctl': str(ctl.DIR), 'abrir': str(abrir.FILA), "
-            "'vigia': str(vigia.ARQUIVO), 'hosting': str(hosting.DIR), 'brain': str(topicos.BRAIN), "
+            "'hosting': str(hosting.DIR), 'brain': str(topicos.BRAIN), "
             "'topics_dir': str(topicos.DIR), 'topics_rel': topicos.REL}))")
     out = subprocess.run([sys.executable, "-c", code], env={**env, "PATH": "/usr/bin:/bin"},
                          capture_output=True, text=True, timeout=60)
@@ -56,7 +54,6 @@ def test_paths_follow_state_dir(tmp_path):
     assert got["store"] == str(state / "topics.json")
     assert got["ctl"] == str(state / "ctl")
     assert got["abrir"] == str(state / "abrir")
-    assert got["vigia"] == str(state / "vigias.json")
     assert got["hosting"] == str(state)
 
 
@@ -115,10 +112,7 @@ def test_alert_noop_without_cmd(monkeypatch):
     assert asyncio.run(claude_runner._alerta("resolve", "x")) is False
 
 
-# The keys the topic CLI writes for each op, as in the copied baseline. The bot, the
-# CLI and an older peer read these files: a renamed key breaks all three.
 BASELINE = {
-    "falar": ({"thread": "7", "texto": "oi", "origem": "Wisp"}, {"id", "op", "thread", "texto", "origem", "at"}),
     "encerrar": ({"thread": "7"}, {"id", "op", "thread", "at"}),
     "vincular": ({"session_id": "s1", "nome": "n", "cwd": "~/x"}, {"id", "op", "session_id", "nome", "cwd", "at"}),
     "desvincular": ({"session_id": "s1"}, {"id", "op", "session_id", "at"}),
@@ -215,7 +209,7 @@ def test_leaving_telegram_points_to_a_command_that_works(monkeypatch, modo):
     t = types.SimpleNamespace(name="x", session_id="s1", cwd="/tmp")
     texto = bot.texto_saiu_do_telegram(t, 9, "terminal-pc", "arquivado")
     if modo == "pair":
-        assert "wisp topic puxar 9" in texto and "claude --resume" not in texto
+        assert "puxar" not in texto and "claude --resume" not in texto and "app do Wisp" in texto
     else:
         assert "claude --resume s1" in texto
 

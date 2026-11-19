@@ -226,9 +226,11 @@ def test_profile_block_uses_absolute_wisp_shim(fake_home, tg):
     run(fake_home, tg, discover=True)
     block = json.loads((paths_of(fake_home).config / "profile.json").read_text())["blocks"]["telegram"]
     shim = f"{fake_home}/.local/bin/wisp topic"
-    for key in ("status", "list", "create", "send", "close", "claim"):
+    for key in ("status", "list", "share", "post", "close"):
         assert block[key].startswith(shim)
-    assert block["send"] == f"{shim} falar --sem-pull --origem Wisp {{anexos}} -- {{thread}} {{text}}"
+    assert block["share"] == f"{shim} compartilhar --session={{session}} --cwd={{cwd}} --nome={{name}} --json"
+    assert block["post"] == f"{shim} postar --json"
+    assert not {"create", "send", "claim"} & block.keys()
     assert block["attachments"] == str(paths_of(fake_home).state / "bot/anexos")
 
 

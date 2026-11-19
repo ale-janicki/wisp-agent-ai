@@ -85,14 +85,12 @@ final class ShellController: ObservableObject {
         let model = conversation
         switch target {
         case .conversation(let id):
-            if id != model.currentId, let record = model.records.first(where: { $0.id == id }) { model.open(record) }
+            model.openConversation(id: id)
             tab = .conversation
         case .topic(let thread):
             if model.linkedThread != thread {
                 if let entry = model.sections.telegram.first(where: { $0.topic.thread == thread }) {
                     model.open(entry)
-                } else if let record = model.records.first(where: { $0.telegramThread == thread }) {
-                    model.open(record)
                 }
             }
             tab = .conversation

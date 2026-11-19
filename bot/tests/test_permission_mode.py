@@ -1,4 +1,3 @@
-"""agent.permissionMode do profile.json (ou dos ajustes do Wisp) decide o --permission-mode do bot."""
 import json
 from pathlib import Path
 
@@ -99,7 +98,6 @@ def test_detecta_recusa_do_auto(codigo, stderr, init, esperado):
 
 
 def _claude_que_recusa_auto(tmp_path: Path) -> Path:
-    """Grava uma linha por chamada com o valor de --permission-mode; recusa auto como o commander do CLI."""
     log = tmp_path / "chamadas"
     fake = tmp_path / "claude"
     fake.write_text('#!/bin/sh\nwhile [ $# -gt 0 ]; do [ "$1" = --permission-mode ] && modo=$2; shift; done\n'
@@ -136,3 +134,89 @@ def test_sem_pedir_nunca_tenta_auto(perfil, tmp_path, monkeypatch):
     sid = "11111111-1111-1111-1111-111111111111"
     asyncio.run(claude_runner.run("oi", session_id=sid, cwd=str(tmp_path), started=False, timeout=20))
     assert chamadas.read_text().splitlines() == ["bypassPermissions"]
+
+
+def test_o_turno_leva_o_settings_com_os_guards(perfil, tmp_path, monkeypatch):
+    import asyncio, json, shlex
+    args = tmp_path / "args"
+    fake = tmp_path / "claude"
+    fake.write_text(f'#!/bin/sh\necho "$@" > {args}\n'
+                    'echo \'{"type":"result","is_error":false,"result":"ok","session_id":"s"}\'\n')
+    fake.chmod(0o755)
+    settings = tmp_path / "state" / "guard-settings.json"
+    monkeypatch.setattr(claude_runner, "CLAUDE_BIN", str(fake))
+    monkeypatch.setattr(claude_runner, "guard_settings_path", lambda: settings)
+    sid = "11111111-1111-1111-1111-111111111111"
+    asyncio.run(claude_runner.run("oi", session_id=sid, cwd=str(tmp_path), started=False, timeout=20))
+    assert f"--settings {settings}" in args.read_text()
+    commands = [h["command"] for h in json.loads(settings.read_text())["hooks"]["PreToolUse"][0]["hooks"]]
+    assert [shlex.split(c)[0] for c in commands] == [claude_runner.WISP_BIN] * 3
+    assert [c.rsplit(" ", 1)[1] for c in commands] == ["guard-secrets", "guard-telegram", "guard-destructive"]
+
+
+def test_settings_dos_guards_igual_ao_fixture_e_idempotente(tmp_path):
+    import json
+    from pathlib import Path
+    fixture = json.loads((Path(__file__).parents[2] / "cli/tests/fixtures/contract/guard-settings.json").read_text())
+    assert claude_runner.guard_settings("/opt/my wisp/bin/wisp") == fixture
+    path = tmp_path / "g.json"
+    claude_runner.write_guard_settings(path, "/opt/my wisp/bin/wisp")
+    mtime = path.stat().st_mtime_ns
+    claude_runner.write_guard_settings(path, "/opt/my wisp/bin/wisp")
+    assert path.stat().st_mtime_ns == mtime
+
+
+def test_sem_as_travas_o_turno_e_recusado_e_o_claude_nao_roda(perfil, tmp_path, monkeypatch, caplog):
+    import asyncio
+    ran = tmp_path / "ran"
+    fake = tmp_path / "claude"
+    fake.write_text(f"#!/bin/sh\ntouch {ran}\n")
+    fake.chmod(0o755)
+    blocker = tmp_path / "blocker"
+    blocker.write_text("x")
+    monkeypatch.setattr(claude_runner, "CLAUDE_BIN", str(fake))
+    monkeypatch.setattr(claude_runner, "guard_settings_path", lambda: blocker / "sub" / "guard-settings.json")
+    sid = "11111111-1111-1111-1111-111111111111"
+    with caplog.at_level("ERROR"):
+        res = asyncio.run(claude_runner.run("oi", session_id=sid, cwd=str(tmp_path), started=False, timeout=20))
+    assert not res.ok and res.text.startswith("não consegui ativar as travas do Wisp: ")
+    assert not ran.exists()
+    assert any("travas" in r.message for r in caplog.records)
+
+
+@pytest.mark.parametrize("modo_do_arquivo", [None, 0o644])
+def test_sem_o_cli_do_wisp_o_turno_e_recusado_e_o_claude_nao_roda(perfil, tmp_path, monkeypatch, modo_do_arquivo):
+    import asyncio
+    ran = tmp_path / "ran"
+    fake = tmp_path / "claude"
+    fake.write_text(f"#!/bin/sh\ntouch {ran}\n")
+    fake.chmod(0o755)
+    wisp = tmp_path / "wisp"
+    if modo_do_arquivo is not None:
+        wisp.write_text("x")
+        wisp.chmod(modo_do_arquivo)
+    monkeypatch.setattr(claude_runner, "CLAUDE_BIN", str(fake))
+    monkeypatch.setattr(claude_runner, "WISP_BIN", str(wisp))
+    sid = "11111111-1111-1111-1111-111111111111"
+    res = asyncio.run(claude_runner.run("oi", session_id=sid, cwd=str(tmp_path), started=False, timeout=20))
+    assert not res.ok and res.text.startswith("não consegui ativar as travas do Wisp: ")
+    assert str(wisp) in res.text
+    assert not ran.exists()
+
+
+def test_every_bot_turn_runs_without_the_ui_only_question_tool(perfil, tmp_path, monkeypatch):
+    import asyncio
+    _grava(perfil, {"cwd": "~"})
+    args = tmp_path / "args"
+    fake = tmp_path / "claude"
+    fake.write_text(f'#!/bin/sh\nfor a in "$@"; do echo "$a"; done > {args}\n'
+                    'echo \'{"type":"result","is_error":false,"result":"ok","session_id":"s"}\'\n')
+    fake.chmod(0o755)
+    monkeypatch.setattr(claude_runner, "CLAUDE_BIN", str(fake))
+    sid = "11111111-1111-1111-1111-111111111111"
+    asyncio.run(claude_runner.run("oi", session_id=sid, cwd=str(tmp_path), started=False, timeout=20))
+    lines = args.read_text().splitlines()
+    assert lines[lines.index("--disallowedTools") + 1] == "AskUserQuestion"
+    asyncio.run(claude_runner.run("oi", session_id=sid, cwd=str(tmp_path), started=False, timeout=20, disallowed="Bash"))
+    lines = args.read_text().splitlines()
+    assert lines[lines.index("--disallowedTools") + 1] == "AskUserQuestion,Bash"

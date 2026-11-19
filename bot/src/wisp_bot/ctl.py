@@ -1,19 +1,3 @@
-"""Fila de controle dos topicos: fechar, soltar para o terminal, adotar do terminal.
-
-Mesmo padrao do abrir.py — arquivo em disco, o bot consome. So o bot mexe no
-topics.json e fala com o Telegram; quem quer algo (a CLI `wisp topic`, uma sessao
-no terminal) deixa um pedido aqui e espera o resultado em done/<id>.json.
-
-  <state_dir>/ctl/<id>.json        pedido {id, op, ...args}
-  <state_dir>/ctl/done/<id>.json   resultado {ok, ...} ou {ok: false, erro}
-
-Ops: encerrar {thread} · soltar {thread, destino} · adotar {session_id, cwd, nome,
-origem_host} · falar {thread, texto, origem?} (poe o texto no topico e o agente responde). `listar` nao e op: a CLI le as notas do brain direto.
-
-O PC nunca alcanca o Mac. A fila do PC e servida assim: se o PC le o Telegram, o
-bot dele consome a fila local; se o Mac le, o bot do Mac drena a fila do PC por ssh
-(drenar_pc) e devolve o done para la (escrever_done_pc).
-"""
 from __future__ import annotations
 import base64, json, re, subprocess, time, uuid
 from pathlib import Path
@@ -25,12 +9,11 @@ DONE = DIR / "done"
 
 
 def destinos() -> tuple[str, ...]:
-    """Para que terminal um topico pode ir: em `solo` so o desta maquina."""
     return ("terminal-mac", "terminal-pc") if hosting.MODO == "pair" else (f"terminal-{hosting.HOST}",)
 
 
-FRESCO_S = 30                  # host-state mais velho que isto = bot parado
-EXPIRA_S = 300                 # pedido mais velho que isto o bot descarta
+FRESCO_S = 30
+EXPIRA_S = 300
 _ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 
 
@@ -38,7 +21,7 @@ def _gravar(f: Path, dados: dict) -> None:
     f.parent.mkdir(parents=True, exist_ok=True)
     tmp = f.with_suffix(".tmp")
     tmp.write_text(json.dumps(dados, ensure_ascii=False), "utf-8")
-    tmp.replace(f)                     # o bot nunca le um pedido pela metade
+    tmp.replace(f)
 
 
 def novo_id() -> str:
@@ -46,14 +29,12 @@ def novo_id() -> str:
 
 
 def pedir(op: str, **args) -> str:
-    """Fila local. Devolve o id para esperar o resultado."""
     id_ = novo_id()
     _gravar(DIR / f"{id_}.json", {"id": id_, "op": op, **args, "at": time.time()})
     return id_
 
 
 def expirado(d: dict) -> bool:
-    """`_idade` (drenar_pc) e a idade medida no relogio de quem pediu; sem ela, o relogio local."""
     idade = d.get("_idade")
     if isinstance(idade, (int, float)):
         return idade > EXPIRA_S
@@ -72,7 +53,7 @@ def pendentes() -> list[dict]:
             f.unlink(missing_ok=True)
             continue
         if not isinstance(d, dict) or not _ID.match(str(d.setdefault("id", f.stem))):
-            f.unlink(missing_ok=True)          # id vira nome de arquivo e vai para script: so o seguro
+            f.unlink(missing_ok=True)
             continue
         d["_file"] = str(f)
         out.append(d)
@@ -99,7 +80,6 @@ def ler_done(id_: str, apagar: bool = True) -> dict | None:
 
 
 def limpar(max_idade_s: float = 86400) -> None:
-    """Resultado que ninguem foi buscar nao fica para sempre."""
     if DONE.is_dir():
         for f in DONE.glob("*.json"):
             try:
@@ -109,11 +89,7 @@ def limpar(max_idade_s: float = 86400) -> None:
                 pass
 
 
-# ---- roteamento: para qual fila vai o pedido ----
-
 def rota() -> str:
-    """'local' ou 'pc'. No PC e sempre local (se o Mac le, ele drena esta fila).
-    No Mac, local se o bot daqui le o Telegram agora; senao a fila do PC, por ssh."""
     if hosting.MODO != "pair" or hosting.HOST == "pc":
         return "local"
     st = hosting.ler_estado_local()
@@ -123,8 +99,6 @@ def rota() -> str:
 
 
 def pc_run(script: str, timeout: float = 20) -> tuple[int, str]:
-    """Roda `script` no PC (stdin). Sincrono: a CLI nao tem loop; o bot chama
-    por asyncio.to_thread."""
     argv = hosting.pc_argv()
     if argv is None:
         return 2, ""
@@ -140,7 +114,6 @@ def _b64(d: dict) -> str:
 
 
 def _gravar_no_pc(rel: str, nome: str, dados: dict, at_do_pc: bool = False) -> bool:
-    """at_do_pc: carimba `at` com o relogio do PC (o relogio do Mac nao vale la)."""
     if at_do_pc:
         grava = r'''printf '%s,"at":%s}' "${j%\}}" "$(date +%s)" > "$d/NOME.tmp" && mv "$d/NOME.tmp" "$d/NOME.json"'''
         corpo = f'j=$(echo {_b64(dados)} | base64 -d)\n' + grava.replace("NOME", nome) + "\n"
@@ -171,9 +144,6 @@ def ler_done_pc(id_: str) -> dict | None:
 
 
 def drenar_pc(ctl: bool = True, pedidos: bool = True) -> tuple[list[dict], list[dict], bool]:
-    """Le (e apaga) a fila de controle do PC; le (sem apagar) os pedidos de sessao.
-    Devolve (ops, pedidos, ssh_ok). Apagar o pedido de sessao e do chamador, depois
-    de empurrar o jsonl."""
     partes = ['echo "NOW $(date +%s)"',
               f'cd "{hosting.DIR_REMOTO}" 2>/dev/null || exit 0']
     if ctl:
@@ -204,7 +174,7 @@ def drenar_pc(ctl: bool = True, pedidos: bool = True) -> tuple[list[dict], list[
             continue
         d["id"] = nome
         if pc_now is not None and isinstance(d.get("at"), (int, float)):
-            d["_idade"] = pc_now - d["at"]         # relogio do PC contra relogio do PC
+            d["_idade"] = pc_now - d["at"]
         (ops if tipo == "CTL" else peds).append(d)
     return ops, peds, rc == 0
 
@@ -214,16 +184,12 @@ def apagar_pedido_pc(session_id: str) -> None:
         pc_run(f'rm -f "$HOME/{sessao.PEDIDOS_REL}/{session_id}.json"\n')
 
 
-# ---- lado de quem pede (CLI) ----
-
 def enfileirar(op: str, **args) -> tuple[str, str]:
-    """(id, rota) — a rota decide onde esperar o done."""
     r = rota()
     return (pedir(op, **args) if r == "local" else pedir_pc(op, **args)), r
 
 
 def cancelar(id_: str, r: str) -> None:
-    """A CLI desistiu de esperar: tira o proprio pedido da fila para o bot nao agir tarde."""
     if not _ID.match(id_):
         return
     if r == "local":

@@ -51,9 +51,6 @@ struct ConversationView: View {
                                 switch row {
                                 case .message(let message):
                                     MessageRow(message: message, maxWidth: bubbleWidth)
-                                    if let mark = model.heldMark(message) {
-                                        HeldMarkRow(mark: mark, retry: { model.retryHeld(message) }, discard: { model.discardHeld(message) })
-                                    }
                                 case .tools(let group): ToolsRow(messages: group)
                                 }
                             }
@@ -61,12 +58,11 @@ struct ConversationView: View {
                                 ApprovalCard(request: request, queued: model.state.approvals.count - 1) { model.answer(request, $0) }
                                     .id(request.id)
                             } else if model.isThinking {
-                                TypingRow(name: model.personaName)
+                                TypingRow(text: model.waitingForTelegram ? ConversationViewModel.waitingStep : "\(model.personaName) pensando…")
                             }
                             if case .failed(let reason) = model.state.phase {
                                 FailureRow(reason: reason) { model.retry() }
                             }
-                            if case .held(let reason) = model.state.phase { HeldRow(reason: reason) }
                             Color.clear.frame(height: 1).id("bottom")
                         }
                         .padding(.horizontal, Theme.Space.l)
@@ -102,8 +98,18 @@ struct MessageRow: View {
             }
         case .assistant:
             HStack(spacing: 0) {
-                bubble(Text(Self.markdown(message.text)), fill: Theme.surfaceHi)
-                    .frame(maxWidth: maxWidth, alignment: .leading)
+                VStack(alignment: .leading, spacing: Theme.Space.xs) {
+                    if !message.text.isEmpty {
+                        bubble(Text(Self.markdown(message.text)), fill: Theme.surfaceHi)
+                            .environment(\.openURL, OpenURLAction { url in
+                                url.isFileURL ? Self.openFile(url) : .systemAction
+                            })
+                    }
+                    if lineLimit == nil, !message.files.isEmpty {
+                        FileCards(paths: message.files, maxWidth: maxWidth)
+                    }
+                }
+                .frame(maxWidth: maxWidth, alignment: .leading)
                 Spacer(minLength: Theme.Space.xl * 2)
             }
         case .system, .tool:
@@ -117,7 +123,6 @@ struct MessageRow: View {
         }
     }
 
-    /// A prompt with the attachment block shows its photos and files (never the paths); a preview stays one line.
     @ViewBuilder
     private var userContent: some View {
         if let attachments = MessageAttachments.parse(message.text) ?? MessageAttachments.unparsed(message.text) {
@@ -134,7 +139,6 @@ struct MessageRow: View {
         }
     }
 
-    /// Images take ~70% of the column; `maxWidth` is already 80% of it.
     private static let imageShare: CGFloat = 0.875
 
     private func bubble(_ text: Text, fill: Color) -> some View {
@@ -157,10 +161,33 @@ struct MessageRow: View {
         guard var parsed = try? AttributedString(markdown: text, options: options) else { return AttributedString(text) }
         let unsafe = parsed.runs.compactMap { run -> Range<AttributedString.Index>? in
             guard let url = run.link else { return nil }
-            return ["http", "https"].contains(url.scheme?.lowercased() ?? "") ? nil : run.range
+            return isOpenable(url) ? nil : run.range
         }
         for range in unsafe { parsed[range].link = nil }
         return parsed
+    }
+
+    private static func isOpenable(_ url: URL) -> Bool {
+        switch url.scheme?.lowercased() {
+        case "http", "https": return true
+        case "file": return url.path.hasPrefix("/") && [nil, "", "localhost"].contains(url.host)
+        default: return false
+        }
+    }
+
+    static func openFile(_ url: URL) -> OpenURLAction.Result {
+        let resolved = url.standardizedFileURL.resolvingSymlinksInPath()
+        let path = resolved.path
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) else { return .discarded }
+        let action = FileOpenPolicy.action(pathExtension: resolved.pathExtension,
+                                           isExecutable: !isDirectory.boolValue && FileManager.default.isExecutableFile(atPath: path),
+                                           isDirectory: isDirectory.boolValue)
+        switch action {
+        case .open: NSWorkspace.shared.open(resolved)
+        case .reveal: NSWorkspace.shared.activateFileViewerSelecting([resolved])
+        }
+        return .handled
     }
 }
 
@@ -208,7 +235,7 @@ private struct ToolsRow: View {
 }
 
 private struct TypingRow: View {
-    let name: String
+    let text: String
 
     var body: some View {
         HStack(spacing: Theme.Space.s) {
@@ -225,7 +252,7 @@ private struct TypingRow: View {
                     }
                 }
             }
-            Text("\(name) pensando…")
+            Text(text)
                 .font(Theme.Font.caption)
                 .foregroundStyle(Theme.textSecondary)
         }
@@ -235,13 +262,11 @@ private struct TypingRow: View {
     }
 }
 
-/// A tool call the CLI holds until the user answers; one at a time, the rest wait behind it.
 struct ApprovalCard: View {
     let request: PermissionRequest
     let queued: Int
     let answer: (PermissionDecision) -> Void
     @State private var expanded: Bool
-    /// The full input was open at least once; until then a summary that can hide part of it holds Permitir.
     @State private var seenFull: Bool
 
     init(request: PermissionRequest, queued: Int, expanded: Bool = false, answer: @escaping (PermissionDecision) -> Void) {
@@ -353,66 +378,6 @@ private struct FailureRow: View {
         .padding(.trailing, 6)
         .padding(.vertical, 6)
         .background(Theme.error.opacity(0.1), in: RoundedRectangle(cornerRadius: Theme.Radius.bubble, style: .continuous))
-    }
-}
-
-/// Under a message in the outbox (D15): waiting, on its way, or not sent.
-private struct HeldMarkRow: View {
-    let mark: HeldMark
-    let retry: () -> Void
-    let discard: () -> Void
-
-    var body: some View {
-        VStack(alignment: .trailing, spacing: Theme.Space.xs) {
-            if case .failed(let reason, _) = mark {
-                Text(reason)
-                    .font(Theme.Font.caption)
-                    .foregroundStyle(Theme.textSecondary)
-                    .multilineTextAlignment(.trailing)
-                    .textSelection(.enabled)
-            }
-            HStack(spacing: Theme.Space.s) {
-                Spacer(minLength: 0)
-                switch mark {
-                case .queued:
-                    label("na fila")
-                    Button("descartar", action: discard).buttonStyle(CapsuleButtonStyle(kind: .ghost))
-                case .sending:
-                    label("enviando…")
-                case .failed(_, let canRetry):
-                    Circle().fill(Theme.error).frame(width: 6, height: 6)
-                    label("não enviada")
-                    if canRetry { Button("tentar de novo", action: retry).buttonStyle(CapsuleButtonStyle(kind: .ghost)) }
-                    Button("descartar", action: discard).buttonStyle(CapsuleButtonStyle(kind: .ghost))
-                }
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .trailing)
-    }
-
-    private func label(_ text: String) -> some View {
-        Text(text)
-            .font(Theme.Font.caption)
-            .foregroundStyle(Theme.textTertiary)
-    }
-}
-
-private struct HeldRow: View {
-    let reason: String
-
-    var body: some View {
-        HStack(alignment: .center, spacing: Theme.Space.s) {
-            Circle().fill(Theme.busy).frame(width: 7, height: 7)
-            Text(reason)
-                .font(Theme.Font.caption)
-                .foregroundStyle(Theme.textSecondary)
-                .lineLimit(2)
-                .textSelection(.enabled)
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, Theme.Space.m)
-        .padding(.vertical, Theme.Space.s)
-        .background(Theme.busy.opacity(0.1), in: RoundedRectangle(cornerRadius: Theme.Radius.bubble, style: .continuous))
     }
 }
 

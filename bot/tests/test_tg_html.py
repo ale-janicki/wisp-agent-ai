@@ -1,10 +1,8 @@
-"""Testes do tg_html: markdown do modelo vira HTML do Telegram, deterministico."""
 import re
 
 
 from wisp_bot import tg_html
 
-# Respostas do assistente no formato que o modelo escreve: markdown com **negrito** e linhas "- ".
 AMOSTRAS = [
     "**Resumo do snapshot**\n\nO job roda as 06h e grava o saldo do dia.\n\n"
     "- **Entrada:** `accounts` com o saldo em centavos\n- **Saida:** uma linha por conta em `snapshots`\n"
@@ -75,3 +73,40 @@ def test_split_continua_balanceado():
     assert len(partes) > 1
     for p in partes:
         assert p.startswith("<pre>") and p.endswith("</pre>")
+
+
+def test_markdown_the_style_asks_for_becomes_telegram_html():
+    src = ("**Slack:** [doc](https://x.dev/a?b=1&c=2) com *ênfase* e `a<b`\n\n- item um\n- item **dois**\n\n"
+           "```py\nprint('<ok>')\n```")
+    out = tg_html.sanitize(src)
+    assert out == ('<b>Slack:</b> <a href="https://x.dev/a?b=1&amp;c=2">doc</a> com <i>ênfase</i> e <code>a&lt;b</code>\n\n'
+                   "• item um\n• item <b>dois</b>\n\n<pre>print('&lt;ok&gt;')</pre>")
+
+
+def test_long_markdown_split_keeps_every_part_balanced():
+    src = "**" + "palavra " * 700 + "**\n\n```\n" + "linha de codigo\n" * 400 + "```"
+    parts = tg_html.split(tg_html.sanitize(src), 4000)
+    assert len(parts) >= 3 and all(len(p) <= 4100 for p in parts)
+    assert all(tg_html.sanitize(p) == p for p in parts)
+
+
+def test_style_asks_for_markdown_not_html():
+    from wisp_bot.claude_runner import TELEGRAM_STYLE
+    assert "NEVER write HTML tags" in TELEGRAM_STYLE
+    assert "Allowed tags ONLY" not in TELEGRAM_STYLE
+    assert TELEGRAM_STYLE.endswith("Never say you cannot send files.\n")
+
+
+def test_files_instruction_matches_the_shared_fixture():
+    from pathlib import Path
+    from wisp_bot.claude_runner import TELEGRAM_FILES
+    fixture = Path(__file__).parents[2] / "cli/tests/fixtures/contract/telegram-files-instruction.txt"
+    assert TELEGRAM_FILES == fixture.read_text("utf-8")
+
+
+def test_phone_instruction_matches_the_shared_fixture_and_is_in_the_style():
+    from pathlib import Path
+    from wisp_bot.claude_runner import ON_THE_PHONE, TELEGRAM_STYLE
+    fixture = Path(__file__).parents[2] / "cli/tests/fixtures/contract/phone-instruction.txt"
+    assert ON_THE_PHONE == fixture.read_text("utf-8")
+    assert ON_THE_PHONE in TELEGRAM_STYLE

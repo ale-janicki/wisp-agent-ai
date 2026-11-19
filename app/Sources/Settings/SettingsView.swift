@@ -152,7 +152,7 @@ struct SettingsView: View {
     // MARK: Avisos
 
     private static let noticeKinds: [(NoticeKind, String)] = [
-        (.reply, "Respostas"), (.telegram, "Telegram"), (.reminder, "Lembretes"), (.outbox, "Fila"), (.update, "Atualizações"),
+        (.reply, "Respostas"), (.telegram, "Telegram"), (.reminder, "Lembretes"), (.update, "Atualizações"),
         (.approval, "Aprovações"),
     ]
 

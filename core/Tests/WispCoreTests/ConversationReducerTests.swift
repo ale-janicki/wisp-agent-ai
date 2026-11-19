@@ -22,6 +22,15 @@ import Testing
         #expect(state.messages.last?.text == "Olá\n\nmundo")
     }
 
+    @Test func oldTelegramHTMLInALiveReplyShowsAsMarkdown() {
+        var state = ConversationState()
+        ConversationReducer.userSent(&state, text: "oi")
+        reduce(&state, [.claude(.text(#"<b>Slack:</b> <a href="https://x.dev">doc</a> <code>a</code>"#))])
+        #expect(state.messages.last?.text == "**Slack:** [doc](https://x.dev) `a`")
+        reduce(&state, [.claude(.result(sessionId: "s", text: "<i>fim</i> &lt;ok&gt;", isError: false, denials: []))])
+        #expect(state.messages.last?.text == "*fim* <ok>")
+    }
+
     @Test func toolUseSetsThinkingStep() {
         var state = ConversationState()
         ConversationReducer.userSent(&state, text: "oi")
@@ -127,6 +136,18 @@ import Testing
         #expect(state.pendingTurns == 0)
     }
 
+    @Test func processRestartedKeepsThePendingTurns() {
+        var state = ConversationState()
+        ConversationReducer.userSent(&state, text: "A")
+        ConversationReducer.userSent(&state, text: "B")
+        ConversationReducer.processRestarted(&state)
+        #expect(state.pendingTurns == 2)
+        #expect(state.phase == .thinking(step: nil))
+        reduce(&state, [.claude(.result(sessionId: "s", text: "ok", isError: false, denials: []))])
+        #expect(state.pendingTurns == 1)
+        #expect(state.phase == .thinking(step: nil))
+    }
+
     @Test func userSentStampsTheTimeSoTheBadgeShowsAtOnce() {
         var state = ConversationState()
         let before = Date()
@@ -134,24 +155,6 @@ import Testing
         let time = state.messages.last?.time
         #expect(time != nil)
         #expect((time ?? .distantPast) >= before)
-    }
-
-    @Test func heldSetsPhase() {
-        var state = ConversationState()
-        ConversationReducer.userSent(&state, text: "oi")
-        ConversationReducer.held(&state, reason: "o Telegram está fora do ar")
-        #expect(state.phase == .held("o Telegram está fora do ar"))
-        #expect(state.pendingTurns == 1)
-    }
-
-    @Test func heldThenUserSentStaysHeld() {
-        var state = ConversationState()
-        ConversationReducer.userSent(&state, text: "um")
-        ConversationReducer.held(&state, reason: "fora")
-        ConversationReducer.userSent(&state, text: "dois")
-        #expect(state.phase == .held("fora"))
-        #expect(state.pendingTurns == 2)
-        #expect(state.messages.map(\.text) == ["um", "dois"])
     }
 
     @Test func userSentKeepsTheOutboxIdAndTime() {

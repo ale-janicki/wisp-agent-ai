@@ -1,3 +1,4 @@
+import os
 import json
 import shlex
 import threading
@@ -18,7 +19,6 @@ CHAT = "-1001"
 
 @pytest.fixture
 def env(fake_home, monkeypatch):
-    """The bot modules read their paths at import: point them at this test's home."""
     state = fake_home / "state"
     brain = fake_home / "brain"
     notes = brain / "wisp/topicos"
@@ -54,7 +54,6 @@ def add_topic(thread: int, name: str, cwd: Path) -> None:
 
 
 def fake_bot(answer: dict, seen: list):
-    """Plays the bot: answers every request that lands in the ctl queue."""
     stop = threading.Event()
 
     def loop():
@@ -74,26 +73,25 @@ def test_profile_templates_parse():
         "wisp topic status --json",
         "wisp topic listar --json",
         "wisp topic novo --cwd {cwd} -- {name}",
-        "wisp topic falar --sem-pull --origem Wisp {anexos} -- {thread} {text}",
+        "wisp topic compartilhar --session={thread} --cwd={cwd} --nome={name} --json",
+        "wisp topic postar --json",
+        "wisp topic enviar --thread={thread} --legenda={text} /tmp/a.png",
         "wisp topic encerrar --sem-pull {thread}",
-        "wisp topic assumir --json --thread {thread}",
     ]
     values = {"cwd": "/tmp/o'brien dir", "name": "-ideia 'x' $(rm)", "thread": "12", "text": "--oi; \"a b\""}
     parser = build_parser()
     for t in templates:
-        filled = t.replace("{anexos}", "--anexo '/tmp/a b.png'")
+        filled = t
         for k, v in values.items():
             filled = filled.replace("{" + k + "}", shlex.quote(v))
         args = parser.parse_args(shlex.split(filled)[1:])
         assert args.command == "topic" and callable(args.f)
-    falar = parser.parse_args(shlex.split(templates[3].replace("{anexos}", "").replace("{thread}", "'12'").replace("{text}", shlex.quote("--oi")))[1:])
-    assert (falar.thread, falar.texto, falar.origem, falar.sem_pull) == ("12", "--oi", "Wisp", True)
 
 
 def test_status_down_when_no_heartbeat(env, capsys):
     assert main(["topic", "status", "--json"]) == 0
     d = json.loads(capsys.readouterr().out)
-    assert d["up"] is False and d["reader"] is None and d["state"] is None and d["age_s"] is None
+    assert d["up"] is False and d["reader"] == "mac" and d["state"] is None and d["age_s"] is None
 
 
 def test_status_up_with_fresh_host_state(env, capsys):
@@ -109,7 +107,7 @@ def test_status_stale_heartbeat_is_down(env, capsys):
     beat(env[0], ago=300)
     main(["topic", "status", "--json"])
     d = json.loads(capsys.readouterr().out)
-    assert d["up"] is False and d["reader"] is None and d["claim"] is None
+    assert d["up"] is False and d["reader"] == "mac" and d["claim"] == "mac"
 
 
 def test_listar_reads_notes_and_store(env, capsys, fake_home):
@@ -141,35 +139,6 @@ def test_listar_hides_non_active_and_mirrors(env, capsys, fake_home):
     assert {r["thread"] for r in json.loads(capsys.readouterr().out)} == {0, 7}
 
 
-def test_falar_writes_ctl_and_waits_done(env, capsys):
-    seen: list = []
-    stop = fake_bot({"ok": True, "thread_id": 12}, seen)
-    try:
-        assert main(["topic", "falar", "--sem-pull", "--origem", "Wisp", "--", "12", "oi tudo bem"]) == 0
-    finally:
-        stop.set()
-    assert capsys.readouterr().out.strip() == "enviado ao tópico 12; o turno roda no Telegram"
-    assert [(p["op"], p["thread"], p["texto"], p["origem"]) for p in seen] == [("falar", "12", "oi tudo bem", "Wisp")]
-
-
-def test_falar_geral_passes_thread_zero(env):
-    seen: list = []
-    stop = fake_bot({"ok": True, "thread_id": 0}, seen)
-    try:
-        assert main(["topic", "falar", "--sem-pull", "--", "0", "oi"]) == 0
-    finally:
-        stop.set()
-    assert seen[0]["thread"] == "0" and "message_thread_id" not in seen[0]
-
-
-def test_falar_times_out_with_sentence(env, capsys, monkeypatch):
-    monkeypatch.setattr(topic, "FALAR_S", 0.2)
-    assert main(["topic", "falar", "--sem-pull", "--", "12", "oi"]) == 1
-    err = capsys.readouterr().err
-    assert err.startswith("o bot não respondeu") and "wisp topic:" not in err and len(err.strip().splitlines()) == 1
-    assert ctl.pendentes() == []
-
-
 def test_encerrar_waits_done(env, capsys):
     beat(env[0])
     stop = fake_bot({"ok": True, "nome": "Ideias"}, [])
@@ -187,7 +156,7 @@ def test_novo_rejects_missing_cwd(env, capsys, fake_home):
 
 def test_novo_needs_a_reader(env, capsys):
     assert main(["topic", "novo", "--", "Ideias"]) == 1
-    assert "nenhum host le o Telegram" in capsys.readouterr().err
+    assert "o bot do Telegram não está rodando" in capsys.readouterr().err
 
 
 def test_novo_creates_and_prints_json(env, capsys):
@@ -215,46 +184,6 @@ def test_novo_creates_and_prints_json(env, capsys):
         stop.set()
     d = json.loads(capsys.readouterr().out)
     assert d == {"thread": 21, "session_id": SID, "cwd": str(brain), "name": "Ideias"}
-
-
-def test_assumir_solo_is_immediate(env, capsys):
-    assert main(["topic", "assumir", "--json", "--thread", "5"]) == 0
-    assert json.loads(capsys.readouterr().out) == {"ok": True, "reader": "mac", "waited_s": 0}
-
-
-def test_puxar_solo_is_one_sentence_on_stderr(env, capsys):
-    assert main(["topic", "puxar", "5"]) == 1
-    cap = capsys.readouterr()
-    assert cap.err.strip() == topic.SO_UMA_MAQUINA
-    out = cap.out.strip().splitlines()
-    assert out == []
-
-
-def test_puxar_pair_reports_unknown_topic(env, capsys, monkeypatch):
-    monkeypatch.setattr(hosting, "MODO", "pair")
-    assert main(["topic", "puxar", "--sem-pull", "99"]) == 2
-    assert "nenhum tópico bate" in capsys.readouterr().err
-
-
-def test_puxar_pair_releases_and_prints_resume(env, capsys, monkeypatch, fake_home):
-    state, _, _ = env
-    beat(state)
-    monkeypatch.setattr(hosting, "MODO", "pair")
-    monkeypatch.delenv("WISP_TOPIC_THREAD", raising=False)
-    monkeypatch.setenv("CLAUDECODE", "1")
-    work = fake_home / "work"
-    work.mkdir()
-    topicos.garantir(f"{CHAT}:5", "Ideias", str(work))
-    jsonl = sessao.caminho(SID, str(work))
-    jsonl.parent.mkdir(parents=True)
-    jsonl.write_text(json.dumps({"type": "user", "message": {"content": "Mensagem do usuario:\noi"}}) + "\n")
-    stop = fake_bot({"ok": True, "session_id": SID, "cwd": str(work), "session_host": "mac", "started": True}, [])
-    try:
-        assert main(["topic", "puxar", "--sem-pull", "Ideias"]) == 0
-    finally:
-        stop.set()
-    out = capsys.readouterr().out
-    assert f"claude --resume {SID}" in out and f"cd {work}" in out and "Você: oi" in out
 
 
 def test_system_topics_come_from_config(env, capsys):
@@ -291,9 +220,10 @@ def test_contract_fixtures_written(env, fake_home):
 
 
 def test_error_has_no_prefix_and_bot_error_is_one_line(env, capsys):
+    beat(env[0])
     stop = fake_bot({"ok": False, "erro": "falhou\n  linha dois\t\ttres"}, [])
     try:
-        assert main(["topic", "falar", "--sem-pull", "--", "12", "oi"]) == 1
+        assert main(["topic", "encerrar", "--sem-pull", "12"]) == 1
     finally:
         stop.set()
     assert capsys.readouterr().err == "falhou linha dois tres\n"
@@ -305,7 +235,7 @@ def test_encerrar_fails_at_once_when_bot_is_down(env, capsys, monkeypatch):
     assert main(["topic", "encerrar", "--sem-pull", "5"]) == 1
     assert time.monotonic() - t0 < 2
     err = capsys.readouterr().err
-    assert err == topic.SEM_BOT_NO_PC + "\n" and ctl.pendentes() == []
+    assert err == topic.SEM_BOT + "\n" and ctl.pendentes() == []
 
 
 def test_listar_always_has_geral_and_system_topics(env, capsys):
@@ -325,21 +255,120 @@ def test_listar_without_telegram_has_no_fixed_rows(env, capsys, monkeypatch):
     assert json.loads(capsys.readouterr().out) == []
 
 
-def test_falar_anexo_sends_absolute_paths_and_allows_empty_text(env):
+def test_compartilhar_sends_session_and_prints_contract_json(env, capsys, fake_home):
+    beat(env[0])
     seen: list = []
-    stop = fake_bot({"ok": True, "thread_id": 12}, seen)
+    stop = fake_bot({"ok": True, "thread_id": 31, "name": "Conversa X", "session_id": SID}, seen)
     try:
-        assert main(["topic", "falar", "--sem-pull", "--anexo", "/a/b.png", "--anexo", "rel.txt", "--", "12", ""]) == 0
+        assert main(["topic", "compartilhar", "--session", SID, "--cwd", str(fake_home), "--nome", "Conversa X",
+                     "--json"]) == 0
     finally:
         stop.set()
-    assert seen[0]["anexos"] == ["/a/b.png", str(Path("rel.txt").absolute())] and seen[0]["texto"] == ""
+    assert json.loads(capsys.readouterr().out) == {"thread": 31, "name": "Conversa X", "session_id": SID}
+    assert [(p["op"], p["session_id"], p["nome"]) for p in seen] == [("compartilhar", SID, "Conversa X")]
 
 
-def test_falar_without_anexo_has_no_anexos_key(env):
+def test_compartilhar_accepts_a_name_starting_with_a_dash(env, capsys, fake_home):
+    beat(env[0])
     seen: list = []
-    stop = fake_bot({"ok": True, "thread_id": 12}, seen)
+    stop = fake_bot({"ok": True, "thread_id": 32, "name": "-teste", "session_id": SID}, seen)
     try:
-        assert main(["topic", "falar", "--sem-pull", "--", "12", "oi"]) == 0
+        assert main(["topic", "compartilhar", f"--session={SID}", f"--cwd={fake_home}", "--nome=-teste", "--json"]) == 0
     finally:
         stop.set()
-    assert "anexos" not in seen[0]
+    assert json.loads(capsys.readouterr().out)["name"] == "-teste"
+    assert [p["nome"] for p in seen] == ["-teste"]
+
+
+def test_compartilhar_bot_refusal_is_one_line_on_stderr(env, capsys, fake_home):
+    beat(env[0])
+    stop = fake_bot({"ok": False, "erro": "essa conversa ja esta no Telegram (topico 5)"}, [])
+    try:
+        assert main(["topic", "compartilhar", "--session", SID, "--cwd", str(fake_home), "--nome", "X"]) == 1
+    finally:
+        stop.set()
+    assert capsys.readouterr().err == "essa conversa ja esta no Telegram (topico 5)\n"
+
+
+def test_compartilhar_needs_the_bot_up(env, capsys, fake_home):
+    assert main(["topic", "compartilhar", "--session", SID, "--cwd", str(fake_home), "--nome", "X"]) == 1
+    assert capsys.readouterr().err == topic.SEM_BOT + "\n" and ctl.pendentes() == []
+
+
+def test_postar_reads_stdin_and_queues_a_postar_op(env, capsys, monkeypatch):
+    import io
+    beat(env[0])
+    seen: list = []
+    stop = fake_bot({"ok": True, "thread_id": 12}, seen)
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps({"thread": 12, "user": "oi", "reply": "ola"})))
+    try:
+        assert main(["topic", "postar", "--json"]) == 0
+    finally:
+        stop.set()
+    assert json.loads(capsys.readouterr().out) == {"ok": True}
+    assert [(p["op"], p["thread"], p["user"], p["reply"]) for p in seen] == [("postar", "12", "oi", "ola")]
+
+
+def test_postar_rejects_bad_stdin(env, capsys, monkeypatch):
+    import io
+    monkeypatch.setattr("sys.stdin", io.StringIO('{"thread": 1}'))
+    assert main(["topic", "postar", "--json"]) == 2
+    assert "stdin" in capsys.readouterr().err
+
+
+def test_enviar_makes_paths_absolute_and_queues_an_enviar_op(env, capsys, tmp_path, monkeypatch):
+    beat(env[0])
+    monkeypatch.chdir(tmp_path)
+    seen: list = []
+    stop = fake_bot({"ok": True, "enviados": 2}, seen)
+    try:
+        assert main(["topic", "enviar", "--thread=12", "--legenda=olha", "a.png", "/tmp/b.pdf", "--json"]) == 0
+    finally:
+        stop.set()
+    assert json.loads(capsys.readouterr().out) == {"ok": True, "enviados": 2}
+    p = seen[0]
+    assert (p["op"], p["thread"], p["legenda"]) == ("enviar", 12, "olha")
+    assert p["arquivos"] == [os.path.abspath("a.png"), "/tmp/b.pdf"]
+
+
+def test_enviar_answers_pendente_instead_of_waiting_past_the_agent_timeout(env, capsys, monkeypatch):
+    beat(env[0])
+    assert topic.ENVIAR_S < 120
+    monkeypatch.setattr(topic, "ENVIAR_S", 0.2)
+    assert main(["topic", "enviar", "--thread=3", "/tmp/x"]) == 0
+    out, err = capsys.readouterr()
+    d = json.loads(out)
+    assert d["ok"] is True and d["pendente"] is True and d["id"]
+    assert "envio em andamento, não reenvie" in err
+    assert [p["op"] for p in ctl.pendentes()] == ["enviar"]
+
+
+def test_enviar_prints_the_bot_sentence_and_exits_1(env, capsys):
+    beat(env[0])
+    stop = fake_bot({"ok": False, "erro": "arquivo recusado: x passa de 50 MB"}, [])
+    try:
+        assert main(["topic", "enviar", "--thread=3", "/tmp/x"]) == 1
+    finally:
+        stop.set()
+    assert capsys.readouterr().err == "arquivo recusado: x passa de 50 MB\n"
+
+
+def test_enviar_needs_thread_and_a_file(env):
+    with pytest.raises(SystemExit):
+        main(["topic", "enviar", "/tmp/x"])
+    with pytest.raises(SystemExit):
+        main(["topic", "enviar", "--thread=3"])
+
+
+def test_postar_forwards_arquivos(env, monkeypatch):
+    import io
+    beat(env[0])
+    seen: list = []
+    stop = fake_bot({"ok": True, "thread_id": 12}, seen)
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps({"thread": 12, "user": "oi", "reply": "ola",
+                                                            "arquivos": ["/tmp/a.png"]})))
+    try:
+        assert main(["topic", "postar", "--json"]) == 0
+    finally:
+        stop.set()
+    assert seen[0]["arquivos"] == ["/tmp/a.png"]

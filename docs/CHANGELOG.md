@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Entries are in descending chronological order (newest first).
 
+## [Unreleased] - 2026-11-19
+
+### Changed
+
+- The Telegram bot and the Mac app are two surfaces of one conversation. The conversation is the Claude session: sharing it to Telegram opens a topic on the same session and the same folder (nothing is copied), and each surface runs its own turns. A per-session lock (`~/.local/state/wisp/locks/<session_id>.lock`) keeps the two from running a turn at once; when the bot has to wait for the app, the topic says "respondendo no app, esta vem logo depois".
+- Mac only: the app no longer routes a turn through the bot, and the "who is reading" claim (`wisp topic assumir`), `wisp topic falar` and the CLI `wisp topic puxar` (pulling a session between machines) are removed, along with the bot's `falar`, `adotar` and `trazer` requests. The new Telegram `/puxar` command is unrelated to the old CLI one: it lists app conversations to share into Telegram (below). `wisp topic status --json` always reports this Mac as reader and claim.
+
+### Removed
+
+- The bot's old terminal "vigia"/modo celular code (`vigia.py`, `_adotar_celular` and friends): nothing reached it any more.
+
+### Fixed
+
+- Closing a topic asks "Encerrar «nome»?" on two lines with Encerrar / Cancelar instead of a truncated one-line "Encerr… Sim Não".
+- "Manda aqui o arquivo" typed in the app now delivers the file in the app. The instruction used to depend on the conversation being in Telegram, so an app turn on a shared conversation sent the file to the phone (the agent even wrote its own Telegram call with the bot token) and nothing showed up where the user was reading. Now an app turn always hands files over as a `file://` link; the shared-topic note says links are mirrored to the topic automatically and `wisp topic enviar` is only for an explicit request. Both the app's and the bot's instruction forbid calling the Telegram API directly or reading the bot token. After an app turn on a shared conversation, the `file://` links in the reply (existing regular files, up to 10) go to the topic as attachments of the mirrored post.
+- One conversation, one format and one set of abilities on both surfaces. The shared session now speaks Markdown: the bot used to ask Claude for Telegram HTML, which the app showed raw (`<b>Slack:</b>`, `<a href=...>`). The bot converts Markdown to Telegram HTML on every send path (replies, the share recap, the app's mirrored turns, file captions); the app turns the HTML already in old history (`b strong i em code pre a u s br blockquote` and `&lt; &gt; &amp; &quot;`) into Markdown, live replies included.
+- A turn run by the app now gets what the bot's gets: on a conversation in Telegram, `WISP_BIN`, `WISP_TOPIC_THREAD` and the same instruction to send files with `wisp topic enviar` (so "me manda o arquivo aqui" sends it to the topic instead of "I cannot"); on any other conversation "here" means the app, and Claude hands a file over as a `[name](file:///abs/path)` link that opens on click (a program is only shown in Finder, never run). The `claude` process restarts when the conversation moves to another topic or out of Telegram, since env and prompt are fixed at start.
+- Files reach the user only through Wisp, and Wisp now enforces it itself. The agent copied an earlier turn and posted a file straight to `api.telegram.org` with the bot token. A new `wisp hook guard-telegram` blocks Bash and file-tool calls that use the Telegram API, read the bot token file or read the token through the bot's config, and says the right way (a `file://` link in the app, `wisp topic enviar` in Telegram). The app and the bot start every `claude` with `--settings` pointing at a Wisp-owned file holding the secrets and Telegram guards, so they hold even when the user never ran `wisp setup harness`; users of the harness get the same hook plus a rule in the `CLAUDE.md` block. The file instructions now say a guard blocks direct API use.
+
+### Added
+
+- Conversations run side by side: each one keeps its own Claude process, queue and approvals, so switching to another conversation or starting a new one never stops the one that is answering. The sidebar shows a spinner while a conversation answers and a dot for an unseen reply or a pending approval; the 4 most recent idle conversations stay warm, the rest resume on the next message.
+- Short conversation names: after the first reply Wisp asks a small model for a 2-4 word title ("Supabase do mycashy"); until then the first message is cut at a whole word. The same name becomes the Telegram topic name when sharing.
+- File cards in the app: a file the agent links or sends shows under its reply with icon, name and size (thumbnail for images); click opens documents and media, anything that could run (apps, scripts, installers, unknown types) is only revealed in Finder.
+- Sharing to Telegram shows a spinner on the header button and on the conversation row until the topic exists.
+- "Continuar no celular" in the app: shares the conversation if needed, posts a hand-off with the last reply, and keeps the agent asking questions as plain text until the user writes from the Mac again.
+- Destructive-action guard: `wisp hook guard-destructive` (`PreToolUse`, Bash) blocks, invisibly to the user, commands that would irreversibly destroy their data or Mac (recursive or forced `rm` of `~`, a top-level folder, the brain, `~/Wisp` or a disk root, emptying the Trash, disk erase and format, `git reset --hard` in the brain) and tells the agent to move things to the Trash instead (`trash <path>`). It runs in the app's and the bot's engine guard settings and in `harness/settings.json`; the guard fixture now lists three hooks.
+- `wisp topic compartilhar --session <id> --cwd <dir> --nome <title> --json`: opens a topic on an existing session, posts a recap of its last 6 messages and prints `{"thread", "name", "session_id"}`; it refuses a session that is already a topic.
+- `wisp topic postar --json` (stdin `{"thread", "user", "reply"}`): posts "💻 <user>" and the reply in the topic, without running Claude; `"arquivos": [<absolute paths>]` also posts the files the user attached in the app (after the "💻" line).
+- `wisp topic enviar --thread N [--legenda TEXT] FILE... [--json]`: the agent sends the user files or images in the Telegram topic (photo as photo, the rest as document; at most 10 files of 50 MB, regular files only, never `~/.ssh`, keychains, the Wisp config or the token file). The bot's turns get `WISP_BIN` and `WISP_TOPIC_THREAD` and the instruction to use it, so the agent no longer answers that it cannot send files.
+- `/puxar` in any topic: lists the 10 most recent app conversations that are not in Telegram yet as buttons; tapping one opens its topic with the recap. The list is read from the app's `conversations.json` (`telegram.conversations_file` overrides the path).
+
 ## [0.2.2] - 2026-11-18
 
 ### Added
