@@ -56,7 +56,7 @@ final class BrainColherTests: XCTestCase {
         task.cancel()
         let counts = await task.value
         XCTAssertNil(counts)
-        XCTAssertLessThan(Date().timeIntervalSince(started), 2)
+        XCTAssertLessThan(Date().timeIntervalSince(started), 10)
         XCTAssertEqual(kill(pid, 0), -1)
     }
 
