@@ -25,6 +25,7 @@ final class ShellController: ObservableObject {
     let media = NowPlayingService()
     let clipboard = ClipboardService()
     let notices = NoticeCenter()
+    let meetings = MeetingRecordingModel()
     private let panel = NotchPanel()
     private var anchorDisplayID: CGDirectDisplayID?
     private var openedByHover = false
