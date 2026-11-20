@@ -40,7 +40,8 @@ class Engine(Protocol):
                   model: str | None = None, timeout: int = 900, extra_prompt: str = "",
                   disallowed: str = "", env: dict | None = None, no_tools: bool = False,
                   on_event: Callable[[str], None] | None = None,
-                  on_text: Callable[[str], Awaitable[None] | None] | None = None) -> Result: ...
+                  on_text: Callable[[str], Awaitable[None] | None] | None = None,
+                  on_permission: Callable[[dict], Awaitable[str | None]] | None = None) -> Result: ...
 
     async def status(self) -> Status: ...
 

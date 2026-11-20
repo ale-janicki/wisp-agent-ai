@@ -14,7 +14,7 @@ struct PermissionModePicker: View {
 
     private static let codexOptions: [(PermissionChoice, String, String)] = [
         (.ask, "Pedir minha aprovação", "O Codex não consegue pedir aprovação aqui, então só lê: não escreve arquivos nem altera nada."),
-        (.auto, "Automático", "O Codex revisa sozinho os pedidos de aprovação e só escreve na pasta de trabalho, sem rede."),
+        (.auto, "Automático", "Igual a Sem pedir: o Codex só escreve na pasta de trabalho, sem rede e sem sair do isolamento. Ele não decide sozinho o que é seguro."),
         (.bypass, "Sem pedir (perigoso)", "O Codex roda sem perguntar, mas só escreve na pasta de trabalho (nunca na pasta pessoal inteira) e sem rede."),
     ]
 

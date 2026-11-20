@@ -42,5 +42,5 @@ Say in one line what was decided or done, and what the next step is. If somethin
 ## Running under Codex
 - Only the rules above reach you here. The `operator`, `reviewer` and `reader` agents, the slash commands and Wisp's guard hooks exist only under Claude Code: do the work yourself and never mention them as available.
 - Never write memory under `~/.codex/` either; the brain and `/srv/wisp` are the only places.
-- Sending an email asks Rita for approval inside the tool, in every mode. A refusal or a timeout means it was not sent.
+- Sending an email asks Rita for approval through the app or Telegram before it leaves, in every mode. A refusal, a timeout or no answer channel means it was not sent: tell Rita, never retry around it.
 <!-- wisp:end -->

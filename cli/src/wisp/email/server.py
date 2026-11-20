@@ -1,13 +1,17 @@
-"""Email as an MCP tool for every engine. Sending is approved by Claude Code's own permission prompt (an `ask` rule on
-mcp__wisp-email__email_send), never by this process: the prompt is a channel the agent cannot answer."""
+"""Email as an MCP tool for every engine. Under Claude Code the send is approved by its own permission prompt (an `ask`
+rule on mcp__wisp-email__email_send). Under Codex, which has no such prompt, WISP_SEND_GATE=broker makes this process ask
+the host that runs the engine over a Unix socket and send only on its explicit allow; nothing here can answer for the user."""
 
+import asyncio
 import json
+import os
 from collections.abc import Callable
 from dataclasses import asdict
 
 from mcp.server.mcpserver import MCPServer
 from mcp.types import CallToolResult, TextContent
 
+from wisp.send_gate import Gate, Refused, gate_from_env
 from wisp.email.mail_app import MailApp, MailError, check_recipients
 
 SERVER_NAME = "wisp-email"
@@ -21,7 +25,7 @@ class ToolFailure(Exception):
 def _guard(call: Callable):
     try:
         return call()
-    except MailError as e:
+    except (MailError, Refused) as e:
         raise ToolFailure(str(e)) from None
 
 
@@ -37,9 +41,11 @@ def email_search(mail: MailApp, query: str, limit: int = 20) -> list[dict]:
     return [asdict(m) for m in _guard(lambda: mail.search(query, limit))]
 
 
-def email_send(mail: MailApp, to: list[str], subject: str, body: str, cc: list[str] | None = None) -> str:
+def email_send(mail: MailApp, to: list[str], subject: str, body: str, cc: list[str] | None = None, gate: Gate | None = None) -> str:
     cc = cc or []
     _guard(lambda: check_recipients(to, cc))
+    if gate is not None:
+        _guard(lambda: gate({"to": to, "cc": cc, "subject": subject, "body": body}))
     _guard(lambda: mail.send(to, subject, body, cc))
     return SENT
 
@@ -60,7 +66,7 @@ def _reply(call: Callable) -> CallToolResult:
         return _failure(e)
 
 
-def build_server(mail: MailApp) -> MCPServer:
+def build_server(mail: MailApp, gate: Gate | None = None) -> MCPServer:
     server = MCPServer(SERVER_NAME)
 
     @server.tool(name="email_list", description="Lista os e-mails mais recentes de uma caixa do Mail (padrão INBOX)")
@@ -75,12 +81,12 @@ def build_server(mail: MailApp) -> MCPServer:
     def _search(query: str, limit: int = 20) -> CallToolResult:
         return _reply(lambda: email_search(mail, query, limit))
 
-    @server.tool(name="email_send", description="Envia um e-mail; o Claude Code pede a aprovação do usuário antes de sair")
-    def _send(to: list[str], subject: str, body: str, cc: list[str] | None = None) -> CallToolResult:
-        return _reply(lambda: email_send(mail, to, subject, body, cc))
+    @server.tool(name="email_send", description="Envia um e-mail; o usuário aprova antes de sair e, sem aprovação, nada é enviado")
+    async def _send(to: list[str], subject: str, body: str, cc: list[str] | None = None) -> CallToolResult:
+        return await asyncio.to_thread(lambda: _reply(lambda: email_send(mail, to, subject, body, cc, gate)))
 
     return server
 
 
 def run_server(mail: MailApp) -> None:
-    build_server(mail).run("stdio")
+    build_server(mail, gate_from_env(os.environ)).run("stdio")

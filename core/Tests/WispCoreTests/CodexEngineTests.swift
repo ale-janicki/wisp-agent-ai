@@ -85,21 +85,23 @@ final class CodexEngineTests: XCTestCase {
     func testPermissionChoicesMapToSandboxesAndNeverToFullAccess() {
         XCTAssertEqual(CodexCommand.sandboxArguments(.ask), ["--sandbox", "read-only"])
         XCTAssertEqual(CodexCommand.sandboxArguments(nil), ["--sandbox", "read-only"])
-        XCTAssertEqual(CodexCommand.sandboxArguments(.auto), ["--approve-for-me"])
+        XCTAssertEqual(CodexCommand.sandboxArguments(.auto), ["--sandbox", "workspace-write"])
         XCTAssertEqual(CodexCommand.sandboxArguments(.bypass), ["--sandbox", "workspace-write"])
         for choice in PermissionChoice.allCases {
             XCTAssertFalse(CodexCommand.sandboxArguments(choice).contains("danger-full-access"))
+            XCTAssertFalse(CodexCommand.sandboxArguments(choice).contains("--approve-for-me"))
         }
     }
 
     func testArgumentsUseTheDocumentedFlagsAndReadThePromptFromStdin() {
-        let fresh = CodexCommand.arguments(workspace: "/w", permission: .auto, addDirs: ["/b"], instructions: "say \"hi\"\n")
+        let fresh = CodexCommand.arguments(workspace: "/w", permission: .auto, addDirs: ["/b"], instructions: "say \"hi\"\n", wispBinary: "/opt/wisp/venv/bin/wisp")
         XCTAssertEqual(Array(fresh.prefix(5)), ["exec", "--json", "--skip-git-repo-check", "-C", "/w"])
-        XCTAssertTrue(fresh.contains("--approve-for-me"))
+        XCTAssertFalse(fresh.contains("--approve-for-me"))
+        XCTAssertTrue(fresh.contains("workspace-write"))
         XCTAssertEqual(fresh.last, "-")
         XCTAssertTrue(fresh.contains("developer_instructions=\"say \\\"hi\\\"\\n\""))
         XCTAssertEqual(Array(fresh[fresh.firstIndex(of: "--add-dir")!...].prefix(2)), ["--add-dir", "/b"])
-        let resumed = CodexCommand.arguments(workspace: "/w", permission: .bypass, resume: Self.thread)
+        let resumed = CodexCommand.arguments(workspace: "/w", permission: .bypass, wispBinary: "/opt/wisp/venv/bin/wisp", resume: Self.thread)
         XCTAssertEqual(Array(resumed.suffix(3)), ["resume", Self.thread, "-"])
         XCTAssertFalse(resumed.contains("--approve-for-me"))
     }
@@ -227,7 +229,7 @@ final class CodexEngineTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: dir) }
         let session = CodexSession(
             executable: try fakeCodex(in: dir, fixture: "codex-exec-stream-from-docs.jsonl"), cwd: dir, resume: nil,
-            permission: .ask, instructions: "be brief")
+            permission: .ask, instructions: "be brief", wispBinary: "/opt/wisp/venv/bin/wisp")
         try await session.start()
         try await session.send("one")
         try await session.send("two")
@@ -239,6 +241,8 @@ final class CodexEngineTests: XCTestCase {
         XCTAssertFalse(argv[0].contains("resume"))
         XCTAssertTrue(argv[1].contains("resume \(Self.thread) -"))
         XCTAssertTrue(argv[0].contains("--sandbox read-only"))
+        for override in try overridesContract() { XCTAssertTrue(argv[0].contains(override), override) }
+        XCTAssertLessThan(try XCTUnwrap(argv[1].range(of: "enabled=true")).lowerBound, try XCTUnwrap(argv[1].range(of: "resume \(Self.thread)")).lowerBound)
         let routes = session.routesApprovals
         XCTAssertFalse(routes)
         await session.stop()
@@ -249,7 +253,7 @@ final class CodexEngineTests: XCTestCase {
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
         let session = CodexSession(
-            executable: try fakeCodex(in: dir, fixture: "codex-exec-incomplete-from-docs.jsonl"), cwd: dir, resume: nil, permission: .ask)
+            executable: try fakeCodex(in: dir, fixture: "codex-exec-incomplete-from-docs.jsonl"), cwd: dir, resume: nil, permission: .ask, wispBinary: "/opt/wisp/venv/bin/wisp")
         try await session.start()
         try await session.send("oi")
         let events = await collectResults(session, count: 1)
@@ -265,7 +269,7 @@ final class CodexEngineTests: XCTestCase {
         let script = dir.appendingPathComponent("codex")
         try "#!/bin/sh\ncat >/dev/null\necho 'thread not found' >&2\nexit 1\n".write(to: script, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
-        let session = CodexSession(executable: script, cwd: dir, resume: Self.thread, permission: .auto)
+        let session = CodexSession(executable: script, cwd: dir, resume: Self.thread, permission: .auto, wispBinary: "/opt/wisp/venv/bin/wisp")
         try await session.start()
         try await session.send("oi")
         let events = await collectResults(session, count: 1)
@@ -274,8 +278,54 @@ final class CodexEngineTests: XCTestCase {
         await session.stop()
     }
 
-    func testSessionRefusesAnApprovalBecauseCodexExecCannotRouteOne() async throws {
-        let session = CodexSession(executable: URL(fileURLWithPath: "/usr/bin/true"), cwd: FileManager.default.temporaryDirectory, resume: nil, permission: .ask)
+    private func overridesContract() throws -> [String] {
+        let data = try Data(contentsOf: URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("cli/tests/fixtures/contract/codex-mcp-overrides.json"))
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        return try XCTUnwrap(object["overrides"] as? [String])
+    }
+
+    func testTheWholeEmailServerIsPassedAsOverridesOnEveryLaunchAndMatchesTheContract() throws {
+        let data = try Data(contentsOf: URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("cli/tests/fixtures/contract/codex-mcp-overrides.json"))
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let binary = try XCTUnwrap(object["wisp_bin"] as? String)
+        XCTAssertEqual(CodexCommand.mcpOverrides(wispBinary: binary), try overridesContract())
+        for permission in [PermissionChoice.ask, .auto, .bypass] {
+            for resume in [nil, Self.thread] {
+                let args = CodexCommand.arguments(workspace: "/w", permission: permission, wispBinary: binary, resume: resume)
+                for override in try overridesContract() {
+                    let index = try XCTUnwrap(args.firstIndex(of: override), override)
+                    XCTAssertEqual(args[index - 1], "-c")
+                }
+                let last = try XCTUnwrap(overridesContract().last)
+                if resume != nil { XCTAssertLessThan(try XCTUnwrap(args.firstIndex(of: last)), try XCTUnwrap(args.firstIndex(of: "resume"))) }
+            }
+        }
+    }
+
+    func testASessionWithoutTheWispBinaryNeverRunsCodex() async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("wisp-cx-\(UUID().uuidString.prefix(8))")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let session = CodexSession(
+            executable: try fakeCodex(in: dir, fixture: "codex-exec-stream-from-docs.jsonl"), cwd: dir, resume: nil, permission: .ask)
+        try await session.start()
+        try await session.send("oi")
+        var seen: SessionEvent?
+        for await event in session.events {
+            seen = event
+            break
+        }
+        XCTAssertEqual(seen, .exited(code: -1, stderrTail: CodexSession.noWispBinary))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: dir.appendingPathComponent("argv").path))
+        await session.stop()
+    }
+
+    func testSessionRefusesAnAnswerWithNoPendingBrokerRequest() async throws {
+        let session = CodexSession(executable: URL(fileURLWithPath: "/usr/bin/true"), cwd: FileManager.default.temporaryDirectory, resume: nil, permission: .ask, wispBinary: "/opt/wisp/venv/bin/wisp")
         let request = PermissionRequest(id: "r", toolName: "Bash", summary: "x", detail: "x")
         do {
             try await session.respond(to: request, .allow)

@@ -43,7 +43,7 @@ def test_a_failed_stream_keeps_the_failure_and_no_text():
 
 
 @pytest.mark.parametrize("mode,expected", [
-    ("auto", ["--approve-for-me"]),
+    ("auto", ["--sandbox", "workspace-write"]),
     ("bypassPermissions", ["--sandbox", "workspace-write"]),
     ("default", ["--sandbox", "read-only"]),
     ("anything-else", ["--sandbox", "read-only"]),
@@ -72,7 +72,7 @@ def test_command_uses_documented_flags_stdin_prompt_and_resume(tmp_path, monkeyp
     root.mkdir()
     fresh = codex_runner.command(root=root, mode="auto", extra_prompt="EXTRA", session=None)
     assert fresh[1:6] == ["exec", "--json", "--skip-git-repo-check", "-C", str(root)]
-    assert "--approve-for-me" in fresh and fresh[-1] == "-" and "resume" not in fresh
+    assert "--approve-for-me" not in fresh and fresh[-1] == "-" and "resume" not in fresh
     instructions = next(a for a in fresh if a.startswith("developer_instructions="))
     assert "EXTRA" in instructions and "Telegram" in instructions
     resumed = codex_runner.command(root=root, mode="bypassPermissions", extra_prompt="", session=THREAD)
@@ -91,7 +91,7 @@ def test_a_turn_runs_the_fake_binary_and_returns_session_text_and_labels(tmp_pat
     assert res.text == "Repo contains docs, sdk, and examples directories."
     assert labels == ["rodando um comando", "usando wisp-email", "editando notas.md"] and len(texts) == 1
     assert Path(f"{log}.stdin").read_text() == "oi"
-    assert "--approve-for-me" in log.read_text()
+    assert "--approve-for-me" not in log.read_text() and "--sandbox workspace-write" in log.read_text()
 
 
 def test_a_failed_turn_reports_the_error(tmp_path, monkeypatch):
@@ -285,3 +285,85 @@ def test_unsafe_wisp_folder_makes_codex_not_ready_and_the_turn_runs_on_claude(tm
     monkeypatch.setattr(codex_runner, "codex_bin", lambda: "/usr/bin/true")
     chosen, note = asyncio.run(engine.resolve(tmp_path))
     assert chosen.name == "claude" and "pasta de trabalho segura" in note
+
+
+def test_every_codex_launch_carries_the_whole_email_server_as_overrides_before_resume(tmp_path):
+    contract = json.loads((CONTRACT / "codex-mcp-overrides.json").read_text("utf-8"))
+    assert codex_runner.mcp_overrides(contract["wisp_bin"]) == contract["overrides"]
+    root = tmp_path / "work"
+    root.mkdir()
+    for session in (None, THREAD):
+        for mode in ("default", "auto", "bypassPermissions"):
+            cmd = codex_runner.command(root=root, mode=mode, extra_prompt="", session=session, wisp_bin=contract["wisp_bin"])
+            for override in contract["overrides"]:
+                assert cmd[cmd.index(override) - 1] == "-c"
+            if session:
+                assert cmd.index(contract["overrides"][-1]) < cmd.index("resume")
+
+
+def test_the_fake_binary_receives_the_overrides_on_a_real_turn(tmp_path, monkeypatch):
+    log = tmp_path / "argv"
+    monkeypatch.setattr(codex_runner, "CODEX_BIN", _fake_codex(tmp_path, "codex-exec-stream-from-docs.jsonl", log=log))
+    monkeypatch.setattr(codex_runner, "WISP_BIN", "/opt/wisp/venv/bin/wisp")
+    res = asyncio.run(codex_runner.run("oi", session_id="", cwd=str(tmp_path), started=False, timeout=20))
+    seen = log.read_text()
+    assert res.ok and 'mcp_servers.wisp-email.env={ WISP_SEND_GATE = "broker" }' in seen
+    assert 'mcp_servers.wisp-email.command="/opt/wisp/venv/bin/wisp"' in seen
+
+
+def _planted(home, body='[mcp_servers.wisp-email]\ncommand = "x"\n'):
+    root = home / "work" / "proj"
+    (root / "sub").mkdir(parents=True)
+    (root / ".codex").mkdir()
+    (root / ".codex/config.toml").write_text(body)
+    return root, root / "sub"
+
+
+@pytest.mark.parametrize("body", [
+    '[mcp_servers.wisp-email]\ncommand = "x"\n',
+    'mcp_servers.wisp-email.command = "x"\n',
+    'mcp_servers = { wisp-email = { command = "x" } }\n',
+    "broken [",
+])
+def test_a_project_config_that_defines_the_email_server_or_does_not_parse_is_a_conflict_naming_the_file(tmp_path, body):
+    home = tmp_path / "home"
+    root, sub = _planted(home, body)
+    assert str(root / ".codex/config.toml") in codex_runner.project_conflict(sub, home)
+    assert codex_runner.project_conflict(None, home) is None
+
+
+def test_other_servers_the_home_folder_and_folders_above_home_are_not_a_conflict(tmp_path):
+    home = tmp_path / "home"
+    root, sub = _planted(home, '[mcp_servers.other]\ncommand = "y"\n')
+    assert codex_runner.project_conflict(sub, home) is None
+    (home / ".codex").mkdir()
+    (home / ".codex/config.toml").write_text('[mcp_servers.wisp-email]\ncommand = "x"\n')
+    (tmp_path / ".codex").mkdir()
+    (tmp_path / ".codex/config.toml").write_text('[mcp_servers.wisp-email]\ncommand = "x"\n')
+    assert codex_runner.project_conflict(sub, home) is None
+
+
+def test_a_planted_project_server_makes_the_turn_fall_back_to_claude_with_a_note(tmp_path, monkeypatch):
+    home = tmp_path / "home"
+    root, sub = _planted(home)
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
+    codex = _Fake("codex", Status(True, True))
+    chosen, note = bot.codex_ou_claude(codex, None, str(sub))
+    assert chosen.name == "claude" and "Codex" in note and str(root / ".codex/config.toml") in note and "Claude" in note
+    clean = tmp_path / "home" / "work" / "clean"
+    clean.mkdir()
+    chosen, note = bot.codex_ou_claude(codex, None, str(clean))
+    assert chosen is codex and note is None
+    claude = _Fake("claude", Status(True, True))
+    assert bot.codex_ou_claude(claude, "x", str(sub)) == (claude, "x")
+
+
+def test_the_runner_itself_refuses_to_launch_with_a_planted_server_and_never_runs_codex(tmp_path, monkeypatch):
+    home = tmp_path / "home"
+    root, sub = _planted(home)
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
+    log = tmp_path / "argv"
+    monkeypatch.setattr(codex_runner, "CODEX_BIN", _fake_codex(tmp_path, "codex-exec-stream-from-docs.jsonl", log=log))
+    res = asyncio.run(codex_runner.run("oi", session_id="", cwd=str(sub), started=False, timeout=20))
+    assert not res.ok and res.engine == "codex" and str(root / ".codex/config.toml") in res.text
+    assert not log.exists()

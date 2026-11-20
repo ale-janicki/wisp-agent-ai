@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from wisp.config import WispConfig
+from wisp.send_gate import BROKER, GATE_ENV, SOCKET_ENV
 from wisp.engines import read_active
 from wisp.fsops import atomic_write
 from wisp.harness_merge import END, block_digest, find_block, merge_block
@@ -22,8 +23,12 @@ CODEX_NOTE = """
 ## Running under Codex
 - Only the rules above reach you here. The `operator`, `reviewer` and `reader` agents, the slash commands and Wisp's guard hooks exist only under Claude Code: do the work yourself and never mention them as available.
 - Never write memory under `~/.codex/` either; the brain and `{wisp_dir}` are the only places.
-- Sending an email asks {user} for approval inside the tool, in every mode. A refusal or a timeout means it was not sent.
+- Sending an email asks {user} for approval through the app or Telegram before it leaves, in every mode. A refusal, a timeout or no answer channel means it was not sent: tell {user}, never retry around it.
 """
+
+
+STALE_GATE = ("o servidor de e-mail do Wisp no config.toml do Codex não está com a trava de aprovação "
+              "({why}); sem ela o envio sairia sem pedir. Rode `wisp harness sync`.")
 
 
 @dataclass
@@ -41,6 +46,60 @@ def wanted(paths: WispPaths, cfg: WispConfig) -> bool:
     return read_active(wisp_root(cfg)) == "codex" or codex_home(paths).is_dir()
 
 
+def _forwards(env_vars: object, name: str) -> bool:
+    if not isinstance(env_vars, list):
+        return False
+    return any(item == name or (isinstance(item, dict) and item.get("name") == name) for item in env_vars)
+
+
+def gate_problem_in(text: str | None) -> str | None:
+    if text is None:
+        return STALE_GATE.format(why="não há config.toml")
+    try:
+        servers = tomllib.loads(text).get("mcp_servers")
+    except tomllib.TOMLDecodeError:
+        return STALE_GATE.format(why="o config.toml não é um TOML válido")
+    server = servers.get(MCP_NAME) if isinstance(servers, dict) else None
+    if not isinstance(server, dict):
+        return STALE_GATE.format(why=f"não há o servidor {MCP_NAME}")
+    env = server.get("env")
+    if not isinstance(env, dict) or env.get(GATE_ENV) != BROKER:
+        return STALE_GATE.format(why=f"falta {GATE_ENV} = \"{BROKER}\" em env")
+    if not _forwards(server.get("env_vars"), SOCKET_ENV):
+        return STALE_GATE.format(why=f"falta {SOCKET_ENV} em env_vars")
+    return None
+
+
+PROJECT_DEFINES = ("o arquivo {file} define o servidor {name} do Codex; o Wisp não usa o Codex nesta pasta "
+                   "enquanto ele existir (apague essa parte do arquivo ou use outra pasta)")
+PROJECT_UNREADABLE = ("não consegui ler {file} como TOML; o Wisp não usa o Codex nesta pasta enquanto ele estiver assim "
+                      "(corrija o arquivo ou use outra pasta)")
+
+
+def project_config_problem(workspace: Path, home: Path) -> str | None:
+    stop = home.resolve()
+    folder = workspace.resolve()
+    while folder != stop and folder != folder.parent:
+        file = folder / ".codex" / "config.toml"
+        if file.is_file():
+            try:
+                servers = tomllib.loads(file.read_bytes().decode()).get("mcp_servers")
+            except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError):
+                return PROJECT_UNREADABLE.format(file=file)
+            if isinstance(servers, dict) and MCP_NAME in servers:
+                return PROJECT_DEFINES.format(file=file, name=MCP_NAME)
+        folder = folder.parent
+    return None
+
+
+def gate_problem(paths: WispPaths) -> str | None:
+    try:
+        text = _read(codex_home(paths) / "config.toml")
+    except (OSError, UnicodeDecodeError):
+        return STALE_GATE.format(why="não consegui ler o config.toml")
+    return gate_problem_in(text)
+
+
 def render_agents_block(cfg: WispConfig) -> tuple[str, str | None]:
     values = _values(cfg)
     block, problem = _block(resources_root() / "harness", cfg, values)
@@ -48,20 +107,32 @@ def render_agents_block(cfg: WispConfig) -> tuple[str, str | None]:
     return block.replace(END, note + END, 1), problem
 
 
+def server_fields(wisp_bin: str) -> list[tuple[str, str]]:
+    return [
+        ("command", json.dumps(wisp_bin, ensure_ascii=False)),
+        ("args", '["mcp", "email"]'),
+        ("env_vars", f'["WISP_TELEGRAM_THREAD", "{SOCKET_ENV}"]'),
+        ("env", f'{{ {GATE_ENV} = "{BROKER}" }}'),
+        ("default_tools_approval_mode", '"approve"'),
+        ("startup_timeout_sec", "30"),
+        ("tool_timeout_sec", str(APPROVAL_WAIT_SECONDS)),
+    ]
+
+
 def render_config_block(wisp_bin: str) -> str:
     lines = [
         TOML_BEGIN,
         "# Managed by Wisp. Edit outside this block; changes inside it are replaced on the next sync.",
         f"[mcp_servers.{MCP_NAME}]",
-        f"command = {json.dumps(wisp_bin, ensure_ascii=False)}",
-        'args = ["mcp", "email"]',
-        'env_vars = ["WISP_TELEGRAM_THREAD"]',
-        'default_tools_approval_mode = "approve"',
-        "startup_timeout_sec = 30",
-        f"tool_timeout_sec = {APPROVAL_WAIT_SECONDS}",
+        *(f"{key} = {value}" for key, value in server_fields(wisp_bin)),
         TOML_END,
     ]
     return "\n".join(lines) + "\n"
+
+
+def mcp_overrides(wisp_bin: str) -> list[str]:
+    fields = [*server_fields(wisp_bin), ("enabled", "true")]
+    return [f"mcp_servers.{MCP_NAME}.{key}={value}" for key, value in fields]
 
 
 def _read(path: Path) -> str | None:
@@ -126,6 +197,11 @@ def sync_codex(paths: WispPaths, cfg: WispConfig, *, dry_run: bool) -> CodexSync
         if kind in ("added", "updated"):
             pending[path] = text
             result.state = "updated"
+    config_after = pending.get(config_path, user_config)
+    problem = gate_problem_in(config_after)
+    if problem:
+        result.state = "failed"
+        result.details.append(Detail("e-mail", 0, problem))
     if dry_run:
         return result
     for path, text in pending.items():

@@ -2,13 +2,11 @@ import Foundation
 
 public enum CodexCommand {
     public static let readOnly = ["--sandbox", "read-only"]
-    public static let autoReview = ["--approve-for-me"]
     public static let workspaceWrite = ["--sandbox", "workspace-write"]
 
     public static func sandboxArguments(_ choice: PermissionChoice?) -> [String] {
         switch choice {
-        case .auto: autoReview
-        case .bypass: workspaceWrite
+        case .auto, .bypass: workspaceWrite
         case .ask, nil: readOnly
         }
     }
@@ -68,13 +66,44 @@ public enum CodexCommand {
         return out + "\""
     }
 
+    public static let emailServer = "wisp-email"
+
+    public static func mcpOverrides(wispBinary: String) -> [String] {
+        let fields: [(String, String)] = [
+            ("command", tomlString(wispBinary)),
+            ("args", #"["mcp", "email"]"#),
+            ("env_vars", #"["WISP_TELEGRAM_THREAD", "\#(ApprovalBroker.socketEnvironment)"]"#),
+            ("env", #"{ WISP_SEND_GATE = "broker" }"#),
+            ("default_tools_approval_mode", #""approve""#),
+            ("startup_timeout_sec", "30"),
+            ("tool_timeout_sec", "660"),
+            ("enabled", "true"),
+        ]
+        return fields.map { "mcp_servers.\(emailServer).\($0.0)=\($0.1)" }
+    }
+
+    public static func environment(
+        executable: URL, overrides: [String: String] = [:], base: [String: String] = ProcessInfo.processInfo.environment
+    ) -> [String: String] {
+        var env = base
+        if let path = ClaudeLocator.cachedLoginShellPATH {
+            env["PATH"] = path
+        } else {
+            let existing = env["PATH"] ?? "/usr/bin:/bin"
+            env["PATH"] = existing + ":" + executable.deletingLastPathComponent().path + ":/opt/homebrew/bin:/usr/local/bin"
+        }
+        for (key, value) in overrides { env[key] = value }
+        return env
+    }
+
     public static func arguments(
         workspace: String, permission: PermissionChoice?, addDirs: [String] = [], instructions: String = "",
-        resume: String? = nil
+        wispBinary: String, resume: String? = nil
     ) -> [String] {
         var args = ["exec", "--json", "--skip-git-repo-check", "-C", workspace] + sandboxArguments(permission)
         for directory in addDirs { args += ["--add-dir", directory] }
         if !instructions.isEmpty { args += ["-c", "developer_instructions=\(tomlString(instructions))"] }
+        for override in mcpOverrides(wispBinary: wispBinary) { args += ["-c", override] }
         if let resume { args += ["resume", resume] }
         return args + ["-"]
     }

@@ -296,7 +296,7 @@ struct ApprovalCard: View {
                         .foregroundStyle(Theme.textTertiary)
                 }
             }
-            Text("O Claude quer \(request.summary)")
+            Text("O \(request.asker) quer \(request.summary)")
                 .font(Theme.Font.bodyMedium)
                 .foregroundStyle(Theme.textPrimary)
                 .lineLimit(3)
