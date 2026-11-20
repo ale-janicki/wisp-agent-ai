@@ -174,6 +174,13 @@ def test_control_characters_never_reach_the_tty_or_the_stdio_description():
     assert clean("a\x1bb\nc") == "a\\u001bb\\u000ac"
 
 
+def test_astral_characters_use_surrogate_pairs_like_json():
+    tag = "\U000e0067"
+    assert clean(tag) == json.dumps(tag)[1:-1] == "\\udb40\\udc67"
+    assert clean("\U0001f600 ok") == "\U0001f600 ok"
+    assert clean("a" + tag + "b") == "a\\udb40\\udc67b"
+
+
 def test_type_ahead_on_the_terminal_cannot_answer_the_next_prompt():
     master, slave = os.openpty()
     os.write(master, b"s\n")

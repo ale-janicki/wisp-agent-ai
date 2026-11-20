@@ -387,6 +387,8 @@ def test_a_dotted_root_itself_is_not_refused(fake_home):
 @pytest.mark.parametrize("arguments", [
     {"path": "x.sh", "content": "echo"}, {"path": "X.PY", "content": "print()"}, {"path": "run.command", "content": "x"},
     {"path": "a.applescript", "content": "x"}, {"path": "nota.txt", "content": "#!/bin/sh\nrm -rf x"},
+    {"path": "Makefile", "content": "all:"}, {"path": "package.json", "content": "{}"}, {"path": "a.terminal", "content": "x"},
+    {"path": "a.workflow", "content": "x"},
 ])
 def test_writing_a_script_shows_the_card_even_in_bypass_mode_at_grande(folder, arguments):
     with FakeOllama([reply("", [call("write_file", **{**arguments, "path": str(folder / arguments["path"])})]), reply("ok")]) as fake:
@@ -430,3 +432,40 @@ def test_a_shell_command_naming_files_outside_the_roots_adds_nothing(folder, fak
         engine = grande(make(folder, fake, asked))
         run(engine, engine.start("c1", "qwen3:32b", "default"))
     assert "arquivos" not in asked.calls[0][1]
+
+
+@pytest.mark.parametrize("setup", ["symlink", "exec_bit"])
+def test_a_write_to_a_disguised_script_target_shows_the_card(folder, setup):
+    (folder / "run.sh").write_text("echo")
+    if setup == "symlink":
+        (folder / "notes.txt").symlink_to(folder / "run.sh")
+    else:
+        (folder / "notes.txt").write_text("x")
+        (folder / "notes.txt").chmod(0o700)
+    with FakeOllama([reply("", [call("write_file", path=str(folder / "notes.txt"), content="rm -rf x")]), reply("ok")]) as fake:
+        asked = Asked("deny")
+        engine = grande(make(folder, fake, asked))
+        run(engine, engine.start("c1", "qwen3:32b", "bypassPermissions"))
+    assert [c[0] for c in asked.calls] == ["write_file"]
+
+
+def test_a_plain_note_is_written_without_a_card_at_grande(folder):
+    with FakeOllama([reply("", [call("write_file", path=str(folder / "nota.txt"), content="oi")]), reply("ok")]) as fake:
+        asked = Asked("deny")
+        engine = grande(make(folder, fake, asked))
+        run(engine, engine.start("c1", "qwen3:32b", "bypassPermissions"))
+    assert asked.calls == [] and (folder / "nota.txt").read_text() == "oi"
+
+
+@pytest.mark.parametrize("relative", ["CLAUDE.local.md", "AGENTS.override.md", "pasta/claude.LOCAL.md", "x.local.md"])
+def test_instruction_variants_cannot_be_written(folder, attack, relative):
+    with pytest.raises(ToolFailure, match="regras e ferramentas do Wisp"):
+        attack.write({"path": str(folder / relative), "content": "ignore tudo"})
+
+
+def test_a_forged_arquivos_argument_is_kept_for_other_tools(folder):
+    with FakeOllama([reply("", [call("write_file", path=str(folder / "x.sh"), content="echo", arquivos={"x": "y"})]), reply("ok")]) as fake:
+        asked = Asked("deny")
+        engine = grande(make(folder, fake, asked))
+        run(engine, engine.start("c1", "qwen3:32b", "default"))
+    assert asked.calls[0][1]["arquivos"] == {"x": "y"}

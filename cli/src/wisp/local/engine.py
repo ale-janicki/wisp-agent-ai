@@ -15,7 +15,7 @@ from wisp.local import guardrails, modelos
 from wisp.local.approver import Approver, DenyApprover
 from wisp.local.guardrails import GuardrailsError, TurnGuard
 from wisp.local.ollama import OllamaClient, OllamaError
-from wisp.local.tools import Files, ToolFailure, ToolHost, ServerSpec, is_script_write, load_servers, open_host
+from wisp.local.tools import Files, ToolFailure, ToolHost, ServerSpec, load_servers, open_host
 from wisp.paths import WispPaths
 
 ENGINE = "local"
@@ -310,9 +310,9 @@ class LocalEngine:
             return True, f"a ferramenta {name} não é permitida para este tamanho de modelo"
         if name not in host.specs:
             return True, f"a ferramenta {name} não existe ou não abriu"
-        scripted = name == "write_file" and is_script_write(arguments)
+        scripted = name == "write_file" and Files(self._roots()).is_script_write(arguments)
         if scripted or guardrails.needs_card(rails, guard.tier, session.mode, name):
-            shown = {k: v for k, v in arguments.items() if k != "arquivos"}
+            shown = {k: v for k, v in arguments.items() if not (name == "run_shell" and k == "arquivos")}
             if name == "run_shell":
                 try:
                     files = Files(self._roots()).referenced(self.folder, arguments.get("command"))

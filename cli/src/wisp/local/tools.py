@@ -31,8 +31,12 @@ BUILTIN_TOOLS = frozenset({"read_file", "list_files", "write_file", "run_shell"}
 RESERVED_TOOLS = EMAIL_TOOLS | BUILTIN_TOOLS
 CONTROL_FILES = frozenset({"guardrails.toml", "modelos.toml", "agente.md"})
 CONTROL_DIRS = frozenset({"ferramentas", "skills", "conversas"})
-INSTRUCTION_FILES = frozenset({"claude.md", "agents.md"})
-SCRIPT_SUFFIXES = frozenset({".sh", ".py", ".command", ".zsh", ".bash", ".js", ".rb", ".pl", ".applescript", ".scpt"})
+INSTRUCTION_FILES = frozenset({"claude.md", "agents.md", "claude.local.md", "agents.override.md"})
+INSTRUCTION_VARIANT_SUFFIXES = (".local.md", ".override.md")
+SCRIPT_SUFFIXES = frozenset({
+    ".sh", ".py", ".command", ".zsh", ".bash", ".js", ".rb", ".pl", ".applescript", ".scpt", ".terminal", ".workflow",
+})
+SCRIPT_NAMES = frozenset({"makefile", "package.json"})
 CARD_FILE_LIMIT = 4_000
 
 
@@ -91,10 +95,13 @@ def _fold(text: str) -> str:
     return unicodedata.normalize("NFC", text).casefold()
 
 
-def is_script_write(arguments: dict) -> bool:
-    content, target = arguments.get("content"), arguments.get("path")
-    started = isinstance(content, str) and content.lstrip("\ufeff \t\r\n").startswith("#!")
-    return started or (isinstance(target, str) and Path(_fold(target)).suffix in SCRIPT_SUFFIXES)
+def is_instruction_file(name: str) -> bool:
+    return name in INSTRUCTION_FILES or name.endswith(INSTRUCTION_VARIANT_SUFFIXES)
+
+
+def _script_named(name: str) -> bool:
+    folded = _fold(name)
+    return Path(folded).suffix in SCRIPT_SUFFIXES or folded in SCRIPT_NAMES
 
 
 class Files:
@@ -112,6 +119,24 @@ class Files:
             raise ToolFailure(f"só posso mexer em arquivos dentro de {', '.join(str(r) for r in self.roots)}")
         return resolved
 
+    def is_script_write(self, arguments: dict) -> bool:
+        content, target = arguments.get("content"), arguments.get("path")
+        if isinstance(content, str) and content.lstrip("\ufeff \t\r\n").startswith("#!"):
+            return True
+        if not isinstance(target, str):
+            return False
+        if _script_named(target):
+            return True
+        try:
+            resolved = self.confine(target)
+        except ToolFailure:
+            return False
+        try:
+            executable = resolved.is_file() and resolved.stat().st_mode & 0o111 != 0
+        except OSError:
+            executable = False
+        return _script_named(resolved.name) or executable
+
     def _relative(self, resolved: Path) -> tuple[str, ...] | None:
         for root in self.roots:
             if resolved.is_relative_to(root):
@@ -122,7 +147,7 @@ class Files:
         parts = self._relative(resolved)
         if parts is None:
             return False
-        if any(part.startswith(".") for part in parts) or (parts and parts[-1] in INSTRUCTION_FILES):
+        if any(part.startswith(".") for part in parts) or (parts and parts[-1] and is_instruction_file(parts[-1])):
             return True
         if not resolved.is_relative_to(self.roots[0]):
             return False
