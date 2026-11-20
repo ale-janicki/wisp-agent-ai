@@ -71,17 +71,23 @@ def _note_held(brain: Path, held: list[str], persona: str) -> bool:
 
 
 def hook_brain_commit(cfg: WispConfig, runner: Runner) -> int:
-    try:
-        _commit(cfg, runner)
-    except Exception as e:
-        print(f"wisp: o cérebro não foi salvo agora ({type(e).__name__})", file=sys.stderr)
+    commit_brain(cfg, runner)
     return 0
 
 
-def _commit(cfg: WispConfig, runner: Runner) -> None:
+def commit_brain(cfg: WispConfig, runner: Runner) -> bool:
+    """True when the brain is safely stored: committed, nothing to commit, or not a git repo."""
+    try:
+        return _commit(cfg, runner)
+    except Exception as e:
+        print(f"wisp: o cérebro não foi salvo agora ({type(e).__name__})", file=sys.stderr)
+        return False
+
+
+def _commit(cfg: WispConfig, runner: Runner) -> bool:
     brain = _brain_dir(cfg)
     if brain is None or not (brain / ".git").exists():
-        return
+        return True
     deadline = time.monotonic() + COMMIT_BUDGET_SECONDS
 
     def git(*args: str):
@@ -92,7 +98,7 @@ def _commit(cfg: WispConfig, runner: Runner) -> None:
 
     status = git("status", "--porcelain", "-z", "-uall", "--no-renames")
     if status.exit != 0:
-        return
+        return False
     changed = _changed_paths(status.stdout)
     present = [brain / rel for rel in changed if (brain / rel).is_file()]
     held = {path.relative_to(brain).as_posix() for path in scan_paths(present)}
@@ -102,15 +108,15 @@ def _commit(cfg: WispConfig, runner: Runner) -> None:
     if held and _note_held(brain, sorted(held), cfg.persona) and "pendencias.md" not in held and "pendencias.md" not in safe:
         safe.append("pendencias.md")
     if not safe:
-        return
+        return True
     identity: list[str] = []
     if not git("config", "user.name").stdout.strip():
         identity += ["-c", f"user.name={cfg.user_name or 'Wisp'}"]
     if not git("config", "user.email").stdout.strip():
         identity += ["-c", f"user.email={GIT_EMAIL}"]
     if git("add", "--", *safe).exit != 0:
-        return
-    git(*identity, "commit", "-q", "-m", f"chore: save the brain {date.today().isoformat()}", "--", *safe)
+        return False
+    return git(*identity, "commit", "-q", "-m", f"chore: save the brain {date.today().isoformat()}", "--", *safe).exit == 0
 
 
 def _secret_roots(paths: WispPaths) -> list[Path]:
