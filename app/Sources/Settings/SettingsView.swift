@@ -228,6 +228,8 @@ struct SettingsView: View {
                 detail: "Depois de 30 min sem mensagens, o Wisp guarda no brain o que a conversa teve de importante. Usa o seu plano.",
                 isOn: model.learns
             ) { model.setLearns($0) }
+            Divider().overlay(Theme.stroke)
+            lessons(model)
             if let error = model.error {
                 Text(error)
                     .font(Theme.Font.caption)
@@ -235,6 +237,26 @@ struct SettingsView: View {
             }
         }
         .onAppear { model.refresh() }
+    }
+
+    @ViewBuilder
+    private func lessons(_ model: BrainSettingsModel) -> some View {
+        SettingsRow(
+            title: "O que o Wisp aprendeu",
+            detail: model.lessons.isEmpty
+                ? "Quando você corrigir o Wisp ou disser como prefere as coisas, ele guarda aqui e passa a seguir em toda conversa."
+                : "Preferências que o Wisp segue em toda conversa. Remover faz ele esquecer."
+        ) { EmptyView() }
+        ForEach(model.lessons) { lesson in
+            Divider().overlay(Theme.stroke)
+            SettingsRow(
+                title: lesson.rule,
+                detail: [lesson.learnedAlone ? "aprendido sozinho" : lesson.origin, lesson.date].compactMap { $0 }.joined(separator: " · ")
+            ) {
+                Button("Remover") { model.forget(lesson) }
+                    .buttonStyle(CapsuleButtonStyle(kind: .ghost))
+            }
+        }
     }
 
     private func loginSentence(_ login: LoginItemModel) -> String {

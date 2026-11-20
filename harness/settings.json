@@ -9,6 +9,8 @@
       "Bash(git log:*)",
       "Bash(date)",
       "Bash(~/.local/bin/wisp topic:*)",
+      "Bash(~/.local/bin/wisp aprender add:*)",
+      "Bash(~/.local/bin/wisp aprender listar:*)",
       "WebSearch"
     ],
     "deny": [
@@ -59,6 +61,11 @@
           {
             "type": "command",
             "command": "\"$HOME\"/.local/bin/wisp hook boot"
+          },
+          {
+            "type": "command",
+            "command": "\"$HOME\"/.local/bin/wisp hook aprendizados",
+            "timeout": 5
           }
         ]
       }
