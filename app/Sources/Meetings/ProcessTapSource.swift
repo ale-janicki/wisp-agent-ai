@@ -1,6 +1,7 @@
 import AudioToolbox
 import CoreAudio
 import Foundation
+import os
 import WispCore
 
 final class ProcessTapSource: AudioSource, @unchecked Sendable {
@@ -8,6 +9,7 @@ final class ProcessTapSource: AudioSource, @unchecked Sendable {
     private var tapID = AudioObjectID(kAudioObjectUnknown)
     private var aggregateID = AudioObjectID(kAudioObjectUnknown)
     private var procID: AudioDeviceIOProcID?
+    private let log = Logger(subsystem: AppIdentity.bundleID, category: "meetings")
     private var started = false
     private var ring: CaptureRing?
     private var outputListener: AudioObjectPropertyListenerBlock?
@@ -56,7 +58,11 @@ final class ProcessTapSource: AudioSource, @unchecked Sendable {
     private func rebuild() {
         guard ring != nil else { return }
         close()
-        try? open()
+        do {
+            try open()
+        } catch {
+            log.error("system audio rebuild failed: \(error.localizedDescription, privacy: .public)")
+        }
     }
 
     private func open() throws {

@@ -61,13 +61,17 @@ final class MeetingRecordingModel: ObservableObject {
         watchTask?.cancel()
         guard let recorder else { return }
         self.recorder = nil
-        _ = try? recorder.stop()
+        recorder.stopCaptureOnly()
     }
 
     func recoverInterrupted() {
+        guard phase != .starting else { return }
         let base = recordingsRoot
+        let active: Set<String> = phase == .idle ? [] : Set([lastFolder?.lastPathComponent].compactMap { $0 })
         Task { [weak self] in
-            let found = await Task.detached { RecordingRecovery.recover(root: base, converter: M4AFileConverter()) }.value
+            let found = await Task.detached {
+                RecordingRecovery.recover(root: base, converter: M4AFileConverter(), excluding: active)
+            }.value
             guard let self, !found.isEmpty, self.phase == .idle else { return }
             let noun = found.count == 1 ? "gravação interrompida" : "gravações interrompidas"
             self.message = "Recuperei \(found.count) \(noun) da última vez."

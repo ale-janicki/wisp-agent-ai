@@ -1,20 +1,19 @@
 import AVFoundation
+import os
 import WispCore
 
 final class MicrophoneSource: AudioSource, @unchecked Sendable {
     private let engine = AVAudioEngine()
     private let queue = DispatchQueue(label: "\(AppIdentity.bundleID).meetings.mic")
     private var ring: CaptureRing?
+    private let log = Logger(subsystem: AppIdentity.bundleID, category: "meetings")
     private var observer: NSObjectProtocol?
 
     var deviceName: String? { AudioDevices.defaultInputName() }
 
     func start(ring: CaptureRing) throws {
-        switch AVCaptureDevice.authorizationStatus(for: .audio) {
-        case .denied, .restricted:
+        guard Self.microphoneAllowed() else {
             throw MeetingRecorderError.source("sem permissão do microfone. Libere o Wisp em Ajustes do Sistema > Privacidade e Segurança > Microfone.")
-        default:
-            break
         }
         try queue.sync {
             self.ring = ring
@@ -24,6 +23,25 @@ final class MicrophoneSource: AudioSource, @unchecked Sendable {
             ) { [weak self] _ in
                 self?.queue.async { self?.rebuild() }
             }
+        }
+    }
+
+    /// Called off the main thread (the recorder starts on a detached task), so waiting on the prompt is safe.
+    private static func microphoneAllowed() -> Bool {
+        switch AVCaptureDevice.authorizationStatus(for: .audio) {
+        case .denied, .restricted:
+            return false
+        case .notDetermined:
+            let answered = DispatchSemaphore(value: 0)
+            nonisolated(unsafe) var granted = false
+            AVCaptureDevice.requestAccess(for: .audio) { allowed in
+                granted = allowed
+                answered.signal()
+            }
+            answered.wait()
+            return granted
+        default:
+            return true
         }
     }
 
@@ -62,6 +80,10 @@ final class MicrophoneSource: AudioSource, @unchecked Sendable {
         guard ring != nil else { return }
         engine.inputNode.removeTap(onBus: 0)
         engine.stop()
-        try? installTapAndStart()
+        do {
+            try installTapAndStart()
+        } catch {
+            log.error("microphone rebuild failed: \(error.localizedDescription, privacy: .public)")
+        }
     }
 }

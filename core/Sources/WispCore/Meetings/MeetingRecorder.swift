@@ -151,6 +151,23 @@ public final class MeetingRecorder: @unchecked Sendable {
         try writer.sync { try stopOnWriter() }
     }
 
+    /// Stops capture and closes the raw file but leaves the meta as `.recording`, so the next launch's
+    /// recovery does the encode. For app termination, where encoding would block the main thread.
+    public func stopCaptureOnly() {
+        writer.sync {
+            guard let ending = session else { return }
+            ending.timer?.cancel()
+            ending.timer = nil
+            mic.stop()
+            system.stop()
+            pumpOnWriter(ending, flush: true)
+            session = nil
+            try? ending.sink.finish()
+            ending.meta.durationSeconds = Double(ending.framesWritten) / Double(CaptureFormat.sampleRate)
+            try? RecordingFolder.write(ending.meta, in: ending.folder)
+        }
+    }
+
     public func pump() {
         writer.sync {
             guard let session else { return }

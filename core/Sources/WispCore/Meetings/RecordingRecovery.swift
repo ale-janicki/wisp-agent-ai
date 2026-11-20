@@ -7,10 +7,12 @@ public struct RecoveredRecording: Equatable, Sendable {
 }
 
 public enum RecordingRecovery {
-    public static func recover(root: URL, converter: AudioFileConverter, fileManager: FileManager = .default) -> [RecoveredRecording] {
+    public static func recover(
+        root: URL, converter: AudioFileConverter, excluding active: Set<String> = [], fileManager: FileManager = .default
+    ) -> [RecoveredRecording] {
         guard let names = try? fileManager.contentsOfDirectory(atPath: root.path) else { return [] }
         var recovered: [RecoveredRecording] = []
-        for name in names.sorted() {
+        for name in names.sorted() where !active.contains(name) {
             let folder = root.appendingPathComponent(name, isDirectory: true)
             guard var meta = try? RecordingFolder.read(in: folder), meta.status == .recording else { continue }
             let raw = RecordingFolder.rawAudioURL(in: folder)

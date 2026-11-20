@@ -28,6 +28,7 @@ public final class StereoFileSink: AudioFileSink, @unchecked Sendable {
             ]
         }
         file = try AVAudioFile(forWriting: url, settings: settings, commonFormat: .pcmFormatFloat32, interleaved: false)
+        try RecordingFolder.restrictFile(at: url)
     }
 
     public func write(_ frames: [Float]) throws {
