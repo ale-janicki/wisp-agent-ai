@@ -1,14 +1,30 @@
-# Limits per task size. Used from plan 4; nothing reads this file yet.
-# max_steps = 0 means no cap.
+# Limits of the local engine (Qwen and other models that run on this Mac), per model size.
+# If a value here is invalid, the local engine refuses to start and says which one.
+#
+# max_steps  how many model replies one turn may take; 0 means no cap
+# tools      the only tools the model can call at this size
+# approve    tools that always wait for your approval card at this size
+
+[irreversible]
+# Always behind the approval card, in every permission mode. Wisp already includes email_send and
+# run_shell itself; this list can only add tools, never remove them.
+tools = ["email_send", "run_shell"]
+
+[loop]
+# The same call (same tool, same arguments) this many times in one turn stops the turn.
+repeat_limit = 3
 
 [pequeno]
 max_steps = 6
-tools = []
+tools = ["read_file", "list_files", "write_file", "email_list", "email_read", "email_search", "email_send"]
+approve = ["write_file"]
 
 [medio]
 max_steps = 12
-tools = []
+tools = ["read_file", "list_files", "write_file", "email_list", "email_read", "email_search", "email_send"]
+approve = []
 
 [grande]
-max_steps = 0
-tools = []
+max_steps = 40
+tools = ["read_file", "list_files", "write_file", "run_shell", "email_list", "email_read", "email_search", "email_send"]
+approve = []

@@ -1,0 +1,5 @@
+{"apiKeySource": "none", "engine": "local", "model": "qwen3:8b", "permissionMode": "default", "session_id": "c1", "subtype": "init", "tier": "pequeno", "type": "system"}
+{"message": {"content": [{"thinking": "", "type": "thinking"}, {"text": "vou ler", "type": "text"}, {"id": "toolu_local_id0", "input": {"path": "<folder>/notas.txt"}, "name": "read_file", "type": "tool_use"}], "role": "assistant"}, "type": "assistant"}
+{"message": {"content": [{"content": "conteúdo das notas", "is_error": false, "tool_use_id": "toolu_local_id0", "type": "tool_result"}], "role": "user"}, "type": "user"}
+{"message": {"content": [{"text": "pronto", "type": "text"}], "role": "assistant"}, "type": "assistant"}
+{"engine": "local", "is_error": false, "model": "qwen3:8b", "permission_denials": [], "result": "pronto", "session_id": "c1", "steps": 2, "stopped": null, "subtype": "success", "type": "result"}

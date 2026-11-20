@@ -3,14 +3,14 @@ import SwiftUI
 import WispCore
 
 enum SettingsSection: String, CaseIterable, Identifiable {
-    case appearance, claude, notices, integrations, general, about
+    case appearance, model, notices, integrations, general, about
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
         case .appearance: "Aparência"
-        case .claude: "Claude"
+        case .model: "Modelo"
         case .notices: "Avisos"
         case .integrations: "Integrações"
         case .general: "Geral"
@@ -21,7 +21,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
     var icon: String {
         switch self {
         case .appearance: "paintpalette.fill"
-        case .claude: "sparkles"
+        case .model: "sparkles"
         case .notices: "bell.fill"
         case .integrations: "puzzlepiece.extension.fill"
         case .general: "gearshape.fill"
@@ -30,7 +30,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
     }
 
     static func saved(_ id: String?) -> SettingsSection {
-        id.flatMap(SettingsSection.init(rawValue:)) ?? .appearance
+        SettingsSectionMigration.current(id).flatMap(SettingsSection.init(rawValue:)) ?? .appearance
     }
 
     @MainActor func open() {
@@ -106,7 +106,8 @@ struct SettingsView: View {
         case .appearance:
             colors
             order
-        case .claude:
+        case .model:
+            ModelPickerCard()
             PermissionSettingsCard()
         case .notices:
             notices
