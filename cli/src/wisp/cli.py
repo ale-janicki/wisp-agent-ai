@@ -10,11 +10,13 @@ from pathlib import Path
 from wisp import __version__
 from wisp.aprendizados import add_parser as add_aprender_parser, hook_aprendizados, run as run_aprender
 from wisp.brain_colher import main as run_brain_colher
+from wisp.arquivos import add_parser as add_arquivos_parser, run as run_arquivos
 from wisp.config import WispConfig, load_config
 from wisp.doctor import run_doctor
 from wisp.fsops import OutsideHome
 from wisp.jobs import NotSupportedHere, manager_for
 from wisp.guard_brain_scope import hook_guard_brain_scope
+from wisp.mac import add_parser as add_mac_parser, run as run_mac
 from wisp.guard_destructive import hook_guard_destructive
 from wisp.guard_lessons import hook_guard_lessons
 from wisp.hooks import hook_boot, hook_brain_commit, hook_guard_secrets, hook_guard_telegram
@@ -281,6 +283,8 @@ def build_parser() -> argparse.ArgumentParser:
     colher.add_argument("--if-due", action="store_true")
     colher.add_argument("--dry-run", action="store_true")
     colher.add_argument("--json", action="store_true")
+    add_arquivos_parser(sub)
+    add_mac_parser(sub)
     hook = sub.add_parser("hook")
     hook.add_argument("which", choices=["boot", "recall", "aprendizados", "brain-commit", "guard-secrets", "guard-telegram", "guard-destructive", "guard-lessons", "guard-brain-scope"])
     return parser
@@ -310,5 +314,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         return run_topic(args)
     if args.command == "aprender":
         return run_aprender(args, _load_config_or_default()[0])
+    if args.command == "arquivos":
+        return run_arquivos(args)
+    if args.command == "mac":
+        return run_mac(args)
     print(f"wisp {args.command}: not implemented yet", file=sys.stderr)
     return 1

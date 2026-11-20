@@ -104,6 +104,14 @@ def test_files_instruction_matches_the_shared_fixture():
     assert TELEGRAM_FILES == fixture.read_text("utf-8")
 
 
+def test_mac_tools_instruction_matches_the_shared_fixture_and_is_in_the_style():
+    from pathlib import Path
+    from wisp_bot.claude_runner import MAC_TOOLS, TELEGRAM_STYLE
+    fixture = Path(__file__).parents[2] / "cli/tests/fixtures/contract/mac-instruction.txt"
+    assert MAC_TOOLS == fixture.read_text("utf-8")
+    assert MAC_TOOLS in TELEGRAM_STYLE
+
+
 def test_phone_instruction_matches_the_shared_fixture_and_is_in_the_style():
     from pathlib import Path
     from wisp_bot.claude_runner import ON_THE_PHONE, TELEGRAM_STYLE
