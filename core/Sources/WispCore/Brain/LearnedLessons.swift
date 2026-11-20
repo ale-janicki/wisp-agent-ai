@@ -28,31 +28,73 @@ public struct LearnedLessons: Sendable {
     static let separator = " · "
     static let harvestOrigin = "colheita"
     public static let relativePath = "wisp/aprendizados.md"
+    public static let pendingRelativePath = "wisp/aprendizados-pendentes.md"
     public static let defaultLock = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".local/state/wisp/aprendizados.lock")
 
     public let url: URL
+    public let pendingURL: URL
     public let lock: URL
 
     public init(brain: URL, lock: URL = LearnedLessons.defaultLock) {
         url = brain.appendingPathComponent(LearnedLessons.relativePath)
+        pendingURL = brain.appendingPathComponent(LearnedLessons.pendingRelativePath)
         self.lock = lock
     }
 
-    public func lessons() -> [Lesson] {
-        guard let text = try? String(contentsOf: url, encoding: .utf8) else { return [] }
-        return text.components(separatedBy: "\n").enumerated().compactMap { Lesson(index: $0.offset, raw: $0.element) }
-    }
+    public func lessons() -> [Lesson] { lessons(at: url) }
+
+    /// Rules the harvest found on its own; nothing follows them until the user confirms.
+    public func pending() -> [Lesson] { lessons(at: pendingURL) }
 
     @discardableResult
     public func remove(_ lesson: Lesson) throws -> Bool {
+        try withLock { try take(lesson, from: url) != nil }
+    }
+
+    @discardableResult
+    public func discard(_ lesson: Lesson) throws -> Bool {
+        try withLock { try take(lesson, from: pendingURL) != nil }
+    }
+
+    /// Writes the active file first and only then drops the pending line, so a failed write loses nothing.
+    @discardableResult
+    public func confirm(_ lesson: Lesson) throws -> Bool {
         try withLock {
-            let text = try String(contentsOf: url, encoding: .utf8)
-            var lines = text.components(separatedBy: "\n")
-            guard let index = lines.firstIndex(where: { $0.hasPrefix("- ") && $0.trimmingCharacters(in: .whitespaces) == lesson.line }) else { return false }
-            lines.remove(at: index)
-            try lines.joined(separator: "\n").write(to: url, atomically: true, encoding: .utf8)
-            return true
+            guard let line = try find(lesson, in: pendingURL) else { return false }
+            let text = (try? String(contentsOf: url, encoding: .utf8)) ?? "# O que o Wisp aprendeu\n\n"
+            let known = text.components(separatedBy: "\n").compactMap { Lesson(index: 0, raw: $0) }.map { LearnedLessons.key($0.rule) }
+            if !known.contains(LearnedLessons.key(lesson.rule)) {
+                let body = text.hasSuffix("\n") ? text : text + "\n"
+                try (body + line + "\n").write(to: url, atomically: true, encoding: .utf8)
+            }
+            return try take(lesson, from: pendingURL) != nil
         }
+    }
+
+    /// Same folding as `_key` in `aprendizados.py`: lowercase, no accents or punctuation.
+    static func key(_ rule: String) -> String {
+        rule.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
+            .components(separatedBy: CharacterSet.alphanumerics.inverted).filter { !$0.isEmpty }.joined(separator: " ")
+    }
+
+    private func lessons(at file: URL) -> [Lesson] {
+        guard let text = try? String(contentsOf: file, encoding: .utf8) else { return [] }
+        return text.components(separatedBy: "\n").enumerated().compactMap { Lesson(index: $0.offset, raw: $0.element) }
+    }
+
+    private func find(_ lesson: Lesson, in file: URL) throws -> String? {
+        let text = try String(contentsOf: file, encoding: .utf8)
+        return text.components(separatedBy: "\n").first { $0.hasPrefix("- ") && $0.trimmingCharacters(in: .whitespaces) == lesson.line }?
+            .trimmingCharacters(in: .whitespaces)
+    }
+
+    private func take(_ lesson: Lesson, from file: URL) throws -> String? {
+        let text = try String(contentsOf: file, encoding: .utf8)
+        var lines = text.components(separatedBy: "\n")
+        guard let index = lines.firstIndex(where: { $0.hasPrefix("- ") && $0.trimmingCharacters(in: .whitespaces) == lesson.line }) else { return nil }
+        let line = lines.remove(at: index)
+        try lines.joined(separator: "\n").write(to: file, atomically: true, encoding: .utf8)
+        return line.trimmingCharacters(in: .whitespaces)
     }
 
     private func withLock<T>(_ body: () throws -> T) throws -> T {

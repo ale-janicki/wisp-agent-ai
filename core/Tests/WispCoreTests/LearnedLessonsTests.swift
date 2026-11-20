@@ -72,4 +72,35 @@ final class LearnedLessonsTests: XCTestCase {
         try file.remove(try XCTUnwrap(file.lessons().first))
         XCTAssertTrue(FileManager.default.fileExists(atPath: lock.path))
     }
+
+    func testPendingRulesAreListedApartAndConfirmMovesThemIntoTheActiveFile() throws {
+        try write("# Título\n\n- A · 2026-01-01 · x\n")
+        let file = LearnedLessons(brain: brain, lock: lock)
+        try "# Quer\n\n- B · 2026-01-02 · colheita\n- C · 2026-01-03 · colheita\n".write(to: file.pendingURL, atomically: true, encoding: .utf8)
+        XCTAssertEqual(file.lessons().map(\.rule), ["A"])
+        XCTAssertEqual(file.pending().map(\.rule), ["B", "C"])
+        XCTAssertTrue(try file.confirm(try XCTUnwrap(file.pending().first)))
+        XCTAssertEqual(file.lessons().map(\.rule), ["A", "B"])
+        XCTAssertEqual(file.pending().map(\.rule), ["C"])
+        XCTAssertTrue(try file.discard(try XCTUnwrap(file.pending().first)))
+        XCTAssertEqual(file.pending(), [])
+        XCTAssertEqual(file.lessons().map(\.rule), ["A", "B"])
+    }
+
+    func testConfirmDedupesLikePythonAndStillDropsThePendingLine() throws {
+        try write("# Título\n\n- Responda curto · 2026-01-01 · x\n")
+        let file = LearnedLessons(brain: brain, lock: lock)
+        try "# Quer\n\n- RESPONDA, curto! · 2026-01-02 · colheita\n".write(to: file.pendingURL, atomically: true, encoding: .utf8)
+        XCTAssertTrue(try file.confirm(try XCTUnwrap(file.pending().first)))
+        XCTAssertEqual(file.lessons().map(\.rule), ["Responda curto"])
+        XCTAssertEqual(file.pending(), [])
+    }
+
+    func testConfirmThatCannotWriteTheActiveFileKeepsThePendingLine() throws {
+        let file = LearnedLessons(brain: brain, lock: lock)
+        try FileManager.default.createDirectory(at: file.url, withIntermediateDirectories: true)
+        try "# Quer\n\n- B · 2026-01-02 · colheita\n".write(to: file.pendingURL, atomically: true, encoding: .utf8)
+        XCTAssertThrowsError(try file.confirm(try XCTUnwrap(file.pending().first)))
+        XCTAssertEqual(file.pending().map(\.rule), ["B"])
+    }
 }

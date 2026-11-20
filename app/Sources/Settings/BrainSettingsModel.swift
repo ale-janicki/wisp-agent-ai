@@ -10,6 +10,7 @@ final class BrainSettingsModel {
     private(set) var folder: String?
     private(set) var learns = true
     private(set) var lessons: [LearnedLessons.Lesson] = []
+    private(set) var pendingLessons: [LearnedLessons.Lesson] = []
     private(set) var profileIsLink = false
     private(set) var error: String?
 
@@ -24,7 +25,9 @@ final class BrainSettingsModel {
     func refresh() {
         folder = file.string("brain")
         learns = file.bool("brain_learn", default: true)
-        lessons = folder.flatMap { $0.isEmpty ? nil : LearnedLessons(brain: URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath)).lessons() } ?? []
+        let file = folder.flatMap { $0.isEmpty ? nil : learnedLessons(in: $0) }
+        lessons = file?.lessons() ?? []
+        pendingLessons = file?.pending() ?? []
         profileIsLink = (try? FileManager.default.destinationOfSymbolicLink(atPath: ConversationViewModel.profileURL.path)) != nil
     }
 
@@ -55,8 +58,24 @@ final class BrainSettingsModel {
     }
 
     func forget(_ lesson: LearnedLessons.Lesson) {
+        change(lesson) { try $0.remove($1) }
+    }
+
+    func confirm(_ lesson: LearnedLessons.Lesson) {
+        change(lesson) { try $0.confirm($1) }
+    }
+
+    func discard(_ lesson: LearnedLessons.Lesson) {
+        change(lesson) { try $0.discard($1) }
+    }
+
+    private func change(_ lesson: LearnedLessons.Lesson, _ action: (LearnedLessons, LearnedLessons.Lesson) throws -> Bool) {
         guard AppSettings.shared.persists, let folder, !folder.isEmpty else { return }
-        write { _ = try LearnedLessons(brain: URL(fileURLWithPath: (folder as NSString).expandingTildeInPath)).remove(lesson) }
+        write { _ = try action(learnedLessons(in: folder), lesson) }
+    }
+
+    private func learnedLessons(in folder: String) -> LearnedLessons {
+        LearnedLessons(brain: URL(fileURLWithPath: (folder as NSString).expandingTildeInPath))
     }
 
     private func write(_ change: () throws -> Void) {

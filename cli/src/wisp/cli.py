@@ -16,6 +16,7 @@ from wisp.fsops import OutsideHome
 from wisp.jobs import NotSupportedHere, manager_for
 from wisp.guard_brain_scope import hook_guard_brain_scope
 from wisp.guard_destructive import hook_guard_destructive
+from wisp.guard_lessons import hook_guard_lessons
 from wisp.hooks import hook_boot, hook_brain_commit, hook_guard_secrets, hook_guard_telegram
 from wisp.paths import WispPaths
 from wisp.recall import hook_recall
@@ -154,6 +155,20 @@ def _guard_destructive() -> int:
     return 0
 
 
+def _guard_lessons() -> int:
+    try:
+        payload = json.load(sys.stdin)
+        cfg, _ = _load_config_or_default()
+        reason = hook_guard_lessons(payload if isinstance(payload, dict) else {}, WispPaths.current(), cfg)
+    except Exception as e:
+        print(f"wisp-guard: hook guard-lessons failed ({type(e).__name__})", file=sys.stderr)
+        return 2
+    if reason:
+        print(reason, file=sys.stderr)
+        return 2
+    return 0
+
+
 def _guard_brain_scope() -> int:
     try:
         payload = json.load(sys.stdin)
@@ -207,6 +222,8 @@ def _hook(args: argparse.Namespace) -> int:
         return _guard_telegram()
     if args.which == "guard-destructive":
         return _guard_destructive()
+    if args.which == "guard-lessons":
+        return _guard_lessons()
     if args.which == "guard-brain-scope":
         return _guard_brain_scope()
     try:
@@ -265,7 +282,7 @@ def build_parser() -> argparse.ArgumentParser:
     colher.add_argument("--dry-run", action="store_true")
     colher.add_argument("--json", action="store_true")
     hook = sub.add_parser("hook")
-    hook.add_argument("which", choices=["boot", "recall", "aprendizados", "brain-commit", "guard-secrets", "guard-telegram", "guard-destructive", "guard-brain-scope"])
+    hook.add_argument("which", choices=["boot", "recall", "aprendizados", "brain-commit", "guard-secrets", "guard-telegram", "guard-destructive", "guard-lessons", "guard-brain-scope"])
     return parser
 
 

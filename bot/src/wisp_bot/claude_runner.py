@@ -36,7 +36,8 @@ WISP_BIN = str(Path(sys.executable).parent / "wisp")
 
 
 GUARD_MATCHER = "Bash|Read|Edit|MultiEdit|Write|NotebookEdit|Grep|Glob"
-GUARD_HOOKS = ("guard-secrets", "guard-telegram", "guard-destructive")
+GUARD_HOOKS = ("guard-secrets", "guard-telegram", "guard-destructive", "guard-lessons")
+ASK_RULES = ["Bash(*aprender add*)", "Bash(*aprender confirmar*)", "Bash(*aprender descartar*)"]
 RECALL_TIMEOUT = 5
 
 
@@ -46,6 +47,7 @@ def guard_settings(wisp_bin: str) -> dict:
     recall = [{"type": "command", "command": f"{quoted} hook recall", "timeout": RECALL_TIMEOUT}]
     lessons = [{"type": "command", "command": f"{quoted} hook aprendizados", "timeout": RECALL_TIMEOUT}]
     return {
+        "permissions": {"ask": list(ASK_RULES)},
         "hooks": {
             "PreToolUse": [{"matcher": GUARD_MATCHER, "hooks": hooks}],
             "UserPromptSubmit": [{"hooks": recall}],

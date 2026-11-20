@@ -152,3 +152,19 @@ def test_backup_dir_is_unique_per_call(fake_home):
     assert first != second
     assert (first / "settings.json").read_text() == "first"
     assert (second / "settings.json").read_text() == "second"
+
+
+def test_settings_merge_revokes_the_legacy_auto_allow_and_keeps_the_users_rules():
+    user = {"permissions": {"allow": ["Bash(make:*)", "Bash(~/.local/bin/wisp aprender add:*)", "Bash(~/.local/bin/wisp topic:*)"]}}
+    ours = {"permissions": {"allow": ["Bash(~/.local/bin/wisp topic:*)"], "ask": ["Bash(*aprender add*)"]}}
+    merged, _ = merge_settings(user, ours)
+    assert merged["permissions"]["allow"] == ["Bash(make:*)", "Bash(~/.local/bin/wisp topic:*)"]
+    assert merged["permissions"]["ask"] == ["Bash(*aprender add*)"]
+    assert "Bash(~/.local/bin/wisp aprender add:*)" in user["permissions"]["allow"]
+
+
+def test_settings_merge_appends_missing_ask_rules_after_the_users():
+    user = {"permissions": {"ask": ["Bash(rm:*)", "Bash(*aprender add*)"]}}
+    ours = {"permissions": {"ask": ["Bash(*aprender add*)", "Bash(*aprender confirmar*)"]}}
+    merged, _ = merge_settings(user, ours)
+    assert merged["permissions"]["ask"] == ["Bash(rm:*)", "Bash(*aprender add*)", "Bash(*aprender confirmar*)"]

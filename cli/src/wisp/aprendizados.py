@@ -1,6 +1,7 @@
 import argparse
 import contextlib
 import fcntl
+import hashlib
 import os
 import re
 import shlex
@@ -16,6 +17,7 @@ from wisp.paths import WispPaths
 from wisp.secrets_scan import scan_text
 
 REL = Path("wisp/aprendizados.md")
+PENDING_REL = Path("wisp/aprendizados-pendentes.md")
 MAX_LESSONS = 40
 MAX_RULE = 240
 MAX_ORIGIN = 80
@@ -24,7 +26,7 @@ DEFAULT_ORIGIN = "conversa"
 HARVEST_ORIGIN = "colheita"
 LOCK_NAME = "aprendizados.lock"
 SESSIONS_DIR = "aprendizados-sessoes"
-DEDUPE_SECONDS = 120
+REINJECT_SOURCES = ("compact", "clear")
 STATE_MAX_AGE = 7 * 24 * 3600
 SAFE_SID = re.compile(r"[^A-Za-z0-9_-]")
 LINK_OR_EMAIL = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+|https?://|www\.", re.I)
@@ -32,6 +34,11 @@ HEADER = (
     "# O que o Wisp aprendeu\n\n"
     "Uma regra por linha: `- regra · data · origem`. O Wisp lê este arquivo no começo de cada conversa. "
     "Apague uma linha para ele esquecer.\n\n"
+)
+PENDING_HEADER = (
+    "# O que o Wisp quer aprender\n\n"
+    "Regras que o Wisp tirou sozinho de uma conversa. Ele só passa a segui-las depois que você confirmar "
+    "(`wisp aprender confirmar N` ou Ajustes > Brain). Apague uma linha para descartar.\n\n"
 )
 FRAMES = {
     "pt": (
@@ -51,6 +58,10 @@ FRAMES = {
 
 def lessons_path(brain: Path) -> Path:
     return brain / REL
+
+
+def pending_path(brain: Path) -> Path:
+    return brain / PENDING_REL
 
 
 def _key(rule: str) -> str:
@@ -134,21 +145,21 @@ def _tidy(lines: list[str]) -> tuple[list[str], list[str]]:
     return unique[len(dropped) :], dropped
 
 
-def _header(path: Path) -> str:
+def _header(path: Path, default: str = HEADER) -> str:
     try:
         text = path.read_text("utf-8", errors="replace")
     except OSError:
-        return HEADER
+        return default
     head = []
     for line in text.splitlines():
         if line.startswith("- "):
             break
         head.append(line)
-    return "\n".join(head).rstrip() + "\n\n" if "".join(head).strip() else HEADER
+    return "\n".join(head).rstrip() + "\n\n" if "".join(head).strip() else default
 
 
-def _write(path: Path, lines: list[str]) -> None:
-    atomic_write(path, _header(path) + "".join(f"{line}\n" for line in lines))
+def _write(path: Path, lines: list[str], default: str = HEADER) -> None:
+    atomic_write(path, _header(path, default) + "".join(f"{line}\n" for line in lines))
 
 
 def _as_harvest(line: str) -> str:
@@ -156,14 +167,47 @@ def _as_harvest(line: str) -> str:
     return _line(parts[0], parts[1] if len(parts) > 1 and parts[1] else date.today().isoformat(), HARVEST_ORIGIN)
 
 
-def tidy(path: Path, known: set[str] | None = None) -> list[str]:
+def tidy(path: Path) -> list[str]:
     with _locked():
-        before = read_lines(path)
-        lines = before if known is None else [line if line in known else _as_harvest(line) for line in before]
-        kept, dropped = _tidy(lines)
+        kept, dropped = _tidy(read_lines(path))
         if kept != _raw_lines(path):
             _write(path, kept)
         return dropped
+
+
+def quarantine(path: Path, pending: Path, known: list[str]) -> list[str]:
+    """Restores the active lines as they were before the harvest (`known`, in order) and moves every other line the model left
+    there (an addition or an edited line) to the pending file, where nothing reads it as a rule."""
+    with _locked():
+        current = read_lines(path)
+        kept, _ = _tidy(known)
+        taken = {_key(rule_of(line)) for line in kept}
+        queue = []
+        for line in [*read_lines(pending), *(line for line in current if line not in known)]:
+            key = _key(rule_of(line))
+            if key not in taken:
+                taken.add(key)
+                queue.append(_as_harvest(line))
+        queue = queue[-MAX_LESSONS:]
+        if kept != _raw_lines(path):
+            _write(path, kept)
+        if queue != _raw_lines(pending) and (queue or pending.exists()):
+            _write(pending, queue, PENDING_HEADER)
+        return queue
+
+
+def confirm(path: Path, pending: Path, number: int) -> str | None:
+    with _locked():
+        queue = read_lines(pending)
+        if not 1 <= number <= len(queue):
+            return None
+        line = queue.pop(number - 1)
+        lines = read_lines(path)
+        if not any(_key(rule_of(old)) == _key(rule_of(line)) for old in lines):
+            kept, _ = _tidy([*lines, line])
+            _write(path, kept)
+        _write(pending, queue, PENDING_HEADER)
+        return line
 
 
 def add(path: Path, rule: str, origin: str = DEFAULT_ORIGIN, today: date | None = None) -> tuple[str, list[str]]:
@@ -179,13 +223,14 @@ def add(path: Path, rule: str, origin: str = DEFAULT_ORIGIN, today: date | None 
         return "guardada", dropped
 
 
-def remove(path: Path, number: int) -> str | None:
+def remove(path: Path, number: int, default: str = HEADER) -> str | None:
     with _locked():
-        lines = read_lines(path)
-        if not 1 <= number <= len(lines):
+        entries = [(raw, _sanitized(raw)) for raw in _raw_lines(path)]
+        valid = [n for n, (_, line) in enumerate(entries) if line]
+        if not 1 <= number <= len(valid):
             return None
-        gone = lines.pop(number - 1)
-        _write(path, lines)
+        gone = entries.pop(valid[number - 1])[1]
+        _write(path, [line or raw for raw, line in entries], default)
         return gone
 
 
@@ -195,36 +240,51 @@ def render(cfg: WispConfig, lines: list[str], wisp_bin: str) -> str:
     return "\n".join([header, *rules, how.format(wisp=shlex.quote(wisp_bin))]) + "\n"
 
 
-def _already_given(paths: WispPaths, session_id: object) -> bool:
+def _marker(paths: WispPaths, session_id: object) -> Path | None:
     if not isinstance(session_id, str) or not session_id:
-        return False
-    directory = paths.state / SESSIONS_DIR
-    marker = directory / SAFE_SID.sub("_", session_id)[:80]
-    now = time.time()
+        return None
+    return paths.state / SESSIONS_DIR / SAFE_SID.sub("_", session_id)[:80]
+
+
+def _digest(lines: list[str]) -> str:
+    return hashlib.sha256("\n".join(rule_of(line) for line in lines).encode()).hexdigest()
+
+
+def _already_given(marker: Path | None, digest: str) -> bool:
     try:
-        if now - marker.stat().st_mtime < DEDUPE_SECONDS:
-            return True
+        return marker is not None and marker.read_text() == digest
     except OSError:
-        pass
+        return False
+
+
+def _mark_given(marker: Path, digest: str) -> None:
+    directory = marker.parent
     directory.mkdir(parents=True, exist_ok=True)
-    marker.touch()
-    os.utime(marker, (now, now))
+    atomic_write(marker, digest)
+    now = time.time()
     for old in directory.iterdir():
         try:
             if now - old.stat().st_mtime > STATE_MAX_AGE:
                 old.unlink()
         except OSError:
             continue
-    return False
 
 
 def hook_aprendizados(cfg: WispConfig, wisp_bin: str, paths: WispPaths, payload: dict) -> str:
     if not cfg.brain:
         return ""
     brain = Path(cfg.brain).expanduser()
-    if not brain.is_dir() or _already_given(paths, payload.get("session_id")):
+    marker = _marker(paths, payload.get("session_id"))
+    if not brain.is_dir():
         return ""
-    return render(cfg, read_lines(lessons_path(brain))[-MAX_LESSONS:], wisp_bin)
+    lines = read_lines(lessons_path(brain))[-MAX_LESSONS:]
+    digest = _digest(lines)
+    if payload.get("source") not in REINJECT_SOURCES and _already_given(marker, digest):
+        return ""
+    out = render(cfg, lines, wisp_bin)
+    if marker:
+        _mark_given(marker, digest)
+    return out
 
 
 def _brain(cfg: WispConfig) -> Path | None:
@@ -248,15 +308,28 @@ def run(args: argparse.Namespace, cfg: WispConfig) -> int:
             print(f"limite de {MAX_LESSONS}: esqueci a mais antiga ({rule_of(line)})", file=sys.stderr)
         print("já sabia" if status == "ja-sabia" else "guardado")
         return 0
-    lines = read_lines(path)
-    if args.action == "listar":
-        print("\n".join(f"{n}. {line[2:]}" for n, line in enumerate(lines, 1)) if lines else "nada aprendido ainda")
+    pending = pending_path(brain)
+    if args.action in ("listar", "pendentes"):
+        lines = read_lines(path if args.action == "listar" else pending)
+        empty = "nada aprendido ainda" if args.action == "listar" else "nada pendente"
+        print("\n".join(f"{n}. {line[2:]}" for n, line in enumerate(lines, 1)) if lines else empty)
         return 0
-    gone = remove(path, args.number)
+    if args.action == "confirmar":
+        try:
+            line = confirm(path, pending, args.number)
+        except OSError as e:
+            print(f"não confirmei: {e}", file=sys.stderr)
+            return 1
+        if line is None:
+            print(f"não existe a pendente {args.number}; use `wisp aprender pendentes`", file=sys.stderr)
+            return 1
+        print(f"confirmado: {rule_of(line)}")
+        return 0
+    gone = remove(pending, args.number, PENDING_HEADER) if args.action == "descartar" else remove(path, args.number)
     if gone is None:
         print(f"não existe a regra {args.number}; use `wisp aprender listar`", file=sys.stderr)
         return 1
-    print(f"esquecido: {rule_of(gone)}")
+    print(f"{'descartado' if args.action == 'descartar' else 'esquecido'}: {rule_of(gone)}")
     return 0
 
 
@@ -267,6 +340,9 @@ def add_parser(sub) -> None:
     new.add_argument("rule")
     new.add_argument("--origem", default=DEFAULT_ORIGIN)
     actions.add_parser("listar")
+    actions.add_parser("pendentes")
+    for name in ("confirmar", "descartar"):
+        actions.add_parser(name).add_argument("number", type=int)
     forget = actions.add_parser("remover")
     forget.add_argument("number", type=int)
 

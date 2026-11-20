@@ -247,6 +247,18 @@ struct SettingsView: View {
                 ? "Quando você corrigir o Wisp ou disser como prefere as coisas, ele guarda aqui e passa a seguir em toda conversa."
                 : "Preferências que o Wisp segue em toda conversa. Remover faz ele esquecer."
         ) { EmptyView() }
+        ForEach(model.pendingLessons) { lesson in
+            Divider().overlay(Theme.stroke)
+            SettingsRow(
+                title: lesson.rule,
+                detail: "Quer aprender, esperando você confirmar" + (lesson.date.map { " · \($0)" } ?? "")
+            ) {
+                Button("Confirmar") { model.confirm(lesson) }
+                    .buttonStyle(CapsuleButtonStyle(kind: .ghost))
+                Button("Descartar") { model.discard(lesson) }
+                    .buttonStyle(CapsuleButtonStyle(kind: .ghost))
+            }
+        }
         ForEach(model.lessons) { lesson in
             Divider().overlay(Theme.stroke)
             SettingsRow(
