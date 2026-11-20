@@ -1,2 +1,7 @@
-# Which model runs the agent. Used from plan 4.
+# Which model runs the agent.
 ativo = "claude"
+
+# The local models on this Mac (Ollama). Written by the Wisp app; one file per machine.
+[local]
+ativo = ""
+instalados = []
