@@ -1,4 +1,5 @@
 import re
+import shlex
 from pathlib import Path
 
 from wisp.paths import WispPaths
@@ -9,11 +10,23 @@ MAIL_MESSAGE = (
     "Use the email_send tool, which asks the user first. Best-effort defense in depth"
 )
 
+SERVER_MESSAGE = (
+    GUARD_PREFIX + " blocked, starting the email server by hand or touching WISP_APPROVAL_SOCKET would skip the user's approval. "
+    "Use the email_send tool, which asks the user first. Best-effort defense in depth"
+)
+
 SQUASH = re.compile(r"[\"'`\\+\s,\[\]()]")
 TOKEN_SPLIT = re.compile(r"[\s;|&<>(){}\"'`=,:]+")
 MAIL_APP = re.compile(r"application(id)?(com\.apple\.)?mail|com\.apple\.mail")
 PYTHON_LAUNCHER = re.compile(r"\bpython[\d.]*\b|\bpypy\d*\b|\bipython\b", re.I)
 WISP_EMAIL = re.compile(r"wisp\.?email|fromwispimportemail|mailapp")
+LIGHT = re.compile(r"[\"'`\\]")
+MCP_SERVER = re.compile(r"(^|[\s/;&|(])wisp(\.exe)?\s+(-\S+\s+)*mcp\b|\s-m\s+wisp\b.*\bmcp\b")
+OPEN_MAILTO = re.compile(r"(^|[\s/;&|(])open\s.*mailto:")
+HEREDOC = re.compile(r"<<-?\s*[\"']?(\w+)[\"']?([^\n]*)\n.*?(\n\s*\1\s*(?=\n|$)|$)", re.S)
+OPERATORS = {";", "&", "&&", "|", "||", "(", ")", "\n", "|&", ";;"}
+REDIRECTS = {"<", "<<", "<<<", ">", ">>", "<&", ">&", "<>"}
+OSASCRIPT_VALUE_FLAGS = {"-e", "-l", "-s"}
 SCRIPT_SUFFIXES = {".py", ".js", ".jxa", ".scpt", ".applescript", ".sh", ".command"}
 SCRIPT_READ_LIMIT = 1_000_000
 
@@ -37,8 +50,67 @@ def _script_contents(command: str, cwd: Path, home: Path) -> str:
     return "\n".join(chunks)
 
 
+def _osascript_files(command: str) -> list[str] | None:
+    flat = HEREDOC.sub(lambda m: " " + m.group(2), command).replace("\n", " ; ")
+    lexer = shlex.shlex(flat, posix=True, punctuation_chars=True)
+    lexer.whitespace_split = True
+    try:
+        words = list(lexer)
+    except ValueError:
+        return None
+    files: list[str] = []
+    index = 0
+    while index < len(words):
+        if Path(words[index]).name != "osascript":
+            index += 1
+            continue
+        index += 1
+        seen_file = False
+        while index < len(words) and words[index] not in OPERATORS:
+            word = words[index]
+            if word in OSASCRIPT_VALUE_FLAGS:
+                index += 2
+                continue
+            if word in REDIRECTS or re.fullmatch(r"\d*[<>]+&?\d*", word):
+                index += 2
+                continue
+            if word != "-" and not word.startswith("-") and not seen_file:
+                files.append(word)
+                seen_file = True
+            index += 1
+    return files
+
+
+def _osascript_contents(command: str, cwd: Path, home: Path) -> tuple[str, bool]:
+    files = _osascript_files(command)
+    if files is None:
+        return "", True
+    chunks: list[str] = []
+    for name in files:
+        path = Path(home / name[2:] if name.startswith("~/") else name)
+        path = path if path.is_absolute() else cwd / path
+        try:
+            if not path.is_file() or path.stat().st_size > SCRIPT_READ_LIMIT:
+                return "", True
+            chunks.append(path.read_bytes().decode("utf-8", errors="replace"))
+        except OSError:
+            return "", True
+    return "\n".join(chunks), False
+
+
+def _starts_server(text: str) -> bool:
+    plain = re.sub(r"\s+", " ", LIGHT.sub("", text)).casefold()
+    squashed = SQUASH.sub("", text).casefold()
+    return bool(MCP_SERVER.search(plain) or "wisp_approval_socket" in plain or "wisp_approval_socket" in squashed)
+
+
 def _sends_mail(command: str, cwd: Path, home: Path) -> bool:
-    combined = command + "\n" + _script_contents(command, cwd, home)
+    osa_text, unreadable = _osascript_contents(command, cwd, home)
+    if unreadable:
+        return True
+    combined = command + "\n" + _script_contents(command, cwd, home) + "\n" + osa_text
+    if OPEN_MAILTO.search(re.sub(r"\s+", " ", LIGHT.sub("", command)).casefold()):
+        return True
     squashed = SQUASH.sub("", combined).casefold()
     if "osascript" in squashed and MAIL_APP.search(squashed):
         unsent = squashed.replace("sender", "")
@@ -55,4 +127,6 @@ def hook_guard_outbound(payload: dict, paths: WispPaths) -> str | None:
     if not isinstance(command, str):
         return None
     cwd = Path(payload["cwd"]) if isinstance(payload.get("cwd"), str) and payload["cwd"] else paths.home
+    if _starts_server(command):
+        return SERVER_MESSAGE
     return MAIL_MESSAGE if _sends_mail(command, cwd, paths.home) else None

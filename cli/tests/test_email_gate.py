@@ -3,6 +3,8 @@ import json
 import os
 import shutil
 import socket
+import subprocess
+import sys
 import tempfile
 import threading
 from pathlib import Path
@@ -58,8 +60,37 @@ class FakeHost:
         shutil.rmtree(self.folder, ignore_errors=True)
 
 
+HOST_EXE = "/wisp/host"
+
+
 @pytest.fixture
-def host():
+def trusted_host(monkeypatch):
+    monkeypatch.setattr(gate, "_ancestors", lambda pid: [os.getpid()])
+    monkeypatch.setattr(gate, "_exe_of", lambda pid: HOST_EXE)
+    monkeypatch.setattr(gate, "_host_executables", lambda: {HOST_EXE})
+
+
+SPOOF = (
+    "import os,socket,sys\n"
+    "d=sys.argv[1];p=d+'/b'\n"
+    "s=socket.socket(socket.AF_UNIX);s.bind(p);os.chmod(p,0o600);s.listen(1);print('up',flush=True)\n"
+    "c,_=s.accept();c.recv(65536);c.sendall(b'{\"decision\": \"allow\"}\\n')\n"
+)
+
+
+@pytest.fixture
+def spoof():
+    folder = tempfile.mkdtemp(prefix="s-", dir="/tmp")
+    proc = subprocess.Popen([sys.executable, "-c", SPOOF, folder], stdout=subprocess.PIPE, text=True, start_new_session=True)
+    assert proc.stdout.readline().strip() == "up"
+    yield proc, os.path.join(folder, "b")
+    proc.kill()
+    proc.wait()
+    shutil.rmtree(folder, ignore_errors=True)
+
+
+@pytest.fixture
+def host(trusted_host):
     made = []
 
     def make(reply, delay=0):
@@ -201,3 +232,49 @@ def test_over_the_mcp_server_a_denied_send_is_an_error_result_and_an_allowed_one
         result = asyncio.run(server.call_tool("email_send", {"to": ["a@b.c"], "subject": "Oi", "body": "corpo"}))
         assert result.is_error is (not ok) and bool(mail.sent) is ok
         assert json.loads(h.received[0])["input"] == {"to": ["a@b.c"], "cc": [], "subject": "Oi", "body": "corpo"}
+
+
+def test_a_spoof_that_answers_allow_from_a_non_ancestor_process_is_refused(spoof):
+    with pytest.raises(Refused, match="canal de aprovação"):
+        ask_broker(spoof[1], REQUEST, 5)
+
+
+def test_a_spoof_that_is_an_ancestor_but_not_a_wisp_executable_is_refused(spoof, monkeypatch):
+    proc, path = spoof
+    monkeypatch.setattr(gate, "_ancestors", lambda pid: [proc.pid])
+    with pytest.raises(Refused, match="canal de aprovação"):
+        ask_broker(path, REQUEST, 5)
+
+
+def test_a_spoof_that_is_an_ancestor_and_a_wisp_executable_is_the_only_one_accepted(spoof, monkeypatch):
+    proc, path = spoof
+    monkeypatch.setattr(gate, "_ancestors", lambda pid: [proc.pid])
+    monkeypatch.setattr(gate, "_host_executables", lambda: {os.path.realpath(gate._exe_of(proc.pid))})
+    ask_broker(path, REQUEST, 5)
+
+
+def test_the_real_process_lookups_agree_with_the_os():
+    assert os.getppid() in gate._ancestors(os.getpid())
+    assert os.path.isabs(gate._exe_of(os.getpid()))
+    assert gate._ancestors(2**22 + 12345) == []
+
+
+def test_the_host_executables_come_from_install_locations_not_the_environment(monkeypatch, tmp_path):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    found = gate._host_executables()
+    assert os.path.realpath("/Applications/Wisp.app/Contents/MacOS/Wisp") in found
+    assert not any(str(tmp_path) in e for e in found)
+
+
+def test_a_runtime_python_is_allowed_by_its_resolved_and_its_framework_path(monkeypatch, tmp_path):
+    bin_dir = tmp_path / ".local/share/wisp/runtime/venv/bin"
+    real = tmp_path / "py/bin"
+    real.mkdir(parents=True)
+    bin_dir.mkdir(parents=True)
+    (real / "python3.13").write_text("")
+    (bin_dir / "python").symlink_to(real / "python3.13")
+    monkeypatch.setattr(gate.pwd, "getpwuid", lambda uid: type("P", (), {"pw_dir": str(tmp_path)})())
+    found = gate._host_executables()
+    assert os.path.realpath(real / "python3.13") in found
+    assert str(tmp_path / "py/Resources/Python.app/Contents/MacOS/Python") in found
