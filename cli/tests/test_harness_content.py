@@ -57,6 +57,13 @@ def test_settings_fragment_is_valid_json_with_only_known_keys():
     assert "Bash(sudo *)" in settings["permissions"]["deny"]
 
 
+def test_settings_ask_before_every_agenda_change():
+    ask = json.loads((HARNESS / "settings.json").read_text())["permissions"]["ask"]
+    for sub in ("criar-evento", "editar-evento", "apagar-evento", "criar-lembrete", "concluir-lembrete", "permissao --pedir"):
+        assert f'Bash("$WISP_BIN" agenda {sub}:*)' in ask
+        assert f'Bash("$WISP_AGENDA_BIN" {sub}:*)' in ask
+
+
 def test_placeholders_are_only_the_four_known():
     found = set()
     for path in _shipped_files():

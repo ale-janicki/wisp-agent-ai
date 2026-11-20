@@ -23,6 +23,7 @@ public enum AgendaCommand: Equatable, Sendable {
       concluir-lembrete <id>
       calendarios
       permissao [--pedir]
+    --serie: em evento recorrente, mexe na ocorrência escolhida e nas próximas (esta e as próximas), não na série inteira.
     """
 
     public static func parse(_ arguments: [String]) throws -> AgendaCommand {
