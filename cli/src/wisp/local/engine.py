@@ -23,6 +23,7 @@ CHARS_PER_TOKEN = 3
 INPUT_SHARE = 0.75
 OLD_RESULT_CHARS = 300
 RESULT_CHARS = 8000
+FILES_KEY = "conteúdo dos arquivos que o comando executa"
 SKILL_HEADER = re.compile(r"^(name|description):\s*(.+)$", re.MULTILINE)
 
 Emit = Callable[[dict], None]
@@ -293,6 +294,7 @@ class LocalEngine:
         name, arguments = call["name"], call["arguments"]
         if not isinstance(arguments, dict):
             arguments = {}
+        arguments = {k: v for k, v in arguments.items() if k != FILES_KEY}
         if guard.repeated(name, arguments):
             guard.last_repeated = name
             return "loop"
@@ -312,7 +314,7 @@ class LocalEngine:
             return True, f"a ferramenta {name} não existe ou não abriu"
         scripted = name == "write_file" and Files(self._roots()).is_script_write(arguments)
         if scripted or guardrails.needs_card(rails, guard.tier, session.mode, name):
-            shown = {k: v for k, v in arguments.items() if not (name == "run_shell" and k == "arquivos")}
+            shown = dict(arguments)
             if name == "run_shell":
                 try:
                     files = Files(self._roots()).referenced(self.folder, arguments.get("command"))
@@ -320,7 +322,7 @@ class LocalEngine:
                     denials.append(name)
                     return True, f"não executei: {e}"
                 if files:
-                    shown["arquivos"] = files
+                    shown[FILES_KEY] = files
             outcome = await self.approver.ask(name, shown, tool_use_id)
             if outcome != "allow":
                 denials.append(name)
