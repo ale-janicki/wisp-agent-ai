@@ -267,14 +267,32 @@ def test_the_host_executables_come_from_install_locations_not_the_environment(mo
     assert not any(str(tmp_path) in e for e in found)
 
 
+def _fake_home(monkeypatch, tmp_path):
+    monkeypatch.setattr(gate.pwd, "getpwuid", lambda uid: type("P", (), {"pw_dir": str(tmp_path)})())
+
+
 def test_a_runtime_python_is_allowed_by_its_resolved_and_its_framework_path(monkeypatch, tmp_path):
-    bin_dir = tmp_path / ".local/share/wisp/runtime/venv/bin"
-    real = tmp_path / "py/bin"
+    runtime = tmp_path / ".local/share/wisp/runtime"
+    bin_dir = runtime / "venv/bin"
+    real = runtime / "py/bin"
     real.mkdir(parents=True)
     bin_dir.mkdir(parents=True)
     (real / "python3.13").write_text("")
     (bin_dir / "python").symlink_to(real / "python3.13")
-    monkeypatch.setattr(gate.pwd, "getpwuid", lambda uid: type("P", (), {"pw_dir": str(tmp_path)})())
+    _fake_home(monkeypatch, tmp_path)
     found = gate._host_executables()
     assert os.path.realpath(real / "python3.13") in found
-    assert str(tmp_path / "py/Resources/Python.app/Contents/MacOS/Python") in found
+    assert os.path.join(os.path.realpath(runtime), "py", gate.FRAMEWORK_PYTHON) in found
+
+
+def test_a_venv_python_link_to_a_python_outside_the_runtime_is_refused(monkeypatch, tmp_path):
+    bin_dir = tmp_path / ".local/share/wisp/runtime/venv/bin"
+    outside = tmp_path / "system/bin"
+    outside.mkdir(parents=True)
+    bin_dir.mkdir(parents=True)
+    (outside / "python3.13").write_text("")
+    (bin_dir / "pythonx").symlink_to(outside / "python3.13")
+    _fake_home(monkeypatch, tmp_path)
+    found = gate._host_executables()
+    assert os.path.realpath(outside / "python3.13") not in found
+    assert not any(e.startswith(os.path.realpath(tmp_path / "system")) for e in found)

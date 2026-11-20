@@ -173,3 +173,44 @@ def test_osascript_file_that_cannot_be_read_is_blocked(paths, command):
 def test_osascript_with_inline_script_and_here_document_is_not_treated_as_a_file(paths):
     assert _decide(paths, "osascript -e 'beep'") is None
     assert _decide(paths, "osascript - <<EOF\nbeep\nEOF") is None
+
+
+SERVER_SCRIPT = (
+    "import subprocess\n"
+    "subprocess.Popen([\"wisp\", \"mcp\", \"email\"], env={\"WISP_APPROVAL_SOCKET\": \"/tmp/x/b\"})\n"
+)
+
+
+@pytest.mark.parametrize("launcher", ["python3", "python", "{runtime}/venv/bin/python", "uv run python", "node", "ruby", "perl", "bash", "sh", "zsh"])
+def test_a_script_given_to_an_interpreter_that_starts_the_server_is_blocked(paths, tmp_path, launcher):
+    script = tmp_path / "srv.py"
+    script.write_text(SERVER_SCRIPT)
+    command = launcher.format(runtime=paths.runtime) + f" {script}"
+    assert (_decide(paths, command) or "").startswith("wisp-guard:")
+    assert _decide(paths, launcher.format(runtime=paths.runtime) + " srv.py", cwd=tmp_path)
+
+
+def test_a_list_style_server_launch_in_a_script_is_blocked_without_the_variable(paths, tmp_path):
+    script = tmp_path / "srv.py"
+    script.write_text('import subprocess\nsubprocess.Popen(["wisp", "mcp", "email"])\n')
+    assert (_decide(paths, f"python3 {script}") or "").startswith("wisp-guard:")
+
+
+def test_a_harmless_script_passes_and_an_unreadable_one_is_blocked(paths, tmp_path):
+    script = tmp_path / "ok.py"
+    script.write_text("print(1)\n")
+    assert _decide(paths, f"python3 {script}") is None
+    assert _decide(paths, "python3 -c 'print(1)'") is None
+    assert _decide(paths, "python3 -m pytest -q") is None
+    assert _decide(paths, "python3 - <<EOF\nprint(1)\nEOF") is None
+    assert _decide(paths, "python3 missing.py", cwd=tmp_path)
+    big = tmp_path / "big.sh"
+    big.write_text("#" * 1_000_001)
+    assert _decide(paths, f"bash {big}")
+
+
+def test_mcp_must_be_a_whole_word_after_wisp(paths):
+    assert _decide(paths, "wisp mcp-list") is None
+    assert _decide(paths, "wisp mcp") is not None
+    assert _decide(paths, "wisp mcp email") is not None
+    assert _decide(paths, "ls && wisp mcp") is not None
