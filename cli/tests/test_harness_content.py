@@ -81,16 +81,11 @@ def test_settings_deny_the_secrets_folder_for_read_and_shell():
     assert "Bash(git push -f*)" in deny
 
 
-APPROVAL_DENY = [
-    "Read(~/.local/state/wisp/approvals/**)",
-    "Write(~/.local/state/wisp/approvals/**)",
-    "Edit(~/.local/state/wisp/approvals/**)",
-]
-
-
-def test_settings_deny_the_approvals_folder():
-    deny = json.loads((HARNESS / "settings.json").read_text())["permissions"]["deny"]
-    assert all(rule in deny for rule in APPROVAL_DENY)
+def test_settings_ask_before_sending_mail_and_never_allow_it():
+    permissions = json.loads((HARNESS / "settings.json").read_text())["permissions"]
+    assert "mcp__wisp-email__email_send" in permissions["ask"]
+    assert not any(rule.startswith("mcp__wisp-email") for rule in permissions["allow"])
+    assert not any("approvals" in rule for rule in permissions["deny"])
 
 
 def test_block_tells_the_agent_to_sync_after_changing_the_wisp_folder():

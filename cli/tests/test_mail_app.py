@@ -134,3 +134,16 @@ def test_malformed_row_is_mail_error():
     app2, _ = _app(_ok({**ROW}))
     with pytest.raises(MailError, match="mensagem incompleta"):
         app2.read(ROW["id"])
+
+
+@pytest.mark.parametrize("address", [
+    "a@x.y, b@z.w", "a@x.y;b@z.w", "a@x.y\nbcc: b@z.w", "Ana <ana@exemplo.com>", "<ana@exemplo.com>", "ana@exemplo.com>",
+    '"a,b"@x.y', "ana@@exemplo.com", "ana@exemplo", "ana@exemplo.com ", "ana@exemplo.com\n", "a@x.y,",
+])
+def test_send_rejects_anything_but_one_plain_address(address):
+    app, runner = _app(_ok({"sent": True}))
+    with pytest.raises(MailError, match="destinatário inválido"):
+        app.send([address], "s", "b")
+    with pytest.raises(MailError, match="destinatário inválido"):
+        app.send(["ana@exemplo.com"], "s", "b", cc=[address])
+    assert runner.calls == []

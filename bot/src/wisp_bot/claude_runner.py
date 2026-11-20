@@ -52,6 +52,7 @@ RECALL_TIMEOUT = 5
 AGENDA_ASK = ("criar-evento", "editar-evento", "apagar-evento", "criar-lembrete", "concluir-lembrete", "permissao --pedir")
 AGENDA_HEADS = ('"$WISP_BIN" agenda', "$WISP_BIN agenda", "wisp agenda", '"$WISP_AGENDA_BIN"')
 AGENDA_ASK_RULES = [f"Bash({head} {sub}:*)" for sub in AGENDA_ASK for head in AGENDA_HEADS]
+ASK_TOOLS = ("mcp__wisp-email__email_send",)
 
 
 def guard_settings(wisp_bin: str) -> dict:
@@ -60,7 +61,7 @@ def guard_settings(wisp_bin: str) -> dict:
     recall = [{"type": "command", "command": f"{quoted} hook recall", "timeout": RECALL_TIMEOUT}]
     lessons = [{"type": "command", "command": f"{quoted} hook aprendizados", "timeout": RECALL_TIMEOUT}]
     return {
-        "permissions": {"ask": ASK_RULES + AGENDA_ASK_RULES},
+        "permissions": {"ask": ASK_RULES + AGENDA_ASK_RULES + list(ASK_TOOLS)},
         "hooks": {
             "PreToolUse": [{"matcher": GUARD_MATCHER, "hooks": hooks}],
             "UserPromptSubmit": [{"hooks": recall}],
@@ -203,6 +204,8 @@ class Result:
 
 
 LIMITE_LINHA = 32 * 1024 * 1024
+SEM_CANAL = "Este turno não tem como perguntar ao usuário, então a ação foi negada. Siga sem ela."
+PedirPermissao = Callable[[dict], Awaitable[str | None]]   # recebe o `request` de um can_use_tool; None permite, um texto nega
 
 
 def rotulo(item: dict) -> str:
@@ -248,7 +251,8 @@ async def run(prompt: str, *, session_id: str, cwd: str, started: bool,
               extra_prompt: str = "", disallowed: str = "",
               env: dict | None = None, no_tools: bool = False,
               on_event: Callable[[str], None] | None = None,
-              on_text: Callable[[str], Awaitable[None] | None] | None = None) -> Result:
+              on_text: Callable[[str], Awaitable[None] | None] | None = None,
+              on_permission: PedirPermissao | None = None) -> Result:
     global _auto_recusado
     modo, fonte = permission_source()
     if modo == "auto" and _auto_recusado:
@@ -265,8 +269,8 @@ async def run(prompt: str, *, session_id: str, cwd: str, started: bool,
         return Result(False, f"não consegui ativar as travas do Wisp: {e.strerror or type(e).__name__}")
 
     def comando(modo: str) -> list[str]:
-        cmd = [claude_bin(), "--print", "--output-format", "stream-json", "--verbose",
-               "--permission-mode", modo,
+        cmd = [claude_bin(), "--print", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
+               "--permission-prompt-tool", "stdio", "--permission-mode", modo,
                "--append-system-prompt", TELEGRAM_STYLE + extra_prompt]
         cmd += ["--resume", session_id] if started else ["--session-id", session_id]
         cmd += ["--settings", str(settings)]
@@ -282,19 +286,21 @@ async def run(prompt: str, *, session_id: str, cwd: str, started: bool,
         return Result(False, f"cwd nao existe: {cwd}")
 
     resultado, recusou = await _turno(comando(modo), modo, prompt, cwd=cwd, timeout=timeout, env=env,
-                                      on_event=on_event, on_text=on_text)
+                                      on_event=on_event, on_text=on_text, on_permission=on_permission)
     if not recusou:
         return resultado
     _auto_recusado = True
     log.warning("o claude recusou --permission-mode auto; o turno roda de novo em %s", PERMISSAO_SEM_AUTO)
     resultado, _ = await _turno(comando(PERMISSAO_SEM_AUTO), PERMISSAO_SEM_AUTO, prompt, cwd=cwd,
-                                timeout=timeout, env=env, on_event=on_event, on_text=on_text)
+                                timeout=timeout, env=env, on_event=on_event, on_text=on_text,
+                                on_permission=on_permission)
     return resultado
 
 
 async def _turno(cmd: list[str], modo: str, prompt: str, *, cwd: str, timeout: int, env: dict | None,
                  on_event: Callable[[str], None] | None,
-                 on_text: Callable[[str], Awaitable[None] | None] | None) -> tuple[Result, bool]:
+                 on_text: Callable[[str], Awaitable[None] | None] | None,
+                 on_permission: PedirPermissao | None = None) -> tuple[Result, bool]:
     try:
         proc = await asyncio.create_subprocess_exec(
             *cmd, cwd=cwd, stdin=asyncio.subprocess.PIPE,
@@ -307,6 +313,42 @@ async def _turno(cmd: list[str], modo: str, prompt: str, *, cwd: str, timeout: i
     final: dict | None = None
     modo_init: str | None = None
     tarefas: list[asyncio.Task] = []
+    pedidos: dict[str, asyncio.Future] = {}
+
+    async def escrever(linha: dict) -> None:
+        try:
+            proc.stdin.write((json.dumps(linha, ensure_ascii=False) + "\n").encode("utf-8"))
+            await proc.stdin.drain()
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+
+    def fechar_stdin() -> None:
+        try:
+            proc.stdin.close()
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+
+    async def responder(id: str, req: dict) -> None:
+        negativa: str | None = SEM_CANAL
+        if on_permission:
+            try:
+                negativa = await on_permission(req)
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                log.warning("pedido de permissao %s falhou: %s", id, e)
+                negativa = "Não consegui perguntar ao usuário, então a ação foi negada. Siga sem ela."
+        resposta = ({"behavior": "allow", "updatedInput": req.get("input") if isinstance(req.get("input"), dict) else {}}
+                    if negativa is None else {"behavior": "deny", "message": negativa})
+        await escrever({"type": "control_response",
+                        "response": {"subtype": "success", "request_id": id, "response": resposta}})
+
+    async def cancelar_pedidos() -> None:
+        abertos = list(pedidos.values())
+        for t in abertos:
+            t.cancel()
+        await asyncio.gather(*abertos, return_exceptions=True)
+        pedidos.clear()
 
     def emitir_texto(texto: str) -> None:
         if not on_text:
@@ -338,6 +380,15 @@ async def _turno(cmd: list[str], modo: str, prompt: str, *, cwd: str, timeout: i
                 continue
             if ev.get("type") == "result":
                 final = ev
+                fechar_stdin()      # o claude so sai quando o stdin fecha; o turno acabou
+            elif ev.get("type") == "control_request":
+                req, id = ev.get("request"), ev.get("request_id")
+                if isinstance(req, dict) and req.get("subtype") == "can_use_tool" and isinstance(id, str) and id:
+                    pedidos[id] = asyncio.ensure_future(responder(id, req))
+            elif ev.get("type") == "control_cancel_request":
+                tarefa = pedidos.pop(ev.get("request_id"), None)
+                if tarefa:
+                    tarefa.cancel()
             elif ev.get("type") == "system" and ev.get("subtype") == "init":
                 modo_init = ev.get("permissionMode") if isinstance(ev.get("permissionMode"), str) else None
                 if modo_init and modo_init != modo:
@@ -357,17 +408,14 @@ async def _turno(cmd: list[str], modo: str, prompt: str, *, cwd: str, timeout: i
                             pass
 
     async def tudo() -> bytes:
-        proc.stdin.write(prompt.encode("utf-8"))
-        try:
-            await proc.stdin.drain()
-            proc.stdin.close()
-        except (BrokenPipeError, ConnectionResetError):
-            pass
+        await escrever({"type": "user", "message": {"role": "user", "content": prompt}})
         _, err_b, _ = await asyncio.gather(ler_stdout(), proc.stderr.read(), proc.wait())
+        await cancelar_pedidos()
         return err_b
 
     async def matar() -> None:
         proc.kill()
+        await cancelar_pedidos()
         try:
             await asyncio.wait_for(proc.wait(), 5)
         except Exception:

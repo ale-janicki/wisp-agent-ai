@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 
 from wisp.runner import Runner
@@ -11,6 +12,10 @@ TIMEOUT = "o Mail não respondeu em 30 s"
 FAILED = "o Mail falhou ao responder"
 NOT_OPEN = "o Mail não está aberto e não abriu a tempo"
 NO_RECIPIENT = "falta o destinatário"
+BAD_RECIPIENT = "destinatário inválido, use um único endereço simples como ana@exemplo.com"
+# One plain address: no commas, semicolons, spaces, newlines, quotes or "Name <addr>" forms.
+ADDRESS = re.compile(r"[A-Za-z0-9._%+-]{1,64}@(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{1,63}")
+ADDRESS_MAX = 254
 INCOMPLETE = "o Mail devolveu uma mensagem incompleta"
 BAD_REPLY = "o Mail respondeu algo que não entendi"
 
@@ -175,6 +180,13 @@ class MailMessage(MailSummary):
     body_text: str
 
 
+def check_recipients(to: list[str], cc: list[str]) -> None:
+    if not to or any(not a.strip() for a in [*to, *cc]):
+        raise MailError(NO_RECIPIENT)
+    if any(len(a) > ADDRESS_MAX or not ADDRESS.fullmatch(a) for a in [*to, *cc]):
+        raise MailError(BAD_RECIPIENT)
+
+
 class MailApp:
     def __init__(self, runner: Runner):
         self._runner = runner
@@ -196,8 +208,7 @@ class MailApp:
 
     def send(self, to: list[str], subject: str, body: str, cc: list[str] = []) -> None:
         """Queues the message in Mail; delivery errors show up in Mail, not here."""
-        if not to or any(not a.strip() for a in [*to, *cc]):
-            raise MailError(NO_RECIPIENT)
+        check_recipients(to, cc)
         self._call(_SEND, {"to": to, "cc": cc, "subject": subject, "body": body})
 
     def _call(self, script: str, args: dict):
