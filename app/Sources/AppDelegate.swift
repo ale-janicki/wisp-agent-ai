@@ -6,9 +6,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var shell: ShellController?
     private var setup: SetupWindowController?
     private let runtime = RuntimeInstaller()
+    private var brainColher: BrainColherService?
 
     func applicationWillTerminate(_ notification: Notification) {
         runtime.cancel()
+        brainColher?.stop()
         setup?.session.model?.cancelPolling(blocking: true)
         AppSettings.shared.flush()
     }
@@ -86,6 +88,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         LoginItemModel.shared.sync(setupFinished: finished)
         let shell = ShellController()
         self.shell = shell
+        if brainColher == nil {
+            let layout = RuntimeLayout(bundle: Bundle.main.bundleURL, home: FileManager.default.homeDirectoryForCurrentUser)
+            brainColher = BrainColherService(wisp: layout.wisp)
+            brainColher?.start()
+        }
         UpdateModel.shared.notices = shell.notices
         shell.start()
         #if DEBUG
