@@ -44,6 +44,20 @@ MAIL_SENDS = [
     '''python3 -c "__import__('wisp.' + 'email')"''',
 ]
 
+SERVER_STARTS = [
+    "wisp mcp email",
+    "~/.local/share/wisp/runtime/venv/bin/wisp mcp email",
+    "uv run wisp mcp email",
+    "WISP_APPROVAL_SOCKET=/tmp/x/b wisp mcp email",
+    "python3 -m wisp mcp email",
+    "python -m wisp.cli mcp email",
+    "export WISP_APPROVAL_SOCKET=/tmp/x/b",
+    "env WISP_APPROVAL_SOCKET=/tmp/x/b true",
+    "echo $WISP_APPROVAL_SOCKET",
+    "w'is'p m\\cp email",
+    "ls && wisp mcp email",
+]
+
 MAIL_ALLOWED = [
     '''osascript -e 'tell application "Finder" to get name of home' ''',
     '''osascript -l JavaScript -e 'Application("Mail").inbox().messages().length' ''',
@@ -53,6 +67,11 @@ MAIL_ALLOWED = [
     "uv run pytest cli/tests/test_mail_app.py -q",
     "python3 -c 'print(1)'",
     "ls docs/approvals",
+    "wisp email list --limit 3",
+    "wisp topic status --json",
+    "open https://example.com",
+    "osascript -e 'display dialog \"oi\"'",
+    "osascript -e 'tell application \"Finder\" to get name of home' && ls",
 ]
 
 
@@ -111,3 +130,46 @@ def test_cli_exits_2_on_block_and_0_otherwise(fake_home, monkeypatch, capsys):
     assert main(["hook", "guard-outbound"]) == 0
     monkeypatch.setattr("sys.stdin", io.StringIO("not json"))
     assert main(["hook", "guard-outbound"]) == 2
+
+
+MAILTO_OPENS = [
+    "open mailto:a@b.c?subject=x",
+    "open 'mailto:a@b.c'",
+    "/usr/bin/open -a Mail \"mailto:a@b.c?body=hi\"",
+    "ls && open MAILTO:a@b.c",
+]
+
+
+@pytest.mark.parametrize("command", SERVER_STARTS)
+def test_starting_the_email_server_or_touching_the_socket_variable_is_blocked(paths, command):
+    assert (_decide(paths, command) or "").startswith("wisp-guard:")
+
+
+@pytest.mark.parametrize("command", MAILTO_OPENS)
+def test_open_with_a_mailto_url_is_blocked(paths, command):
+    assert "email_send" in (_decide(paths, command) or "")
+
+
+def test_osascript_script_file_with_any_name_is_read_and_checked(paths, tmp_path):
+    sends = tmp_path / "go"
+    sends.write_text('tell application "Mail" to send m')
+    assert _decide(paths, f"osascript {sends}")
+    assert _decide(paths, "osascript go", cwd=tmp_path)
+    assert _decide(paths, f"osascript -l AppleScript {sends} arg")
+    assert _decide(paths, f"cd /tmp && osascript {sends} ; ls")
+    reads = tmp_path / "read"
+    reads.write_text('tell application "Mail" to get sender of message 1 of inbox')
+    assert _decide(paths, f"osascript {reads}") is None
+    other = tmp_path / "other"
+    other.write_text('tell application "Finder" to get name of home')
+    assert _decide(paths, f"osascript {other}") is None
+
+
+@pytest.mark.parametrize("command", ["osascript missing-file", "osascript /nonexistent/dir/x", "osascript ."])
+def test_osascript_file_that_cannot_be_read_is_blocked(paths, command):
+    assert _decide(paths, command)
+
+
+def test_osascript_with_inline_script_and_here_document_is_not_treated_as_a_file(paths):
+    assert _decide(paths, "osascript -e 'beep'") is None
+    assert _decide(paths, "osascript - <<EOF\nbeep\nEOF") is None

@@ -1,7 +1,11 @@
+import ctypes
 import json
 import os
+import pwd
 import socket
 import stat
+import struct
+import sys
 import time
 from collections.abc import Callable, Mapping
 
@@ -40,6 +44,89 @@ def _trusted(path: str) -> None:
         raise Refused(NO_CHANNEL)
 
 
+SOL_LOCAL = 0
+LOCAL_PEERPID = 2
+PROC_PIDTBSDINFO = 3
+PROC_BSDINFO_SIZE = 136
+PROC_PPID_OFFSET = 16
+PATH_BUFFER = 4096
+MAX_DEPTH = 64
+FRAMEWORK_PYTHON = "Resources/Python.app/Contents/MacOS/Python"
+APP_BINARIES = ("/Applications/Wisp.app/Contents/MacOS/Wisp", "Applications/Wisp.app/Contents/MacOS/Wisp")
+
+
+def _libproc():
+    return ctypes.CDLL(None, use_errno=True)
+
+
+def _peer_pid(conn: socket.socket) -> int:
+    if sys.platform == "darwin":
+        return struct.unpack("i", conn.getsockopt(SOL_LOCAL, LOCAL_PEERPID, 4))[0]
+    return struct.unpack("3i", conn.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, struct.calcsize("3i")))[0]
+
+
+def _parent_of(pid: int) -> int:
+    if sys.platform == "darwin":
+        buffer = ctypes.create_string_buffer(PROC_BSDINFO_SIZE)
+        if _libproc().proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, buffer, PROC_BSDINFO_SIZE) != PROC_BSDINFO_SIZE:
+            return 0
+        return struct.unpack_from("I", buffer.raw, PROC_PPID_OFFSET)[0]
+    try:
+        with open(f"/proc/{pid}/stat", "rb") as file:
+            return int(file.read().rsplit(b")", 1)[1].split()[1])
+    except (OSError, ValueError, IndexError):
+        return 0
+
+
+def _ancestors(pid: int) -> list[int]:
+    chain: list[int] = []
+    current = _parent_of(pid)
+    while current > 1 and current not in chain and len(chain) < MAX_DEPTH:
+        chain.append(current)
+        current = _parent_of(current)
+    return chain
+
+
+def _exe_of(pid: int) -> str:
+    if sys.platform == "darwin":
+        buffer = ctypes.create_string_buffer(PATH_BUFFER)
+        if _libproc().proc_pidpath(pid, buffer, PATH_BUFFER) <= 0:
+            return ""
+        return os.fsdecode(buffer.value)
+    try:
+        return os.readlink(f"/proc/{pid}/exe")
+    except OSError:
+        return ""
+
+
+def _host_executables() -> set[str]:
+    home = pwd.getpwuid(os.getuid()).pw_dir
+    found = {os.path.realpath(APP_BINARIES[0]), os.path.realpath(os.path.join(home, APP_BINARIES[1]))}
+    bin_dir = os.path.join(home, ".local/share/wisp/runtime/venv/bin")
+    try:
+        names = os.listdir(bin_dir)
+    except OSError:
+        names = []
+    for name in names:
+        if name.startswith("python"):
+            real = os.path.realpath(os.path.join(bin_dir, name))
+            found.add(real)
+            found.add(os.path.join(os.path.dirname(os.path.dirname(real)), FRAMEWORK_PYTHON))
+    return found
+
+
+def _check_host(conn: socket.socket) -> None:
+    try:
+        peer = _peer_pid(conn)
+        if peer <= 1 or peer not in _ancestors(os.getpid()):
+            raise Refused(NO_CHANNEL)
+        exe = _exe_of(peer)
+        if not exe or os.path.realpath(exe) not in _host_executables():
+            raise Refused(NO_CHANNEL)
+    except (OSError, AttributeError, ValueError, struct.error):
+        raise Refused(NO_CHANNEL) from None
+
+
 def _read_line(conn: socket.socket, deadline: float) -> bytes:
     data = b""
     while b"\n" not in data:
@@ -67,6 +154,7 @@ def ask_broker(path: str | None, request: dict, wait: float = WAIT_SECONDS) -> N
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as conn:
             conn.settimeout(wait)
             conn.connect(path)
+            _check_host(conn)
             conn.sendall(line)
             reply = _read_line(conn, deadline)
     except TimeoutError:
