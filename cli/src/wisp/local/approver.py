@@ -27,8 +27,16 @@ class Approver(Protocol):
     async def ask(self, tool: str, arguments: dict, tool_use_id: str) -> Outcome: ...
 
 
+def _escape(char: str) -> str:
+    code = ord(char)
+    if code < 0x10000:
+        return f"\\u{code:04x}"
+    code -= 0x10000
+    return f"\\u{0xD800 + (code >> 10):04x}\\u{0xDC00 + (code & 0x3FF):04x}"
+
+
 def clean(text: str) -> str:
-    return "".join(f"\\u{ord(c):04x}" if unicodedata.category(c) in ("Cc", "Cf", "Zl", "Zp") else c for c in text)
+    return "".join(_escape(c) if unicodedata.category(c) in ("Cc", "Cf", "Zl", "Zp") else c for c in text)
 
 
 HEAD_KEYS = ("to", "cc", "bcc", "subject", "path", "command")
