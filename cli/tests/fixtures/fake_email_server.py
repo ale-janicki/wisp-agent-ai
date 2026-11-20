@@ -1,10 +1,8 @@
 import os
 import sys
 
-from wisp import approvals
 from wisp.email.mail_app import MailSummary
 from wisp.email.server import build_server
-from wisp.paths import WispPaths
 
 ROW = MailSummary('["a",["INBOX"],1]', "a", "INBOX", "ana@example.com", "Oi", "2026-01-01T00:00:00Z", True)
 
@@ -24,4 +22,4 @@ class FakeMail:
             log.write(f"{to}|{subject}|{body}\n")
 
 
-build_server(FakeMail(), approvals.request_async, WispPaths.current(), None).run("stdio")
+build_server(FakeMail()).run("stdio")

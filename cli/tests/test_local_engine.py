@@ -1,3 +1,4 @@
+import ast
 import asyncio
 import json
 import shutil
@@ -5,11 +6,9 @@ import sys
 from datetime import date
 from pathlib import Path
 
-import anyio
 import pytest
 from local_fakes import FakeOllama, call, reply
 
-from wisp import approvals
 from wisp.config import WispConfig
 from wisp.local import guardrails
 from wisp.local.engine import EngineError, LocalEngine, fit_context, history_from, record_turn
@@ -38,15 +37,15 @@ class Asked:
     def __init__(self, outcome="allow"):
         self.outcome, self.calls = outcome, []
 
-    async def __call__(self, paths, tool, summary, detail, **kw):
-        self.calls.append((tool, summary))
+    async def ask(self, tool, arguments, tool_use_id):
+        self.calls.append((tool, arguments, tool_use_id))
         return self.outcome
 
 
-def make(folder, fake, request=None, servers=(), **kw):
+def make(folder, fake, approver=None, servers=(), **kw):
     ids = iter(f"id{n}" for n in range(100))
     return LocalEngine(folder, WispConfig(), WispPaths.current(), fake.client(), servers=list(servers),
-                       request=request or Asked(), today=lambda: date(2026, 11, 20), new_id=lambda: next(ids), **kw)
+                       approver=approver or Asked(), today=lambda: date(2026, 11, 20), new_id=lambda: next(ids), **kw)
 
 
 def run(engine, session, text="oi", **kw):
@@ -135,7 +134,7 @@ def test_a_write_at_pequeno_always_shows_the_card_and_runs_only_after_allow(fold
         asked = Asked("allow")
         engine = make(folder, fake, asked)
         run(engine, engine.start("c1", "qwen3:8b", mode))
-    assert [t for t, _ in asked.calls] == ["write_file"] and target.read_text() == "oi"
+    assert [c[0] for c in asked.calls] == ["write_file"] and target.read_text() == "oi"
 
 
 @pytest.mark.parametrize("outcome", ["deny", "timeout"])
@@ -156,7 +155,7 @@ def test_the_shell_at_grande_waits_for_the_card_even_in_bypass_mode(folder):
         engine.catalog = type(engine.catalog)(engine.catalog.source, engine.catalog.disk_margin_bytes, tuple(
             m.__class__(**{**m.__dict__, "tier": "grande"}) if m.tag == "qwen3:32b" else m for m in engine.catalog.models))
         _, events = run(engine, engine.start("c1", "qwen3:32b", "bypassPermissions"))
-    assert [t for t, _ in asked.calls] == ["run_shell"] and tool_results(events)[0]["content"].strip() == "oi"
+    assert [c[0] for c in asked.calls] == ["run_shell"] and tool_results(events)[0]["content"].strip() == "oi"
 
 
 def test_files_outside_the_wisp_folder_and_the_brain_are_off_limits(folder, fake_home):
@@ -256,47 +255,50 @@ def test_a_server_that_does_not_start_is_reported_and_the_turn_goes_on(folder):
     assert "a ferramenta quebrado não abriu" in result.text and result.stopped is None
 
 
+@pytest.mark.parametrize("outcome", ["allow", "deny", "timeout"])
 @pytest.mark.parametrize("mode", MODES)
-def test_email_send_through_the_real_mcp_server_asks_once_inside_the_tool(folder, fake_home, monkeypatch, mode):
+def test_email_send_goes_through_the_loop_card_before_the_real_tool_runs(folder, fake_home, monkeypatch, mode, outcome):
     log = fake_home / "mail.log"
     monkeypatch.setenv("FAKE_MAIL_LOG", str(log))
     server = ServerSpec("fake-mail", sys.executable, (str(FIXTURES / "fake_email_server.py"),), (("FAKE_MAIL_LOG", str(log)),), trusted=True)
-    script = [reply("", [call("email_send", to=["a@b.c"], subject="Oi", body="texto")]), reply("enviei")]
-    paths = WispPaths.current()
+    script = [reply("", [call("email_send", to=["a@b.c"], subject="Oi", body="texto")]), reply("fim")]
+    with FakeOllama(script) as fake:
+        asked = Asked(outcome)
+        engine = make(folder, fake, asked, servers=[server])
+        result, events = run(engine, engine.start("c1", "qwen3:8b", mode))
+    assert [c[0] for c in asked.calls] == ["email_send"] and asked.calls[0][2].startswith("toolu_local_")
+    if outcome == "allow":
+        assert log.read_text() == "['a@b.c']|Oi|texto\n" and tool_results(events)[0]["content"] == "enviado"
+    else:
+        assert not log.exists() and tool_results(events)[0]["is_error"]
+        assert events[-1]["permission_denials"] == [{"tool_name": "email_send"}]
 
-    async def scenario():
-        events: list[dict] = []
-        with FakeOllama(script) as fake:
-            loop_asked = Asked()
-            engine = make(folder, fake, loop_asked, servers=[server])
-            session = engine.start("c1", "qwen3:8b", mode)
 
-            async def approver():
-                for _ in range(200):
-                    for req in approvals.pending(paths):
-                        approvals.decide(paths, req.id, True)
-                        return req
-                    await anyio.sleep(0.1)
+def test_the_default_approver_denies(folder):
+    plant = reply("", [call("write_file", path=str(folder / "notas.txt"), content="x")])
+    with FakeOllama([plant, reply("fim")]) as fake:
+        engine = LocalEngine(folder, WispConfig(), WispPaths.current(), fake.client(), servers=[], today=lambda: date(2026, 11, 20))
+        _, events = run(engine, engine.start("c1", "qwen3:8b"))
+    assert (folder / "notas.txt").read_text() == "conteúdo das notas" and tool_results(events)[0]["is_error"]
 
-            result = {}
 
-            async def turn():
-                result["r"] = await engine.send(session, "mande", events.append)
-
-            async with anyio.create_task_group() as tg:
-                tg.start_soon(turn)
-                request = {}
-
-                async def watch():
-                    request["req"] = await approver()
-
-                tg.start_soon(watch)
-        return result["r"], request["req"], loop_asked, events
-
-    result, req, loop_asked, events = asyncio.run(scenario())
-    assert req is not None and req.tool == "email_send" and loop_asked.calls == []
-    assert log.read_text() == "['a@b.c']|Oi|texto\n" and tool_results(events)[0]["content"] == "enviado"
-    assert result.text == "enviei"
+def test_nothing_imports_the_removed_approvals_module_or_names_its_folder():
+    root = Path(__file__).parents[1]
+    offenders = []
+    for path in [*(root / "src/wisp").rglob("*.py"), *(root / "tests").rglob("*.py")]:
+        for node in ast.walk(ast.parse(path.read_text("utf-8"))):
+            if isinstance(node, ast.Import):
+                names = [a.name for a in node.names]
+            elif isinstance(node, ast.ImportFrom):
+                names = [node.module or "", *(f"{node.module}.{a.name}" for a in node.names)]
+            else:
+                continue
+            if any(n == "wisp.approvals" or n.startswith("wisp.approvals.") for n in names):
+                offenders.append(path.name)
+    assert not offenders
+    for path in (root / "src/wisp/local").glob("*.py"):
+        strings = [n.value for n in ast.walk(ast.parse(path.read_text("utf-8"))) if isinstance(n, ast.Constant) and isinstance(n.value, str)]
+        assert not [t for t in strings if "approvals" in t.replace("--approvals", "")], path.name
 
 
 @pytest.fixture
@@ -304,7 +306,7 @@ def attack(folder, fake_home):
     (folder / "ferramentas").mkdir(exist_ok=True)
     (folder / "linkado.toml").symlink_to(folder / "guardrails.toml")
     (folder / "pasta").mkdir()
-    return Files([folder, fake_home / ".local/state/wisp"], protected=[fake_home / ".local/state/wisp/approvals"])
+    return Files([folder, fake_home / ".local/state/wisp"])
 
 
 @pytest.mark.parametrize(
@@ -323,13 +325,6 @@ def test_the_agent_cannot_write_its_own_control_files(folder, attack, relative):
         attack.write({"path": relative, "content": "x"})
     assert (folder / "guardrails.toml").read_text() == before
     assert not list((folder / "ferramentas").glob("*.toml"))
-
-
-def test_the_approvals_folder_is_off_limits_even_inside_the_brain(attack, fake_home):
-    approvals_dir = fake_home / ".local/state/wisp/approvals"
-    approvals_dir.mkdir(parents=True)
-    with pytest.raises(ToolFailure, match="regras e ferramentas do Wisp"):
-        attack.write({"path": str(approvals_dir / "a.decision"), "content": "allow"})
 
 
 def test_ordinary_notes_can_still_be_written_and_control_files_still_read(folder, attack):

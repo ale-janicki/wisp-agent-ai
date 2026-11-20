@@ -1,7 +1,7 @@
 import json
 import re
 import uuid
-from collections.abc import Awaitable, Callable
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
@@ -9,11 +9,10 @@ from pathlib import Path
 import anyio.to_thread
 from wisp_bot import transcript
 
-from wisp import approvals
-from wisp.approvals import ApprovalDirError, Outcome
 from wisp.config import WispConfig
 from wisp.local import catalog as catalogs
 from wisp.local import guardrails, modelos
+from wisp.local.approver import Approver, DenyApprover
 from wisp.local.guardrails import GuardrailsError, TurnGuard
 from wisp.local.ollama import OllamaClient, OllamaError
 from wisp.local.tools import ToolFailure, ToolHost, ServerSpec, load_servers, open_host
@@ -24,11 +23,9 @@ CHARS_PER_TOKEN = 3
 INPUT_SHARE = 0.75
 OLD_RESULT_CHARS = 300
 RESULT_CHARS = 8000
-SUMMARY_CHARS = 120
 SKILL_HEADER = re.compile(r"^(name|description):\s*(.+)$", re.MULTILINE)
 
 Emit = Callable[[dict], None]
-Request = Callable[..., Awaitable[Outcome]]
 
 
 class EngineError(Exception):
@@ -116,11 +113,6 @@ def system_prompt(folder: Path, tier: guardrails.Tier, tools: list[str], today: 
     return "\n\n".join(part for part in (agent, f"Skills:\n{skills}" if skills else "", limits) if part)
 
 
-def _summary(name: str, arguments: dict) -> str:
-    first = next((v for k, v in sorted(arguments.items()) if isinstance(v, str)), "")
-    return f"{name}: {first}"[:SUMMARY_CHARS]
-
-
 def history_from(path: Path) -> list[dict]:
     return [
         {"role": e["kind"], "content": e["text"]}
@@ -138,7 +130,7 @@ class LocalEngine:
         ollama: OllamaClient | None = None,
         *,
         servers: list[ServerSpec] | None = None,
-        request: Request = approvals.request_async,
+        approver: Approver | None = None,
         thread: int | None = None,
         open_tools=open_host,
         catalog: catalogs.Catalog | None = None,
@@ -148,7 +140,7 @@ class LocalEngine:
         self.folder, self.cfg, self.paths = folder, cfg, paths
         self.ollama = ollama or OllamaClient()
         self.servers = servers
-        self.request = request
+        self.approver = approver or DenyApprover()
         self.thread = thread
         self.open_tools = open_tools
         self.catalog = catalog or catalogs.load()
@@ -198,7 +190,7 @@ class LocalEngine:
         try:
             await anyio.to_thread.run_sync(self.ollama.ensure_running)
             servers, problems = (self.servers, []) if self.servers is not None else load_servers(self.folder)
-            async with self.open_tools(servers, self._roots(), self.folder, self.thread, protected=[self.paths.state / "approvals"]) as host:
+            async with self.open_tools(servers, self._roots(), self.folder, self.thread) as host:
                 return await self._loop(session, text, emit, rails, guard, host, problems)
         except OllamaError as e:
             return self._fail(session, emit, str(e))
@@ -304,7 +296,7 @@ class LocalEngine:
         if guard.repeated(name, arguments):
             guard.last_repeated = name
             return "loop"
-        error, result = await self._execute(session, rails, guard, host, name, arguments, denials)
+        error, result = await self._execute(session, rails, guard, host, name, arguments, denials, call["id"])
         result = result if len(result) <= RESULT_CHARS else result[:RESULT_CHARS] + "…"
         emit({"type": "user", "message": {"role": "user", "content": [
             {"type": "tool_result", "tool_use_id": call["id"], "is_error": error, "content": result}]}})
@@ -312,18 +304,14 @@ class LocalEngine:
         return "error" if error else "ok"
 
     async def _execute(self, session: Session, rails: guardrails.Guardrails, guard: TurnGuard, host: ToolHost, name: str,
-                       arguments: dict, denials: list[str]) -> tuple[bool, str]:
+                       arguments: dict, denials: list[str], tool_use_id: str) -> tuple[bool, str]:
         if not guard.allowed(name):
             guard.refuse(name)
             return True, f"a ferramenta {name} não é permitida para este tamanho de modelo"
         if name not in host.specs:
             return True, f"a ferramenta {name} não existe ou não abriu"
-        if guardrails.needs_card(rails, guard.tier, session.mode, name, trusted=name in host.trusted):
-            try:
-                outcome = await self.request(
-                    self.paths, name, _summary(name, arguments), json.dumps(arguments, ensure_ascii=False, indent=2), thread=self.thread)
-            except ApprovalDirError:
-                return True, "não executei: o canal de aprovação não está seguro"
+        if guardrails.needs_card(rails, guard.tier, session.mode, name):
+            outcome = await self.approver.ask(name, arguments, tool_use_id)
             if outcome != "allow":
                 denials.append(name)
                 return True, "o usuário negou a ação" if outcome == "deny" else "não executei: ninguém aprovou a tempo"

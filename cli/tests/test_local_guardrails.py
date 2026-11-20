@@ -68,37 +68,38 @@ def test_a_missing_file_says_where_to_get_it_back(tmp_path):
 def test_irreversible_tools_always_get_the_card_in_every_mode(mode):
     r = rails()
     for tier in ("pequeno", "medio", "grande"):
-        assert needs_card(r, r.tier(tier), mode, "run_shell", trusted=True)
+        assert needs_card(r, r.tier(tier), mode, "run_shell")
 
 
 @pytest.mark.parametrize("mode", guardrails.MODES)
 def test_a_tier_approve_list_gets_the_card_in_every_mode(mode):
     r = rails()
-    assert needs_card(r, r.tier("pequeno"), mode, "write_file", trusted=True)
+    assert needs_card(r, r.tier("pequeno"), mode, "write_file")
 
 
 def test_writes_ask_in_default_mode_and_follow_the_tier_otherwise():
     r = rails()
-    assert needs_card(r, r.tier("medio"), "default", "write_file", trusted=True)
-    assert not needs_card(r, r.tier("medio"), "auto", "write_file", trusted=True)
-    assert not needs_card(r, r.tier("medio"), "bypassPermissions", "write_file", trusted=True)
+    assert needs_card(r, r.tier("medio"), "default", "write_file")
+    assert not needs_card(r, r.tier("medio"), "auto", "write_file")
+    assert not needs_card(r, r.tier("medio"), "bypassPermissions", "write_file")
 
 
 @pytest.mark.parametrize("mode", guardrails.MODES)
-def test_reads_never_ask_and_the_email_tool_asks_for_itself(mode):
+def test_reads_never_ask(mode):
     r = rails()
-    assert not needs_card(r, r.tier("pequeno"), mode, "read_file", trusted=True)
-    assert not needs_card(r, r.tier("pequeno"), mode, "email_send", trusted=True)
+    assert not needs_card(r, r.tier("pequeno"), mode, "read_file")
 
 
-def test_the_email_exemption_needs_the_trusted_origin():
+@pytest.mark.parametrize("mode", guardrails.MODES)
+@pytest.mark.parametrize("tier", ["pequeno", "medio", "grande"])
+def test_email_send_is_always_carded(mode, tier):
     r = rails()
-    assert needs_card(r, r.tier("medio"), "bypassPermissions", "email_send", trusted=False)
+    assert needs_card(r, r.tier(tier), mode, "email_send")
 
 
 def test_an_unknown_tool_counts_as_a_write():
     r = rails()
-    assert needs_card(r, r.tier("medio"), "default", "some_server_tool", trusted=True)
+    assert needs_card(r, r.tier("medio"), "default", "some_server_tool")
 
 
 def test_the_step_cap_trips_at_max_steps_and_zero_means_no_cap():
