@@ -28,6 +28,8 @@ final class ApprovalBrokerTests: XCTestCase {
 
     private func connect(_ path: String) throws -> Int32 {
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+        var on: Int32 = 1
+        setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &on, socklen_t(MemoryLayout<Int32>.size))
         var address = sockaddr_un()
         address.sun_family = sa_family_t(AF_UNIX)
         withUnsafeMutableBytes(of: &address.sun_path) { buffer in
@@ -358,6 +360,191 @@ final class ApprovalBrokerTests: XCTestCase {
         XCTAssertTrue(CodexReadiness(installed: true, loggedIn: true).ready)
         XCTAssertTrue(CodexReadiness(installed: true, loggedIn: true, sendGateOK: false).note().contains("wisp harness sync"))
     }
+
+    // MARK: Claude tickets, peer check and the single card
+
+    private func ticketMail() throws -> [String: Any] {
+        try XCTUnwrap(XCTUnwrap(contract()["ticket"] as? [String: Any])["input"] as? [String: Any])
+    }
+
+    private func json(_ value: Any) throws -> String {
+        String(decoding: try JSONSerialization.data(withJSONObject: value, options: [.sortedKeys, .withoutEscapingSlashes]), as: UTF8.self)
+    }
+
+    private func ask(_ mail: [String: Any]) throws -> Data {
+        Data((try json(["op": "request", "tool": "email_send", "input": mail]) + "\n").utf8)
+    }
+
+    private func answer(_ broker: ApprovalBroker, _ mail: [String: Any]) throws -> [String: String]? {
+        let fd = try connect(broker.path)
+        defer { close(fd) }
+        put(fd, try ask(mail))
+        return reply(fd)
+    }
+
+    private func ticketBroker(validity: TimeInterval = 120, uid: uid_t = getuid()) throws -> ApprovalBroker {
+        try ApprovalBroker(live: false, hostUID: uid, ticketValidity: validity)
+    }
+
+    func testTheHashMatchesTheContractVectorAndAMissingCcIsEmpty() throws {
+        let ticket = try XCTUnwrap(contract()["ticket"] as? [String: Any])
+        let expected = try XCTUnwrap(ticket["sha256"] as? String)
+        XCTAssertEqual(ApprovalBroker.fingerprint(try ticketMail()), expected)
+        XCTAssertEqual(ApprovalBroker.fingerprint(try XCTUnwrap(ticket["same_without_cc"] as? [String: Any])), expected)
+        var bad = try ticketMail()
+        bad["to"] = "ana@exemplo.com"
+        XCTAssertNil(ApprovalBroker.fingerprint(bad))
+        bad = try ticketMail()
+        bad["subject"] = 1
+        XCTAssertNil(ApprovalBroker.fingerprint(bad))
+    }
+
+    func testAClaudeTicketIsConsumedOnceAndTheSecondSendIsRefused() throws {
+        let broker = try ticketBroker()
+        defer { broker.stop() }
+        XCTAssertTrue(broker.authorize(inputJSON: try json(try ticketMail())))
+        XCTAssertEqual(try answer(broker, try ticketMail()), try XCTUnwrap(contract()["allow"] as? [String: String]))
+        XCTAssertEqual(try answer(broker, try ticketMail()), ["decision": "deny", "message": ApprovalBroker.noTicket])
+    }
+
+    func testNoTicketMeansNoSend() throws {
+        let broker = try ticketBroker()
+        defer { broker.stop() }
+        XCTAssertEqual(try answer(broker, try ticketMail()), ["decision": "deny", "message": ApprovalBroker.noTicket])
+    }
+
+    func testATicketForDifferentContentIsRefusedAndStaysValidForTheRightMail() throws {
+        let broker = try ticketBroker()
+        defer { broker.stop() }
+        XCTAssertTrue(broker.authorize(inputJSON: try json(try ticketMail())))
+        let mail = try ticketMail()
+        let to = try XCTUnwrap(mail["to"] as? [String])
+        let changes: [[String: Any]] = [
+            ["to": ["x@exemplo.com"]], ["cc": ["x@exemplo.com"]], ["subject": "Outro"], ["body": "outro corpo"],
+            ["to": Array(to.reversed())], ["to": to + ["x@exemplo.com"]],
+        ]
+        for change in changes {
+            XCTAssertEqual(try answer(broker, mail.merging(change) { $1 }), ["decision": "deny", "message": ApprovalBroker.noTicket], "\(change)")
+        }
+        XCTAssertEqual(try answer(broker, mail), try XCTUnwrap(contract()["allow"] as? [String: String]))
+    }
+
+    func testAnExpiredTicketIsRefused() async throws {
+        let broker = try ticketBroker(validity: 0.1)
+        defer { broker.stop() }
+        XCTAssertTrue(broker.authorize(inputJSON: try json(try ticketMail())))
+        try await Task.sleep(for: .milliseconds(300))
+        XCTAssertEqual(try answer(broker, try ticketMail()), ["decision": "deny", "message": ApprovalBroker.noTicket])
+    }
+
+    func testNoTicketIsMintedForAMalformedInput() throws {
+        let broker = try ticketBroker()
+        defer { broker.stop() }
+        for text in ["not json", "{}", #"{"to":"a@b.c","subject":"s","body":"b"}"#, #"{"to":["a@b.c"],"subject":1,"body":"b"}"#] {
+            XCTAssertFalse(broker.authorize(inputJSON: text), text)
+        }
+    }
+
+    func testTheSocketHasNoVerbThatMintsATicket() throws {
+        let broker = try ticketBroker()
+        defer { broker.stop() }
+        for op in ["authorize", "mint", "ticket", "allow", "approve"] {
+            let fd = try connect(broker.path)
+            put(fd, Data((try json(["op": op, "tool": "email_send", "input": try ticketMail()]) + "\n").utf8))
+            XCTAssertEqual(reply(fd), ["decision": "deny", "message": ApprovalBroker.malformed], op)
+            close(fd)
+        }
+        XCTAssertEqual(try answer(broker, try ticketMail()), ["decision": "deny", "message": ApprovalBroker.noTicket])
+    }
+
+    func testAPeerWithAnotherUidIsDroppedWithoutBeingReadOrAsked() throws {
+        let seen = Seen()
+        let broker = try ApprovalBroker(hostUID: getuid() &+ 1, onRequest: { seen.add($0) }, onCancel: { seen.cancel($0) })
+        defer { broker.stop() }
+        XCTAssertTrue(broker.authorize(inputJSON: try json(try ticketMail())))
+        let fd = try connect(broker.path)
+        defer { close(fd) }
+        put(fd, try ask(try ticketMail()))
+        XCTAssertNil(reply(fd, within: 1))
+        XCTAssertTrue(seen.allRequests.isEmpty)
+    }
+
+    func testOnlyOneCardIsOpenAtATimeAndTheExtraRequestIsRefused() async throws {
+        let seen = Seen()
+        let broker = try broker(seen)
+        defer { broker.stop() }
+        let first = try connect(broker.path)
+        defer { close(first) }
+        put(first, try ask(try ticketMail()))
+        await waitFor { !seen.allRequests.isEmpty }
+        for index in 0..<3 {
+            let mail = try ticketMail().merging(["subject": "outro \(index)"]) { $1 }
+            XCTAssertEqual(try answer(broker, mail), ["decision": "deny", "message": ApprovalBroker.busy])
+        }
+        XCTAssertEqual(seen.allRequests.count, 1)
+        XCTAssertTrue(broker.answer(id: seen.allRequests[0].id, allow: true))
+        XCTAssertEqual(reply(first), try XCTUnwrap(contract()["allow"] as? [String: String]))
+        let again = try connect(broker.path)
+        defer { close(again) }
+        put(again, try ask(try ticketMail().merging(["subject": "depois"]) { $1 }))
+        await waitFor { seen.allRequests.count == 2 }
+        XCTAssertEqual(seen.allRequests.count, 2, "a new card opens once the previous one is answered")
+    }
+
+    private func claudeScript(in dir: URL, mail: [String: Any], sent: [String: Any]) throws -> URL {
+        let request = try json([
+            "type": "control_request", "request_id": "r1",
+            "request": ["subtype": "can_use_tool", "tool_name": "mcp__wisp-email__email_send", "tool_use_id": "t1", "input": mail],
+        ])
+        let ask = try json(["op": "request", "tool": "email_send", "input": sent])
+        let script = dir.appendingPathComponent("claude")
+        let body = """
+        #!/bin/sh
+        read -r user
+        printf '%s\\n' '\(request)'
+        read -r answer
+        printf '%s\n' '\(ask)' | /usr/bin/nc -U -w 5 "$WISP_APPROVAL_SOCKET" > "\(dir.path)/out1"
+        printf '%s\n' '\(ask)' | /usr/bin/nc -U -w 5 "$WISP_APPROVAL_SOCKET" > "\(dir.path)/out2"
+        touch "\(dir.path)/done"
+        cat > /dev/null
+        """
+        try body.write(to: script, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
+        return script
+    }
+
+    private func runClaudeTurn(decision: PermissionDecision, sent: [String: Any]) async throws -> (String, String) {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("wisp-cl-\(UUID().uuidString.prefix(8))")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let script = try claudeScript(in: dir, mail: try ticketMail(), sent: sent)
+        let session = AgentSession(executable: script, cwd: dir, model: nil, resume: nil)
+        try await session.start()
+        try await session.send("oi")
+        var card: PermissionRequest?
+        for await event in session.events {
+            if case .claude(.permissionRequest(let request)) = event { card = request; break }
+        }
+        try await session.respond(to: try XCTUnwrap(card), decision)
+        await waitFor { FileManager.default.fileExists(atPath: dir.appendingPathComponent("done").path) }
+        let first = (try? String(contentsOf: dir.appendingPathComponent("out1"), encoding: .utf8)) ?? ""
+        let second = (try? String(contentsOf: dir.appendingPathComponent("out2"), encoding: .utf8)) ?? ""
+        await session.stop()
+        return (first, second)
+    }
+
+    func testAClaudeTurnSendsOnlyAfterTheUserAllowedThatExactMailAndOnlyOnce() async throws {
+        let (first, second) = try await runClaudeTurn(decision: .allow, sent: try ticketMail())
+        XCTAssertEqual(first.trimmingCharacters(in: .whitespacesAndNewlines), #"{"decision":"allow"}"#)
+        XCTAssertTrue(second.contains("deny") && second.contains("nada foi enviado"), second)
+    }
+
+    func testAClaudeTurnTheUserDeniedOrWithOtherContentGetsNoTicket() async throws {
+        let denied = try await runClaudeTurn(decision: .deny, sent: try ticketMail())
+        XCTAssertTrue(denied.0.contains("deny") && denied.0.contains("nada foi enviado"), denied.0)
+        let swapped = try await runClaudeTurn(decision: .allow, sent: try ticketMail().merging(["body": "trocado depois do clique"]) { $1 })
+        XCTAssertTrue(swapped.0.contains("deny") && swapped.0.contains("nada foi enviado"), swapped.0)
+    }
 }
 
 final class CodexProjectConfigTests: XCTestCase {
@@ -438,4 +625,5 @@ final class CodexProjectConfigTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: marker))
         await session.stop()
     }
+
 }

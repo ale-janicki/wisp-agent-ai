@@ -73,7 +73,6 @@ public enum CodexCommand {
             ("command", tomlString(wispBinary)),
             ("args", #"["mcp", "email"]"#),
             ("env_vars", #"["WISP_TELEGRAM_THREAD", "\#(ApprovalBroker.socketEnvironment)"]"#),
-            ("env", #"{ WISP_SEND_GATE = "broker" }"#),
             ("default_tools_approval_mode", #""approve""#),
             ("startup_timeout_sec", "30"),
             ("tool_timeout_sec", "660"),

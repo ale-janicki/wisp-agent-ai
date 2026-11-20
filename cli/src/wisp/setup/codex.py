@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from wisp.config import WispConfig
-from wisp.send_gate import BROKER, GATE_ENV, SOCKET_ENV
+from wisp.send_gate import SOCKET_ENV
 from wisp.engines import read_active
 from wisp.fsops import atomic_write
 from wisp.harness_merge import END, block_digest, find_block, merge_block
@@ -62,9 +62,6 @@ def gate_problem_in(text: str | None) -> str | None:
     server = servers.get(MCP_NAME) if isinstance(servers, dict) else None
     if not isinstance(server, dict):
         return STALE_GATE.format(why=f"não há o servidor {MCP_NAME}")
-    env = server.get("env")
-    if not isinstance(env, dict) or env.get(GATE_ENV) != BROKER:
-        return STALE_GATE.format(why=f"falta {GATE_ENV} = \"{BROKER}\" em env")
     if not _forwards(server.get("env_vars"), SOCKET_ENV):
         return STALE_GATE.format(why=f"falta {SOCKET_ENV} em env_vars")
     return None
@@ -112,7 +109,6 @@ def server_fields(wisp_bin: str) -> list[tuple[str, str]]:
         ("command", json.dumps(wisp_bin, ensure_ascii=False)),
         ("args", '["mcp", "email"]'),
         ("env_vars", f'["WISP_TELEGRAM_THREAD", "{SOCKET_ENV}"]'),
-        ("env", f'{{ {GATE_ENV} = "{BROKER}" }}'),
         ("default_tools_approval_mode", '"approve"'),
         ("startup_timeout_sec", "30"),
         ("tool_timeout_sec", str(APPROVAL_WAIT_SECONDS)),

@@ -361,3 +361,176 @@ def test_starting_a_broker_sweeps_the_folder_a_crashed_bot_left(monkeypatch):
         await b.close()
     asyncio.run(go())
     cleanup()
+
+
+TICKET = CONTRACT["ticket"]
+
+
+def _mail(**changes):
+    return {**TICKET["input"], **changes}
+
+
+def _ask(mail):
+    return line({"op": "request", "tool": "email_send", "input": mail})
+
+
+def test_the_hash_matches_the_contract_vector_and_treats_a_missing_cc_as_empty():
+    assert broker.huella(TICKET["input"]) == TICKET["sha256"]
+    assert broker.huella(TICKET["same_without_cc"]) == TICKET["sha256"]
+    assert broker.huella(_mail(to="ana@exemplo.com")) is None and broker.huella(_mail(subject=None)) is None
+
+
+def test_a_claude_ticket_is_consumed_once_and_a_second_send_is_refused():
+    async def body(b):
+        assert b.autorizar(TICKET["input"])
+        return [await talk(b.path, _ask(TICKET["input"])), await talk(b.path, _ask(TICKET["input"]))]
+    first, second = with_broker(None, body)
+    assert first == CONTRACT["allow"] and second == {"decision": "deny", "message": broker.SEM_BILHETE}
+
+
+def test_no_ticket_means_no_send_even_for_a_perfectly_formed_request():
+    answer = with_broker(None, lambda b: talk(b.path, _ask(TICKET["input"])))
+    assert answer == {"decision": "deny", "message": broker.SEM_BILHETE}
+
+
+def test_a_ticket_for_different_content_is_refused_and_stays_valid_for_the_right_one():
+    changes = [{"to": ["x@exemplo.com"]}, {"cc": ["x@exemplo.com"]}, {"subject": "Outro"}, {"body": "outro corpo"},
+               {"to": TICKET["input"]["to"][::-1]}, {"to": TICKET["input"]["to"] + ["x@exemplo.com"]}]
+
+    async def body(b):
+        b.autorizar(TICKET["input"])
+        wrong = [await talk(b.path, _ask(_mail(**c))) for c in changes]
+        return wrong, await talk(b.path, _ask(TICKET["input"]))
+    wrong, right = with_broker(None, body)
+    assert all(a == {"decision": "deny", "message": broker.SEM_BILHETE} for a in wrong) and right == CONTRACT["allow"]
+
+
+def test_an_expired_ticket_is_refused():
+    async def body(b):
+        b.autorizar(TICKET["input"])
+        await asyncio.sleep(0.2)
+        return await talk(b.path, _ask(TICKET["input"]))
+    answer = asyncio.run(_with(broker.Broker(bilhete_s=0.1), body))
+    assert answer == {"decision": "deny", "message": broker.SEM_BILHETE}
+
+
+async def _with(b, body):
+    await b.start()
+    try:
+        return await body(b)
+    finally:
+        await b.close()
+
+
+def test_a_ticket_is_never_minted_for_a_malformed_input():
+    async def body(b):
+        return [b.autorizar(x) for x in (None, "x", {}, {"to": "a@b.c", "subject": "s", "body": "b"}, {"to": ["a@b.c"], "subject": 1, "body": "b"})]
+    assert with_broker(None, body) == [False] * 5
+
+
+def test_the_socket_has_no_verb_that_mints_a_ticket():
+    bad = [line({"op": op, "tool": "email_send", "input": TICKET["input"]}) for op in ("authorize", "mint", "ticket", "allow", "approve")]
+
+    async def body(b):
+        answers = [await talk(b.path, raw) for raw in bad]
+        return answers, await talk(b.path, _ask(TICKET["input"]))
+    answers, after = with_broker(None, body)
+    assert all(a == {"decision": "deny", "message": broker.MALFORMADO} for a in answers)
+    assert after == {"decision": "deny", "message": broker.SEM_BILHETE}
+
+
+def test_a_peer_with_another_uid_is_dropped_without_being_read_or_asked():
+    decider = Decider(None)
+
+    async def body(b):
+        return await talk(b.path, _ask(TICKET["input"]))
+    assert asyncio.run(_with(broker.Broker(decider, uid=os.getuid() + 1), body)) is None and decider.seen == []
+
+    async def same(b):
+        return await talk(b.path, _ask(TICKET["input"]))
+    assert asyncio.run(_with(broker.Broker(decider), same)) == CONTRACT["allow"] and len(decider.seen) == 1
+
+
+def test_only_one_card_is_open_at_a_time_and_the_extra_request_is_refused():
+    decider = Decider(wait=True)
+
+    async def body(b):
+        first = asyncio.ensure_future(talk(b.path, _ask(TICKET["input"])))
+        for _ in range(100):
+            if decider.seen:
+                break
+            await asyncio.sleep(0.01)
+        extras = [await talk(b.path, _ask(_mail(subject=f"outro {i}"))) for i in range(3)]
+        first.cancel()
+        return extras
+    extras = with_broker(decider, body)
+    assert all(a == {"decision": "deny", "message": broker.OCUPADO} for a in extras) and len(decider.seen) == 1
+
+
+def test_a_new_card_can_open_once_the_previous_one_is_answered():
+    decider = Decider(None)
+
+    async def body(b):
+        return [await talk(b.path, _ask(_mail(subject=f"s{i}"))) for i in range(3)]
+    assert with_broker(decider, body) == [CONTRACT["allow"]] * 3 and len(decider.seen) == 3
+
+
+FAKE_CLAUDE_MAIL = """#!{python}
+import json, os, socket, sys
+json.loads(sys.stdin.readline())
+print(json.dumps({{"type": "control_request", "request_id": "r1", "request": {request}}}), flush=True)
+json.loads(sys.stdin.readline())
+path = os.environ.get("WISP_APPROVAL_SOCKET")
+out = {{"socket": bool(path)}}
+for attempt in ("same", "again"):
+    if not path:
+        break
+    s = socket.socket(socket.AF_UNIX); s.connect(path)
+    s.sendall(json.dumps({{"op": "request", "tool": "email_send", "input": {sent}}}).encode() + b"\\n")
+    out[attempt] = json.loads(s.makefile().readline()); s.close()
+print(json.dumps({{"type": "result", "is_error": False, "session_id": "s", "result": json.dumps(out)}}), flush=True)
+sys.stdin.read()
+"""
+
+
+def _claude_turn(tmp_path, monkeypatch, on_permission, asked=None, sent=None, stale=None):
+    from wisp_bot import claude_runner
+    request = {"subtype": "can_use_tool", "tool_name": "mcp__wisp-email__email_send", "input": asked or TICKET["input"]}
+    fake = tmp_path / "claude"
+    fake.write_text(FAKE_CLAUDE_MAIL.format(python=__import__("sys").executable, request=json.dumps(request),
+                                            sent=json.dumps(sent or TICKET["input"])))
+    fake.chmod(0o755)
+    monkeypatch.setattr(claude_runner, "CLAUDE_BIN", str(fake))
+    monkeypatch.setattr(claude_runner, "guard_settings_path", lambda: tmp_path / "g.json")
+    monkeypatch.setattr(claude_runner, "WISP_BIN", str(fake))
+    if stale:
+        monkeypatch.setenv("WISP_APPROVAL_SOCKET", stale)
+    res = asyncio.run(claude_runner.run("oi", session_id="11111111-1111-1111-1111-111111111111", cwd=str(tmp_path),
+                                        started=False, timeout=20, on_permission=on_permission))
+    assert res.ok, res.text
+    return json.loads(res.text)
+
+
+def test_a_claude_turn_sends_only_after_the_owner_allowed_that_exact_mail_and_only_once(tmp_path, monkeypatch):
+    async def allow(req):
+        return None
+    out = _claude_turn(tmp_path, monkeypatch, allow)
+    assert out["socket"] is True and out["same"] == CONTRACT["allow"]
+    assert out["again"] == {"decision": "deny", "message": broker.SEM_BILHETE}
+
+
+def test_a_claude_turn_the_owner_denied_or_with_other_content_gets_no_ticket(tmp_path, monkeypatch):
+    async def deny(req):
+        return "não"
+
+    async def allow(req):
+        return None
+    out = _claude_turn(tmp_path, monkeypatch, deny)
+    assert out["same"] == {"decision": "deny", "message": broker.SEM_BILHETE}
+    out = _claude_turn(tmp_path, monkeypatch, allow, sent=_mail(body="trocado depois do clique"))
+    assert out["same"] == {"decision": "deny", "message": broker.SEM_BILHETE}
+
+
+def test_a_claude_turn_without_a_host_handler_has_no_socket_and_a_stale_path_is_dropped(tmp_path, monkeypatch):
+    out = _claude_turn(tmp_path, monkeypatch, None, stale="/tmp/stale")
+    assert out == {"socket": False}

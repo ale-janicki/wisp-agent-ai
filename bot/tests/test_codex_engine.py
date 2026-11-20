@@ -307,7 +307,7 @@ def test_the_fake_binary_receives_the_overrides_on_a_real_turn(tmp_path, monkeyp
     monkeypatch.setattr(codex_runner, "WISP_BIN", "/opt/wisp/venv/bin/wisp")
     res = asyncio.run(codex_runner.run("oi", session_id="", cwd=str(tmp_path), started=False, timeout=20))
     seen = log.read_text()
-    assert res.ok and 'mcp_servers.wisp-email.env={ WISP_SEND_GATE = "broker" }' in seen
+    assert res.ok and 'WISP_SEND_GATE' not in seen
     assert 'mcp_servers.wisp-email.command="/opt/wisp/venv/bin/wisp"' in seen
 
 

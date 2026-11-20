@@ -1,6 +1,7 @@
-"""Email as an MCP tool for every engine. Under Claude Code the send is approved by its own permission prompt (an `ask`
-rule on mcp__wisp-email__email_send). Under Codex, which has no such prompt, WISP_SEND_GATE=broker makes this process ask
-the host that runs the engine over a Unix socket and send only on its explicit allow; nothing here can answer for the user."""
+"""Email as an MCP tool for every engine. A send always asks the host that runs the engine (the app or the Telegram bot) over
+the Unix socket in WISP_APPROVAL_SOCKET and goes out only on its explicit allow: under Claude Code because the user allowed the
+same mail on the permission prompt, under Codex through a live card. There is no switch that turns this off, and with no host
+reachable nothing is sent; nothing here can answer for the user."""
 
 import asyncio
 import json
@@ -41,11 +42,10 @@ def email_search(mail: MailApp, query: str, limit: int = 20) -> list[dict]:
     return [asdict(m) for m in _guard(lambda: mail.search(query, limit))]
 
 
-def email_send(mail: MailApp, to: list[str], subject: str, body: str, cc: list[str] | None = None, gate: Gate | None = None) -> str:
+def email_send(mail: MailApp, to: list[str], subject: str, body: str, cc: list[str] | None = None, *, gate: Gate) -> str:
     cc = cc or []
     _guard(lambda: check_recipients(to, cc))
-    if gate is not None:
-        _guard(lambda: gate({"to": to, "cc": cc, "subject": subject, "body": body}))
+    _guard(lambda: gate({"to": to, "cc": cc, "subject": subject, "body": body}))
     _guard(lambda: mail.send(to, subject, body, cc))
     return SENT
 
@@ -66,7 +66,7 @@ def _reply(call: Callable) -> CallToolResult:
         return _failure(e)
 
 
-def build_server(mail: MailApp, gate: Gate | None = None) -> MCPServer:
+def build_server(mail: MailApp, gate: Gate) -> MCPServer:
     server = MCPServer(SERVER_NAME)
 
     @server.tool(name="email_list", description="Lista os e-mails mais recentes de uma caixa do Mail (padrão INBOX)")
@@ -83,7 +83,7 @@ def build_server(mail: MailApp, gate: Gate | None = None) -> MCPServer:
 
     @server.tool(name="email_send", description="Envia um e-mail; o usuário aprova antes de sair e, sem aprovação, nada é enviado")
     async def _send(to: list[str], subject: str, body: str, cc: list[str] | None = None) -> CallToolResult:
-        return await asyncio.to_thread(lambda: _reply(lambda: email_send(mail, to, subject, body, cc, gate)))
+        return await asyncio.to_thread(lambda: _reply(lambda: email_send(mail, to, subject, body, cc, gate=gate)))
 
     return server
 
