@@ -76,7 +76,7 @@ def reply(msg) -> bytes:
 
 
 def test_contract_names_match_the_code():
-    assert (gate.GATE_ENV, gate.BROKER, gate.SOCKET_ENV) == (CONTRACT["gate_env"], CONTRACT["gate_value"], CONTRACT["socket_env"])
+    assert gate.SOCKET_ENV == CONTRACT["socket_env"] and not hasattr(gate, "GATE_ENV")
     assert gate.OP_REQUEST == CONTRACT["request"]["op"] and gate.TOOL == CONTRACT["request"]["tool"]
 
 
@@ -150,7 +150,7 @@ class FakeMail:
 
 
 def _send(mail, gate_fn):
-    return email_send(mail, ["a@b.c"], "Oi", "corpo", ["d@e.f"], gate_fn)
+    return email_send(mail, ["a@b.c"], "Oi", "corpo", ["d@e.f"], gate=gate_fn)
 
 
 def test_a_gated_send_goes_out_only_after_the_host_allows_and_shows_the_whole_request():
@@ -173,27 +173,31 @@ def test_a_refused_gate_means_nothing_is_sent_and_the_model_reads_why():
 def test_a_bad_recipient_is_rejected_before_the_host_is_asked():
     asked = []
     with pytest.raises(ToolFailure):
-        email_send(FakeMail(), ["a@b.c, x@y.z"], "s", "b", None, asked.append)
+        email_send(FakeMail(), ["a@b.c, x@y.z"], "s", "b", None, gate=asked.append)
     assert asked == []
 
 
-def test_no_flag_means_no_gate_as_under_claude():
-    assert gate_from_env({}) is None and gate_from_env({gate.GATE_ENV: ""}) is None
+@pytest.mark.parametrize("env", [
+    {}, {"WISP_SEND_GATE": ""}, {"WISP_SEND_GATE": "off"}, {"WISP_SEND_GATE": "broker"}, {"WISP_APPROVAL_SOCKET": ""},
+    {"WISP_APPROVAL_SOCKET": "/tmp/nope/b"},
+])
+def test_an_unset_or_empty_environment_still_requires_approval_and_refuses_without_a_broker(env):
+    mail = FakeMail()
+    with pytest.raises(ToolFailure, match="não enviei"):
+        _send(mail, gate_from_env(env))
+    assert mail.sent == []
 
 
-def test_broker_flag_without_a_socket_or_any_other_value_fails_closed():
-    for env in ({gate.GATE_ENV: "broker"}, {gate.GATE_ENV: "broker", gate.SOCKET_ENV: "/tmp/nope/b"}, {gate.GATE_ENV: "off"}):
-        mail = FakeMail()
-        with pytest.raises(ToolFailure, match="não enviei"):
-            _send(mail, gate_from_env(env))
-        assert mail.sent == []
+def test_no_environment_value_turns_the_gate_off():
+    for env in ({}, {"WISP_SEND_GATE": ""}, {"WISP_SEND_GATE": "0"}, {"WISP_SEND_GATE": "off"}):
+        assert callable(gate_from_env(env))
 
 
-def test_over_the_mcp_server_in_broker_mode_a_denied_send_is_an_error_result_and_an_allowed_one_sends(host):
+def test_over_the_mcp_server_a_denied_send_is_an_error_result_and_an_allowed_one_sends(host):
     for answer, ok in ((CONTRACT["deny"], False), (CONTRACT["allow"], True)):
         h = host(reply(answer))
         mail = FakeMail()
-        server = build_server(mail, gate_from_env({gate.GATE_ENV: "broker", gate.SOCKET_ENV: h.path}))
+        server = build_server(mail, gate_from_env({gate.SOCKET_ENV: h.path}))
         result = asyncio.run(server.call_tool("email_send", {"to": ["a@b.c"], "subject": "Oi", "body": "corpo"}))
         assert result.is_error is (not ok) and bool(mail.sent) is ok
         assert json.loads(h.received[0])["input"] == {"to": ["a@b.c"], "cc": [], "subject": "Oi", "body": "corpo"}

@@ -40,9 +40,9 @@ def test_config_block_is_valid_toml_with_the_email_server_and_a_long_tool_timeou
     assert table["tool_timeout_sec"] > 600 and table["default_tools_approval_mode"] == "approve"
 
 
-def test_config_block_turns_the_broker_gate_on_and_forwards_the_socket_the_host_sets():
+def test_config_block_has_no_gate_switch_and_forwards_the_socket_the_host_sets():
     table = tomllib.loads(render_config_block("/opt/wisp/venv/bin/wisp"))["mcp_servers"]["wisp-email"]
-    assert table["env"] == {"WISP_SEND_GATE": "broker"}
+    assert "env" not in table
     assert "WISP_APPROVAL_SOCKET" in table["env_vars"] and "WISP_TELEGRAM_THREAD" in table["env_vars"]
     assert table["tool_timeout_sec"] > 620
 
@@ -229,8 +229,6 @@ def test_a_fresh_block_passes_the_send_gate_check():
     "model = 'x'\n",
     "not toml [",
     '[mcp_servers.wisp-email]\ncommand = "wisp"\nargs = ["mcp", "email"]\nenv_vars = ["WISP_TELEGRAM_THREAD"]\n',
-    '[mcp_servers.wisp-email]\ncommand = "wisp"\nenv_vars = ["WISP_TELEGRAM_THREAD", "WISP_APPROVAL_SOCKET"]\n',
-    '[mcp_servers.wisp-email]\ncommand = "wisp"\nenv_vars = ["WISP_APPROVAL_SOCKET"]\nenv = { WISP_SEND_GATE = "off" }\n',
     '[mcp_servers.wisp-email]\ncommand = "wisp"\nenv = { WISP_SEND_GATE = "broker" }\n',
     '[mcp_servers.wisp-email]\ncommand = "wisp"\nenv = { WISP_SEND_GATE = "broker" }\nenv_vars = ["WISP_TELEGRAM_THREAD"]\n',
     'mcp_servers = { other = { command = "x" } }\n',
@@ -242,8 +240,7 @@ def test_a_missing_old_or_hand_kept_block_fails_the_send_gate_check(text):
 
 def test_a_hand_kept_block_with_the_gate_passes_even_with_table_style_env_vars():
     from wisp.setup.codex import gate_problem_in
-    text = ('[mcp_servers.wisp-email]\ncommand = "wisp"\nenv_vars = [{ name = "WISP_APPROVAL_SOCKET" }]\n'
-            '[mcp_servers.wisp-email.env]\nWISP_SEND_GATE = "broker"\n')
+    text = '[mcp_servers.wisp-email]\ncommand = "wisp"\nenv_vars = [{ name = "WISP_APPROVAL_SOCKET" }]\n'
     assert gate_problem_in(text) is None
 
 
@@ -259,7 +256,7 @@ def test_sync_reports_a_stale_foreign_block_and_leaves_it(fake_home):
 def test_sync_reports_a_stale_block_the_user_edited(fake_home):
     home = _codex(fake_home)
     sync_codex(_paths(fake_home), _cfg(fake_home), dry_run=False)
-    edited = (home / "config.toml").read_text().replace('env = { WISP_SEND_GATE = "broker" }\n', "")
+    edited = (home / "config.toml").read_text().replace('env_vars = ["WISP_TELEGRAM_THREAD", "WISP_APPROVAL_SOCKET"]\n', 'env_vars = ["WISP_TELEGRAM_THREAD"]\n')
     (home / "config.toml").write_text(edited)
     result = sync_codex(_paths(fake_home), _cfg(fake_home), dry_run=False)
     assert result.state == "failed" and any("trava" in d.output for d in result.details)
@@ -288,7 +285,7 @@ def test_overrides_match_the_contract_and_describe_the_same_server_as_the_block(
         built[key.rsplit(".", 1)[1]] = tomllib.loads(f"_x_ = {raw}")["_x_"]
     rendered = tomllib.loads(render_config_block(contract["wisp_bin"]))["mcp_servers"]["wisp-email"]
     assert built == {**rendered, "enabled": True}
-    assert built["env"] == {"WISP_SEND_GATE": "broker"} and "WISP_APPROVAL_SOCKET" in built["env_vars"]
+    assert "env" not in built and "WISP_APPROVAL_SOCKET" in built["env_vars"]
     assert built["tool_timeout_sec"] > 620 and built["default_tools_approval_mode"] == "approve"
 
 

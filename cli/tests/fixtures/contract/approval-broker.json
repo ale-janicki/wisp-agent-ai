@@ -1,9 +1,8 @@
 {
-  "gate_env": "WISP_SEND_GATE",
-  "gate_value": "broker",
   "socket_env": "WISP_APPROVAL_SOCKET",
   "tool": "mcp__wisp-email__email_send",
   "request": {"op": "request", "tool": "email_send", "input": {"to": ["ana@exemplo.com"], "cc": ["bia@exemplo.com"], "subject": "Oi", "body": "Olá, tudo bem?"}},
   "allow": {"decision": "allow"},
-  "deny": {"decision": "deny", "message": "O usuário negou o envio."}
+  "deny": {"decision": "deny", "message": "O usuário negou o envio."},
+  "ticket": {"input": {"to": ["ana@exemplo.com", "caio@exemplo.com"], "cc": [], "subject": "Olá / ação 日本", "body": "linha 1\nlinha 2 \"aspas\" \\ é"}, "sha256": "86003210e0bdefe8507deaf857918391ed86ec3abddaeb48e040c3e837d98bc2", "same_without_cc": {"to": ["ana@exemplo.com", "caio@exemplo.com"], "subject": "Olá / ação 日本", "body": "linha 1\nlinha 2 \"aspas\" \\ é"}}
 }

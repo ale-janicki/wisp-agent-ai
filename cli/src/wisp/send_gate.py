@@ -5,20 +5,18 @@ import stat
 import time
 from collections.abc import Callable, Mapping
 
-GATE_ENV = "WISP_SEND_GATE"
 SOCKET_ENV = "WISP_APPROVAL_SOCKET"
-BROKER = "broker"
 OP_REQUEST = "request"
 TOOL = "email_send"
 WAIT_SECONDS = 620
 MAX_REPLY = 65536
 MAX_SOCKET_PATH = 103
 
-NO_CHANNEL = ("não enviei: o envio precisa da aprovação do usuário e o canal de aprovação do Wisp não está disponível aqui. "
+NO_CHANNEL = ("não enviei: o envio precisa da aprovação do usuário e o canal de aprovação do Wisp não está disponível aqui "
+              "(só o app e o Telegram do Wisp aprovam; um terminal sem o Wisp aberto não envia). "
               "Peça para ele enviar pelo app ou pelo Telegram.")
 NOT_ANSWERED = "não enviei: ninguém aprovou a tempo. Pergunte ao usuário o que fazer."
 BAD_REPLY = "não enviei: a resposta do canal de aprovação não foi entendida."
-UNKNOWN_GATE = "não enviei: o modo de aprovação do envio não é conhecido."
 DENIED = "não enviei: o usuário negou o envio. Não tente de novo do mesmo jeito; siga sem ele ou pergunte o que fazer."
 
 Gate = Callable[[dict], None]
@@ -88,14 +86,6 @@ def ask_broker(path: str | None, request: dict, wait: float = WAIT_SECONDS) -> N
     raise Refused(BAD_REPLY)
 
 
-def gate_from_env(environ: Mapping[str, str]) -> Gate | None:
-    """None under Claude (its own permission prompt is the gate). Under any other value the send is gated, never open."""
-    mode = environ.get(GATE_ENV, "")
-    if not mode:
-        return None
-    if mode != BROKER:
-        def closed(request: dict) -> None:
-            raise Refused(UNKNOWN_GATE)
-        return closed
+def gate_from_env(environ: Mapping[str, str]) -> Gate:
     path = environ.get(SOCKET_ENV)
     return lambda request: ask_broker(path, request)

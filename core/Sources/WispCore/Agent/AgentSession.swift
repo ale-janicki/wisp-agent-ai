@@ -156,8 +156,11 @@ public actor AgentSession: EngineSession {
     private let settingsPath: String?
     private let disallowedTools: [String]
     private let environmentOverrides: [String: String]
+    private let approvalDirectory: URL
     private let state: SessionState
     private var process: Process?
+    private var broker: ApprovalBroker?
+    public private(set) var approvalChannelProblem: String?
 
     public init(
         executable: URL,
@@ -168,8 +171,10 @@ public actor AgentSession: EngineSession {
         appendSystemPrompt: String? = nil,
         settingsPath: String? = nil,
         disallowedTools: [String] = [],
-        environmentOverrides: [String: String] = [:]
+        environmentOverrides: [String: String] = [:],
+        approvalDirectory: URL = FileManager.default.temporaryDirectory
     ) {
+        self.approvalDirectory = approvalDirectory
         self.executable = executable
         self.cwd = cwd
         self.model = model
@@ -192,6 +197,11 @@ public actor AgentSession: EngineSession {
         process.executableURL = executable
         process.arguments = ClaudeCommand.arguments(model: model, resume: resume, permissionMode: permissionMode, appendSystemPrompt: appendSystemPrompt, settings: settingsPath, disallowedTools: disallowedTools)
         process.currentDirectoryURL = cwd
+        do {
+            broker = try ApprovalBroker(directory: approvalDirectory, live: false)
+        } catch {
+            approvalChannelProblem = "\(error)"
+        }
         process.environment = childEnvironment()
 
         let stdin = Pipe()
@@ -224,6 +234,8 @@ public actor AgentSession: EngineSession {
             stderr.fileHandleForReading.readabilityHandler = nil
             process.terminationHandler = nil
             state.failLaunch(String(describing: error))
+            broker?.stop()
+            broker = nil
             throw error
         }
         self.process = process
@@ -244,6 +256,9 @@ public actor AgentSession: EngineSession {
     }
 
     public func respond(to request: PermissionRequest, _ decision: PermissionDecision) throws {
+        if decision.allows, EngineGuards.askTools.contains(request.toolName) {
+            broker?.authorize(inputJSON: request.inputJSON)
+        }
         try write(ClaudeControl.response(to: request, decision))
     }
 
@@ -257,6 +272,10 @@ public actor AgentSession: EngineSession {
     }
 
     public func stop() async {
+        defer {
+            broker?.stop()
+            broker = nil
+        }
         guard let process else { return }
         state.closeStdin()
         let deadline = Date().addingTimeInterval(3)
@@ -276,6 +295,7 @@ public actor AgentSession: EngineSession {
                 + ":/opt/homebrew/bin:/usr/local/bin"
         }
         for (key, value) in environmentOverrides { env[key] = value }
+        env[ApprovalBroker.socketEnvironment] = broker?.path
         return env
     }
 }

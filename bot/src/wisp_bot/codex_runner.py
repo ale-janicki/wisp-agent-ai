@@ -110,7 +110,6 @@ def mcp_overrides(wisp_bin: str) -> list[str]:
         ("command", toml_string(wisp_bin)),
         ("args", '["mcp", "email"]'),
         ("env_vars", f'["WISP_TELEGRAM_THREAD", "{SOCKET_ENV}"]'),
-        ("env", '{ WISP_SEND_GATE = "broker" }'),
         ("default_tools_approval_mode", '"approve"'),
         ("startup_timeout_sec", "30"),
         ("tool_timeout_sec", "660"),
