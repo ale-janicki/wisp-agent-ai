@@ -54,8 +54,8 @@ struct ConversationView: View {
                                 case .tools(let group): ToolsRow(messages: group)
                                 }
                             }
-                            if let request = model.state.approvals.first {
-                                ApprovalCard(request: request, queued: model.state.approvals.count - 1) { model.answer(request, $0) }
+                            if let request = model.approvalQueue.first {
+                                ApprovalCard(request: request, queued: model.approvalQueue.count - 1, isTool: model.isToolApproval(request)) { model.answer(request, $0) }
                                     .id(request.id)
                             } else if model.isThinking {
                                 TypingRow(text: model.waitingForTelegram ? ConversationViewModel.waitingStep : "\(model.personaName) pensando…")
@@ -265,13 +265,15 @@ private struct TypingRow: View {
 struct ApprovalCard: View {
     let request: PermissionRequest
     let queued: Int
+    let isTool: Bool
     let answer: (PermissionDecision) -> Void
     @State private var expanded: Bool
     @State private var seenFull: Bool
 
-    init(request: PermissionRequest, queued: Int, expanded: Bool = false, answer: @escaping (PermissionDecision) -> Void) {
+    init(request: PermissionRequest, queued: Int, isTool: Bool = false, expanded: Bool = false, answer: @escaping (PermissionDecision) -> Void) {
         self.request = request
         self.queued = queued
+        self.isTool = isTool
         self.answer = answer
         _expanded = State(initialValue: expanded)
         _seenFull = State(initialValue: expanded)
@@ -296,7 +298,7 @@ struct ApprovalCard: View {
                         .foregroundStyle(Theme.textTertiary)
                 }
             }
-            Text("O Claude quer \(request.summary)")
+            Text("\(isTool ? "Uma ferramenta" : "O Claude") quer \(request.summary)")
                 .font(Theme.Font.bodyMedium)
                 .foregroundStyle(Theme.textPrimary)
                 .lineLimit(3)

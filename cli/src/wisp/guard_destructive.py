@@ -36,7 +36,7 @@ class _Policy:
     def __init__(self, cfg: WispConfig, paths: WispPaths):
         self.home = Path(os.path.normpath(paths.home))
         self.brain = Path(os.path.normpath(os.path.expanduser(cfg.brain))) if cfg.brain else None
-        self.wisp_dir = self.home / "Wisp"
+        self.wisp_dir = Path(self.expand(cfg.wisp_dir, self.home))
         folders = {self.home / f for f in USER_FOLDERS}
         self.roots = {self.home, self.wisp_dir, *folders, *(Path(r) for r in SYSTEM_ROOTS)}
         if self.brain:

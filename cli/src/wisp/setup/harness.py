@@ -11,6 +11,8 @@ from wisp.harness_merge import (
     InstalledManifest,
     BLOCK_KEY,
     TREE_DIRS,
+    render_agente,
+    wrap_block,
     backup,
     block_digest,
     current_block,
@@ -23,9 +25,14 @@ from wisp.harness_merge import (
 from wisp.paths import WispPaths, resources_root
 from wisp.report import Detail, StepReport
 from wisp.runner import Runner
+from wisp.setup.folder import seed_folder, wisp_root
 
 MANIFEST_NAME = "harness-installed.json"
 FALLBACK_USER = "the user"
+MCP_NAME = "wisp-email"
+MCP_ALLOW = "mcp__wisp-email"
+INCOMPLETE = "o agente.md parece incompleto; usei as regras padrão"
+FOREIGN = "já existe outro servidor chamado wisp-email no Claude; o Wisp não mexeu nele"
 
 
 def _load_manifest(path: Path) -> InstalledManifest:
@@ -42,7 +49,43 @@ def _values(cfg: WispConfig) -> dict[str, str]:
         "USER_NAME": cfg.user_name or FALLBACK_USER,
         "BRAIN_DIR": cfg.brain or "",
         "LANGUAGE": cfg.language,
+        "WISP_DIR": str(wisp_root(cfg)),
     }
+
+
+def _sections(text: str) -> list[str]:
+    return [line.rstrip() for line in text.splitlines() if line.startswith("## ")]
+
+
+def _looks_incomplete(text: str, template: str, persona: str) -> bool:
+    """Incomplete when a top-level `## ` heading of the template is missing, or when there is no persona
+    heading (placeholder or rendered) and the text is shorter than the template's opening section:
+    likely a stub or a half-saved file, not the user's rules."""
+    if not set(_sections(template)) <= set(_sections(text)):
+        return True
+    opening = template.split("<!-- wisp:begin -->", 1)[-1].split("\n## ", 1)[0]
+    headed = "{{PERSONA_NAME}}" in text or any(line.strip() == f"# {persona}" for line in text.splitlines())
+    return not headed and len(text.strip()) < len(opening.strip())
+
+
+def _block(source: Path, cfg: WispConfig, values: dict[str, str]) -> tuple[str, str | None]:
+    """The rendered block and, when agente.md was set aside, the reason to show the user."""
+    template = (source / "claude-md-block.md").read_text()
+    agente = wisp_root(cfg) / "agente.md"
+    if not agente.is_file():
+        return render(template, values), None
+    try:
+        text = agente.read_text()
+    except (OSError, UnicodeDecodeError):
+        return render(template, values), INCOMPLETE
+    if _looks_incomplete(text, template, cfg.persona):
+        return render(template, values), INCOMPLETE
+    return wrap_block(render_agente(text, values)), None
+
+
+def _roots(cfg: WispConfig) -> dict[str, Path]:
+    skills = wisp_root(cfg) / "skills"
+    return {"skills": skills} if skills.is_dir() and not skills.is_symlink() else {}
 
 
 def _managed_elsewhere(claude_dir: Path) -> bool:
@@ -52,6 +95,33 @@ def _managed_elsewhere(claude_dir: Path) -> bool:
 
 def _file_mode(path: Path) -> int:
     return os.stat(path).st_mode & 0o777 if path.exists() else 0o644
+
+
+def _is_ours(output: str, wisp_bin: str) -> bool:
+    """Exact match of our command in `claude mcp get` output; the real format is confirmed in the live check."""
+    lines = [line.strip() for line in output.splitlines()]
+    command = next((line.split(":", 1)[1].strip() for line in lines if line.startswith("Command:")), None)
+    args = next((line.split(":", 1)[1].split() for line in lines if line.startswith("Args:")), None)
+    if command is not None:
+        return command == wisp_bin and (args is None or args == ["mcp", "email"])
+    tokens = [t for t in output.split() if t not in ("Command:", "Args:")]
+    return any(t == wisp_bin and tokens[i + 1 : i + 3] == ["mcp", "email"] for i, t in enumerate(tokens))
+
+
+def _register_email(runner: Runner, paths: WispPaths, cfg: WispConfig) -> tuple[str, str | None]:
+    """Registers the wisp-email MCP server in Claude Code. Returns (state, detail); state is
+    present | added | foreign | failed, and only present/added allow the permission rule."""
+    claude = cfg.claude_bin or "claude"
+    wisp_bin = str(paths.runtime / "venv/bin/wisp")
+    current = runner.run([claude, "mcp", "get", MCP_NAME])
+    if current.exit == 0:
+        if _is_ours(current.stdout, wisp_bin):
+            return "present", None
+        return "foreign", FOREIGN
+    added = runner.run([claude, "mcp", "add", "--scope", "user", MCP_NAME, "--", wisp_bin, "mcp", "email"])
+    if added.exit != 0:
+        return "failed", "não consegui registrar o e-mail no Claude; rode wisp setup harness de novo"
+    return "added", None
 
 
 def _failed(summary: str, **data: str) -> StepReport:
@@ -69,7 +139,9 @@ def setup_harness(runner: Runner, paths: WispPaths, cfg: WispConfig, *, dry_run:
     values = _values(cfg)
     claude_md_path = claude_dir / "CLAUDE.md"
     settings_path = claude_dir / "settings.json"
-    block = render((source / "claude-md-block.md").read_text(), values)
+    if not dry_run:
+        seed_folder(wisp_root(cfg))          # the wizard has no folder step: a new user starts from the full template
+    block, agente_problem = _block(source, cfg, values)
     manifest_path = paths.config / MANIFEST_NAME
     manifest = _load_manifest(manifest_path)
     plan = copy.deepcopy(manifest)
@@ -91,9 +163,12 @@ def setup_harness(runner: Runner, paths: WispPaths, cfg: WispConfig, *, dry_run:
     except (UnicodeDecodeError, ValueError):
         return _failed("o settings.json não é um JSON válido; nada foi alterado")
     ours = json.loads((source / "settings.json").read_text())
+    email_state, email_problem = ("skipped", None) if dry_run else _register_email(runner, paths, cfg)
+    if email_state in ("present", "added"):
+        ours["permissions"]["allow"].append(MCP_ALLOW)
     new_settings, notes = merge_settings(user_settings or {}, ours)
 
-    changes = install_tree(source, claude_dir, plan, values, dry_run=True)
+    changes = install_tree(source, claude_dir, plan, values, dry_run=True, roots=_roots(cfg))
     claude_md_kind = "conflict" if block_conflict else "added" if user_md is None else "merged" if new_md != user_md else "skipped"
     changes.append(Change("CLAUDE.md", claude_md_kind))
     changes.append(Change("settings.json", "added" if user_settings is None else "merged" if new_settings != user_settings else "skipped"))
@@ -103,13 +178,17 @@ def setup_harness(runner: Runner, paths: WispPaths, cfg: WispConfig, *, dry_run:
     data = {"backup": "", "added": str(sum(c.kind == "added" for c in changes)), "conflicts": str(len(conflicts))}
     details = [Detail("conflito", 0, f"{c.rel}: editado por você, mantido" if c.rel != "CLAUDE.md" else "CLAUDE.md: o bloco do Wisp foi editado por você, mantido") for c in conflicts]
     details += [Detail("settings", 0, note) for note in notes]
+    if agente_problem:
+        details.append(Detail("agente", 0, agente_problem))
+    if email_problem:
+        details.append(Detail("e-mail", 0, email_problem))
     if dry_run:
         return StepReport("harness", "done", "dry run: nada foi escrito", details, data)
 
     if pending:
         saved = backup(claude_dir, paths.state / "backups", datetime.now().strftime("%Y%m%d-%H%M%S"))
         data["backup"] = str(saved) if saved else ""
-        install_tree(source, claude_dir, manifest, values)
+        install_tree(source, claude_dir, manifest, values, roots=_roots(cfg))
         if new_md != user_md:
             atomic_write(claude_md_path, new_md.encode(), mode=_file_mode(claude_md_path))
         if new_settings != user_settings:
@@ -119,7 +198,7 @@ def setup_harness(runner: Runner, paths: WispPaths, cfg: WispConfig, *, dry_run:
     if manifest != _load_manifest(manifest_path):
         atomic_write(manifest_path, json.dumps({"version": manifest.version, "files": manifest.files}, indent=2, sort_keys=True) + "\n")
 
-    if not pending:
+    if not pending and email_state != "added":
         return StepReport("harness", "skipped", "o harness já está instalado", details, data)
     summary = "harness instalado"
     if conflicts:
@@ -127,16 +206,16 @@ def setup_harness(runner: Runner, paths: WispPaths, cfg: WispConfig, *, dry_run:
     return StepReport("harness", "done", summary, details, data)
 
 
-def update_persona_block(paths: WispPaths, cfg: WispConfig, *, dry_run: bool) -> tuple[str, str]:
-    """Re-renders only the CLAUDE.md block and its manifest sha. Returns (kind, reason) with kind one of
-    updated | unchanged | absent | conflict | failed; nothing else in ~/.claude is touched and no backup is made."""
+def update_persona_block(paths: WispPaths, cfg: WispConfig, *, dry_run: bool) -> tuple[str, str, str]:
+    """Re-renders only the CLAUDE.md block and its manifest sha. Returns (kind, reason, agente_problem) with kind one of
+    updated | unchanged | absent | conflict | failed (agente_problem is set when agente.md fell back to the template); nothing else in ~/.claude is touched and no backup is made."""
     claude_dir = paths.home / ".claude"
     md_path = claude_dir / "CLAUDE.md"
     if _managed_elsewhere(claude_dir):
-        return "failed", "o harness é gerenciado fora do Wisp"
+        return "failed", "o harness é gerenciado fora do Wisp", ""
     if not md_path.exists():
-        return "absent", ""
-    block = render((resources_root() / "harness/claude-md-block.md").read_text(), _values(cfg))
+        return "absent", "", ""
+    block, agente_problem = _block(resources_root() / "harness", cfg, _values(cfg))
     manifest_path = paths.config / MANIFEST_NAME
     manifest = _load_manifest(manifest_path)
     try:
@@ -144,15 +223,15 @@ def update_persona_block(paths: WispPaths, cfg: WispConfig, *, dry_run: bool) ->
         existing = current_block(user_md)
         new_md = merge_claude_md(user_md, block)
     except (UnicodeDecodeError, ValueError):
-        return "failed", "o CLAUDE.md tem marcadores do Wisp quebrados ou não é texto"
+        return "failed", "o CLAUDE.md tem marcadores do Wisp quebrados ou não é texto", ""
     if existing is None:
-        return "absent", ""
+        return "absent", "", ""
     if new_md == user_md:
-        return "unchanged", ""
+        return "unchanged", "", agente_problem or ""
     if block_digest(existing) != manifest.files.get(BLOCK_KEY):
-        return "conflict", "o bloco do Wisp no CLAUDE.md foi editado por você e foi mantido"
+        return "conflict", "o bloco do Wisp no CLAUDE.md foi editado por você e foi mantido", agente_problem or ""
     if not dry_run:
         atomic_write(md_path, new_md.encode(), mode=_file_mode(md_path))
         manifest.files[BLOCK_KEY] = block_digest(block)
         atomic_write(manifest_path, json.dumps({"version": manifest.version, "files": manifest.files}, indent=2, sort_keys=True) + "\n")
-    return "updated", ""
+    return "updated", "", agente_problem or ""

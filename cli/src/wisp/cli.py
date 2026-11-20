@@ -12,21 +12,23 @@ from wisp.aprendizados import add_parser as add_aprender_parser, hook_aprendizad
 from wisp.brain_colher import main as run_brain_colher
 from wisp.arquivos import add_parser as add_arquivos_parser, run as run_arquivos
 from wisp.agenda import add_parser as add_agenda_parser, run as run_agenda
-from wisp.config import WispConfig, load_config
+from wisp.config import WispConfig, is_unreadable, load_config, save_config
 from wisp.doctor import run_doctor
-from wisp.fsops import OutsideHome
+from wisp.fsops import OutsideHome, ensure_dir
 from wisp.jobs import NotSupportedHere, manager_for
 from wisp.guard_brain_scope import hook_guard_brain_scope
 from wisp.mac import add_parser as add_mac_parser, run as run_mac
 from wisp.guard_agenda import hook_guard_agenda, render as render_agenda_decision
 from wisp.guard_destructive import hook_guard_destructive
 from wisp.guard_lessons import hook_guard_lessons
+from wisp.guard_outbound import hook_guard_outbound
 from wisp.hooks import hook_boot, hook_brain_commit, hook_guard_secrets, hook_guard_telegram
 from wisp.paths import WispPaths
 from wisp.recall import hook_recall
 from wisp.report import StepReport
 from wisp.runner import SubprocessRunner
 from wisp.setup.brain import setup_brain
+from wisp.setup.folder import UNREADABLE, setup_folder
 from wisp.setup.harness import setup_harness
 from wisp.setup.profile import setup_profile
 from wisp.setup.shim import setup_shim
@@ -80,8 +82,54 @@ def _setup_brain(args: argparse.Namespace) -> int:
     return _run_step("brain", lambda cfg: setup_brain(SubprocessRunner(), WispPaths.current(), cfg, path=path, dry_run=args.dry_run))
 
 
+def _setup_folder(args: argparse.Namespace) -> int:
+    path = Path(args.path) if args.path else None
+    return _run_step("folder", lambda cfg: setup_folder(SubprocessRunner(), WispPaths.current(), cfg, path=path, dry_run=args.dry_run))
+
+
+def _harness_sync(args: argparse.Namespace) -> int:
+    return _run_step("harness", lambda cfg: setup_harness(SubprocessRunner(), WispPaths.current(), cfg, dry_run=args.dry_run))
+
+
 def _setup_harness(args: argparse.Namespace) -> int:
     return _run_step("harness", lambda cfg: setup_harness(SubprocessRunner(), WispPaths.current(), cfg, dry_run=args.dry_run))
+
+
+def _usable_dir(path: Path) -> bool:
+    """An existing directory, or a missing path whose nearest existing ancestor is a directory."""
+    probe = path
+    while not probe.exists() and probe != probe.parent:
+        probe = probe.parent
+    return probe.is_dir()
+
+
+def _config_set(args: argparse.Namespace) -> int:
+    runner, paths = SubprocessRunner(), WispPaths.current()
+
+    def run(cfg: WispConfig) -> StepReport:
+        if is_unreadable():
+            return StepReport("config", "failed", UNREADABLE, data={"key": args.key})
+        if not args.value.startswith(("/", "~")):
+            return StepReport("config", "failed", "use um caminho completo (começando com / ou ~)", data={"key": args.key})
+        target = Path(args.value).expanduser().resolve(strict=False)
+        if not _usable_dir(target):
+            return StepReport("config", "failed", "esse caminho não é uma pasta que o Wisp possa usar", data={"key": args.key})
+        ensure_dir(target)
+        if args.key == "wisp_dir":
+            report = setup_folder(runner, paths, cfg, path=target, dry_run=False)
+        else:
+            cfg.brain = str(target)
+            save_config(cfg)
+            report = StepReport("brain", "done", "caminho salvo")
+        if report.status == "failed":
+            return report
+        synced = setup_harness(runner, paths, cfg, dry_run=False)
+        data = {"key": args.key, "path": str(target), "sync": synced.status}
+        if synced.status == "failed":
+            return StepReport("config", "failed", f"caminho salvo, mas o harness não sincronizou: {synced.summary}", synced.details, data)
+        return StepReport("config", "done", "caminho salvo", synced.details, data)
+
+    return _run_step("config", run)
 
 
 def _setup_system(args: argparse.Namespace) -> int:
@@ -173,6 +221,19 @@ def _guard_lessons() -> int:
     return 0
 
 
+def _guard_outbound() -> int:
+    try:
+        payload = json.load(sys.stdin)
+        reason = hook_guard_outbound(payload if isinstance(payload, dict) else {}, WispPaths.current())
+    except Exception as e:
+        print(f"wisp-guard: hook guard-outbound failed ({type(e).__name__})", file=sys.stderr)
+        return 2
+    if reason:
+        print(reason, file=sys.stderr)
+        return 2
+    return 0
+
+
 def _guard_brain_scope() -> int:
     try:
         payload = json.load(sys.stdin)
@@ -244,6 +305,8 @@ def _hook(args: argparse.Namespace) -> int:
         return _guard_brain_scope()
     if args.which == "guard-agenda":
         return _guard_agenda()
+    if args.which == "guard-outbound":
+        return _guard_outbound()
     try:
         cfg, _ = _load_config_or_default()
         if args.which == "boot":
@@ -252,6 +315,24 @@ def _hook(args: argparse.Namespace) -> int:
             hook_brain_commit(cfg, SubprocessRunner())
     except Exception as e:
         print(f"wisp hook {args.which}: {type(e).__name__}", file=sys.stderr)
+    return 0
+
+
+def _email(args: argparse.Namespace) -> int:
+    from wisp.email.mail_app import MailApp, MailError    # lazy: only the email commands pay for it
+
+    mail = MailApp(SubprocessRunner())
+    try:
+        if args.action == "list":
+            result = mail.list(args.mailbox, args.limit)
+        elif args.action == "search":
+            result = mail.search(args.query, args.limit)
+        else:
+            result = mail.read(args.id)
+    except MailError as e:
+        print(str(e), file=sys.stderr)
+        return 1
+    print(json.dumps([asdict(r) for r in result] if isinstance(result, list) else asdict(result), ensure_ascii=False))
     return 0
 
 
@@ -268,6 +349,10 @@ def build_parser() -> argparse.ArgumentParser:
     brain.add_argument("--path")
     brain.add_argument("--dry-run", action="store_true")
     brain.add_argument("--json", action="store_true")
+    folder = steps.add_parser("folder")
+    folder.add_argument("--path")
+    folder.add_argument("--dry-run", action="store_true")
+    folder.add_argument("--json", action="store_true")
     harness = steps.add_parser("harness")
     harness.add_argument("--dry-run", action="store_true")
     harness.add_argument("--json", action="store_true")
@@ -291,6 +376,29 @@ def build_parser() -> argparse.ArgumentParser:
     profile.add_argument("--json", action="store_true")
     shim = steps.add_parser("shim")
     shim.add_argument("--json", action="store_true")
+    harness_group = sub.add_parser("harness")
+    harness_steps = harness_group.add_subparsers(dest="action", required=True)
+    sync = harness_steps.add_parser("sync")
+    sync.add_argument("--dry-run", action="store_true")
+    sync.add_argument("--json", action="store_true")
+    config = sub.add_parser("config")
+    config_steps = config.add_subparsers(dest="action", required=True)
+    config_set = config_steps.add_parser("set")
+    config_set.add_argument("key", choices=["wisp_dir", "brain"])
+    config_set.add_argument("value")
+    config_set.add_argument("--json", action="store_true")
+    mcp = sub.add_parser("mcp")
+    mcp.add_argument("server", choices=["email"])
+    email = sub.add_parser("email")
+    email_steps = email.add_subparsers(dest="action", required=True)
+    email_list = email_steps.add_parser("list")
+    email_list.add_argument("--mailbox", default="INBOX")
+    email_list.add_argument("--limit", type=int, default=20)
+    email_read = email_steps.add_parser("read")
+    email_read.add_argument("id")
+    email_search = email_steps.add_parser("search")
+    email_search.add_argument("query")
+    email_search.add_argument("--limit", type=int, default=20)
     add_topic_parser(sub)
     add_aprender_parser(sub)
     brain_cmd = sub.add_parser("brain")
@@ -303,7 +411,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_mac_parser(sub)
     add_agenda_parser(sub)
     hook = sub.add_parser("hook")
-    hook.add_argument("which", choices=["boot", "recall", "aprendizados", "brain-commit", "guard-secrets", "guard-telegram", "guard-destructive", "guard-lessons", "guard-brain-scope", "guard-agenda"])
+    hook.add_argument("which", choices=["boot", "recall", "aprendizados", "brain-commit", "guard-secrets", "guard-telegram", "guard-destructive", "guard-lessons", "guard-outbound", "guard-brain-scope", "guard-agenda"])
     return parser
 
 
@@ -313,6 +421,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _doctor(args)
     if args.command == "setup" and args.step == "brain":
         return _setup_brain(args)
+    if args.command == "setup" and args.step == "folder":
+        return _setup_folder(args)
     if args.command == "setup" and args.step == "harness":
         return _setup_harness(args)
     if args.command == "setup" and args.step == "system":
@@ -323,10 +433,22 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _setup_profile(args)
     if args.command == "setup" and args.step == "shim":
         return _run_step("shim", lambda cfg: setup_shim(WispPaths.current()))
+    if args.command == "harness" and args.action == "sync":
+        return _harness_sync(args)
+    if args.command == "config" and args.action == "set":
+        return _config_set(args)
     if args.command == "hook":
         return _hook(args)
     if args.command == "brain":
         return _brain_colher(args)
+    if args.command == "email":
+        return _email(args)
+    if args.command == "mcp":
+        from wisp.email.mail_app import MailApp      # lazy: the mcp package loads only for the server
+        from wisp.email.server import run_server
+
+        run_server(MailApp(SubprocessRunner()), WispPaths.current())
+        return 0
     if args.command == "topic":
         return run_topic(args)
     if args.command == "aprender":

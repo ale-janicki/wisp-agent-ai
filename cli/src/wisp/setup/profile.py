@@ -9,7 +9,7 @@ from pathlib import Path
 from wisp.config import WispConfig, save_config
 from wisp.fsops import atomic_write, ensure_dir
 from wisp.paths import WispPaths
-from wisp.report import StepReport
+from wisp.report import Detail, StepReport
 from wisp.setup.harness import update_persona_block
 from wisp.setup.profile_writer import render_persona
 
@@ -116,7 +116,7 @@ def setup_profile(
     changed = cfg_changed or not profile_path.exists() or profile_path.read_text() != text
     avatar_changed = target is not None and (not target.exists() or not filecmp.cmp(avatar, target, shallow=False))
     if dry_run:
-        block_kind, _ = update_persona_block(paths, replace(cfg, persona=name, user_name=user, language=language), dry_run=True)
+        block_kind, _, _ = update_persona_block(paths, replace(cfg, persona=name, user_name=user, language=language), dry_run=True)
         return StepReport("profile", "done" if changed or avatar_changed or block_kind == "updated" else "skipped",
                           "dry run: nada foi escrito")
 
@@ -144,11 +144,12 @@ def setup_profile(
     save_config(cfg, config_path)
 
     data: dict[str, str] = {}
-    block_kind, reason = update_persona_block(paths, cfg, dry_run=False)
+    block_kind, reason, agente_problem = update_persona_block(paths, cfg, dry_run=False)
     if block_kind in ("conflict", "failed"):
         data["warning"] = f"As instruções do agente ainda têm o nome antigo: {reason}."
     changed = changed or avatar_changed or block_kind == "updated"
+    details = [Detail("agente", 0, agente_problem)] if agente_problem else []
     if changed or "warning" in data:
-        return StepReport("profile", "done", "perfil salvo", data=data)
-    return StepReport("profile", "skipped", "o perfil já estava assim", data=data)
+        return StepReport("profile", "done", "perfil salvo", details, data)
+    return StepReport("profile", "skipped", "o perfil já estava assim", details, data)
 

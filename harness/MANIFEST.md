@@ -1,13 +1,13 @@
 # Harness manifest
 
-What Wisp installs into a new user's `~/.claude`, and what it leaves out. Sources are real files only (no symlinks) in the author's harness and in the author's mini-agent kit. Placeholders rendered at install: `{{PERSONA_NAME}}`, `{{USER_NAME}}`, `{{BRAIN_DIR}}`, `{{LANGUAGE}}`.
+What Wisp installs into a new user's `~/.claude`, and what it leaves out. Sources are real files only (no symlinks) in the author's harness and in the author's mini-agent kit. Placeholders rendered at install: `{{PERSONA_NAME}}`, `{{USER_NAME}}`, `{{BRAIN_DIR}}`, `{{LANGUAGE}}`, `{{WISP_DIR}}`.
 
 ## Included
 
 | Source | Destination | Scrubbed |
 |---|---|---|
 | `kit/CLAUDE.md` + `harness/CLAUDE.md` (memory rules) | `claude-md-block.md` | Rewritten in English; persona, user, brain path and language became placeholders; markers `wisp:begin/end` added; dropped the marketing and finance routing, the fixed vault name, and the author's routing table |
-| (new) | `settings.json` | Fragment with only `permissions` and `hooks`; hooks call `wisp hook` (`guard-secrets`, `guard-telegram`, `guard-destructive`, `guard-lessons`, `guard-agenda`, `boot`, `recall`, `aprendizados`, `brain-commit`), never an interpreter. The five guards also run without this harness: the app and the bot pass them to every `claude` they start with `--settings` |
+| (new) | `settings.json` | Fragment with only `permissions` and `hooks`; hooks call `wisp hook` (`guard-secrets`, `guard-telegram`, `guard-destructive`, `guard-lessons`, `guard-agenda`, `guard-outbound`, `boot`, `recall`, `aprendizados`, `brain-commit`), never an interpreter. The six guards also run without this harness: the app and the bot pass them to every `claude` they start with `--settings`. Deny rules keep the agent out of the secrets folder and the approvals channel (Read/Write/Edit on `~/.local/state/wisp/approvals/**`), and `guard-outbound` covers Bash and symlinks on that folder and Bash that sends mail around the email tool, so the agent cannot answer its own approval or send unapproved; a deterrent for the agent, not a sandbox: a same-user process running arbitrary code can still write the file |
 | `harness/agents/reader.md` | `agents/reader.md` | Owner and ecosystem name became `{{PERSONA_NAME}}'s harness` |
 | `harness/agents/operator.md` | `agents/operator.md` | Same; dropped the engineering-standard path; owner became `{{USER_NAME}}` |
 | `harness/agents/reviewer.md` | `agents/reviewer.md` | Same; dropped the pointer to the end-to-end reviewer |

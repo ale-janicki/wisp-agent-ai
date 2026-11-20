@@ -2,7 +2,7 @@ import Foundation
 
 public enum EngineGuards {
     public static let matcher = "Bash|Read|Edit|MultiEdit|Write|NotebookEdit|Grep|Glob"
-    public static let hooks = ["guard-secrets", "guard-telegram", "guard-destructive", "guard-lessons", "guard-agenda"]
+    public static let hooks = ["guard-secrets", "guard-telegram", "guard-destructive", "guard-lessons", "guard-agenda", "guard-outbound"]
     public static let recallTimeout = 5
     public static let askRules = ["Bash(*aprender add*)", "Bash(*aprender confirmar*)", "Bash(*aprender descartar*)"]
 
