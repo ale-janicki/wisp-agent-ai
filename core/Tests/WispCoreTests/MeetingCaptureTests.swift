@@ -513,6 +513,63 @@ final class MeetingCaptureTests: XCTestCase {
         XCTAssertEqual(converter.calls.count, 1)
     }
 
+    private func permissions(_ url: URL) throws -> Int {
+        try XCTUnwrap(FileManager.default.attributesOfItem(atPath: url.path)[.posixPermissions] as? Int)
+    }
+
+    func testCreatedRootFolderMetaAndAudioAreOwnerOnly() throws {
+        let nested = root.appendingPathComponent("Wisp/reunioes", isDirectory: true)
+        let folder = try RecordingFolder.create(root: nested, date: t0, timeZone: utc)
+        try RecordingFolder.write(RecordingMeta(startedAt: t0, devices: .init(mic: nil, system: nil)), in: folder)
+        let raw = RecordingFolder.rawAudioURL(in: folder)
+        let encoded = RecordingFolder.audioURL(in: folder)
+        let sink = try StereoFileSink(url: raw, container: .pcm16)
+        try sink.write([Float](repeating: 0.1, count: CaptureFormat.sampleRate * 2))
+        _ = try M4AFileConverter().convert(from: raw, to: encoded)
+        try sink.finish()
+        XCTAssertEqual(try permissions(nested), 0o700)
+        XCTAssertEqual(try permissions(folder), 0o700)
+        for file in [RecordingFolder.metaURL(in: folder), raw, encoded] {
+            XCTAssertEqual(try permissions(file), 0o600, file.lastPathComponent)
+        }
+    }
+
+    func testExistingRootKeepsItsPermissions() throws {
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: root.path)
+        _ = try RecordingFolder.create(root: root, date: t0, timeZone: utc)
+        XCTAssertEqual(try permissions(root), 0o755)
+    }
+
+    func testRecoveryNeverTouchesTheActiveRecordingFolder() throws {
+        let live = try leftover("2027-01-15_08-00-00", status: .recording, rawBytes: 100)
+        let old = try leftover("2027-01-14_08-00-00", status: .recording, rawBytes: 100)
+        let converter = FakeConverter()
+        let recovered = RecordingRecovery.recover(root: root, converter: converter, excluding: [live.lastPathComponent])
+        XCTAssertEqual(recovered.map(\.folder), [old])
+        XCTAssertEqual(converter.calls.map { $0.0.deletingLastPathComponent() }, [old])
+        XCTAssertEqual(try RecordingFolder.read(in: live).status, .recording)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: RecordingFolder.rawAudioURL(in: live).path))
+    }
+
+    func testStopCaptureOnlyKeepsRawAndLeavesMetaForRecoveryWithoutEncoding() throws {
+        let mic = FakeSource(name: "mic"), system = FakeSource(name: "sys"), sink = MemorySink()
+        let converter = FakeConverter()
+        let rec = recorder(mic: mic, system: system, sink: sink, converter: converter)
+        let folder = try rec.start(now: t0)
+        mic.emit([Float](repeating: 0.5, count: CaptureFormat.sampleRate))
+        system.emit([Float](repeating: 0.5, count: CaptureFormat.sampleRate))
+        rec.stopCaptureOnly()
+        XCTAssertFalse(rec.isRecording)
+        XCTAssertTrue(sink.finished)
+        XCTAssertTrue(converter.calls.isEmpty)
+        let meta = try RecordingFolder.read(in: folder)
+        XCTAssertEqual(meta.status, .recording)
+        XCTAssertEqual(meta.durationSeconds ?? 0, 1, accuracy: 0.0001)
+        XCTAssertEqual(mic.stopped, 1)
+        XCTAssertEqual(system.stopped, 1)
+    }
+
     func testRecoveryOfMissingRootIsEmpty() {
         XCTAssertTrue(RecordingRecovery.recover(root: root.appendingPathComponent("nope"), converter: FakeConverter()).isEmpty)
     }

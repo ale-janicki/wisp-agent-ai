@@ -54,6 +54,8 @@ public enum RecordingFolder {
     public static let audioFileName = "audio.m4a"
     public static let rawAudioFileName = "audio.caf"
     public static let metaFileName = "meta.json"
+    static let folderPermissions = 0o700
+    static let filePermissions = 0o600
 
     public static func defaultRoot(home: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL {
         home.appendingPathComponent("Wisp", isDirectory: true).appendingPathComponent("reunioes", isDirectory: true)
@@ -77,18 +79,27 @@ public enum RecordingFolder {
     }
 
     public static func create(root: URL, date: Date, timeZone: TimeZone = .current, fileManager: FileManager = .default) throws -> URL {
-        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        if !fileManager.fileExists(atPath: root.path) {
+            try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+            try fileManager.setAttributes([.posixPermissions: folderPermissions], ofItemAtPath: root.path)
+        }
         let base = name(for: date, timeZone: timeZone)
         var suffix = 1
         while true {
             let folder = root.appendingPathComponent(suffix == 1 ? base : "\(base)-\(suffix)", isDirectory: true)
             do {
-                try fileManager.createDirectory(at: folder, withIntermediateDirectories: false)
+                try fileManager.createDirectory(
+                    at: folder, withIntermediateDirectories: false, attributes: [.posixPermissions: folderPermissions]
+                )
                 return folder
             } catch let error as CocoaError where error.code == .fileWriteFileExists {
                 suffix += 1
             }
         }
+    }
+
+    public static func restrictFile(at url: URL, fileManager: FileManager = .default) throws {
+        try fileManager.setAttributes([.posixPermissions: filePermissions], ofItemAtPath: url.path)
     }
 
     public static func audioURL(in folder: URL) -> URL { folder.appendingPathComponent(audioFileName) }
@@ -99,7 +110,9 @@ public enum RecordingFolder {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        try encoder.encode(meta).write(to: metaURL(in: folder), options: .atomic)
+        let url = metaURL(in: folder)
+        try encoder.encode(meta).write(to: url, options: .atomic)
+        try restrictFile(at: url)
     }
 
     public static func read(in folder: URL) throws -> RecordingMeta {
