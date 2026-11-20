@@ -13,7 +13,7 @@ from wisp.paths import WispPaths
 @pytest.fixture
 def home(tmp_path):
     root = tmp_path / "home"
-    (root / ".local/state/wisp/approvals").mkdir(parents=True)
+    root.mkdir(parents=True, exist_ok=True)
     return root
 
 
@@ -88,63 +88,11 @@ def test_shell_script_file_running_osascript_is_read(paths, tmp_path):
     assert _decide(paths, "bash x.sh", cwd=tmp_path)
 
 
-APPROVAL_COMMANDS = [
-    "cat ~/.local/state/wisp/approvals/abc.json",
-    "echo allow > ~/.local/state/wisp/approvals/{id}.decision",
-    "echo allow > $HOME/.local/state/wisp/approvals/{id}.decision",
-    "echo allow > ${HOME}/.local/state/wisp/approvals/{id}.decision",
-    "echo allow > $XDG_STATE_HOME/wisp/approvals/{id}.decision",
-    "echo allow > {home}/.local/state//wisp/approvals/{id}.decision",
-    "echo allow > '{home}/.local/state/wisp/appro''vals/{id}.decision'",
-    "echo allow > {home}/.local/state/wisp/approv\\als/{id}.decision",
-    "cd approvals && printf allow > x.decision",
-    "cd ~/.local/state/wisp/approvals && echo allow > {id}.decision",
-    "cd ~/.local/state/wisp && echo allow > approvals/{id}.decision",
-    "cd ~/.local/state && echo allow > wisp/approvals/{id}.decision",
-    "echo allow > /tmp/x/{id}.decision",
-    "ls ~/.local/state/wisp/approvals",
-    "python3 -c \"open('{home}/.local/state/wisp/approvals/{id}.decision','w').write('allow')\"",
-]
-
-
-@pytest.mark.parametrize("template", APPROVAL_COMMANDS)
-def test_bash_touching_the_approvals_folder_is_blocked(paths, home, template):
-    command = template.replace("{home}", str(home)).replace("{id}", "a" * 32)
-    assert "approvals folder" in (_decide(paths, command) or "")
-
-
-def test_symlink_into_the_approvals_folder_is_followed(paths, home, tmp_path):
-    link = tmp_path / "shortcut"
-    link.symlink_to(home / ".local/state/wisp/approvals")
-    assert _decide(paths, f"echo allow > {link}/{'a' * 32}.decision")
-    assert _decide(paths, "", tool="Write", file_path=f"{link}/x.decision")
-
-
-def test_relative_path_from_the_state_folder_is_blocked(paths, home):
-    assert _decide(paths, "echo allow > approvals/x", cwd=home / ".local/state/wisp")
-    assert _decide(paths, "ls approvals", cwd=home / ".local/state/wisp")
-
-
-def test_unrelated_approvals_names_pass(paths, home):
-    assert _decide(paths, "ls docs/approvals", cwd=home) is None
-    assert _decide(paths, "git add cli/src/wisp/approvals.py") is None
-    assert _decide(paths, "cat cli/src/wisp/approvals.py") is None
-    assert _decide(paths, "grep -n approvals cli/src/wisp/approvals.py") is None
-    assert _decide(paths, "cat ~/notes/approvals/list.md") is None
-
-
-@pytest.mark.parametrize("tool,key", [("Write", "file_path"), ("Edit", "file_path"), ("MultiEdit", "file_path"),
-                                       ("NotebookEdit", "notebook_path"), ("Read", "file_path"), ("Glob", "pattern")])
-def test_file_tools_on_the_approvals_folder_are_blocked(paths, home, tool, key):
-    target = str(home / ".local/state/wisp/approvals/x.decision")
-    assert _decide(paths, "", tool=tool, **{key: target})
-    assert _decide(paths, "", tool=tool, **{key: "~/.local/state/wisp/approvals/x.json"})
-
-
-def test_file_tools_elsewhere_and_content_mentions_pass(paths, home):
-    assert _decide(paths, "", tool="Write", file_path=str(home / "notes.md"),
-                   content="the approvals live in ~/.local/state/wisp/approvals") is None
-    assert _decide(paths, "", tool="Read", file_path=str(home / ".local/state/wisp/other.json")) is None
+def test_writing_scripts_and_touching_the_state_folder_pass(paths, home):
+    """The folder-forgery checks are gone (approval now lives in Claude Code's prompt); file tools are never blocked."""
+    assert _decide(paths, "cat ~/.local/state/wisp/approvals/abc.json") is None
+    assert _decide(paths, "", tool="Write", file_path=str(home / "x.py"), content="import wisp.email.server\n# approvals decision") is None
+    assert _decide(paths, "", tool="Read", file_path=str(home / ".local/state/wisp/x.json")) is None
 
 
 def test_bad_payloads_pass(paths):

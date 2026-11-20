@@ -87,10 +87,6 @@ def _setup_folder(args: argparse.Namespace) -> int:
     return _run_step("folder", lambda cfg: setup_folder(SubprocessRunner(), WispPaths.current(), cfg, path=path, dry_run=args.dry_run))
 
 
-def _harness_sync(args: argparse.Namespace) -> int:
-    return _run_step("harness", lambda cfg: setup_harness(SubprocessRunner(), WispPaths.current(), cfg, dry_run=args.dry_run))
-
-
 def _setup_harness(args: argparse.Namespace) -> int:
     return _run_step("harness", lambda cfg: setup_harness(SubprocessRunner(), WispPaths.current(), cfg, dry_run=args.dry_run))
 
@@ -434,7 +430,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "setup" and args.step == "shim":
         return _run_step("shim", lambda cfg: setup_shim(WispPaths.current()))
     if args.command == "harness" and args.action == "sync":
-        return _harness_sync(args)
+        return _setup_harness(args)
     if args.command == "config" and args.action == "set":
         return _config_set(args)
     if args.command == "hook":
@@ -447,7 +443,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         from wisp.email.mail_app import MailApp      # lazy: the mcp package loads only for the server
         from wisp.email.server import run_server
 
-        run_server(MailApp(SubprocessRunner()), WispPaths.current())
+        run_server(MailApp(SubprocessRunner()))
         return 0
     if args.command == "topic":
         return run_topic(args)

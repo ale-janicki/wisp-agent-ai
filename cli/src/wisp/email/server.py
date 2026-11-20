@@ -1,26 +1,17 @@
-"""Email as an MCP tool for every engine; sending waits for the user's approval."""
+"""Email as an MCP tool for every engine. Sending is approved by Claude Code's own permission prompt (an `ask` rule on
+mcp__wisp-email__email_send), never by this process: the prompt is a channel the agent cannot answer."""
 
 import json
-import os
-from collections.abc import Awaitable, Callable
+from collections.abc import Callable
 from dataclasses import asdict
 
-import anyio.to_thread
 from mcp.server.mcpserver import MCPServer
 from mcp.types import CallToolResult, TextContent
 
-from wisp import approvals
-from wisp.approvals import ApprovalDirError, Outcome
-from wisp.email.mail_app import MailApp, MailError
-from wisp.paths import WispPaths
+from wisp.email.mail_app import MailApp, MailError, check_recipients
 
 SERVER_NAME = "wisp-email"
 SENT = "enviado"
-DENIED = "o usuário negou o envio"
-NOBODY = "não enviado: ninguém aprovou"
-NO_CHANNEL = "não enviado: o canal de aprovação não está seguro"
-
-Request = Callable[..., Awaitable[Outcome]]
 
 
 class ToolFailure(Exception):
@@ -46,37 +37,11 @@ def email_search(mail: MailApp, query: str, limit: int = 20) -> list[dict]:
     return [asdict(m) for m in _guard(lambda: mail.search(query, limit))]
 
 
-async def email_send(
-    mail: MailApp,
-    request: Request,
-    paths: WispPaths,
-    to: list[str],
-    subject: str,
-    body: str,
-    cc: list[str] | None = None,
-    thread: int | None = None,
-) -> str:
+def email_send(mail: MailApp, to: list[str], subject: str, body: str, cc: list[str] | None = None) -> str:
     cc = cc or []
-    detail = f"Para: {', '.join(to)}\nCc: {', '.join(cc)}\nAssunto: {subject}\n\n{body}"
-    async def send() -> None:
-        await anyio.to_thread.run_sync(lambda: _guard(lambda: mail.send(to, subject, body, cc)))
-
-    try:
-        outcome = await request(paths, "email_send", f"enviar e-mail para {', '.join(to)}: {subject}", detail, thread=thread, act=send)
-    except ApprovalDirError:
-        raise ToolFailure(NO_CHANNEL) from None
-    if outcome == "deny":
-        return DENIED
-    if outcome != "allow":
-        return NOBODY
+    _guard(lambda: check_recipients(to, cc))
+    _guard(lambda: mail.send(to, subject, body, cc))
     return SENT
-
-
-def _thread_from_env() -> int | None:
-    try:
-        return int(os.environ["WISP_TELEGRAM_THREAD"])
-    except (KeyError, ValueError):
-        return None
 
 
 def _failure(e: ToolFailure) -> CallToolResult:
@@ -95,7 +60,7 @@ def _reply(call: Callable) -> CallToolResult:
         return _failure(e)
 
 
-def build_server(mail: MailApp, request: Request, paths: WispPaths | None, thread: int | None) -> MCPServer:
+def build_server(mail: MailApp) -> MCPServer:
     server = MCPServer(SERVER_NAME)
 
     @server.tool(name="email_list", description="Lista os e-mails mais recentes de uma caixa do Mail (padrão INBOX)")
@@ -110,17 +75,12 @@ def build_server(mail: MailApp, request: Request, paths: WispPaths | None, threa
     def _search(query: str, limit: int = 20) -> CallToolResult:
         return _reply(lambda: email_search(mail, query, limit))
 
-    @server.tool(name="email_send", description="Envia um e-mail; o usuário precisa aprovar antes de sair")
-    async def _send(to: list[str], subject: str, body: str, cc: list[str] | None = None) -> CallToolResult:
-        # Async on purpose: a cancelled call or a closed stdin cancels this task at the poll sleep and
-        # the approval request is withdrawn; a sync tool would sit in a worker thread for up to 600 s.
-        try:
-            return _text(await email_send(mail, request, paths, to, subject, body, cc, thread))
-        except ToolFailure as e:
-            return _failure(e)
+    @server.tool(name="email_send", description="Envia um e-mail; o Claude Code pede a aprovação do usuário antes de sair")
+    def _send(to: list[str], subject: str, body: str, cc: list[str] | None = None) -> CallToolResult:
+        return _reply(lambda: email_send(mail, to, subject, body, cc))
 
     return server
 
 
-def run_server(mail: MailApp, paths: WispPaths) -> None:
-    build_server(mail, approvals.request_async, paths, _thread_from_env()).run("stdio")
+def run_server(mail: MailApp) -> None:
+    build_server(mail).run("stdio")

@@ -6,7 +6,7 @@ from wisp.config import WispConfig, save_config
 from wisp.harness_merge import render_agente
 from wisp.paths import WispPaths, resources_root
 from wisp.runner import FakeRunner
-from wisp.setup.harness import setup_harness
+from wisp.setup.harness import MCP_ALLOW, setup_harness
 
 
 def _paths(home):
@@ -53,7 +53,7 @@ def test_existing_settings_keeps_user_values(fake_home):
     ours = json.loads((resources_root() / "harness/settings.json").read_text())["permissions"]["allow"]
     assert merged["model"] == "sonnet"
     assert merged["permissions"]["allow"][:2] == ["Mine", "Bash(ls:*)"]
-    assert merged["permissions"]["allow"][2:] == [a for a in ours if a != "Bash(ls:*)"] + ["mcp__wisp-email"]
+    assert merged["permissions"]["allow"][2:] == [a for a in ours if a != "Bash(ls:*)"] + MCP_ALLOW
     assert len(set(merged["permissions"]["allow"])) == len(merged["permissions"]["allow"])
 
 
@@ -360,7 +360,7 @@ def test_harness_registers_server_once(fake_home):
     adds = [c for c in runner.calls if tuple(c[:3]) == add]
     assert adds == [["claude", "mcp", "add", "--scope", "user", "wisp-email", "--", wisp_bin, "mcp", "email"]]
     allow = json.loads((fake_home / ".claude/settings.json").read_text())["permissions"]["allow"]
-    assert allow.count("mcp__wisp-email") == 1
+    assert [a for a in allow if a.startswith("mcp__wisp-email")] == MCP_ALLOW
 
 
 def test_harness_dry_run_does_not_register(fake_home):
@@ -394,7 +394,7 @@ def test_foreign_server_untouched_no_allow(fake_home):
     runner = _mcp_runner(0, "wisp-email:\n  Command: /usr/bin/other\n  Args: serve\n")
     report = setup_harness(runner, _paths(fake_home), _cfg(fake_home), dry_run=False)
     assert _adds(runner) == []
-    assert "mcp__wisp-email" not in _allow(fake_home)
+    assert not any(a.startswith("mcp__wisp-email") for a in _allow(fake_home))
     assert FOREIGN in report.to_json()
 
 
@@ -402,17 +402,17 @@ def test_lookalike_path_is_not_ours(fake_home):
     other = str(_paths(fake_home).runtime / "venv/bin/wisp-other")
     runner = _mcp_runner(0, f"wisp-email:\n  Command: {other}\n  Args: mcp email\n")
     setup_harness(runner, _paths(fake_home), _cfg(fake_home), dry_run=False)
-    assert _adds(runner) == [] and "mcp__wisp-email" not in _allow(fake_home)
+    assert _adds(runner) == [] and not any(a.startswith("mcp__wisp-email") for a in _allow(fake_home))
     runner = _mcp_runner(0, f"wisp-email: {other} mcp email")
     setup_harness(runner, _paths(fake_home), _cfg(fake_home), dry_run=False)
-    assert "mcp__wisp-email" not in _allow(fake_home)
+    assert not any(a.startswith("mcp__wisp-email") for a in _allow(fake_home))
 
 
 def test_add_failure_no_allow(fake_home):
     runner = _mcp_runner(1, add_exit=1)
     setup_harness(runner, _paths(fake_home), _cfg(fake_home), dry_run=False)
     assert len(_adds(runner)) == 1
-    assert "mcp__wisp-email" not in _allow(fake_home)
+    assert not any(a.startswith("mcp__wisp-email") for a in _allow(fake_home))
 
 
 def test_dry_run_no_allow_rule(fake_home):
@@ -421,16 +421,14 @@ def test_dry_run_no_allow_rule(fake_home):
     assert runner.calls == [] and not (fake_home / ".claude/settings.json").exists()
 
 
-def test_merged_settings_deny_the_approvals_folder(fake_home):
+def test_merged_settings_ask_before_sending_and_never_allow_it(fake_home):
     claude = fake_home / ".claude"
     claude.mkdir()
-    (claude / "settings.json").write_text(json.dumps({"permissions": {"deny": ["Mine"]}}))
+    (claude / "settings.json").write_text(json.dumps({"permissions": {"ask": ["Mine"]}}))
     _run(fake_home)
-    deny = json.loads((claude / "settings.json").read_text())["permissions"]["deny"]
-    assert deny[0] == "Mine"
-    for rule in ("Read(~/.local/state/wisp/approvals/**)", "Write(~/.local/state/wisp/approvals/**)",
-                 "Edit(~/.local/state/wisp/approvals/**)"):
-        assert rule in deny
+    permissions = json.loads((claude / "settings.json").read_text())["permissions"]
+    assert permissions["ask"][0] == "Mine" and "mcp__wisp-email__email_send" in permissions["ask"]
+    assert "mcp__wisp-email__email_send" not in permissions["allow"] and "mcp__wisp-email" not in permissions["allow"]
 
 
 def _template_body():

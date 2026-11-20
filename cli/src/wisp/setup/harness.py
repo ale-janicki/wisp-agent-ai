@@ -30,7 +30,7 @@ from wisp.setup.folder import seed_folder, wisp_root
 MANIFEST_NAME = "harness-installed.json"
 FALLBACK_USER = "the user"
 MCP_NAME = "wisp-email"
-MCP_ALLOW = "mcp__wisp-email"
+MCP_ALLOW = [f"mcp__{MCP_NAME}__email_{name}" for name in ("list", "read", "search")]   # never email_send: it has an ask rule
 INCOMPLETE = "o agente.md parece incompleto; usei as regras padrão"
 FOREIGN = "já existe outro servidor chamado wisp-email no Claude; o Wisp não mexeu nele"
 
@@ -165,7 +165,7 @@ def setup_harness(runner: Runner, paths: WispPaths, cfg: WispConfig, *, dry_run:
     ours = json.loads((source / "settings.json").read_text())
     email_state, email_problem = ("skipped", None) if dry_run else _register_email(runner, paths, cfg)
     if email_state in ("present", "added"):
-        ours["permissions"]["allow"].append(MCP_ALLOW)
+        ours["permissions"]["allow"].extend(MCP_ALLOW)
     new_settings, notes = merge_settings(user_settings or {}, ours)
 
     changes = install_tree(source, claude_dir, plan, values, dry_run=True, roots=_roots(cfg))

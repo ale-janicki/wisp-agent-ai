@@ -39,7 +39,8 @@
       "Bash(\"$WISP_BIN\" agenda permissao --pedir:*)",
       "Bash($WISP_BIN agenda permissao --pedir:*)",
       "Bash(wisp agenda permissao --pedir:*)",
-      "Bash(\"$WISP_AGENDA_BIN\" permissao --pedir:*)"
+      "Bash(\"$WISP_AGENDA_BIN\" permissao --pedir:*)",
+      "mcp__wisp-email__email_send"
     ],
     "deny": [
       "Bash(rm -rf /*)",
@@ -49,10 +50,7 @@
       "Bash(sudo *)",
       "Read(~/.config/wisp/secrets/**)",
       "Bash(cat *wisp/secrets*)",
-      "Bash(grep *wisp/secrets*)",
-      "Read(~/.local/state/wisp/approvals/**)",
-      "Write(~/.local/state/wisp/approvals/**)",
-      "Edit(~/.local/state/wisp/approvals/**)"
+      "Bash(grep *wisp/secrets*)"
     ]
   },
   "hooks": {

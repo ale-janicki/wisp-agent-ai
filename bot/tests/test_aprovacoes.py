@@ -1,16 +1,14 @@
 import asyncio
 import json
-import time
 from types import SimpleNamespace
 
 import pytest
 
-from wisp_bot import aprovacoes
+from wisp_bot import aprovacoes, claude_runner
 
-VALIDADE = aprovacoes.VALIDADE_S
-ID = "a" * 32
-ID2 = "b" * 32
 OWNER = 1
+EMAIL = {"subtype": "can_use_tool", "tool_name": "mcp__wisp-email__email_send",
+         "input": {"to": ["ana@exemplo.com"], "subject": "oi", "body": "corpo"}}
 
 
 class FakeBot:
@@ -28,304 +26,188 @@ class FakeBot:
 class FakeQuery:
     def __init__(self, data, user_id):
         self.data, self.from_user = data, SimpleNamespace(id=user_id)
-        self.message = SimpleNamespace(text="resumo")
-        self.respostas, self.editadas = [], []
+        self.respostas = []
 
     async def answer(self, text=None, **kw):
         self.respostas.append(text)
 
-    async def edit_message_text(self, text, **kw):
-        self.editadas.append(text)
-
-
-@pytest.fixture
-def d(tmp_path):
-    p = tmp_path / "approvals"
-    p.mkdir()
-    return p
-
-
-def pedido(d, id=ID, detail="corpo", thread=None, summary="Enviar email"):
-    (d / f"{id}.json").write_text(json.dumps(
-        {"id": id, "tool": "send_email", "summary": summary, "detail": detail, "created": time.time(), "thread": thread}))
-
-
-def novo(d, **kw):
-    bot = FakeBot()
-    return bot, aprovacoes.Aprovacoes(bot, -1001, OWNER, d, **kw)
-
-
-def run(c):
-    return asyncio.run(c)
-
-
-def test_posts_once_per_request(d):
-    pedido(d, thread=7)
-    bot, a = novo(d)
-    run(a.varrer())
-    run(a.varrer())
-    assert len(bot.enviadas) == 1
-    chat, _, kw = bot.enviadas[0]
-    assert chat == -1001 and kw["message_thread_id"] == 7 and kw["parse_mode"] == "HTML"
-    botoes = kw["reply_markup"].inline_keyboard[0]
-    assert [b.text for b in botoes] == ["Permitir", "Negar"]
-    assert botoes[0].callback_data == f"aprov:{ID}:allow" and botoes[1].callback_data == f"aprov:{ID}:deny"
-    assert len(botoes[0].callback_data.encode()) <= 64
-
-
-def test_owner_press_decides(d):
-    pedido(d)
-    bot, a = novo(d)
-    run(a.varrer())
-    q = FakeQuery(f"aprov:{ID}:allow", OWNER)
-    run(a.pressionou(SimpleNamespace(callback_query=q)))
-    assert (d / f"{ID}.decision").read_text() == "allow"
-    assert "permitido" in q.editadas[0]
-    q2 = FakeQuery(f"aprov:{ID}:deny", OWNER)
-    run(a.pressionou(SimpleNamespace(callback_query=q2)))
-    assert (d / f"{ID}.decision").read_text() == "allow" and "já respondido" in q2.editadas[0]
-
-
-def test_stranger_press_ignored(d):
-    pedido(d)
-    _, a = novo(d)
-    q = FakeQuery(f"aprov:{ID}:allow", 999)
-    run(a.pressionou(SimpleNamespace(callback_query=q)))
-    assert not (d / f"{ID}.decision").exists()
-    assert q.respostas == ["só o dono do Wisp pode responder"] and q.editadas == []
-
-
-def test_message_updated_when_answered_elsewhere(d):
-    pedido_em(d, ID, 1000.0)
-    pedido_em(d, ID2, 1000.0)
-    relogio = [1010.0]
-    bot, a = novo(d, agora=lambda: relogio[0])
-    run(a.varrer())
-    (d / f"{ID}.json").unlink()                     # o app respondeu e a ferramenta limpou: sumiu antes dos 600 s
-    run(a.varrer())
-    assert [t for t, _ in bot.editadas] == [bot.enviadas[0][1] + "\n\n<i>respondido no app</i>"]
-    relogio[0] = 1000.0 + 601                       # ID2 passou dos 600 s: some da lista e expira
-    run(a.varrer())
-    assert "expirou" in bot.editadas[1][0]
-    assert a.postados == {}
-
-
-def test_stale_and_non_numeric_created_are_hidden(d):
-    pedido_em(d, ID, 1000.0)
-    pedido_em(d, ID2, "ontem")
-    pedido_em(d, "c" * 32, 1500.0)
-    assert [r["id"] for r in aprovacoes.pendentes(d, agora=lambda: 1000.0 + 601)] == ["c" * 32]
-
-
-def test_long_detail_cut(d):
-    pedido(d, detail="<x>" + "a" * 5000, summary="<b>&")
-    bot, a = novo(d)
-    run(a.varrer())
-    corpo = bot.enviadas[0][1]
-    assert corpo.endswith("… (veja inteiro no app)") and "&lt;x&gt;" in corpo and "&lt;b&gt;&amp;" in corpo
-    assert corpo.count("a") <= 3500
-
-
-def test_missing_or_symlinked_dir_has_no_requests(tmp_path, monkeypatch):
-    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
-    assert aprovacoes.diretorio() is None and aprovacoes.pendentes() == []
-    assert not (tmp_path / "wisp").exists()
-    real = tmp_path / "real"
-    real.mkdir()
-    (tmp_path / "wisp").mkdir()
-    (tmp_path / "wisp" / "approvals").symlink_to(real)
-    assert aprovacoes.diretorio() is None
-
-
-def test_decidir_rejects_bad_gone_decided(d):
-    assert not aprovacoes.decidir("../x", True, d) and not aprovacoes.decidir(ID, True, d)
-    pedido(d)
-    assert aprovacoes.decidir(ID, False, d) and not aprovacoes.decidir(ID, True, d)
-    assert (d / f"{ID}.decision").read_text() == "deny"
-
-
-def pedido_em(d, id, created, thread=None):
-    (d / f"{id}.json").write_text(json.dumps(
-        {"id": id, "tool": "t", "summary": "s", "detail": "d", "created": created, "thread": thread}))
-
-
-def test_missing_thread_falls_back_to_general_and_next_still_posts(d):
-    pedido_em(d, ID, time.time() - 2, thread=9)
-    pedido_em(d, ID2, time.time() - 1)
-    bot, a = novo(d)
-    orig = bot.send_message
-
-    async def send(chat_id, text, **kw):
-        if kw.get("message_thread_id") == 9:
-            raise RuntimeError("Message thread not found")
-        return await orig(chat_id, text, **kw)
-
-    bot.send_message = send
-    run(a.varrer())
-    assert len(bot.enviadas) == 2 and a.postados[ID][1] is None and ID2 in a.postados
-
-
-def test_raising_send_does_not_stop_next(d):
-    pedido_em(d, ID, time.time() - 2)
-    pedido_em(d, ID2, time.time() - 1)
-    bot, a = novo(d)
-    orig = bot.send_message
-
-    async def send(chat_id, text, **kw):
-        if not bot.enviadas and not getattr(bot, "falhou", False):
-            bot.falhou = True
-            raise RuntimeError("boom")
-        return await orig(chat_id, text, **kw)
-
-    bot.send_message = send
-    run(a.varrer())
-    assert ID not in a.postados and ID2 in a.postados
-    run(a.varrer())                                   # A is retried next scan
-    assert ID in a.postados
-
-
-def test_restart_does_not_repost_and_can_edit(d, tmp_path):
-    pedido(d)
-    est = tmp_path / "aprovacoes.json"
-    bot, a = novo(d, estado=est)
-    run(a.varrer())
-    bot2, b = novo(d, estado=est)
-    run(b.varrer())
-    assert len(bot.enviadas) == 1 and bot2.enviadas == []
-    assert json.loads(est.read_text())[ID][4] == b.postados[ID][4] > 0
-    (d / f"{ID}.json").unlink()
-    run(b.varrer())
-    assert "respondido no app" in bot2.editadas[0][0] and json.loads(est.read_text()) == {}
-
-
-def test_standby_scan_does_nothing(d):
-    pedido(d)
-    bot, a = novo(d, ativo=lambda: False)
-    run(a.varrer())
-    assert bot.enviadas == []
-
-
-def test_summary_bounded(d):
-    pedido(d, summary="x" * 400)
-    bot, a = novo(d)
-    run(a.varrer())
-    assert "x" * 300 + "…" in bot.enviadas[0][1] and "x" * 301 not in bot.enviadas[0][1]
-
-
-def test_press_on_gone_request(d):
-    _, a = novo(d)
-    q = FakeQuery(f"aprov:{ID}:allow", OWNER)
-    run(a.pressionou(SimpleNamespace(callback_query=q)))
-    assert q.respostas == ["expirou ou já respondido"]
-
-
-def test_old_state_without_created_still_loads(d, tmp_path):
-    est = tmp_path / "aprovacoes.json"
-    est.write_text(json.dumps({ID: [-1001, None, 7, "corpo"]}))
-    bot, a = novo(d, estado=est)
-    assert a.postados[ID] == (-1001, None, 7, "corpo", 0.0)
-    run(a.varrer())
-    assert "expirou" in bot.editadas[0][0]
-
-
-def _tumulo(d, id, outcome, idade=0.0, **extra):
-    import os
-    f = d / f"{id}.done"
-    f.write_text(json.dumps({"id": id, "outcome": outcome, **extra}))
-    if idade:
-        t = time.time() - idade
-        os.utime(f, (t, t))
-    return f
-
-
-@pytest.mark.parametrize("outcome,rotulo", [
-    ("allow", "permitido no app"), ("deny", "negado"),
-    ("cancelled", "cancelado (a conversa parou)"), ("expired", "expirou"),
-])
-def test_label_follows_the_tombstone_and_it_is_deleted(d, outcome, rotulo):
-    pedido(d)
-    bot, a = novo(d)
-    run(a.varrer())
-    (d / f"{ID}.json").unlink()
-    f = _tumulo(d, ID, outcome)
-    run(a.varrer())
-    assert bot.editadas[0][0] == bot.enviadas[0][1] + f"\n\n<i>{rotulo}</i>"
-    assert not f.exists() and a.postados == {}
-
-
-def test_without_tombstone_the_time_fallback_stays(d):
-    pedido(d)
-    bot, a = novo(d)
-    run(a.varrer())
-    (d / f"{ID}.json").unlink()
-    run(a.varrer())
-    assert "respondido no app" in bot.editadas[0][0]
-
-
-def test_tombstone_of_another_id_or_garbage_is_ignored(d):
-    pedido(d)
-    bot, a = novo(d)
-    run(a.varrer())
-    (d / f"{ID}.json").unlink()
-    _tumulo(d, ID, "bogus")
-    run(a.varrer())
-    assert "respondido no app" in bot.editadas[0][0]
-    assert not (d / f"{ID}.done").exists()
-
-
-def test_stale_tombstone_is_cleaned(d):
-    velho = _tumulo(d, ID2, "allow", idade=VALIDADE + 1)
-    novo_ = _tumulo(d, "c" * 32, "deny", idade=10)
-    bot, a = novo(d)
-    run(a.varrer())
-    assert not velho.exists() and novo_.exists()
-
-
-def test_decided_but_not_yet_withdrawn_is_not_labelled_yet(d):
-    pedido(d)
-    bot, a = novo(d)
-    run(a.varrer())
-    (d / f"{ID}.decision").write_text("allow")          # a ferramenta ainda nao escreveu o .done
-    run(a.varrer())
-    assert bot.editadas == [] and ID in a.postados
-    f = _tumulo(d, ID, "allow")
-    (d / f"{ID}.json").unlink()
-    (d / f"{ID}.decision").unlink()
-    run(a.varrer())
-    assert bot.editadas[0][0] == bot.enviadas[0][1] + "\n\n<i>permitido no app</i>"
-    assert not f.exists() and a.postados == {}
-
-
-def test_failed_tombstone_label(d):
-    pedido(d)
-    bot, a = novo(d)
-    run(a.varrer())
-    (d / f"{ID}.json").unlink()
-    _tumulo(d, ID, "failed")
-    run(a.varrer())
-    assert "<i>permitido, mas o envio falhou</i>" in bot.editadas[0][0]
-
-
-@pytest.mark.parametrize("desfecho", ["expired", "cancelled"])
-def test_decidir_after_the_tool_gave_up_is_refused(d, desfecho):
-    pedido(d)
-    _tumulo(d, ID, desfecho)
-    assert not aprovacoes.decidir(ID, True, d)
-    assert not (d / f"{ID}.decision").exists()
-
-
-def test_decidir_while_the_tool_picks_it_up_still_counts(d):
-    pedido(d)
-    _tumulo(d, ID, "allow")
-    assert aprovacoes.decidir(ID, True, d)
-
-
-def test_press_after_expiry_never_says_permitido(d):
-    bot, ap = novo(d)
-    pedido(d)
-    run(ap.varrer())
-    _tumulo(d, ID, "expired")
-    q = FakeQuery(f"aprov:{ID}:allow", OWNER)
-    run(ap.pressionou(SimpleNamespace(callback_query=q)))
-    assert q.respostas == ["já respondido"]
-    assert "permitido" not in q.editadas[0]
+
+def botao(bot, indice):
+    return bot.enviadas[0][2]["reply_markup"].inline_keyboard[0][indice].callback_data
+
+
+async def com_cartao(ap, bot, req=EMAIL, thread=7):
+    tarefa = asyncio.ensure_future(ap.pedir(-1001, thread, req))
+    for _ in range(100):
+        if bot.enviadas:
+            break
+        await asyncio.sleep(0)
+    return tarefa
+
+
+def test_the_card_shows_the_whole_request_and_allow_answers_none():
+    async def go():
+        bot = FakeBot()
+        ap = aprovacoes.Aprovacoes(bot, OWNER)
+        tarefa = await com_cartao(ap, bot)
+        chat, corpo, kw = bot.enviadas[0]
+        assert chat == -1001 and kw["message_thread_id"] == 7
+        assert "mcp__wisp-email__email_send" in corpo and "ana@exemplo.com" in corpo and "corpo" in corpo
+        assert [b.text for b in kw["reply_markup"].inline_keyboard[0]] == ["Permitir", "Negar"]
+        q = FakeQuery(botao(bot, 0), OWNER)
+        await ap.pressionou(SimpleNamespace(callback_query=q))
+        assert await tarefa is None and q.respostas == ["permitido"]
+        assert "permitido" in bot.editadas[0][0] and bot.editadas[0][1]["reply_markup"] is None
+    asyncio.run(go())
+
+
+def test_deny_answers_the_text_claude_reads():
+    async def go():
+        bot = FakeBot()
+        ap = aprovacoes.Aprovacoes(bot, OWNER)
+        tarefa = await com_cartao(ap, bot)
+        await ap.pressionou(SimpleNamespace(callback_query=FakeQuery(botao(bot, 1), OWNER)))
+        assert await tarefa == aprovacoes.NEGADO_NO_TELEGRAM
+    asyncio.run(go())
+
+
+def test_only_the_owner_answers_and_the_card_stays_open():
+    async def go():
+        bot = FakeBot()
+        ap = aprovacoes.Aprovacoes(bot, OWNER)
+        tarefa = await com_cartao(ap, bot)
+        intruso = FakeQuery(botao(bot, 0), OWNER + 1)
+        await ap.pressionou(SimpleNamespace(callback_query=intruso))
+        assert intruso.respostas == ["só o dono do Wisp pode responder"] and not tarefa.done()
+        await ap.pressionou(SimpleNamespace(callback_query=FakeQuery(botao(bot, 1), OWNER)))
+        assert await tarefa == aprovacoes.NEGADO_NO_TELEGRAM
+    asyncio.run(go())
+
+
+def test_a_second_press_or_an_unknown_card_is_expired():
+    async def go():
+        bot = FakeBot()
+        ap = aprovacoes.Aprovacoes(bot, OWNER)
+        tarefa = await com_cartao(ap, bot)
+        data = botao(bot, 0)
+        await ap.pressionou(SimpleNamespace(callback_query=FakeQuery(data, OWNER)))
+        await tarefa
+        de_novo = FakeQuery(data, OWNER)
+        await ap.pressionou(SimpleNamespace(callback_query=de_novo))
+        assert de_novo.respostas == ["expirou ou já respondido"]
+        for lixo in ("aprov:x:allow", "aprov:x", "outro:x:allow", ""):
+            q = FakeQuery(lixo, OWNER)
+            await ap.pressionou(SimpleNamespace(callback_query=q))
+            assert q.respostas in (["expirou ou já respondido"], [None])
+    asyncio.run(go())
+
+
+def test_no_answer_in_time_denies():
+    async def go():
+        bot = FakeBot()
+        ap = aprovacoes.Aprovacoes(bot, OWNER, validade=0.05)
+        assert await ap.pedir(-1001, None, EMAIL) == aprovacoes.EXPIROU
+        assert "expirou" in bot.editadas[0][0]
+    asyncio.run(go())
+
+
+def test_a_card_that_does_not_fit_has_no_allow_button_and_is_denied_now():
+    async def go():
+        bot = FakeBot()
+        ap = aprovacoes.Aprovacoes(bot, OWNER)
+        longo = {**EMAIL, "input": {**EMAIL["input"], "body": "x" * 5000}}
+        assert await ap.pedir(-1001, None, longo) == aprovacoes.LONGO_DEMAIS
+        _, corpo, kw = bot.enviadas[0]
+        assert "reply_markup" not in kw and "aprove pelo app" in corpo and len(corpo) < 4096
+        assert "não cabe" in bot.editadas[0][0]
+    asyncio.run(go())
+
+
+def test_cancelling_the_request_closes_the_card():
+    async def go():
+        bot = FakeBot()
+        ap = aprovacoes.Aprovacoes(bot, OWNER)
+        tarefa = await com_cartao(ap, bot)
+        tarefa.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await tarefa
+        assert "cancelado" in bot.editadas[0][0]
+    asyncio.run(go())
+
+
+def test_bash_shows_the_command_itself():
+    pedido = aprovacoes.descrever({"tool_name": "Bash", "input": {"command": "touch probe1"}})
+    assert pedido["detail"] == "touch probe1"
+
+
+FAKE_CLAUDE = """#!{python}
+import json, sys
+user = json.loads(sys.stdin.readline())
+print(json.dumps({{"type": "control_request", "request_id": "r1", "request": {request}}}), flush=True)
+answer = json.loads(sys.stdin.readline())
+print(json.dumps({{"type": "result", "is_error": False, "session_id": "s",
+                  "result": json.dumps({{"user": user, "answer": answer}})}}), flush=True)
+sys.stdin.read()
+"""
+
+
+def _rodar(tmp_path, monkeypatch, on_permission, request=EMAIL):
+    fake = tmp_path / "claude"
+    fake.write_text(FAKE_CLAUDE.format(python=__import__("sys").executable, request=json.dumps(request)))
+    fake.chmod(0o755)
+    monkeypatch.setattr(claude_runner, "CLAUDE_BIN", str(fake))
+    monkeypatch.setattr(claude_runner, "guard_settings_path", lambda: tmp_path / "g.json")
+    monkeypatch.setattr(claude_runner, "WISP_BIN", str(fake))
+    res = asyncio.run(claude_runner.run("mande um e-mail", session_id="11111111-1111-1111-1111-111111111111",
+                                        cwd=str(tmp_path), started=False, timeout=20, on_permission=on_permission))
+    assert res.ok, res.text
+    return json.loads(res.text)
+
+
+def test_runner_sends_the_user_message_as_stream_json_and_allows(tmp_path, monkeypatch):
+    vistos = []
+
+    async def permitir(req):
+        vistos.append(req)
+        return None
+
+    dados = _rodar(tmp_path, monkeypatch, permitir)
+    assert dados["user"] == {"type": "user", "message": {"role": "user", "content": "mande um e-mail"}}
+    assert vistos == [EMAIL]
+    assert dados["answer"] == {"type": "control_response", "response": {
+        "subtype": "success", "request_id": "r1",
+        "response": {"behavior": "allow", "updatedInput": EMAIL["input"]}}}
+
+
+def test_runner_denies_with_the_text_the_handler_gave(tmp_path, monkeypatch):
+    async def negar(req):
+        return "não"
+
+    dados = _rodar(tmp_path, monkeypatch, negar)
+    assert dados["answer"]["response"]["response"] == {"behavior": "deny", "message": "não"}
+
+
+def test_runner_denies_when_nobody_can_answer_or_the_handler_breaks(tmp_path, monkeypatch):
+    sem = _rodar(tmp_path, monkeypatch, None)["answer"]["response"]["response"]
+    assert sem == {"behavior": "deny", "message": claude_runner.SEM_CANAL}
+
+    async def quebra(req):
+        raise RuntimeError("telegram caiu")
+
+    assert _rodar(tmp_path, monkeypatch, quebra)["answer"]["response"]["response"]["behavior"] == "deny"
+
+
+def test_runner_asks_claude_for_the_permission_channel_and_the_ask_rule(tmp_path, monkeypatch):
+    args = tmp_path / "args"
+    fake = tmp_path / "claude"
+    fake.write_text(f'#!/bin/sh\necho "$@" > {args}\ncat >/dev/null &\n'
+                    'echo \'{"type":"result","is_error":false,"result":"ok","session_id":"s"}\'\nwait\n')
+    fake.chmod(0o755)
+    settings = tmp_path / "g.json"
+    monkeypatch.setattr(claude_runner, "CLAUDE_BIN", str(fake))
+    monkeypatch.setattr(claude_runner, "guard_settings_path", lambda: settings)
+    asyncio.run(claude_runner.run("oi", session_id="11111111-1111-1111-1111-111111111111",
+                                  cwd=str(tmp_path), started=False, timeout=20))
+    linha = args.read_text()
+    assert "--input-format stream-json" in linha and "--permission-prompt-tool stdio" in linha
+    assert "mcp__wisp-email__email_send" in json.loads(settings.read_text())["permissions"]["ask"]
