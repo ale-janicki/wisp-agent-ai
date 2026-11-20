@@ -127,6 +127,16 @@ class Store:
                 self._data[key].last_used = time.time()
                 self._flush()
 
+    def renovar_sessao(self, key: str) -> Topic | None:
+        with self._lock:
+            t = self._data.get(key)
+            if t is None:
+                return None
+            t.session_id = str(uuid.uuid4())
+            t.started = False
+            self._flush()
+            return t
+
     def adotar_sessao(self, key: str, session_id: str) -> None:
         """Aponta o topico para uma sessao que ja existe (veio do terminal).
         turns >= 1 porque o encerrar so grava o resumo no brain de sessao com turnos."""

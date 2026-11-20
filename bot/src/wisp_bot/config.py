@@ -9,6 +9,7 @@ DEFAULT_BRAIN = "~/Wisp/brain"
 DEFAULT_TOPICS_REL = "wisp/topicos"
 DEFAULT_STATE_DIR = "~/.local/state/wisp/bot"
 DEFAULT_PERSONA = "Wisp"
+DEFAULT_WISP_DIR = "~/Wisp"
 DEFAULT_CONVERSATIONS = "~/Library/Application Support/Wisp/conversations.json"
 HOSTINGS = ("solo", "pair")
 
@@ -35,6 +36,7 @@ class BotConfig:
     system_topics: dict[int, str] = field(default_factory=dict)
     user_name: str = ""
     conversations_file: Path = Path(DEFAULT_CONVERSATIONS).expanduser()
+    wisp_dir: Path = Path(DEFAULT_WISP_DIR).expanduser()
 
 
 def config_path(env: Mapping[str, str] = os.environ) -> Path:
@@ -129,7 +131,8 @@ def _build(raw: dict, env: Mapping[str, str], strict: bool) -> BotConfig:
         hosting=hosting, brain_sync_cmd=_command(tg.get("brain_sync_cmd"), "brain_sync_cmd", env),
         alert_cmd=_command(tg.get("alert_cmd"), "alert_cmd", env), pair=pair, system_topics=system_topics,
         user_name=str(raw.get("user_name") or "").strip(),
-        conversations_file=_expand(str(tg.get("conversations_file") or DEFAULT_CONVERSATIONS), env))
+        conversations_file=_expand(str(tg.get("conversations_file") or DEFAULT_CONVERSATIONS), env),
+        wisp_dir=_expand(str(raw.get("wisp_dir") or DEFAULT_WISP_DIR), env))
 
 
 def _token(tg: dict, env: Mapping[str, str]) -> str:
