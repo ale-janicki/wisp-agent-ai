@@ -11,6 +11,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         runtime.cancel()
         brainColher?.stop()
+        shell?.meetings.stopForQuit()
         setup?.session.model?.cancelPolling(blocking: true)
         AppSettings.shared.flush()
     }
@@ -95,6 +96,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         UpdateModel.shared.notices = shell.notices
         shell.start()
+        shell.meetings.recoverInterrupted()
         #if DEBUG
         shell.runDebugArguments()
         #endif
