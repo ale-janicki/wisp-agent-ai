@@ -52,6 +52,7 @@ PROC_PPID_OFFSET = 16
 PATH_BUFFER = 4096
 MAX_DEPTH = 64
 FRAMEWORK_PYTHON = "Resources/Python.app/Contents/MacOS/Python"
+RUNTIME_ROOT = ".local/share/wisp/runtime"
 APP_BINARIES = ("/Applications/Wisp.app/Contents/MacOS/Wisp", "Applications/Wisp.app/Contents/MacOS/Wisp")
 
 
@@ -102,7 +103,8 @@ def _exe_of(pid: int) -> str:
 def _host_executables() -> set[str]:
     home = pwd.getpwuid(os.getuid()).pw_dir
     found = {os.path.realpath(APP_BINARIES[0]), os.path.realpath(os.path.join(home, APP_BINARIES[1]))}
-    bin_dir = os.path.join(home, ".local/share/wisp/runtime/venv/bin")
+    root = os.path.realpath(os.path.join(home, RUNTIME_ROOT)) + os.sep
+    bin_dir = os.path.join(home, RUNTIME_ROOT, "venv/bin")
     try:
         names = os.listdir(bin_dir)
     except OSError:
@@ -110,6 +112,8 @@ def _host_executables() -> set[str]:
     for name in names:
         if name.startswith("python"):
             real = os.path.realpath(os.path.join(bin_dir, name))
+            if not real.startswith(root):
+                continue
             found.add(real)
             found.add(os.path.join(os.path.dirname(os.path.dirname(real)), FRAMEWORK_PYTHON))
     return found

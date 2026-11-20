@@ -21,12 +21,15 @@ MAIL_APP = re.compile(r"application(id)?(com\.apple\.)?mail|com\.apple\.mail")
 PYTHON_LAUNCHER = re.compile(r"\bpython[\d.]*\b|\bpypy\d*\b|\bipython\b", re.I)
 WISP_EMAIL = re.compile(r"wisp\.?email|fromwispimportemail|mailapp")
 LIGHT = re.compile(r"[\"'`\\]")
-MCP_SERVER = re.compile(r"(^|[\s/;&|(])wisp(\.exe)?\s+(-\S+\s+)*mcp\b|\s-m\s+wisp\b.*\bmcp\b")
+MCP_SERVER = re.compile(r"(^|[\s/;&|(])wisp(\.exe)?\s+(-\S+\s+)*mcp(?=\s|$)|\s-m\s+wisp\b.*\smcp(?=\s|$)")
 OPEN_MAILTO = re.compile(r"(^|[\s/;&|(])open\s.*mailto:")
 HEREDOC = re.compile(r"<<-?\s*[\"']?(\w+)[\"']?([^\n]*)\n.*?(\n\s*\1\s*(?=\n|$)|$)", re.S)
 OPERATORS = {";", "&", "&&", "|", "||", "(", ")", "\n", "|&", ";;"}
 REDIRECTS = {"<", "<<", "<<<", ">", ">>", "<&", ">&", "<>"}
 OSASCRIPT_VALUE_FLAGS = {"-e", "-l", "-s"}
+INTERPRETER = re.compile(r"python[\d.]*|pypy\d*|ipython|node|ruby|perl|bash|sh|zsh")
+INLINE_FLAGS = {"-c", "-e", "-m", "-p", "-E", "--eval", "--print"}
+INTERPRETER_VALUE_FLAGS = {"-W", "-X", "-r", "-I", "-o", "--require", "--import"}
 SCRIPT_SUFFIXES = {".py", ".js", ".jxa", ".scpt", ".applescript", ".sh", ".command"}
 SCRIPT_READ_LIMIT = 1_000_000
 
@@ -50,7 +53,7 @@ def _script_contents(command: str, cwd: Path, home: Path) -> str:
     return "\n".join(chunks)
 
 
-def _osascript_files(command: str) -> list[str] | None:
+def _script_files(command: str) -> list[str] | None:
     flat = HEREDOC.sub(lambda m: " " + m.group(2), command).replace("\n", " ; ")
     lexer = shlex.shlex(flat, posix=True, punctuation_chars=True)
     lexer.whitespace_split = True
@@ -61,14 +64,19 @@ def _osascript_files(command: str) -> list[str] | None:
     files: list[str] = []
     index = 0
     while index < len(words):
-        if Path(words[index]).name != "osascript":
+        name = Path(words[index]).name
+        osascript = name == "osascript"
+        if not osascript and not INTERPRETER.fullmatch(name):
             index += 1
             continue
+        value_flags = OSASCRIPT_VALUE_FLAGS if osascript else INTERPRETER_VALUE_FLAGS
         index += 1
         seen_file = False
         while index < len(words) and words[index] not in OPERATORS:
             word = words[index]
-            if word in OSASCRIPT_VALUE_FLAGS:
+            if not osascript and (word in INLINE_FLAGS or word == "-"):
+                break
+            if word in value_flags:
                 index += 2
                 continue
             if word in REDIRECTS or re.fullmatch(r"\d*[<>]+&?\d*", word):
@@ -81,8 +89,8 @@ def _osascript_files(command: str) -> list[str] | None:
     return files
 
 
-def _osascript_contents(command: str, cwd: Path, home: Path) -> tuple[str, bool]:
-    files = _osascript_files(command)
+def _interpreter_contents(command: str, cwd: Path, home: Path) -> tuple[str, bool]:
+    files = _script_files(command)
     if files is None:
         return "", True
     chunks: list[str] = []
@@ -101,14 +109,11 @@ def _osascript_contents(command: str, cwd: Path, home: Path) -> tuple[str, bool]
 def _starts_server(text: str) -> bool:
     plain = re.sub(r"\s+", " ", LIGHT.sub("", text)).casefold()
     squashed = SQUASH.sub("", text).casefold()
-    return bool(MCP_SERVER.search(plain) or "wisp_approval_socket" in plain or "wisp_approval_socket" in squashed)
+    listed = re.sub(r"\s+", " ", re.sub(r"[\"'`\\,\[\]()]", " ", text)).casefold()
+    return bool(MCP_SERVER.search(plain) or MCP_SERVER.search(listed) or "wisp_approval_socket" in plain or "wisp_approval_socket" in squashed)
 
 
-def _sends_mail(command: str, cwd: Path, home: Path) -> bool:
-    osa_text, unreadable = _osascript_contents(command, cwd, home)
-    if unreadable:
-        return True
-    combined = command + "\n" + _script_contents(command, cwd, home) + "\n" + osa_text
+def _sends_mail(command: str, combined: str) -> bool:
     if OPEN_MAILTO.search(re.sub(r"\s+", " ", LIGHT.sub("", command)).casefold()):
         return True
     squashed = SQUASH.sub("", combined).casefold()
@@ -127,6 +132,10 @@ def hook_guard_outbound(payload: dict, paths: WispPaths) -> str | None:
     if not isinstance(command, str):
         return None
     cwd = Path(payload["cwd"]) if isinstance(payload.get("cwd"), str) and payload["cwd"] else paths.home
-    if _starts_server(command):
+    file_text, unreadable = _interpreter_contents(command, cwd, paths.home)
+    if unreadable:
+        return MAIL_MESSAGE
+    combined = command + "\n" + _script_contents(command, cwd, paths.home) + "\n" + file_text
+    if _starts_server(combined):
         return SERVER_MESSAGE
-    return MAIL_MESSAGE if _sends_mail(command, cwd, paths.home) else None
+    return MAIL_MESSAGE if _sends_mail(command, combined) else None
