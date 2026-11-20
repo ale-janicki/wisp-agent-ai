@@ -1,11 +1,11 @@
 from __future__ import annotations
 import asyncio, json, logging, os, re, shutil, sys
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Awaitable, Callable
 
 from . import hosting
 from .config import CURRENT as _CFG, config_path
+from .engine import Result, Status
 from .hosting import HOST
 
 log = logging.getLogger("wisp.claude")
@@ -193,16 +193,6 @@ def fechar_oauth() -> None:
     _alerta_aberto = False
     _resolvido_boot = True
     _solta(_alerta("resolve", CHAVE_OAUTH))
-
-
-@dataclass
-class Result:
-    ok: bool
-    text: str
-    session_id: str | None = None
-    cost_usd: float | None = None
-    model: str | None = None
-    resume_failed: bool = False
 
 
 LIMITE_LINHA = 32 * 1024 * 1024
@@ -478,3 +468,17 @@ _STATUS = re.compile(r"\n*(?:```[a-z]*\n)?STATUS\s*[·.].*\Z", re.S | re.I)
 
 def strip_status(text: str) -> str:
     return _STATUS.sub("", text).strip()
+
+
+class ClaudeEngine:
+    name = "claude"
+
+    async def run(self, prompt: str, **kwargs) -> Result:
+        return await run(prompt, **kwargs)
+
+    async def status(self) -> Status:
+        found = os.path.isfile(claude_bin())
+        return Status(installed=found, logged_in=found)
+
+
+CLAUDE = ClaudeEngine()
