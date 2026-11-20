@@ -26,3 +26,18 @@ def test_doctor_json_survives_corrupt_config(fake_home, capsys):
     out = json.loads(capsys.readouterr().out)
     assert [c["id"] for c in out["checks"]] == ["profile"]
     assert "wisp.json" in out["warning"]
+
+
+def test_brain_colher_json_without_brain(fake_home, capsys):
+    import json
+
+    assert main(["brain", "colher", "--if-due", "--json"]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["colhidas"] == []
+    assert out["puladas"][0]["motivo"] == "brain nao encontrado"
+
+
+def test_brain_colher_requires_action():
+    with pytest.raises(SystemExit) as e:
+        main(["brain"])
+    assert e.value.code == 2

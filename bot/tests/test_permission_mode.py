@@ -152,6 +152,8 @@ def test_o_turno_leva_o_settings_com_os_guards(perfil, tmp_path, monkeypatch):
     commands = [h["command"] for h in json.loads(settings.read_text())["hooks"]["PreToolUse"][0]["hooks"]]
     assert [shlex.split(c)[0] for c in commands] == [claude_runner.WISP_BIN] * 3
     assert [c.rsplit(" ", 1)[1] for c in commands] == ["guard-secrets", "guard-telegram", "guard-destructive"]
+    recall = json.loads(settings.read_text())["hooks"]["UserPromptSubmit"][0]["hooks"][0]
+    assert recall["command"].endswith(" hook recall") and recall["timeout"] == 5
 
 
 def test_settings_dos_guards_igual_ao_fixture_e_idempotente(tmp_path):
