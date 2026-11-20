@@ -12,7 +12,7 @@ from pathlib import Path
 
 from wisp.config import WispConfig, _default_path, load_config
 from wisp.fsops import atomic_write
-from wisp.hooks import hook_brain_commit
+from wisp.hooks import commit_brain
 from wisp.paths import WispPaths
 from wisp.runner import Runner, SubprocessRunner
 
@@ -20,6 +20,8 @@ IDLE_SECONDS = 30 * 60
 DUE_SECONDS = 10 * 60
 MODEL_TIMEOUT_SECONDS = 600
 MIN_USER_MESSAGES = 3
+MAX_PER_RUN = 3
+MAX_ATTEMPTS_PER_RUN = MAX_PER_RUN * 3
 MAX_CHARS = 60_000
 TOOLS = "Read,Write,Edit,Glob,Grep"
 GUARD_MATCHER = "Bash|Read|Edit|MultiEdit|Write|NotebookEdit|Grep|Glob"
@@ -137,6 +139,13 @@ def candidates(cfg: WispConfig) -> list[Candidate]:
                 Candidate(str(topic["session_id"]), str(topic["cwd"]), str(topic.get("name") or "")),
             )
     return list(found.values())
+
+
+def transcript_mtime(candidate: Candidate) -> float:
+    try:
+        return transcript_path(candidate.sid, candidate.cwd).stat().st_mtime
+    except OSError:
+        return 0.0
 
 
 def text_of(content) -> str:
@@ -296,51 +305,56 @@ def run(cfg: WispConfig, runner: Runner, *, now: float | None = None, if_due: bo
         ledger_path = base / "colhidos.json"
         ledger = load_ledger(ledger_path)
         closed = closed_sessions(cfg)
-        for candidate in candidates(cfg):
-            sid = candidate.sid
-            if not SESSION_ID.match(sid):
-                puladas.append({"sid": sid, "motivo": "session id invalido"})
-                continue
-            if sid in closed:
-                puladas.append({"sid": sid, "motivo": "topico encerrado"})
-                continue
-            path = transcript_path(sid, candidate.cwd)
-            try:
-                stat = path.stat()
-            except OSError:
-                puladas.append({"sid": sid, "motivo": "sem transcript"})
-                continue
-            if now - stat.st_mtime < IDLE_SECONDS:
-                puladas.append({"sid": sid, "motivo": "ativa ha menos de 30 min"})
-                continue
-            lock_fd = try_lock(state_dir() / "locks" / f"{sid}.lock")
-            if lock_fd is None:
-                puladas.append({"sid": sid, "motivo": "sessao em uso"})
-                continue
-            try:
-                entry = ledger.get(sid)
-                offset = int(entry.get("offset", 0)) if isinstance(entry, dict) else 0
-                piece = read_slice(path, offset if offset <= stat.st_size else 0)
-            finally:
-                os.close(lock_fd)
-            if piece is None:
-                puladas.append({"sid": sid, "motivo": "transcript ilegivel"})
-                continue
-            if piece.user_messages < MIN_USER_MESSAGES:
-                puladas.append({"sid": sid, "motivo": f"so {piece.user_messages} mensagens novas"})
-                continue
-            if dry_run:
-                colhidas.append({"sid": sid, "title": candidate.title, "mensagens": piece.user_messages, "chars": len(piece.text)})
-                continue
-            failure = harvest(cfg, runner, brain, candidate, piece)
-            if failure:
-                puladas.append({"sid": sid, "motivo": failure})
-                continue
-            ledger[sid] = {"offset": piece.end, "at": now}
-            save_ledger(ledger_path, ledger)
-            colhidas.append(sid)
-        if colhidas and not dry_run:
-            hook_brain_commit(cfg, runner)
+        attempts = 0
+        try:
+            for candidate in sorted(candidates(cfg), key=transcript_mtime, reverse=True):
+                sid = candidate.sid
+                if not SESSION_ID.match(sid):
+                    puladas.append({"sid": sid, "motivo": "session id invalido"})
+                    continue
+                if sid in closed:
+                    puladas.append({"sid": sid, "motivo": "topico encerrado"})
+                    continue
+                path = transcript_path(sid, candidate.cwd)
+                try:
+                    stat = path.stat()
+                except OSError:
+                    puladas.append({"sid": sid, "motivo": "sem transcript"})
+                    continue
+                if now - stat.st_mtime < IDLE_SECONDS:
+                    puladas.append({"sid": sid, "motivo": "ativa ha menos de 30 min"})
+                    continue
+                lock_fd = try_lock(state_dir() / "locks" / f"{sid}.lock")
+                if lock_fd is None:
+                    puladas.append({"sid": sid, "motivo": "sessao em uso"})
+                    continue
+                try:
+                    entry = ledger.get(sid)
+                    offset = int(entry.get("offset", 0)) if isinstance(entry, dict) else 0
+                    piece = read_slice(path, offset if offset <= stat.st_size else 0)
+                finally:
+                    os.close(lock_fd)
+                if piece is None:
+                    puladas.append({"sid": sid, "motivo": "transcript ilegivel"})
+                    continue
+                if piece.user_messages < MIN_USER_MESSAGES:
+                    puladas.append({"sid": sid, "motivo": f"so {piece.user_messages} mensagens novas"})
+                    continue
+                if dry_run:
+                    colhidas.append({"sid": sid, "title": candidate.title, "mensagens": piece.user_messages, "chars": len(piece.text)})
+                    continue
+                if len(colhidas) >= MAX_PER_RUN or attempts >= MAX_ATTEMPTS_PER_RUN:
+                    break
+                attempts += 1
+                failure = harvest(cfg, runner, brain, candidate, piece)
+                if failure:
+                    puladas.append({"sid": sid, "motivo": failure})
+                    continue
+                ledger[sid] = {"offset": piece.end, "at": now}
+                colhidas.append(sid)
+        finally:
+            if colhidas and not dry_run and commit_brain(cfg, runner):
+                save_ledger(ledger_path, ledger)
     finally:
         os.close(run_fd)
     return report

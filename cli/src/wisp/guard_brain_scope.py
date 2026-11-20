@@ -16,12 +16,20 @@ def _inside(path: Path, root: Path) -> bool:
     return path == root or root in path.parents
 
 
+def _has_protected(parts) -> bool:
+    return any(part.casefold() in PROTECTED for part in parts)
+
+
 def _protected(path: Path, root: Path) -> bool:
-    return path != root and bool(PROTECTED.intersection(path.relative_to(root).parts))
+    return path != root and _has_protected(path.relative_to(root).parts)
 
 
 def _resolve(raw: str, base: Path) -> Path:
     return Path(os.path.realpath(base / os.path.expanduser(raw)))
+
+
+def _could_hide_protected(segment: str) -> bool:
+    return bool(re.search(r"[\[{][^\]}]*\.", segment))
 
 
 def _pattern_escapes(pattern: str, base: Path, root: Path) -> bool:
@@ -33,7 +41,7 @@ def _pattern_escapes(pattern: str, base: Path, root: Path) -> bool:
             break
         static.append(segment)
     rest = segments[len(static) :]
-    if ".." in rest or PROTECTED.intersection(segments):
+    if ".." in expanded or _has_protected(segments) or any(_could_hide_protected(s) for s in rest):
         return True
     prefix = "/".join(static) if len(static) < len(segments) else expanded
     if not prefix:
@@ -58,11 +66,15 @@ def hook_guard_brain_scope(payload: dict, env: Mapping[str, str]) -> str | None:
     for _, value in given:
         if not isinstance(value, str):
             return MESSAGE.format(what=tool)
+        if "\0" in value:
+            return MESSAGE.format(what=tool)
         resolved = _resolve(value or ".", base)
         if not _inside(resolved, root) or _protected(resolved, root):
             return MESSAGE.format(what=tool)
     pattern = tool_input.get("pattern")
     if tool == "Glob" and isinstance(pattern, str):
+        if "\0" in pattern:
+            return MESSAGE.format(what="Glob pattern")
         search = _resolve(str(tool_input.get("path") or "."), base)
         if _pattern_escapes(pattern, search, root):
             return MESSAGE.format(what="Glob pattern")

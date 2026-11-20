@@ -1,6 +1,7 @@
 import json
 import os
 import shutil
+import subprocess
 import time
 from pathlib import Path
 
@@ -9,7 +10,7 @@ import pytest
 from wisp import brain_colher
 from wisp.brain_colher import Candidate, MAX_CHARS, read_slice, run, trim
 from wisp.config import TelegramConfig, WispConfig
-from wisp.runner import RunResult
+from wisp.runner import RunResult, SubprocessRunner
 
 FIXTURE = Path(__file__).parent / "fixtures" / "brain_colher" / "transcript.jsonl"
 CWD = "/work/proj"
@@ -234,10 +235,12 @@ def test_failure_does_not_advance_ledger_and_does_not_stop_others(world):
     runner = FailFirst()
     report = run(cfg, runner)
     assert len(runner.calls) == 2
-    assert report["colhidas"] == [OTHER]
-    assert "claude exited 1" in motivos(report)[SID]
+    (failed,) = motivos(report)
+    (harvested,) = report["colhidas"]
+    assert {failed, harvested} == {SID, OTHER}
+    assert "claude exited 1" in motivos(report)[failed]
     ledger = json.loads((home / ".local/state/wisp/brain/colhidos.json").read_text())
-    assert SID not in ledger and OTHER in ledger
+    assert failed not in ledger and harvested in ledger
 
 
 def test_timeout_does_not_advance_ledger(world):
@@ -323,3 +326,108 @@ def test_main_json_output(world, capsys):
     assert brain_colher.main(["--dry-run", "--json"]) == 0
     out = json.loads(capsys.readouterr().out)
     assert out["colhidas"][0]["sid"] == SID and out["puladas"] == []
+
+
+def test_run_harvests_at_most_the_cap_newest_first(world):
+    home, brain, cfg = world
+    sids = [f"{n}1111111-aaaa-bbbb-cccc-000000000001" for n in range(brain_colher.MAX_PER_RUN + 2)]
+    put_app(home, *(app_record(sid=sid) for sid in sids))
+    for age, sid in enumerate(sids):
+        put_transcript(home, sid=sid, age=3600 + age * 100)
+    runner = StubRunner()
+    report = run(cfg, runner)
+    assert report["colhidas"] == sids[: brain_colher.MAX_PER_RUN]
+    assert len(runner.calls) == brain_colher.MAX_PER_RUN
+    assert run(cfg, StubRunner(), now=time.time() + 700)["colhidas"] == sids[brain_colher.MAX_PER_RUN :]
+
+
+def git_repo(brain, *, broken=False):
+    env = {**os.environ, "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_SYSTEM": "/dev/null"}
+    subprocess.run(["git", "init", "-q", str(brain)], check=True, env=env)
+    if broken:
+        (brain / ".git" / "index.lock").write_text("")
+
+
+def write_note(brain, text="x"):
+    (brain / "nota.md").write_text(text)
+
+
+class WritingRunner(StubRunner):
+    def run(self, argv, **kw):
+        if argv and argv[0] == "git":
+            return SubprocessRunner().run(argv, **kw)
+        write_note(kw["cwd"])
+        return super().run(argv, **kw)
+
+
+def ledger_file(home):
+    return home / ".local/state/wisp/brain/colhidos.json"
+
+
+def test_ledger_not_saved_when_git_commit_fails(world):
+    home, brain, cfg = world
+    git_repo(brain, broken=True)
+    put_app(home, app_record())
+    put_transcript(home)
+    report = run(cfg, WritingRunner())
+    assert report["colhidas"] == [SID]
+    assert not ledger_file(home).exists()
+
+
+def test_ledger_saved_when_git_commit_succeeds(world):
+    home, brain, cfg = world
+    git_repo(brain)
+    put_app(home, app_record())
+    put_transcript(home)
+    run(cfg, WritingRunner())
+    assert SID in json.loads(ledger_file(home).read_text())
+    log = subprocess.run(["git", "-C", str(brain), "log", "--oneline"], capture_output=True, text=True).stdout
+    assert "save the brain" in log
+
+
+def test_ledger_saved_for_earlier_sessions_when_a_later_one_raises(world):
+    home, brain, cfg = world
+    put_app(home, app_record(), app_record(sid=OTHER))
+    put_transcript(home, age=3600)
+    put_transcript(home, sid=OTHER, age=7200)
+
+    class BoomSecond(StubRunner):
+        def run(self, argv, **kw):
+            if self.calls:
+                raise RuntimeError("boom")
+            return super().run(argv, **kw)
+
+    with pytest.raises(RuntimeError):
+        run(cfg, BoomSecond())
+    ledger = json.loads(ledger_file(home).read_text())
+    assert SID in ledger and OTHER not in ledger
+
+
+def test_failures_do_not_consume_the_cap_so_older_sessions_get_harvested(world):
+    home, brain, cfg = world
+    newest = [f"{n}1111111-aaaa-bbbb-cccc-000000000001" for n in range(brain_colher.MAX_PER_RUN)]
+    put_app(home, *(app_record(sid=sid) for sid in [*newest, OTHER]))
+    for age, sid in enumerate([*newest, OTHER]):
+        put_transcript(home, sid=sid, age=3600 + age * 100)
+
+    class FailNewest(StubRunner):
+        def run(self, argv, **kw):
+            super().run(argv, **kw)
+            failing = len(self.calls) <= len(newest)
+            return RunResult(list(argv), 1 if failing else 0, "", "boom")
+
+    report = run(cfg, FailNewest())
+    assert report["colhidas"] == [OTHER]
+    assert OTHER in json.loads(ledger_file(home).read_text())
+
+
+def test_attempts_per_run_are_bounded(world):
+    home, brain, cfg = world
+    sids = [f"{n:02d}111111-aaaa-bbbb-cccc-000000000001" for n in range(brain_colher.MAX_ATTEMPTS_PER_RUN + 5)]
+    put_app(home, *(app_record(sid=sid) for sid in sids))
+    for age, sid in enumerate(sids):
+        put_transcript(home, sid=sid, age=3600 + age * 100)
+    runner = StubRunner(exit=1)
+    report = run(cfg, runner)
+    assert len(runner.calls) == brain_colher.MAX_ATTEMPTS_PER_RUN
+    assert report["colhidas"] == []

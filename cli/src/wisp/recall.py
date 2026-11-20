@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from wisp.config import WispConfig
+from wisp.fsops import atomic_write
 from wisp.paths import WispPaths
 
 SKIP_DIRS = {".git", ".obsidian", ".trash", "arquivos"}
@@ -203,7 +204,7 @@ def _remember(state: Path | None, seen: set[str]) -> None:
     if state is None:
         return
     state.parent.mkdir(parents=True, exist_ok=True)
-    state.write_text(json.dumps(sorted(seen)), "utf-8")
+    atomic_write(state, json.dumps(sorted(seen)))
     _prune(state.parent)
 
 

@@ -89,6 +89,24 @@ def test_git_and_obsidian_are_denied(world):
     assert _decide(env, "Write", {"file_path": str(brain / "sub" / "nota.md")}, brain) is None
 
 
+def test_protected_names_match_case_insensitively(world):
+    brain, _, env = world
+    assert _decide(env, "Write", {"file_path": ".GIT/config"}, brain)
+    assert _decide(env, "Write", {"file_path": str(brain / ".Obsidian" / "x")}, brain)
+    assert _decide(env, "Glob", {"pattern": ".GIT/**"}, brain)
+
+
+@pytest.mark.parametrize("pattern", ["{../..,x}/*", "[.][.]/*", "{.g,x}it/*"])
+def test_glob_patterns_that_expand_to_parent_or_protected_are_denied(world, pattern):
+    brain, _, env = world
+    assert _decide(env, "Glob", {"pattern": pattern}, brain)
+
+
+def test_plain_glob_with_braces_and_dots_is_allowed(world):
+    brain, _, env = world
+    assert _decide(env, "Glob", {"pattern": "**/*.{md,txt}"}, brain) is None
+
+
 @pytest.mark.parametrize("pattern", ["/*/passwd", "/**/id_rsa", "/{etc}/passwd", "/*/*/.ssh/*", "/{a,b}/*"])
 def test_absolute_pattern_without_static_prefix_is_denied(world, pattern):
     brain, _, env = world
@@ -113,3 +131,10 @@ def test_cli_exit_codes(world, monkeypatch, capsys):
     assert main(["hook", "guard-brain-scope"]) == 0
     monkeypatch.setattr("sys.stdin", io.StringIO("not json"))
     assert main(["hook", "guard-brain-scope"]) == 2
+
+
+@pytest.mark.parametrize("tool_input", [{"file_path": "a\0b"}, {"path": "a\0b"}, {"pattern": "a\0b"}])
+def test_nul_byte_in_path_is_blocked_not_raised(world, tool_input):
+    brain, _, env = world
+    tool = "Glob" if "pattern" in tool_input else "Read"
+    assert _decide(env, tool, tool_input, brain)
