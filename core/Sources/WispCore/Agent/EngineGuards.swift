@@ -2,15 +2,16 @@ import Foundation
 
 public enum EngineGuards {
     public static let matcher = "Bash|Read|Edit|MultiEdit|Write|NotebookEdit|Grep|Glob"
-    public static let hooks = ["guard-secrets", "guard-telegram", "guard-destructive"]
+    public static let hooks = ["guard-secrets", "guard-telegram", "guard-destructive", "guard-lessons"]
     public static let recallTimeout = 5
+    public static let askRules = ["Bash(*aprender add*)", "Bash(*aprender confirmar*)", "Bash(*aprender descartar*)"]
 
     public static func settings(wispBinary: String) -> [String: Any] {
         let quoted = "'" + wispBinary.replacingOccurrences(of: "'", with: "'\\''") + "'"
         let commands = hooks.map { ["type": "command", "command": "\(quoted) hook \($0)"] }
         let recall: [[String: Any]] = [["type": "command", "command": "\(quoted) hook recall", "timeout": recallTimeout]]
         let lessons: [[String: Any]] = [["type": "command", "command": "\(quoted) hook aprendizados", "timeout": recallTimeout]]
-        return ["hooks": [
+        return ["permissions": ["ask": askRules], "hooks": [
             "PreToolUse": [["matcher": matcher, "hooks": commands]],
             "UserPromptSubmit": [["hooks": recall]],
             "SessionStart": [["hooks": lessons]],

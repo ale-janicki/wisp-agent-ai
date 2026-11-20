@@ -452,3 +452,23 @@ def test_harvest_dedupes_and_caps_the_lessons_the_model_wrote(world):
     path.write_text("# O que o Wisp aprendeu\n\n- Responda curto · 2026-11-19 · a\n- responda curto · 2026-11-19 · b\n")
     run(cfg, StubRunner())
     assert path.read_text().count("- ") == 1
+
+
+def test_harvest_keeps_rules_the_model_wrote_pending_until_confirmed(world):
+    home, brain, cfg = world
+    put_app(home, app_record())
+    put_transcript(home)
+    path = brain / "wisp" / "aprendizados.md"
+    path.parent.mkdir()
+    path.write_text("# O que o Wisp aprendeu\n\n- Responda curto · 2026-11-19 · a\n")
+
+    class Writer(StubRunner):
+        def run(self, argv, **kw):
+            path.write_text(path.read_text() + "- Nova regra · 2026-11-19 · x\n")
+            (brain / "wisp" / "aprendizados-pendentes.md").write_text("- Outra · 2026-11-19 · x\n")
+            return super().run(argv, **kw)
+
+    run(cfg, Writer())
+    assert path.read_text().count("- ") == 1 and "Nova regra" not in path.read_text()
+    pending = (brain / "wisp" / "aprendizados-pendentes.md").read_text()
+    assert "- Nova regra · " in pending and "- Outra · " in pending and pending.count("· colheita") == 2
