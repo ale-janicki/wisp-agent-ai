@@ -14,6 +14,7 @@ else
 fi
 app="$build/Build/Products/Release/Wisp.app"
 uv="$app/Contents/Resources/runtime/bin/uv"
+agenda="$app/Contents/Helpers/wisp-agenda"
 sparkle="$app/Contents/Frameworks/Sparkle.framework/Versions/B"
 sparkle_bin="$build/SourcePackages/artifacts/sparkle/Sparkle/bin"
 repo_url="https://github.com/ale-janicki/wisp-agent-ai"
@@ -28,6 +29,7 @@ xcodebuild -project "$root/app/Wisp.xcodeproj" -scheme Wisp -configuration Relea
   -derivedDataPath "$build" -skipPackagePluginValidation build
 
 [ -x "$uv" ] || { echo "build-release: $uv missing from the built app" >&2; exit 1; }
+[ -x "$agenda" ] || { echo "build-release: $agenda missing from the built app" >&2; exit 1; }
 
 developer_id=false
 [ "$sign_id" = "-" ] || [ "$sign_id" = "$self_signed_id" ] || developer_id=true
@@ -37,6 +39,11 @@ if $developer_id; then
   sign_args+=(--options runtime)
 fi
 codesign "${sign_args[@]}" "$uv"
+if $developer_id; then
+  codesign "${sign_args[@]}" --entitlements "$root/scripts/agenda.entitlements" "$agenda"
+else
+  codesign "${sign_args[@]}" "$agenda"
+fi
 codesign "${sign_args[@]}" "$sparkle/XPCServices/Installer.xpc"
 codesign "${sign_args[@]}" --preserve-metadata=entitlements "$sparkle/XPCServices/Downloader.xpc"
 codesign "${sign_args[@]}" "$sparkle/Autoupdate"

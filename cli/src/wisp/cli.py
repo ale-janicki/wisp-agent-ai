@@ -11,6 +11,7 @@ from wisp import __version__
 from wisp.aprendizados import add_parser as add_aprender_parser, hook_aprendizados, run as run_aprender
 from wisp.brain_colher import main as run_brain_colher
 from wisp.arquivos import add_parser as add_arquivos_parser, run as run_arquivos
+from wisp.agenda import add_parser as add_agenda_parser, run as run_agenda
 from wisp.config import WispConfig, load_config
 from wisp.doctor import run_doctor
 from wisp.fsops import OutsideHome
@@ -285,6 +286,7 @@ def build_parser() -> argparse.ArgumentParser:
     colher.add_argument("--json", action="store_true")
     add_arquivos_parser(sub)
     add_mac_parser(sub)
+    add_agenda_parser(sub)
     hook = sub.add_parser("hook")
     hook.add_argument("which", choices=["boot", "recall", "aprendizados", "brain-commit", "guard-secrets", "guard-telegram", "guard-destructive", "guard-lessons", "guard-brain-scope"])
     return parser
@@ -318,5 +320,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return run_arquivos(args)
     if args.command == "mac":
         return run_mac(args)
+    if args.command == "agenda":
+        return run_agenda(args)
     print(f"wisp {args.command}: not implemented yet", file=sys.stderr)
     return 1
