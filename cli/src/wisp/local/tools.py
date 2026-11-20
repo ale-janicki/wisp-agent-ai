@@ -35,6 +35,7 @@ INSTRUCTION_FILES = frozenset({"claude.md", "agents.md", "claude.local.md", "age
 INSTRUCTION_VARIANT_SUFFIXES = (".local.md", ".override.md")
 SCRIPT_SUFFIXES = frozenset({
     ".sh", ".py", ".command", ".zsh", ".bash", ".js", ".rb", ".pl", ".applescript", ".scpt", ".terminal", ".workflow",
+    ".pyw", ".ps1", ".fish", ".php", ".lua", ".mjs", ".cjs", ".ts", ".plist", ".service", ".jar",
 })
 SCRIPT_NAMES = frozenset({"makefile", "package.json"})
 CARD_FILE_LIMIT = 4_000

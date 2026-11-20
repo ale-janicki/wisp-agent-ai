@@ -11,7 +11,7 @@ from local_fakes import FakeOllama, call, reply
 
 from wisp.config import WispConfig
 from wisp.local import guardrails
-from wisp.local.engine import EngineError, LocalEngine, fit_context, history_from, record_turn
+from wisp.local.engine import FILES_KEY, EngineError, LocalEngine, fit_context, history_from, record_turn
 from wisp.local.guardrails import MODES
 from wisp.local.tools import Files, ServerSpec, ToolFailure, load_servers
 from wisp.paths import WispPaths
@@ -413,7 +413,7 @@ def test_a_shell_command_card_carries_the_content_of_the_script_it_runs(folder):
         engine = grande(make(folder, fake, asked))
         run(engine, engine.start("c1", "qwen3:32b", "default"))
     shown = asked.calls[0][1]
-    assert shown["command"] == "sh x.sh" and shown["arquivos"] == {str((folder / "x.sh").resolve()): "echo \x1b[31mmau\n"}
+    assert shown["command"] == "sh x.sh" and shown[FILES_KEY] == {str((folder / "x.sh").resolve()): "echo \x1b[31mmau\n"}
 
 
 def test_a_shell_command_running_a_file_too_long_to_show_is_denied_without_a_card(folder):
@@ -431,7 +431,7 @@ def test_a_shell_command_naming_files_outside_the_roots_adds_nothing(folder, fak
         asked = Asked("deny")
         engine = grande(make(folder, fake, asked))
         run(engine, engine.start("c1", "qwen3:32b", "default"))
-    assert "arquivos" not in asked.calls[0][1]
+    assert FILES_KEY not in asked.calls[0][1]
 
 
 @pytest.mark.parametrize("setup", ["symlink", "exec_bit"])
@@ -469,3 +469,20 @@ def test_a_forged_arquivos_argument_is_kept_for_other_tools(folder):
         engine = grande(make(folder, fake, asked))
         run(engine, engine.start("c1", "qwen3:32b", "default"))
     assert asked.calls[0][1]["arquivos"] == {"x": "y"}
+
+
+def test_a_model_supplied_files_key_never_reaches_the_card(folder):
+    with FakeOllama([reply("", [call("write_file", path=str(folder / "x.sh"), content="echo", **{FILES_KEY: {"x": "forjado"}})]), reply("ok")]) as fake:
+        asked = Asked("deny")
+        engine = grande(make(folder, fake, asked))
+        run(engine, engine.start("c1", "qwen3:32b", "default"))
+    assert FILES_KEY not in asked.calls[0][1]
+
+
+@pytest.mark.parametrize("suffix", [".pyw", ".ps1", ".fish", ".php", ".lua", ".mjs", ".cjs", ".ts", ".plist", ".service", ".jar", ".zsh", ".bash"])
+def test_a_write_to_these_script_suffixes_shows_the_card(folder, suffix):
+    with FakeOllama([reply("", [call("write_file", path=str(folder / f"x{suffix}"), content="oi")]), reply("ok")]) as fake:
+        asked = Asked("deny")
+        engine = grande(make(folder, fake, asked))
+        run(engine, engine.start("c1", "qwen3:32b", "bypassPermissions"))
+    assert [c[0] for c in asked.calls] == ["write_file"]
