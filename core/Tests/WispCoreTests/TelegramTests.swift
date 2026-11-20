@@ -256,11 +256,22 @@ final class AgentInstructionsTests: XCTestCase {
     }
 
     func testOutsideTelegramThereIsNoTelegramSendInstruction() {
-        for context in [AgentInstructions.context(thread: nil, wispBinary: "/bin/wisp"),
-                        AgentInstructions.context(thread: 7, wispBinary: nil)] {
-            XCTAssertEqual(context.prompt, AgentInstructions.appFiles)
-            XCTAssertTrue(context.environment.isEmpty)
+        let base = AgentInstructions.appFiles + "\n\n" + AgentInstructions.macTools
+        let noThread = AgentInstructions.context(thread: nil, wispBinary: "/bin/wisp")
+        let noBinary = AgentInstructions.context(thread: 7, wispBinary: nil)
+        for context in [noThread, noBinary] {
+            XCTAssertEqual(context.prompt, base)
             XCTAssertNil(context.thread)
+        }
+        XCTAssertEqual(noThread.environment, ["WISP_BIN": "/bin/wisp"])
+        XCTAssertTrue(noBinary.environment.isEmpty)
+    }
+
+    func testMacToolsInstructionMatchesTheFixtureAndIsInEveryAppPrompt() throws {
+        XCTAssertEqual(AgentInstructions.macTools, try fixture("mac-instruction.txt"))
+        for context in [AgentInstructions.context(thread: nil, wispBinary: nil),
+                        AgentInstructions.context(thread: 3, wispBinary: "/bin/wisp")] {
+            XCTAssertTrue(context.prompt.contains(AgentInstructions.macTools))
         }
     }
 

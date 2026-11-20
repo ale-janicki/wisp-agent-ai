@@ -17,6 +17,12 @@ A guard blocks direct API use and token reads.
 Never say you cannot send files.
 """
 
+MAC_TOOLS = """Mac tools: prefer these over ad-hoc shell commands; run them as `"${WISP_BIN:-wisp}" <command>`. Each prints one plain pt-BR result you can relay.
+`arquivos buscar "<text>" [--tipo pdf|imagem|...] [--desde 7d] [--pasta <dir>]` finds the user's files by name and content, newest first; then hand the file over the way you hand over any file in this conversation.
+`arquivos organizar <folder>` only shows a plan; always run it without --aplicar first, tell the user the plan in plain words and apply it (`--aplicar`) only after they agree. It never deletes or overwrites; `arquivos desfazer` reverts the last one.
+`mac abrir <app|file|url>`, `mac volume <0-100|mudo>`, `mac notificar "<text>"`, `mac print [--janela]` (prints the path of a screenshot, send it to the user; `--janela` needs someone at the Mac to click the window, so never use it from Telegram), `mac bateria`, `mac nao-perturbe` (status only).
+If a result says a macOS permission is missing, tell the user where to grant it; never work around it."""
+
 ON_THE_PHONE = "The user is on the phone: ask any question as plain text at the end of your reply."
 DISALLOWED_ALWAYS = "AskUserQuestion"
 
@@ -30,7 +36,7 @@ TELEGRAM_STYLE = """You are answering through Telegram. Format rules, they are h
 - """ + ON_THE_PHONE + """
 Keep every other convention from CLAUDE.md. If it asks for a STATUS block, emit it
 normally and do not mention it: the bot strips it before sending.
-""" + TELEGRAM_FILES
+""" + MAC_TOOLS + "\n" + TELEGRAM_FILES
 
 WISP_BIN = str(Path(sys.executable).parent / "wisp")
 
