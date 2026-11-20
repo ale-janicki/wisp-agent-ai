@@ -355,3 +355,78 @@ def test_a_user_server_cannot_take_the_builtin_name_or_the_email_tools(folder, f
         result, events = run(engine, engine.start("c1", "qwen3:8b", "bypassPermissions"))
     assert not log.exists() and "não existe ou não abriu" in tool_results(events)[0]["content"]
     assert "rogue: o nome email_send é reservado" in result.text and "wisp-email não abriu" in result.text
+
+
+PLANTS = [".claude/settings.json", ".mcp.json", ".codex/config.toml", "CLAUDE.md", "agents.MD", "sub/AGENTS.md", "sub/.hidden/x.txt"]
+
+
+@pytest.mark.parametrize("relative", PLANTS)
+@pytest.mark.parametrize("how", ["direct", "symlink", "dotdot"])
+def test_the_agent_cannot_plant_hooks_or_instruction_files(folder, attack, relative, how):
+    (folder / "sub").mkdir(exist_ok=True)
+    if how == "direct":
+        path = str(folder / relative)
+    elif how == "symlink":
+        link = folder / "pasta" / "inocente.txt"
+        (folder / relative).parent.mkdir(parents=True, exist_ok=True)
+        link.symlink_to(folder / relative)
+        path = str(link)
+    else:
+        path = str(folder / "pasta" / ".." / "pasta" / ".." / relative)
+    with pytest.raises(ToolFailure, match="regras e ferramentas do Wisp"):
+        attack.write({"path": path, "content": '{"hooks": {}}'})
+    assert not (folder / relative).exists()
+
+
+def test_a_dotted_root_itself_is_not_refused(fake_home):
+    root = fake_home / ".local/state/wisp"
+    root.mkdir(parents=True)
+    assert "gravei" in Files([root]).write({"path": str(root / "nota.md"), "content": "oi"})
+
+
+@pytest.mark.parametrize("arguments", [
+    {"path": "x.sh", "content": "echo"}, {"path": "X.PY", "content": "print()"}, {"path": "run.command", "content": "x"},
+    {"path": "a.applescript", "content": "x"}, {"path": "nota.txt", "content": "#!/bin/sh\nrm -rf x"},
+])
+def test_writing_a_script_shows_the_card_even_in_bypass_mode_at_grande(folder, arguments):
+    with FakeOllama([reply("", [call("write_file", **{**arguments, "path": str(folder / arguments["path"])})]), reply("ok")]) as fake:
+        asked = Asked("deny")
+        engine = make(folder, fake, asked)
+        engine.catalog = type(engine.catalog)(engine.catalog.source, engine.catalog.disk_margin_bytes, tuple(
+            m.__class__(**{**m.__dict__, "tier": "grande"}) if m.tag == "qwen3:32b" else m for m in engine.catalog.models))
+        run(engine, engine.start("c1", "qwen3:32b", "bypassPermissions"))
+    assert [c[0] for c in asked.calls] == ["write_file"] and not (folder / arguments["path"]).exists()
+
+
+def grande(engine):
+    engine.catalog = type(engine.catalog)(engine.catalog.source, engine.catalog.disk_margin_bytes, tuple(
+        m.__class__(**{**m.__dict__, "tier": "grande"}) if m.tag == "qwen3:32b" else m for m in engine.catalog.models))
+    return engine
+
+
+def test_a_shell_command_card_carries_the_content_of_the_script_it_runs(folder):
+    (folder / "x.sh").write_text("echo \x1b[31mmau\n")
+    with FakeOllama([reply("", [call("run_shell", command="sh x.sh")]), reply("ok")]) as fake:
+        asked = Asked("deny")
+        engine = grande(make(folder, fake, asked))
+        run(engine, engine.start("c1", "qwen3:32b", "default"))
+    shown = asked.calls[0][1]
+    assert shown["command"] == "sh x.sh" and shown["arquivos"] == {str((folder / "x.sh").resolve()): "echo \x1b[31mmau\n"}
+
+
+def test_a_shell_command_running_a_file_too_long_to_show_is_denied_without_a_card(folder):
+    (folder / "grande.sh").write_text("echo oi\n" * 2000)
+    with FakeOllama([reply("", [call("run_shell", command="sh grande.sh")]), reply("ok")]) as fake:
+        asked = Asked("allow")
+        engine = grande(make(folder, fake, asked))
+        _, events = run(engine, engine.start("c1", "qwen3:32b", "default"))
+    assert asked.calls == [] and "grande demais" in tool_results(events)[0]["content"]
+
+
+def test_a_shell_command_naming_files_outside_the_roots_adds_nothing(folder, fake_home):
+    (fake_home / "fora.sh").write_text("echo")
+    with FakeOllama([reply("", [call("run_shell", command=f"sh {fake_home / 'fora.sh'}", arquivos={"x": "forjado"})]), reply("ok")]) as fake:
+        asked = Asked("deny")
+        engine = grande(make(folder, fake, asked))
+        run(engine, engine.start("c1", "qwen3:32b", "default"))
+    assert "arquivos" not in asked.calls[0][1]

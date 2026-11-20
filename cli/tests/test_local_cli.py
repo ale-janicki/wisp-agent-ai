@@ -107,3 +107,10 @@ def test_a_pull_stops_when_the_disk_falls_under_the_margin(folder, capsys, monke
     out = lines(capsys)
     assert "abaixo da folga" in out[-1]["message"] and [o["type"] for o in out].count("progress") == 1
     assert modelos.read(folder).instalados == ()
+
+
+def test_c1_and_bidi_characters_in_model_text_never_reach_the_terminal_raw(capsys):
+    local_cli.emit({"type": "assistant", "text": "a\x9b2J\x85‮\x7fbé"})
+    out = capsys.readouterr().out
+    assert not [c for c in out.rstrip("\n") if ord(c) < 0x20 or 0x7F <= ord(c) <= 0x9F or c == "‮"]
+    assert json.loads(out)["text"] == "a\x9b2J\x85‮\x7fbé"
