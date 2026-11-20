@@ -20,6 +20,7 @@ from . import tg_html
 from . import hosting, saude, vigilia, polling, session_lock, compartilhar, colheita
 from . import hosting, saude, vigilia, polling, session_lock, compartilhar
 from . import aprovacoes
+from .transcript import REBUILT_NOTE, Transcripts, prime
 from .config import CURRENT as _CFG, ConfigError, _expand, config_path, load_bot_config
 from .hosting import HOST
 
@@ -32,6 +33,7 @@ PERSONA = _CFG.persona
 _QUEM = f"o {_CFG.user_name}" if _CFG.user_name else "o usuario"
 TG_LIMIT = 4000
 MODELO = os.environ.get("WISP_MODEL", "opus")
+transcripts = Transcripts(_CFG.wisp_dir / "conversas", secrets=[_CFG.token])
 
 REPOS_ROOT = os.path.expanduser(os.environ.get("WISP_REPOS_ROOT", "~/repos"))
 ATALHOS = {"brain": DEFAULT_CWD}
@@ -591,6 +593,31 @@ async def turno(bot, chat, thread_id: int | None, key: str, msg: str, contexto: 
             _fim_do_turno_mac(key)
 
 
+async def claude_com_memoria(key: str, topic, prompt: str, msg: str, existe: bool, avisar, relock, **run_args):
+    memoria = None if existe else transcripts.context(topic.session_id)
+    transcripts.user(topic.session_id, msg, "telegram")
+    if memoria:
+        await avisar()
+    res = await claude_run(prime(memoria, prompt), session_id=topic.session_id, started=existe, **run_args)
+    if not res.resume_failed:
+        return res, topic
+    memoria = transcripts.context(topic.session_id, drop_last_user=True)
+    if not memoria:
+        res.text = "a sessão do claude não existe mais aqui e não há conversa guardada no Wisp para retomar"
+        return res, topic
+    antiga = topic.session_id
+    novo = store.renovar_sessao(key)
+    if novo is None:
+        res.text = "a sessão do claude não existe mais aqui e o tópico não existe mais para recomeçar"
+        return res, topic
+    topic = novo
+    await relock(topic.session_id)
+    transcripts.rebuilt(antiga, topic.session_id, "claude")
+    await avisar()
+    res = await claude_run(prime(memoria, prompt), session_id=topic.session_id, started=False, **run_args)
+    return res, topic
+
+
 async def _turno(bot, chat, thread_id: int | None, key: str, msg: str, contexto: str = "") -> None:
     topic = topico_local(key)
     lk = lock_for(key)
@@ -638,7 +665,7 @@ async def _turno(bot, chat, thread_id: int | None, key: str, msg: str, contexto:
 
     async def _aviso_app() -> None:
         await send(bot, chat, thread_id, "⏳ respondendo no app, esta vem logo depois")
-    async with lk, session_lock.guard(topic.session_id, _aviso_app):
+    async with lk, session_lock.guard(topic.session_id, _aviso_app) as held:
         base = topicos.onde_esta_hash(key) if exige else ""
         env = {"WISP_TOPIC_NOTE": nota_abs, "WISP_TOPIC_BASE": base} if exige else {}
         env["WISP_TOPIC_THREAD"] = str(thread_id or 0)
@@ -659,14 +686,14 @@ async def _turno(bot, chat, thread_id: int | None, key: str, msg: str, contexto:
         prog = asyncio.create_task(progresso(bot, chat.id, thread_id, parar, atividade))
         try:
             existe = topic.started or sessao.achar_local(topic.session_id) is not None
-            res = await claude_run(prompt, session_id=topic.session_id,
-                                   cwd=topic.cwd, started=existe,
-                                   model=MODELO,
-                                   timeout=GERAL_TIMEOUT if is_geral(key) else TOPICO_TIMEOUT,
-                                   extra_prompt=regra_para(key, chat.id, thread_id, nota),
-                                   disallowed="",
-                                   env=env, on_event=on_event, on_text=on_text,
-                                   on_permission=pedir_permissao(bot, chat.id, thread_id))
+            async def avisar_retomada() -> None:
+                await send(bot, chat, thread_id, REBUILT_NOTE)
+            res, topic = await claude_com_memoria(
+                key, topic, prompt, msg, existe, avisar_retomada, held.move,
+                cwd=topic.cwd, model=MODELO, timeout=GERAL_TIMEOUT if is_geral(key) else TOPICO_TIMEOUT,
+                extra_prompt=regra_para(key, chat.id, thread_id, nota), disallowed="",
+                env=env, on_event=on_event, on_text=on_text,
+                on_permission=pedir_permissao(bot, chat.id, thread_id))
             if not res.ok and "dormiu no meio" in res.text:
                 async def aviso_dormiu() -> None:
                     await send(bot, chat, thread_id, "💤 Mac fechado na bateria — rodo quando abrir.")
@@ -698,9 +725,14 @@ async def _turno(bot, chat, thread_id: int | None, key: str, msg: str, contexto:
         if res.ok:
             store.mark_started(key)
             store.bump(key, res.cost_usd)
+            resposta = res.text.removesuffix("\n\n" + aviso_onde) if aviso_onde else res.text
+            transcripts.assistant(topic.session_id, resposta, "telegram", "claude", res.model)
             await send(bot, chat, thread_id, res.text)
         else:
             await send(bot, chat, thread_id, f"<b>falhou</b>\n<pre>{html.escape(res.text)}</pre>")
+        aviso_pasta = transcripts.take_notice()
+        if aviso_pasta:
+            await send(bot, chat, thread_id, f"<i>{html.escape(aviso_pasta)}</i>")
         if nota:
             try:
                 topicos.anexar_log(key, HOST, msg, res.text, ok=res.ok)

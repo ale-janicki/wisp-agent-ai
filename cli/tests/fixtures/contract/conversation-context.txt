@@ -1,0 +1,14 @@
+[Wisp conversation memory: this conversation continues from Wisp's own transcript because the engine session was not available. Older messages are shortened.]
+
+User: Oi, tudo bem?
+Quero "ajuda" com o café e o link https://exemplo.com/a.
+
+Assistant: Claro! Em que posso ajudar?
+
+User: E agora pelo celular
+
+Assistant: Continuamos aqui.
+
+User: Separa linhae fim
+
+[end of Wisp conversation memory]

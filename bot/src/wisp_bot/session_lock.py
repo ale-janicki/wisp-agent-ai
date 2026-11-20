@@ -58,6 +58,18 @@ async def _in_thread(lock: SessionLock, fn) -> bool | None:
         raise
 
 
+class Held:
+    def __init__(self, lock: SessionLock, base: Path | None):
+        self.lock = lock
+        self.base = base
+
+    async def move(self, session_id: str) -> None:
+        fresh = SessionLock(session_id, self.base)
+        await _in_thread(fresh, fresh.acquire)
+        old, self.lock = self.lock, fresh
+        old.release()
+
+
 @contextlib.asynccontextmanager
 async def guard(session_id: str, on_wait=None, base: Path | None = None):
     lock = SessionLock(session_id, base)
@@ -68,7 +80,8 @@ async def guard(session_id: str, on_wait=None, base: Path | None = None):
             except Exception:
                 pass
         await _in_thread(lock, lock.acquire)
+    held = Held(lock, base)
     try:
-        yield
+        yield held
     finally:
-        lock.release()
+        held.lock.release()
