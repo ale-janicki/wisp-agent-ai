@@ -1,0 +1,10 @@
+# wisp:begin
+# Managed by Wisp. Edit outside this block; changes inside it are replaced on the next sync.
+[mcp_servers.wisp-email]
+command = "/opt/wisp/venv/bin/wisp"
+args = ["mcp", "email"]
+env_vars = ["WISP_TELEGRAM_THREAD"]
+default_tools_approval_mode = "approve"
+startup_timeout_sec = 30
+tool_timeout_sec = 660
+# wisp:end

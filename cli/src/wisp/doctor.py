@@ -35,6 +35,21 @@ def locate_claude(paths: WispPaths, cfg: WispConfig, runner: Runner) -> Path | N
     return None
 
 
+def locate_codex(paths: WispPaths, cfg: WispConfig, runner: Runner) -> Path | None:
+    candidates = [
+        *([Path(cfg.codex_bin)] if cfg.codex_bin else []),
+        paths.home / ".local/bin/codex",
+        paths.home / ".npm-global/bin/codex",
+        paths.home / ".bun/bin/codex",
+        Path("/opt/homebrew/bin/codex"),
+        Path("/usr/local/bin/codex"),
+    ]
+    for candidate in candidates:
+        if runner.run([str(candidate), "--version"], timeout=10).exit == 0:
+            return candidate
+    return None
+
+
 def _check_os(runner: Runner, **_) -> Check:
     result = runner.run(["sw_vers", "-productVersion"], timeout=10)
     version = result.stdout.strip()
@@ -70,6 +85,20 @@ def _check_claude_login(runner: Runner, paths: WispPaths, cfg: WispConfig, **_) 
         return not_in
     data = {key: str(status.get(key, "")) for key in ("authMethod", "subscriptionType")}
     return Check("claude_login", True, "você está dentro do Claude", "login", data)
+
+
+def _check_codex(runner: Runner, paths: WispPaths, cfg: WispConfig, **_) -> Check:
+    found = locate_codex(paths, cfg, runner)
+    if found is None:
+        return Check("codex", False, "o Codex não está instalado (opcional)", None)
+    return Check("codex", True, "o Codex está instalado", None, {"path": str(found)})
+
+
+def _check_codex_login(runner: Runner, paths: WispPaths, cfg: WispConfig, **_) -> Check:
+    found = locate_codex(paths, cfg, runner)
+    if found is None or runner.run([str(found), "login", "status"], timeout=10).exit != 0:
+        return Check("codex_login", False, "você ainda não entrou no Codex (opcional)", None)
+    return Check("codex_login", True, "você está dentro do Codex", None)
 
 
 def _check_homebrew(runner: Runner, **_) -> Check:
@@ -137,5 +166,12 @@ _CHECKS = {
 }
 
 
+_OPTIONAL_CHECKS = {
+    "codex": _check_codex,
+    "codex_login": _check_codex_login,
+}
+
+
 def run_doctor(runner: Runner, paths: WispPaths, cfg: WispConfig, only: set[str] | None = None) -> list[Check]:
-    return [check(runner=runner, paths=paths, cfg=cfg) for id, check in _CHECKS.items() if only is None or id in only]
+    available = {**_CHECKS, **(_OPTIONAL_CHECKS if only else {})}
+    return [check(runner=runner, paths=paths, cfg=cfg) for id, check in available.items() if only is None or id in only]

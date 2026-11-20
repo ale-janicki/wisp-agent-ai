@@ -4,6 +4,9 @@ public enum AgentError: Error, Equatable, LocalizedError {
     case claudeNotFound
     case notRunning
     case configuredClaudeNotExecutable(path: String)
+    case codexNotFound
+    case configuredCodexNotExecutable(path: String)
+    case approvalsNotRouted
 
     public var errorDescription: String? {
         switch self {
@@ -13,6 +16,12 @@ public enum AgentError: Error, Equatable, LocalizedError {
             return "a sessão com o claude não está rodando"
         case .configuredClaudeNotExecutable(let path):
             return "o claude configurado no perfil (\(path)) não existe ou não é executável"
+        case .codexNotFound:
+            return "Codex não encontrado"
+        case .configuredCodexNotExecutable(let path):
+            return "o codex configurado (\(path)) não existe ou não é executável"
+        case .approvalsNotRouted:
+            return "este motor não leva pedidos de aprovação ao Wisp"
         }
     }
 }
@@ -31,8 +40,7 @@ public enum ClaudeLocator {
             }
             return URL(fileURLWithPath: path)
         }
-        if let found = runShell(shell, script: "command -v claude", timeout: 5),
-           found.hasPrefix("/"), fm.isExecutableFile(atPath: found) {
+        if let found = commandPath("claude", shell: shell), fm.isExecutableFile(atPath: found) {
             return URL(fileURLWithPath: found)
         }
         for path in [home + "/.local/bin/claude", "/opt/homebrew/bin/claude"]
@@ -40,6 +48,11 @@ public enum ClaudeLocator {
             return URL(fileURLWithPath: path)
         }
         throw AgentError.claudeNotFound
+    }
+
+    public static func commandPath(_ name: String, shell: String = "/bin/zsh") -> String? {
+        guard let found = runShell(shell, script: "command -v \(name)", timeout: 5), found.hasPrefix("/") else { return nil }
+        return found
     }
 
     public static let cachedLoginShellPATH: String? = loginShellPATH()

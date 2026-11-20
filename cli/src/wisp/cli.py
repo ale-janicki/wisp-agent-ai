@@ -14,6 +14,7 @@ from wisp.arquivos import add_parser as add_arquivos_parser, run as run_arquivos
 from wisp.agenda import add_parser as add_agenda_parser, run as run_agenda
 from wisp.config import WispConfig, is_unreadable, load_config, save_config
 from wisp.doctor import run_doctor
+from wisp.engines import ENGINES, write_active
 from wisp.fsops import OutsideHome, ensure_dir
 from wisp.local.cli import add_parser as add_local_parser, run as run_local
 from wisp.jobs import NotSupportedHere, manager_for
@@ -29,7 +30,8 @@ from wisp.recall import hook_recall
 from wisp.report import StepReport
 from wisp.runner import SubprocessRunner
 from wisp.setup.brain import setup_brain
-from wisp.setup.folder import UNREADABLE, setup_folder
+from wisp.setup.codex import sync_codex
+from wisp.setup.folder import UNREADABLE, seed_folder, setup_folder, wisp_root
 from wisp.setup.harness import setup_harness
 from wisp.setup.profile import setup_profile
 from wisp.setup.shim import setup_shim
@@ -88,8 +90,20 @@ def _setup_folder(args: argparse.Namespace) -> int:
     return _run_step("folder", lambda cfg: setup_folder(SubprocessRunner(), WispPaths.current(), cfg, path=path, dry_run=args.dry_run))
 
 
+def _harness_and_codex(cfg: WispConfig, dry_run: bool) -> StepReport:
+    paths = WispPaths.current()
+    report = setup_harness(SubprocessRunner(), paths, cfg, dry_run=dry_run)
+    if report.status == "failed":
+        return report
+    synced = sync_codex(paths, cfg, dry_run=dry_run)
+    report.details += synced.details
+    if synced.state != "skipped":
+        report.data["codex"] = synced.state
+    return report
+
+
 def _setup_harness(args: argparse.Namespace) -> int:
-    return _run_step("harness", lambda cfg: setup_harness(SubprocessRunner(), WispPaths.current(), cfg, dry_run=args.dry_run))
+    return _run_step("harness", lambda cfg: _harness_and_codex(cfg, args.dry_run))
 
 
 def _usable_dir(path: Path) -> bool:
@@ -100,12 +114,27 @@ def _usable_dir(path: Path) -> bool:
     return probe.is_dir()
 
 
+def _set_engine(cfg: WispConfig, engine: str) -> StepReport:
+    if engine not in ENGINES:
+        return StepReport("config", "failed", f"motor desconhecido: {engine}", data={"key": "engine"})
+    folder = wisp_root(cfg)
+    seed_folder(folder)
+    write_active(folder, engine)
+    synced = _harness_and_codex(cfg, False)
+    data = {"key": "engine", "engine": engine, "sync": synced.status}
+    if synced.status == "failed":
+        return StepReport("config", "failed", f"motor salvo, mas o harness não sincronizou: {synced.summary}", synced.details, data)
+    return StepReport("config", "done", "motor salvo", synced.details, data)
+
+
 def _config_set(args: argparse.Namespace) -> int:
     runner, paths = SubprocessRunner(), WispPaths.current()
 
     def run(cfg: WispConfig) -> StepReport:
         if is_unreadable():
             return StepReport("config", "failed", UNREADABLE, data={"key": args.key})
+        if args.key == "engine":
+            return _set_engine(cfg, args.value)
         if not args.value.startswith(("/", "~")):
             return StepReport("config", "failed", "use um caminho completo (começando com / ou ~)", data={"key": args.key})
         target = Path(args.value).expanduser().resolve(strict=False)
@@ -120,7 +149,7 @@ def _config_set(args: argparse.Namespace) -> int:
             report = StepReport("brain", "done", "caminho salvo")
         if report.status == "failed":
             return report
-        synced = setup_harness(runner, paths, cfg, dry_run=False)
+        synced = _harness_and_codex(cfg, False)
         data = {"key": args.key, "path": str(target), "sync": synced.status}
         if synced.status == "failed":
             return StepReport("config", "failed", f"caminho salvo, mas o harness não sincronizou: {synced.summary}", synced.details, data)
@@ -381,7 +410,7 @@ def build_parser() -> argparse.ArgumentParser:
     config = sub.add_parser("config")
     config_steps = config.add_subparsers(dest="action", required=True)
     config_set = config_steps.add_parser("set")
-    config_set.add_argument("key", choices=["wisp_dir", "brain"])
+    config_set.add_argument("key", choices=["wisp_dir", "brain", "engine"])
     config_set.add_argument("value")
     config_set.add_argument("--json", action="store_true")
     mcp = sub.add_parser("mcp")

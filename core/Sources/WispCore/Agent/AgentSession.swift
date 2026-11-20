@@ -142,8 +142,10 @@ private final class SessionState: @unchecked Sendable {
     }
 }
 
-public actor AgentSession {
+public actor AgentSession: EngineSession {
     public nonisolated let events: AsyncStream<SessionEvent>
+    public nonisolated var kind: EngineKind { .claude }
+    public nonisolated var routesApprovals: Bool { true }
 
     private let executable: URL
     private let cwd: URL
