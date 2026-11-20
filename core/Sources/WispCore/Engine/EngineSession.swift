@@ -36,13 +36,18 @@ public struct EngineLaunch: Sendable {
     public var disallowedTools: [String]
     public var addDirs: [String]
     public var environment: [String: String]
+    public var wispBinary: String?
+    public var preflight: (@Sendable (String) -> String?)?
 
     public init(
         kind: EngineKind, executable: URL, cwd: URL, model: String? = nil, resume: String? = nil,
         permission: PermissionChoice? = nil, claudePermissionMode: String? = nil, instructions: String = "",
         claudeSettingsPath: String? = nil, disallowedTools: [String] = [], addDirs: [String] = [],
-        environment: [String: String] = [:]
+        environment: [String: String] = [:], wispBinary: String? = nil,
+        preflight: (@Sendable (String) -> String?)? = nil
     ) {
+        self.preflight = preflight
+        self.wispBinary = wispBinary
         self.kind = kind
         self.executable = executable
         self.cwd = cwd
@@ -70,7 +75,8 @@ public enum EngineFactory {
         case .codex:
             CodexSession(
                 executable: launch.executable, cwd: launch.cwd, resume: launch.resume, permission: launch.permission,
-                addDirs: launch.addDirs, instructions: launch.instructions, model: CodexCommand.configuredModel(), environmentOverrides: launch.environment)
+                addDirs: launch.addDirs, instructions: launch.instructions, model: CodexCommand.configuredModel(), environmentOverrides: launch.environment,
+                wispBinary: launch.wispBinary, preflight: launch.preflight)
         }
     }
 }

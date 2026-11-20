@@ -30,7 +30,7 @@ from wisp.recall import hook_recall
 from wisp.report import StepReport
 from wisp.runner import SubprocessRunner
 from wisp.setup.brain import setup_brain
-from wisp.setup.codex import sync_codex
+from wisp.setup.codex import gate_problem, project_config_problem, sync_codex
 from wisp.setup.folder import UNREADABLE, seed_folder, setup_folder, wisp_root
 from wisp.setup.harness import setup_harness
 from wisp.setup.profile import setup_profile
@@ -413,6 +413,10 @@ def build_parser() -> argparse.ArgumentParser:
     config_set.add_argument("key", choices=["wisp_dir", "brain", "engine"])
     config_set.add_argument("value")
     config_set.add_argument("--json", action="store_true")
+    codex = sub.add_parser("codex")
+    codex_steps = codex.add_subparsers(dest="action", required=True)
+    codex_check = codex_steps.add_parser("check")
+    codex_check.add_argument("--workspace")
     mcp = sub.add_parser("mcp")
     mcp.add_argument("server", choices=["email"])
     email = sub.add_parser("email")
@@ -462,6 +466,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_step("shim", lambda cfg: setup_shim(WispPaths.current()))
     if args.command == "harness" and args.action == "sync":
         return _setup_harness(args)
+    if args.command == "codex" and args.action == "check":
+        paths = WispPaths.current()
+        problem = gate_problem(paths)
+        project = project_config_problem(Path(args.workspace).expanduser(), paths.home) if args.workspace else None
+        ready = problem is None and project is None
+        print(json.dumps({"ready": ready, "problem": problem, "project": project}, ensure_ascii=False))
+        return 0 if ready else 1
     if args.command == "config" and args.action == "set":
         return _config_set(args)
     if args.command == "hook":

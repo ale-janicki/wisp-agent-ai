@@ -126,8 +126,14 @@ public actor CodexSession: EngineSession {
     private let instructions: String
     private let model: String
     private let environmentOverrides: [String: String]
+    private let approvalDirectory: URL
+    private let wispBinary: String?
+    private let preflight: (@Sendable (String) -> String?)?
     private let continuation: AsyncStream<SessionEvent>.Continuation
     private let current = CurrentTurn()
+    private var broker: ApprovalBroker?
+    public private(set) var approvalChannelProblem: String?
+    public var approvalSocketPath: String? { broker?.path }
     private var threadId: String?
     private var queue: [String] = []
     private var running = false
@@ -136,8 +142,13 @@ public actor CodexSession: EngineSession {
 
     public init(
         executable: URL, cwd: URL, resume: String?, permission: PermissionChoice?, addDirs: [String] = [],
-        instructions: String = "", model: String = "", environmentOverrides: [String: String] = [:]
+        instructions: String = "", model: String = "", environmentOverrides: [String: String] = [:],
+        approvalDirectory: URL = FileManager.default.temporaryDirectory, wispBinary: String? = nil,
+        preflight: (@Sendable (String) -> String?)? = nil
     ) {
+        self.wispBinary = wispBinary
+        self.preflight = preflight
+        self.approvalDirectory = approvalDirectory
         self.executable = executable
         self.cwd = cwd
         self.threadId = resume
@@ -163,6 +174,15 @@ public actor CodexSession: EngineSession {
             throw AgentError.configuredCodexNotExecutable(path: executable.path)
         }
         started = true
+        let events = continuation
+        do {
+            broker = try ApprovalBroker(
+                directory: approvalDirectory,
+                onRequest: { events.yield(.claude(.permissionRequest($0))) },
+                onCancel: { events.yield(.claude(.permissionCancelled(id: $0))) })
+        } catch {
+            approvalChannelProblem = "\(error)"
+        }
     }
 
     public func send(_ text: String) throws {
@@ -172,11 +192,13 @@ public actor CodexSession: EngineSession {
     }
 
     public func respond(to request: PermissionRequest, _ decision: PermissionDecision) throws {
-        throw AgentError.approvalsNotRouted
+        guard let broker, broker.answer(id: request.id, allow: decision.allows) else { throw AgentError.approvalsNotRouted }
     }
 
     public func stop() async {
         stopped = true
+        broker?.stop()
+        broker = nil
         queue = []
         current.value?.terminate()
         continuation.finish()
@@ -199,11 +221,23 @@ public actor CodexSession: EngineSession {
 
     private func runTurn(_ prompt: String) async {
         signal(SIGPIPE, SIG_IGN)
+        guard let wispBinary, !wispBinary.isEmpty else {
+            continuation.yield(.exited(code: -1, stderrTail: Self.noWispBinary))
+            return
+        }
+        if let preflight {
+            let workspace = cwd.path
+            if let problem = await Task.detached(operation: { preflight(workspace) }).value {
+                continuation.yield(.exited(code: -1, stderrTail: problem))
+                return
+            }
+        }
         let collector = TurnCollector(continuation: continuation, resumed: threadId != nil, model: model)
         let process = Process()
         process.executableURL = executable
         process.arguments = CodexCommand.arguments(
-            workspace: cwd.path, permission: permission, addDirs: addDirs, instructions: instructions, resume: threadId)
+            workspace: cwd.path, permission: permission, addDirs: addDirs, instructions: instructions,
+            wispBinary: wispBinary, resume: threadId)
         process.currentDirectoryURL = cwd
         process.environment = childEnvironment()
         let stdin = Pipe(), stdout = Pipe(), stderr = Pipe()
@@ -246,15 +280,11 @@ public actor CodexSession: EngineSession {
         if let id = collector.threadId { threadId = id }
     }
 
+    public static let noWispBinary = "não achei o CLI do Wisp; o Codex não roda sem a trava de aprovação do e-mail"
+
     private func childEnvironment() -> [String: String] {
-        var env = ProcessInfo.processInfo.environment
-        if let path = ClaudeLocator.cachedLoginShellPATH {
-            env["PATH"] = path
-        } else {
-            let existing = env["PATH"] ?? "/usr/bin:/bin"
-            env["PATH"] = existing + ":" + executable.deletingLastPathComponent().path + ":/opt/homebrew/bin:/usr/local/bin"
-        }
-        for (key, value) in environmentOverrides { env[key] = value }
+        var env = CodexCommand.environment(executable: executable, overrides: environmentOverrides)
+        env[ApprovalBroker.socketEnvironment] = broker?.path
         return env
     }
 }

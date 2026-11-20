@@ -1,3 +1,4 @@
+import pytest
 import json
 import tomllib
 
@@ -37,6 +38,13 @@ def test_config_block_is_valid_toml_with_the_email_server_and_a_long_tool_timeou
     table = tomllib.loads(render_config_block("/Users/ana maría/venv/bin/wisp"))["mcp_servers"]["wisp-email"]
     assert table["command"] == "/Users/ana maría/venv/bin/wisp" and table["args"] == ["mcp", "email"]
     assert table["tool_timeout_sec"] > 600 and table["default_tools_approval_mode"] == "approve"
+
+
+def test_config_block_turns_the_broker_gate_on_and_forwards_the_socket_the_host_sets():
+    table = tomllib.loads(render_config_block("/opt/wisp/venv/bin/wisp"))["mcp_servers"]["wisp-email"]
+    assert table["env"] == {"WISP_SEND_GATE": "broker"}
+    assert "WISP_APPROVAL_SOCKET" in table["env_vars"] and "WISP_TELEGRAM_THREAD" in table["env_vars"]
+    assert table["tool_timeout_sec"] > 620
 
 
 def test_nothing_is_written_without_codex_or_the_codex_engine(fake_home):
@@ -202,3 +210,146 @@ def test_the_merged_config_always_parses_with_the_server_defined_once(fake_home)
     sync_codex(_paths(fake_home), _cfg(fake_home), dry_run=False)
     servers = tomllib.loads((home / "config.toml").read_text())["mcp_servers"]
     assert set(servers) == {"other", "wisp-email"}
+
+
+def _block_text(**swap):
+    text = render_config_block("/opt/wisp/venv/bin/wisp")
+    for old, new in swap.items():
+        text = text.replace(old, new)
+    return text
+
+
+def test_a_fresh_block_passes_the_send_gate_check():
+    from wisp.setup.codex import gate_problem_in
+    assert gate_problem_in(render_config_block("/opt/wisp/venv/bin/wisp")) is None
+
+
+@pytest.mark.parametrize("text", [
+    None,
+    "model = 'x'\n",
+    "not toml [",
+    '[mcp_servers.wisp-email]\ncommand = "wisp"\nargs = ["mcp", "email"]\nenv_vars = ["WISP_TELEGRAM_THREAD"]\n',
+    '[mcp_servers.wisp-email]\ncommand = "wisp"\nenv_vars = ["WISP_TELEGRAM_THREAD", "WISP_APPROVAL_SOCKET"]\n',
+    '[mcp_servers.wisp-email]\ncommand = "wisp"\nenv_vars = ["WISP_APPROVAL_SOCKET"]\nenv = { WISP_SEND_GATE = "off" }\n',
+    '[mcp_servers.wisp-email]\ncommand = "wisp"\nenv = { WISP_SEND_GATE = "broker" }\n',
+    '[mcp_servers.wisp-email]\ncommand = "wisp"\nenv = { WISP_SEND_GATE = "broker" }\nenv_vars = ["WISP_TELEGRAM_THREAD"]\n',
+    'mcp_servers = { other = { command = "x" } }\n',
+])
+def test_a_missing_old_or_hand_kept_block_fails_the_send_gate_check(text):
+    from wisp.setup.codex import gate_problem_in
+    assert "wisp harness sync" in gate_problem_in(text)
+
+
+def test_a_hand_kept_block_with_the_gate_passes_even_with_table_style_env_vars():
+    from wisp.setup.codex import gate_problem_in
+    text = ('[mcp_servers.wisp-email]\ncommand = "wisp"\nenv_vars = [{ name = "WISP_APPROVAL_SOCKET" }]\n'
+            '[mcp_servers.wisp-email.env]\nWISP_SEND_GATE = "broker"\n')
+    assert gate_problem_in(text) is None
+
+
+def test_sync_reports_a_stale_foreign_block_and_leaves_it(fake_home):
+    home = _codex(fake_home)
+    (home / "config.toml").write_text('[mcp_servers.wisp-email]\ncommand = "other"\n')
+    result = sync_codex(_paths(fake_home), _cfg(fake_home), dry_run=False)
+    assert result.state == "failed"
+    assert any("wisp harness sync" in d.output for d in result.details)
+    assert (home / "config.toml").read_text() == '[mcp_servers.wisp-email]\ncommand = "other"\n'
+
+
+def test_sync_reports_a_stale_block_the_user_edited(fake_home):
+    home = _codex(fake_home)
+    sync_codex(_paths(fake_home), _cfg(fake_home), dry_run=False)
+    edited = (home / "config.toml").read_text().replace('env = { WISP_SEND_GATE = "broker" }\n', "")
+    (home / "config.toml").write_text(edited)
+    result = sync_codex(_paths(fake_home), _cfg(fake_home), dry_run=False)
+    assert result.state == "failed" and any("trava" in d.output for d in result.details)
+    assert (home / "config.toml").read_text() == edited
+
+
+def test_a_synced_home_is_clean_and_the_check_command_agrees(fake_home, capsys, monkeypatch):
+    home = _codex(fake_home)
+    monkeypatch.setenv("CODEX_HOME", str(home))
+    assert main(["codex", "check"]) == 1
+    assert json.loads(capsys.readouterr().out)["ready"] is False
+    result = sync_codex(_paths(fake_home), _cfg(fake_home), dry_run=False)
+    assert result.state == "updated" and not any("trava" in d.output for d in result.details)
+    assert main(["codex", "check"]) == 0
+    assert json.loads(capsys.readouterr().out) == {"ready": True, "problem": None, "project": None}
+
+
+def test_overrides_match_the_contract_and_describe_the_same_server_as_the_block():
+    contract = json.loads((CONTRACT / "codex-mcp-overrides.json").read_text())
+    from wisp.setup.codex import mcp_overrides
+    overrides = mcp_overrides(contract["wisp_bin"])
+    assert overrides == contract["overrides"]
+    built = {}
+    for line in overrides:
+        key, raw = line.split("=", 1)
+        built[key.rsplit(".", 1)[1]] = tomllib.loads(f"_x_ = {raw}")["_x_"]
+    rendered = tomllib.loads(render_config_block(contract["wisp_bin"]))["mcp_servers"]["wisp-email"]
+    assert built == {**rendered, "enabled": True}
+    assert built["env"] == {"WISP_SEND_GATE": "broker"} and "WISP_APPROVAL_SOCKET" in built["env_vars"]
+    assert built["tool_timeout_sec"] > 620 and built["default_tools_approval_mode"] == "approve"
+
+
+def _project(tmp_path, home):
+    root = home / "work" / "proj"
+    (root / "sub").mkdir(parents=True)
+    return root, root / "sub"
+
+
+@pytest.mark.parametrize("body", [
+    '[mcp_servers.wisp-email]\ncommand = "x"\n',
+    'mcp_servers.wisp-email.command = "x"\n',
+    'mcp_servers = { wisp-email = { command = "x" } }\n',
+    '[mcp_servers."wisp-email"]\nurl = "http://x"\n',
+    "not = toml [",
+])
+def test_a_project_config_that_defines_the_email_server_or_does_not_parse_blocks_codex_and_names_the_file(fake_home, tmp_path, body):
+    from wisp.setup.codex import project_config_problem
+    root, sub = _project(tmp_path, fake_home)
+    (root / ".codex").mkdir()
+    (root / ".codex/config.toml").write_text(body)
+    problem = project_config_problem(sub, fake_home)
+    assert problem and str(root / ".codex/config.toml") in problem
+    assert project_config_problem(sub, fake_home) == project_config_problem(root, fake_home)
+
+
+def test_unrelated_project_config_and_the_homes_own_codex_folder_do_not_block(fake_home):
+    from wisp.setup.codex import project_config_problem
+    root = fake_home / "work" / "proj"
+    root.mkdir(parents=True)
+    assert project_config_problem(root, fake_home) is None
+    (root / ".codex").mkdir()
+    (root / ".codex/config.toml").write_text('model = "x"\n[mcp_servers.other]\ncommand = "y"\n')
+    assert project_config_problem(root, fake_home) is None
+    (fake_home / ".codex").mkdir(exist_ok=True)
+    (fake_home / ".codex/config.toml").write_text('[mcp_servers.wisp-email]\ncommand = "x"\n')
+    assert project_config_problem(root, fake_home) is None
+
+
+def test_the_parent_of_the_workspace_counts_but_home_and_above_do_not(fake_home):
+    from wisp.setup.codex import project_config_problem
+    work = fake_home / "work"
+    leaf = work / "a" / "b"
+    leaf.mkdir(parents=True)
+    (work / ".codex").mkdir()
+    (work / ".codex/config.toml").write_text('[mcp_servers.wisp-email]\ncommand = "x"\n')
+    assert str(work / ".codex/config.toml") in project_config_problem(leaf, fake_home)
+    (work / ".codex/config.toml").unlink()
+    (fake_home.parent / ".codex").mkdir(exist_ok=True)
+    (fake_home.parent / ".codex/config.toml").write_text('[mcp_servers.wisp-email]\ncommand = "x"\n')
+    assert project_config_problem(leaf, fake_home) is None
+
+
+def test_the_check_command_reports_the_project_file_when_asked(fake_home, capsys, monkeypatch):
+    root = fake_home / "w"
+    (root / ".codex").mkdir(parents=True)
+    (root / ".codex/config.toml").write_text('[mcp_servers.wisp-email]\ncommand = "x"\n')
+    monkeypatch.setenv("CODEX_HOME", str(_codex(fake_home)))
+    sync_codex(_paths(fake_home), _cfg(fake_home), dry_run=False)
+    assert main(["codex", "check", "--workspace", str(root)]) == 1
+    out = json.loads(capsys.readouterr().out)
+    assert out["ready"] is False and out["problem"] is None and str(root / ".codex/config.toml") in out["project"]
+    (root / ".codex/config.toml").unlink()
+    assert main(["codex", "check", "--workspace", str(root)]) == 0

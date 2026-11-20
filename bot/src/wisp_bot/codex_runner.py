@@ -5,6 +5,7 @@ from typing import Awaitable, Callable
 
 from .claude_runner import (LIMITE_LINHA, TELEGRAM_STYLE, WISP_BIN, falha_de_auth, permission_mode, rotulo,
                             strip_status)
+from .broker import SOCKET_ENV, Broker, PedirPermissao
 from .config import CURRENT as _CFG
 from .engine import Result, Status, run_process_status
 
@@ -14,7 +15,7 @@ CODEX_BIN = _CFG.codex_bin
 CODEX_FILES_NOTE = ("You are running under Codex, whose sandbox has no network: you cannot send files to Telegram. "
                     "If the user asks for a file, say so plainly instead of trying.")
 SANDBOX_ARGS = {
-    "auto": ["--approve-for-me"],
+    "auto": ["--sandbox", "workspace-write"],
     "bypassPermissions": ["--sandbox", "workspace-write"],
 }
 SANDBOX_STRICTEST = ["--sandbox", "read-only"]
@@ -71,6 +72,30 @@ def workspace(cwd: str, wisp_dir: Path) -> Path | None:
     return safe_dir(cwd) or safe_dir(wisp_dir)
 
 
+PROJECT_DEFINES = ("o arquivo {file} define o servidor wisp-email do Codex; o Wisp não usa o Codex nesta pasta "
+                   "enquanto ele existir (apague essa parte do arquivo ou use outra pasta)")
+PROJECT_UNREADABLE = ("não consegui ler {file} como TOML; o Wisp não usa o Codex nesta pasta enquanto ele estiver assim "
+                      "(corrija o arquivo ou use outra pasta)")
+
+
+def project_conflict(root: Path | None, home: Path | None = None) -> str | None:
+    if root is None:
+        return None
+    stop = (home or Path.home()).resolve()
+    folder = root.resolve()
+    while folder != stop and folder != folder.parent:
+        file = folder / ".codex" / "config.toml"
+        if file.is_file():
+            try:
+                servers = tomllib.loads(file.read_bytes().decode()).get("mcp_servers")
+            except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError):
+                return PROJECT_UNREADABLE.format(file=file)
+            if isinstance(servers, dict) and "wisp-email" in servers:
+                return PROJECT_DEFINES.format(file=file)
+        folder = folder.parent
+    return None
+
+
 def extra_dirs(root: Path, brain: Path, wisp_dir: Path) -> list[str]:
     out: list[str] = []
     for folder in (wisp_dir, brain):
@@ -80,12 +105,28 @@ def extra_dirs(root: Path, brain: Path, wisp_dir: Path) -> list[str]:
     return out
 
 
-def command(*, root: Path, mode: str, extra_prompt: str, session: str | None) -> list[str]:
+def mcp_overrides(wisp_bin: str) -> list[str]:
+    fields = [
+        ("command", toml_string(wisp_bin)),
+        ("args", '["mcp", "email"]'),
+        ("env_vars", f'["WISP_TELEGRAM_THREAD", "{SOCKET_ENV}"]'),
+        ("env", '{ WISP_SEND_GATE = "broker" }'),
+        ("default_tools_approval_mode", '"approve"'),
+        ("startup_timeout_sec", "30"),
+        ("tool_timeout_sec", "660"),
+        ("enabled", "true"),
+    ]
+    return [f"mcp_servers.wisp-email.{key}={value}" for key, value in fields]
+
+
+def command(*, root: Path, mode: str, extra_prompt: str, session: str | None, wisp_bin: str | None = None) -> list[str]:
     cmd = [codex_bin(), "exec", "--json", "--skip-git-repo-check", "-C", str(root), *permission_args(mode)]
     for folder in extra_dirs(root, _CFG.brain, _CFG.wisp_dir):
         cmd += ["--add-dir", folder]
     instructions = "\n\n".join(x for x in (TELEGRAM_STYLE, CODEX_FILES_NOTE, extra_prompt) if x)
     cmd += ["-c", f"developer_instructions={toml_string(instructions)}"]
+    for override in mcp_overrides(wisp_bin or WISP_BIN):
+        cmd += ["-c", override]
     if session:
         cmd += ["resume", session]
     return cmd + ["-"]
@@ -150,18 +191,43 @@ def failure_text(returncode: int, stream: Stream, stderr: str) -> str:
 async def run(prompt: str, *, session_id: str, cwd: str, started: bool, model: str | None = None,
               timeout: int = 900, extra_prompt: str = "", disallowed: str = "", env: dict | None = None,
               no_tools: bool = False, on_event: Callable[[str], None] | None = None,
-              on_text: Callable[[str], Awaitable[None] | None] | None = None) -> Result:
+              on_text: Callable[[str], Awaitable[None] | None] | None = None,
+              on_permission: PedirPermissao | None = None) -> Result:
+    broker = None
+    if on_permission:
+        try:
+            broker = await Broker(on_permission).start()
+        except OSError as e:
+            log.warning("sem canal de aprovacao neste turno do codex (o envio de e-mail fica negado): %s", e)
+    try:
+        return await _turn(prompt, session_id=session_id, cwd=cwd, started=started, model=model, timeout=timeout,
+                           extra_prompt=extra_prompt, env=env, no_tools=no_tools, on_event=on_event, on_text=on_text,
+                           socket=broker.path if broker else None)
+    finally:
+        if broker:
+            await broker.close()
+
+
+async def _turn(prompt: str, *, session_id: str, cwd: str, started: bool, model: str | None, timeout: int,
+                extra_prompt: str, env: dict | None, no_tools: bool, on_event: Callable[[str], None] | None,
+                on_text: Callable[[str], Awaitable[None] | None] | None, socket: str | None) -> Result:
     mode = "default" if no_tools else permission_mode()
     root = workspace(cwd, _CFG.wisp_dir)
     if root is None:
         return Result(False, NO_WORKSPACE, engine="codex")
+    conflict = project_conflict(root)
+    if conflict:
+        return Result(False, conflict, engine="codex")
     cmd = command(root=root, mode=mode, extra_prompt=extra_prompt, session=session_id if started else None)
     log.info("permissao do turno no codex: %s; pasta %s", mode, root)
+    child_env = {**os.environ, "WISP_SKIP_PULL": "1", "WISP_BIN": WISP_BIN, **(env or {})}
+    child_env.pop(SOCKET_ENV, None)
+    if socket:
+        child_env[SOCKET_ENV] = socket
     try:
         proc = await asyncio.create_subprocess_exec(
             *cmd, cwd=str(root), stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE, limit=LIMITE_LINHA, start_new_session=True,
-            env={**os.environ, "WISP_SKIP_PULL": "1", "WISP_BIN": WISP_BIN, **(env or {})})
+            stderr=asyncio.subprocess.PIPE, limit=LIMITE_LINHA, start_new_session=True, env=child_env)
     except FileNotFoundError:
         return Result(False, f"binario do codex nao encontrado: {codex_bin()}", engine="codex")
 
@@ -234,6 +300,34 @@ def model_name() -> str:
     return configured_model() or ""
 
 
+GATE_STALE = "está com o envio de e-mail sem a trava de aprovação; rode `wisp harness sync`"
+
+
+async def gate_stale(timeout: float = 15) -> str | None:
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            WISP_BIN, "codex", "check", stdin=asyncio.subprocess.DEVNULL, stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL, start_new_session=True)
+        try:
+            out, _ = await asyncio.wait_for(proc.communicate(), timeout)
+        except asyncio.TimeoutError:
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            await proc.wait()
+            log.warning("wisp codex check estourou %ss", timeout)
+            return GATE_STALE
+        verdict = json.loads(out.decode("utf-8", "replace"))
+    except (OSError, ValueError):
+        log.warning("nao consegui rodar `wisp codex check`")
+        return GATE_STALE
+    if isinstance(verdict, dict) and verdict.get("ready") is True and proc.returncode == 0:
+        return None
+    log.warning("a trava de e-mail do Codex nao esta em dia: %s", verdict.get("problem") if isinstance(verdict, dict) else verdict)
+    return GATE_STALE
+
+
 class CodexEngine:
     name = "codex"
 
@@ -245,6 +339,8 @@ class CodexEngine:
         installed = os.path.isfile(binary) and await run_process_status(binary, "--version") == 0
         logged_in = installed and await run_process_status(binary, "login", "status") == 0
         problem = None if safe_dir(_CFG.wisp_dir) else "não tem uma pasta de trabalho segura (a pasta do Wisp é a pasta pessoal ou fica acima dela)"
+        if problem is None and installed and logged_in:
+            problem = await gate_stale()
         return Status(installed=installed, logged_in=logged_in, problem=problem)
 
 

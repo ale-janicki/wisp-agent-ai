@@ -20,7 +20,7 @@ from . import topicos
 from . import tg_html
 from . import hosting, saude, vigilia, polling, session_lock, compartilhar, colheita
 from . import hosting, saude, vigilia, polling, session_lock, compartilhar
-from . import aprovacoes
+from . import aprovacoes, codex_runner
 from .transcript import REBUILT_NOTE, Transcripts, prime, switched_note
 from . import engine as engines
 from .config import CURRENT as _CFG, ConfigError, _expand, config_path, load_bot_config
@@ -644,6 +644,15 @@ async def codex_com_memoria(topic, engine, prompt: str, msg: str, avisar, **run_
     return res, topic
 
 
+def codex_ou_claude(eng, fallback: str | None, cwd: str):
+    if eng.name != "codex":
+        return eng, fallback
+    conflito = codex_runner.project_conflict(codex_runner.workspace(cwd, _CFG.wisp_dir))
+    if not conflito:
+        return eng, fallback
+    return engines.get("claude"), f"<i>o Codex não roda aqui: {html.escape(conflito)}; esta resposta veio do Claude.</i>"
+
+
 def session_for(engine_name: str, topic) -> str:
     if engine_name == "codex":
         return transcripts.engine_session(topic.session_id, "codex") or ""
@@ -718,6 +727,7 @@ async def _turno(bot, chat, thread_id: int | None, key: str, msg: str, contexto:
         prog = asyncio.create_task(progresso(bot, chat.id, thread_id, parar, atividade))
         try:
             eng, fallback = await engines.resolve(_CFG.wisp_dir)
+            eng, fallback = codex_ou_claude(eng, fallback, topic.cwd)
             if fallback:
                 await send(bot, chat, thread_id, fallback)
             existe = topic.started or sessao.achar_local(topic.session_id) is not None
@@ -733,7 +743,8 @@ async def _turno(bot, chat, thread_id: int | None, key: str, msg: str, contexto:
                     key, topic, prompt, msg, existe, avisar_retomada, held.move, switched=trocou and existe,
                     on_permission=pedir_permissao(bot, chat.id, thread_id), **comum)
             else:
-                res, topic = await codex_com_memoria(topic, eng, prompt, msg, avisar_retomada, **comum)
+                res, topic = await codex_com_memoria(topic, eng, prompt, msg, avisar_retomada,
+                                                     on_permission=pedir_permissao(bot, chat.id, thread_id), **comum)
             if not res.ok and "dormiu no meio" in res.text:
                 async def aviso_dormiu() -> None:
                     await send(bot, chat, thread_id, "💤 Mac fechado na bateria — rodo quando abrir.")
@@ -746,13 +757,14 @@ async def _turno(bot, chat, thread_id: int | None, key: str, msg: str, contexto:
                 else:
                     sessao_codex = session_for("codex", topic)
                     res = await eng.run("Continue de onde parou." if sessao_codex else prompt,
-                                        session_id=sessao_codex, started=bool(sessao_codex), **comum)
+                                        session_id=sessao_codex, started=bool(sessao_codex),
+                                        on_permission=pedir_permissao(bot, chat.id, thread_id), **comum)
             if res.ok and exige and topicos.onde_esta_hash(key) == base:
                 log.warning("Onde está nao atualizado em %s: forcando", key)
                 f = await (claude_run if eng.name == "claude" else eng.run)(
                     FORCA_ONDE_ESTA.format(nota=nota_abs), session_id=session_for(eng.name, topic),
                     cwd=topic.cwd, started=True, model=MODELO, timeout=300, env=env,
-                    **({"on_permission": pedir_permissao(bot, chat.id, thread_id)} if eng.name == "claude" else {}))
+                    on_permission=pedir_permissao(bot, chat.id, thread_id))
                 if f.ok:
                     store.bump(key, f.cost_usd)
                 if topicos.onde_esta_hash(key) == base:
@@ -1164,8 +1176,8 @@ _aprovacoes: aprovacoes.Aprovacoes | None = None
 
 
 def pedir_permissao(bot, chat_id: int, thread_id: int | None):
-    """O `on_permission` dos turnos do claude neste chat/topico: o pedido vira um cartao Permitir/Negar para o dono.
-    Sem o canal (bot ainda subindo) o pedido e negado pelo runner."""
+    """O `on_permission` dos turnos neste chat/topico, do claude (can_use_tool) e do codex (broker do e-mail): o pedido
+    vira um cartao Permitir/Negar para o dono. Sem o canal (bot ainda subindo) o pedido e negado."""
     if _aprovacoes is None:
         return None
     async def pedir(req: dict) -> str | None:
@@ -1263,7 +1275,7 @@ async def fechar(bot, chat_id: int, thread_id: int, key: str) -> None:
                                        cwd=t.cwd, started=True, model=MODELO,
                                        timeout=TOPICO_TIMEOUT,
                                        extra_prompt=regra_para(key, chat_id, thread_id),
-                                       **({} if codex_sid else {"on_permission": pedir_permissao(bot, chat_id, thread_id)}))
+                                       on_permission=pedir_permissao(bot, chat_id, thread_id))
             if not res.ok:
                 await send(bot, chat, thread_id,
                            f"<b>não encerrei</b>: o resumo falhou, então o tópico fica.\n"

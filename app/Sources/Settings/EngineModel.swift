@@ -24,8 +24,10 @@ final class EngineModel {
 
     func refresh() {
         active = EngineChoice.active()
+        let wisp = layout.wisp.path
+        let environment = environment
         Task {
-            codex = await Task.detached { CodexReadiness.check(configured: nil) }.value
+            codex = await Task.detached { CodexReadiness.check(configured: nil, wispBinary: wisp, environment: environment) }.value
         }
     }
 
@@ -66,7 +68,8 @@ final class EngineModel {
         case .codex:
             guard let codex else { return "Conferindo o Codex…" }
             if codex.ready { return "Codex instalado e com login feito." }
-            if codex.installed { return "Codex instalado, mas falta entrar: rode `codex login` no Terminal." }
+            if codex.installed, !codex.loggedIn { return "Codex instalado, mas falta entrar: rode `codex login` no Terminal." }
+            if codex.installed { return "Codex instalado, mas o envio de e-mail está sem a trava de aprovação: rode `wisp harness sync`. Enquanto isso o Wisp responde pelo Claude." }
             return "Codex não está instalado neste Mac. Enquanto isso o Wisp responde pelo Claude."
         }
     }

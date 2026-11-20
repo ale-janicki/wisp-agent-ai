@@ -345,16 +345,24 @@ final class ConversationRuntime {
                 let wispDir = WispFolder.directory().path
                 PathsModel.shared.refresh()
                 guard let workspace = codexWorkspace() else { throw GuardsUnavailable(reason: ConversationTranscript.noWorkspaceNote) }
+                guard let wispBinary = codexWispBinary() else { throw GuardsUnavailable(reason: CodexSession.noWispBinary) }
                 launch = EngineLaunch(
                     kind: .codex, executable: executable, cwd: URL(fileURLWithPath: workspace), resume: resume,
                     permission: mode.flatMap(PermissionChoice.init(mode:)),
                     instructions: context.prompt + AgentInstructions.codexNote,
                     addDirs: CodexCommand.extraDirectories(
                         workspace: workspace, candidates: [wispDir, PathsModel.shared.url(.brain).path]),
-                    environment: context.environment)
+                    environment: context.environment, wispBinary: wispBinary,
+                    preflight: { [environment = CodexCommand.environment(executable: executable, overrides: context.environment)] workspace in
+                        CodexReadiness.projectProblem(wispBinary: wispBinary, environment: environment, workspace: workspace)
+                    })
             }
             let next = EngineFactory.make(launch)
             try await next.start()
+            if let codex = next as? CodexSession, let problem = await codex.approvalChannelProblem {
+                log.error("approval channel for Codex unavailable: \(problem, privacy: .public)")
+                appendSystem("não consegui abrir o canal de aprovação do e-mail; nesta conversa o Codex não envia e-mails (\(problem))")
+            }
             guard gen == generation else {
                 chainStop(next)
                 throw CancellationError()
@@ -398,9 +406,20 @@ final class ConversationRuntime {
             preferred: expandTilde(cwd ?? host.profile.agent.cwd), wispDir: WispFolder.directory().path)
     }
 
+    private func codexWispBinary() -> String? {
+        EngineGuards.wispBinary(
+            telegramBinary: host.telegram.wispBinary,
+            layout: RuntimeLayout(bundle: Bundle.main.bundleURL, home: FileManager.default.homeDirectoryForCurrentUser))
+    }
+
     private func desiredEngine() async -> EngineKind {
         guard EngineChoice.active() == .codex else { return .claude }
-        let readiness = await Task.detached { CodexReadiness.check(configured: nil) }.value
+        let wisp = codexWispBinary()
+        let environment = agentContext().environment
+        let workspace = codexWorkspace()
+        let readiness = await Task.detached {
+            CodexReadiness.check(configured: nil, wispBinary: wisp, environment: environment, workspace: workspace)
+        }.value
         guard readiness.ready else {
             if engineNote == nil, sessionKind != .claude { engineNote = readiness.note() }
             return .claude
@@ -817,7 +836,7 @@ final class ConversationRuntime {
         host.shell?.notices.post(Notice(
             sourceId: "approval:\(id.uuidString)",
             kind: .approval,
-            title: "O Claude precisa da tua aprovação",
+            title: "O \(request.asker) precisa da tua aprovação",
             preview: Notices.preview("Quer \(request.summary)"),
             time: Date(),
             target: .conversation(id),
