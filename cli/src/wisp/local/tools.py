@@ -59,7 +59,6 @@ class ServerSpec:
 class ToolHost:
     specs: dict[str, ToolSpec] = field(default_factory=dict)
     problems: list[str] = field(default_factory=list)
-    trusted: set[str] = field(default_factory=set)
     _builtin: dict[str, Callable[[dict], str]] = field(default_factory=dict)
     _sessions: dict[str, ClientSession] = field(default_factory=dict)
 
@@ -89,9 +88,8 @@ def _key(path: Path) -> str:
 
 
 class Files:
-    def __init__(self, roots: list[Path], protected: list[Path] | None = None):
+    def __init__(self, roots: list[Path]):
         self.roots = [r.resolve() for r in roots]
-        self.protected = [_key(p.resolve()) for p in protected or []]
 
     def confine(self, raw: object) -> Path:
         if not isinstance(raw, str) or not raw:
@@ -106,8 +104,6 @@ class Files:
 
     def is_control(self, resolved: Path) -> bool:
         key = _key(resolved)
-        if any(key == p or key.startswith(p + os.sep) for p in self.protected):
-            return True
         root = self.roots[0]
         if not resolved.is_relative_to(root):
             return False
@@ -169,8 +165,8 @@ def run_shell(workdir: Path, args: dict, timeout: float = SHELL_TIMEOUT) -> str:
     return tail
 
 
-def builtins(roots: list[Path], workdir: Path, protected: list[Path] | None = None) -> tuple[dict[str, ToolSpec], dict[str, Callable[[dict], str]]]:
-    files = Files(roots, protected)
+def builtins(roots: list[Path], workdir: Path) -> tuple[dict[str, ToolSpec], dict[str, Callable[[dict], str]]]:
+    files = Files(roots)
     specs = [
         ToolSpec("read_file", "Lê um arquivo de texto da pasta do Wisp ou do brain", _object({"path": _text("caminho do arquivo")}, ["path"])),
         ToolSpec("list_files", "Lista os arquivos de uma pasta do Wisp ou do brain", _object({"path": _text("caminho da pasta")}, [])),
@@ -223,9 +219,8 @@ def server_environment(thread: int | None, extra: tuple[tuple[str, str], ...] = 
 @asynccontextmanager
 async def open_host(
     servers: list[ServerSpec], roots: list[Path], workdir: Path, thread: int | None = None, connect_timeout: float = CONNECT_TIMEOUT,
-    protected: list[Path] | None = None,
 ) -> AsyncIterator[ToolHost]:
-    specs, runs = builtins(roots, workdir, protected)
+    specs, runs = builtins(roots, workdir)
     host = ToolHost(specs=dict(specs), _builtin=dict(runs))
     async with AsyncExitStack() as stack:
         for server in servers:
@@ -256,6 +251,4 @@ async def open_host(
                     continue
                 host.specs[tool.name] = ToolSpec(tool.name, tool.description or "", dict(tool.input_schema))
                 host._sessions[tool.name] = session
-                if server.trusted:
-                    host.trusted.add(tool.name)
         yield host

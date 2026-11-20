@@ -7,7 +7,6 @@ FILE = "guardrails.toml"
 TIERS = ("pequeno", "medio", "grande")
 TIER_LABELS = {"pequeno": "Pequeno", "medio": "Médio", "grande": "Grande"}
 ALWAYS_IRREVERSIBLE = frozenset({"email_send", "run_shell"})
-SELF_APPROVING = frozenset({"email_send"})
 READ_ONLY = frozenset({"read_file", "list_files", "email_list", "email_read", "email_search"})
 DEFAULT_REPEAT_LIMIT = 3
 TIER_KEYS = {"max_steps", "tools", "approve"}
@@ -101,9 +100,7 @@ def load(folder: Path) -> Guardrails:
     return parse(text)
 
 
-def needs_card(rails: Guardrails, tier: Tier, mode: str, tool: str, *, trusted: bool) -> bool:
-    if tool in SELF_APPROVING and trusted:
-        return False
+def needs_card(rails: Guardrails, tier: Tier, mode: str, tool: str) -> bool:
     if tool in rails.irreversible or tool in tier.approve:
         return True
     return mode == "default" and tool not in READ_ONLY

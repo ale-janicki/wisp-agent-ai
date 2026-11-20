@@ -33,6 +33,7 @@ def add_parser(sub) -> None:
     chat.add_argument("--surface", choices=["app", "telegram"], default="app")
     chat.add_argument("--thread", type=int)
     chat.add_argument("--no-record", action="store_true")
+    chat.add_argument("--approvals", choices=["tty", "stdio"], default="tty")
     pull = steps.add_parser("pull")
     pull.add_argument("tag")
     steps.add_parser("install-ollama")
@@ -104,10 +105,14 @@ def _install(catalog: catalogs.Catalog) -> int:
 
 
 def _chat(folder: Path, client: ollama.OllamaClient, args: argparse.Namespace) -> int:
-    from wisp.local.engine import LocalEngine, record_turn
+    from wisp.local.approver import StdioApprover, TtyApprover
+    from wisp.local.engine import EngineError, LocalEngine, record_turn
 
+    if args.approvals == "stdio" and args.message == "-":
+        raise EngineError("com --approvals stdio a mensagem vem em --message, o stdin é só das respostas de aprovação")
     text = sys.stdin.read() if args.message == "-" else args.message
-    engine = LocalEngine(folder, load_config(), WispPaths.current(), client, thread=args.thread)
+    approver = StdioApprover(emit, sys.stdin) if args.approvals == "stdio" else TtyApprover()
+    engine = LocalEngine(folder, load_config(), WispPaths.current(), client, approver=approver, thread=args.thread)
     exists = bool(args.conversation) and (folder / "conversas" / f"{args.conversation}.jsonl").is_file()
     session = engine.resume(args.conversation, args.model, args.mode) if exists else engine.start(args.conversation, args.model, args.mode)
     result = asyncio.run(engine.send(session, text, emit))

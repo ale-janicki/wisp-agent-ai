@@ -9,6 +9,7 @@ from wisp import cli as wisp_cli
 from wisp.config import WispConfig, save_config
 from wisp.local import guardrails, modelos, ollama
 from wisp.local import cli as local_cli
+from wisp.local import tools as _tools  # noqa: F401
 
 WISP_FOLDER = Path(guardrails.__file__).parents[1] / "wisp_folder"
 
@@ -79,6 +80,11 @@ def test_use_needs_an_installed_model_and_chat_records_the_turn(folder, capsys, 
 def test_chat_without_an_active_model_is_one_error_line(folder, capsys):
     assert wisp_cli.main(["local", "chat", "--message", "oi"]) == 1
     assert "Ajustes > Modelo" in lines(capsys)[0]["message"]
+
+
+def test_stdio_approvals_leave_stdin_to_the_host_so_the_message_cannot_come_from_it(folder, capsys):
+    assert wisp_cli.main(["local", "chat", "--message", "-", "--approvals", "stdio"]) == 1
+    assert "--approvals stdio" in lines(capsys)[-1]["message"]
 
 
 def test_a_pull_that_does_not_end_in_success_installs_nothing(folder, capsys, monkeypatch):
