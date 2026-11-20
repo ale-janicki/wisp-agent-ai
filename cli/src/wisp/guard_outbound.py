@@ -26,13 +26,20 @@ OPEN_MAILTO = re.compile(r"(^|[\s/;&|(])open\s.*mailto:")
 HEREDOC = re.compile(r"<<-?\s*[\"']?(\w+)[\"']?([^\n]*)\n.*?(\n\s*\1\s*(?=\n|$)|$)", re.S)
 OPERATORS = {";", "&", "&&", "|", "||", "(", ")", "\n", "|&", ";;"}
 REDIRECTS = {"<", "<<", "<<<", ">", ">>", "<&", ">&", "<>"}
-OSASCRIPT_VALUE_FLAGS = {"-e", "-l", "-s"}
 INTERPRETER = re.compile(r"python[\d.]*|pypy\d*|ipython|node|ruby|perl|bash|sh|zsh")
 SHELLS = {"bash", "sh", "zsh"}
-CODE_FLAG_CLUSTER = re.compile(r"-[A-Za-z]*c[A-Za-z]*")
-EVAL_FLAG_CLUSTER = re.compile(r"-[A-Za-z]*e[A-Za-z]*")
-INLINE_FLAGS = {"-m", "-p", "-E", "--eval", "--print"}
-INTERPRETER_VALUE_FLAGS = {"-W", "-X", "-r", "-I", "-o", "--require", "--import"}
+PYTHON_PLAIN_FLAGS = "bBdEhiIOPqsSuvVxR"
+PYTHON_CODE_CLUSTER = re.compile(rf"-[{PYTHON_PLAIN_FLAGS}]*c.*")
+PYTHON_MODULE_CLUSTER = re.compile(rf"-[{PYTHON_PLAIN_FLAGS}]*m")
+PYTHON_MODULE_ATTACHED = re.compile(rf"-[{PYTHON_PLAIN_FLAGS}]*m(.+)")
+INTERPRETER_PROFILES = {
+    "python": ({"-W", "-X", "--check-hash-based-pycs"}, set(), PYTHON_CODE_CLUSTER),
+    "shell": ({"-o", "+o", "-O", "+O", "--rcfile", "--init-file"}, set(), re.compile(r"-[A-Za-z]*c[A-Za-z]*")),
+    "perl": ({"-I"}, set(), re.compile(r"-[lnpaWwtTuUsScCfF0-9]*[eE]")),
+    "ruby": ({"-I", "-r", "-C"}, set(), re.compile(r"-[nlpaswSdyvW0-9]*e")),
+    "node": ({"-r", "--require", "--import", "-C", "--conditions", "--loader", "--experimental-loader", "--input-type"}, {"-e", "-p", "-pe", "-ep", "--eval", "--print"}, None),
+    "osascript": ({"-l", "-s"}, {"-e"}, None),
+}
 ASSIGNMENT = re.compile(r"[A-Za-z_]\w*=")
 FD_REDIRECT = re.compile(r"\d*[<>]+&?\d*")
 WRAPPER_VALUE_FLAGS = {
@@ -69,12 +76,26 @@ def _script_contents(command: str, cwd: Path, home: Path) -> str:
     return "\n".join(chunks)
 
 
-def _inline_flag(name: str, word: str) -> bool:
-    if word in INLINE_FLAGS:
-        return True
-    if name in SHELLS or name.startswith(("python", "pypy", "ipython")):
-        return bool(CODE_FLAG_CLUSTER.fullmatch(word))
-    return bool(EVAL_FLAG_CLUSTER.fullmatch(word))
+def _family(name: str) -> str:
+    if name in SHELLS:
+        return "shell"
+    if name.startswith(("python", "pypy", "ipython")):
+        return "python"
+    return name
+
+
+def _python_module(args: list[str], index: int) -> list[str] | None:
+    word = args[index]
+    module = None
+    if PYTHON_MODULE_CLUSTER.fullmatch(word):
+        module = args[index + 1] if index + 1 < len(args) else None
+    else:
+        attached = PYTHON_MODULE_ATTACHED.fullmatch(word)
+        module = attached.group(1) if attached else None
+    if module is None:
+        return [] if PYTHON_MODULE_CLUSTER.fullmatch(word) else None
+    base = module.replace(".", "/")
+    return [base + ".py", base + "/__main__.py"]
 
 
 def _command_index(segment: list[str]) -> int | None:
@@ -99,14 +120,18 @@ def _command_index(segment: list[str]) -> int | None:
 
 
 def _interpreter_args(name: str, args: list[str]) -> tuple[list[str], bool]:
-    osascript = name == "osascript"
-    value_flags = OSASCRIPT_VALUE_FLAGS if osascript else INTERPRETER_VALUE_FLAGS
+    family = _family(name)
+    value_flags, inline_flags, code_cluster = INTERPRETER_PROFILES[family]
     files: list[str] = []
     seen_file = False
     index = 0
     while index < len(args):
         word = args[index]
-        if not osascript and _inline_flag(name, word):
+        if family == "python":
+            module = _python_module(args, index)
+            if module is not None:
+                return files + module, True
+        if word in inline_flags or (code_cluster is not None and code_cluster.fullmatch(word)):
             return files, True
         if word == "<" and index + 1 < len(args):
             files.append(args[index + 1])
@@ -118,7 +143,7 @@ def _interpreter_args(name: str, args: list[str]) -> tuple[list[str], bool]:
         if word in REDIRECTS or FD_REDIRECT.fullmatch(word):
             index += 2
             continue
-        if word != "-" and not word.startswith("-") and not seen_file:
+        if word != "-" and not word.startswith(("-", "+")) and not seen_file:
             files.append(word)
             seen_file = True
         index += 1
@@ -178,6 +203,7 @@ def _script_files(command: str) -> list[str] | None:
     flat = HEREDOC.sub(lambda m: " " + m.group(2), command).replace("\n", " ; ")
     lexer = shlex.shlex(flat, posix=True, punctuation_chars=True)
     lexer.whitespace_split = True
+    lexer.commenters = ""
     try:
         words = list(lexer)
     except ValueError:

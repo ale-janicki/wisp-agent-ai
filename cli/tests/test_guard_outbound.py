@@ -267,3 +267,65 @@ def test_a_harmless_extensionless_file_through_stdin_and_uv_passes(paths, tmp_pa
     (tmp_path / "runme").write_text("print(1)\n")
     for command in ["cat runme | python3", "python3 < runme", "uv run runme", "uv run python runme", "cat runme | grep x"]:
         assert _decide(paths, command, cwd=tmp_path) is None
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "# run it\npython3 runme",
+        "echo a#b; python3 runme",
+        "echo hi # don't\npython3 runme",
+        "# x\ncat runme | python3",
+        "echo ok\n# c\nuv run runme",
+    ],
+)
+def test_a_hash_never_hides_a_later_line(paths, tmp_path, command):
+    (tmp_path / "runme").write_text(SERVER_SCRIPT)
+    assert (_decide(paths, command, cwd=tmp_path) or "").startswith("wisp-guard:")
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "python3 -I runme",
+        "python3 -E runme",
+        "python3 -W ignore runme",
+        "python3 -X dev runme",
+        "python3 -Wignore runme",
+        "python3 -B -u runme",
+        "node -r pkg runme",
+        "perl -I lib runme",
+        "ruby -I lib -r json runme",
+        "bash +x runme",
+        "bash -o pipefail runme",
+        "osascript -l JavaScript runme",
+    ],
+)
+def test_each_interpreter_has_its_own_flag_tables(paths, tmp_path, command):
+    (tmp_path / "runme").write_text(SERVER_SCRIPT)
+    assert (_decide(paths, command, cwd=tmp_path) or "").startswith("wisp-guard:")
+
+
+@pytest.mark.parametrize("command", ["python3 -m runme", "python3 -mrunme", "python3 -Im runme", "python3 -m pkg.runme"])
+def test_a_python_module_is_resolved_in_the_cwd(paths, tmp_path, command):
+    (tmp_path / "runme.py").write_text(SERVER_SCRIPT)
+    package = tmp_path / "pkg" / "runme"
+    package.mkdir(parents=True)
+    (package / "__main__.py").write_text(SERVER_SCRIPT)
+    assert (_decide(paths, command, cwd=tmp_path) or "").startswith("wisp-guard:")
+
+
+def test_a_python_package_main_is_read_and_a_harmless_module_passes(paths, tmp_path):
+    package = tmp_path / "runme"
+    package.mkdir()
+    (package / "__main__.py").write_text(SERVER_SCRIPT)
+    assert _decide(paths, "python3 -m runme", cwd=tmp_path)
+    (package / "__main__.py").write_text("print(1)\n")
+    assert _decide(paths, "python3 -m runme", cwd=tmp_path) is None
+    assert _decide(paths, "python3 -m missing", cwd=tmp_path) is None
+
+
+@pytest.mark.parametrize("command", ["python3 -c 'print(1)'", "python3 -Ic 'print(1)'", "python3 -cprint(1)", "node -e '1'", "perl -Mstrict -e 1", "ruby -I lib -e 1"])
+def test_inline_code_still_reads_no_file(paths, tmp_path, command):
+    (tmp_path / "runme").write_text(SERVER_SCRIPT)
+    assert _decide(paths, command + " runme", cwd=tmp_path) is None
