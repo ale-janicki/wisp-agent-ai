@@ -8,6 +8,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 from wisp import __version__
+from wisp.aprendizados import add_parser as add_aprender_parser, hook_aprendizados, run as run_aprender
 from wisp.brain_colher import main as run_brain_colher
 from wisp.config import WispConfig, load_config
 from wisp.doctor import run_doctor
@@ -178,6 +179,18 @@ def _recall() -> int:
     return 0
 
 
+def _aprendizados() -> int:
+    try:
+        payload = json.load(sys.stdin)
+        cfg, _ = _load_config_or_default()
+        out = hook_aprendizados(cfg, str(Path(sys.executable).parent / "wisp"), WispPaths.current(), payload if isinstance(payload, dict) else {})
+        if out:
+            sys.stdout.write(out)
+    except Exception:
+        pass
+    return 0
+
+
 def _brain_colher(args: argparse.Namespace) -> int:
     flags = [flag for flag, on in (("--if-due", args.if_due), ("--dry-run", args.dry_run), ("--json", args.json)) if on]
     return run_brain_colher(flags)
@@ -186,6 +199,8 @@ def _brain_colher(args: argparse.Namespace) -> int:
 def _hook(args: argparse.Namespace) -> int:
     if args.which == "recall":
         return _recall()
+    if args.which == "aprendizados":
+        return _aprendizados()
     if args.which == "guard-secrets":
         return _guard_secrets()
     if args.which == "guard-telegram":
@@ -242,6 +257,7 @@ def build_parser() -> argparse.ArgumentParser:
     shim = steps.add_parser("shim")
     shim.add_argument("--json", action="store_true")
     add_topic_parser(sub)
+    add_aprender_parser(sub)
     brain_cmd = sub.add_parser("brain")
     brain_steps = brain_cmd.add_subparsers(dest="brain_action", required=True)
     colher = brain_steps.add_parser("colher")
@@ -249,7 +265,7 @@ def build_parser() -> argparse.ArgumentParser:
     colher.add_argument("--dry-run", action="store_true")
     colher.add_argument("--json", action="store_true")
     hook = sub.add_parser("hook")
-    hook.add_argument("which", choices=["boot", "recall", "brain-commit", "guard-secrets", "guard-telegram", "guard-destructive", "guard-brain-scope"])
+    hook.add_argument("which", choices=["boot", "recall", "aprendizados", "brain-commit", "guard-secrets", "guard-telegram", "guard-destructive", "guard-brain-scope"])
     return parser
 
 
@@ -275,5 +291,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _brain_colher(args)
     if args.command == "topic":
         return run_topic(args)
+    if args.command == "aprender":
+        return run_aprender(args, _load_config_or_default()[0])
     print(f"wisp {args.command}: not implemented yet", file=sys.stderr)
     return 1

@@ -9,7 +9,12 @@ public enum EngineGuards {
         let quoted = "'" + wispBinary.replacingOccurrences(of: "'", with: "'\\''") + "'"
         let commands = hooks.map { ["type": "command", "command": "\(quoted) hook \($0)"] }
         let recall: [[String: Any]] = [["type": "command", "command": "\(quoted) hook recall", "timeout": recallTimeout]]
-        return ["hooks": ["PreToolUse": [["matcher": matcher, "hooks": commands]], "UserPromptSubmit": [["hooks": recall]]]]
+        let lessons: [[String: Any]] = [["type": "command", "command": "\(quoted) hook aprendizados", "timeout": recallTimeout]]
+        return ["hooks": [
+            "PreToolUse": [["matcher": matcher, "hooks": commands]],
+            "UserPromptSubmit": [["hooks": recall]],
+            "SessionStart": [["hooks": lessons]],
+        ]]
     }
 
     public static func install(wispBinary: String, at url: URL) throws -> URL {

@@ -44,7 +44,14 @@ def guard_settings(wisp_bin: str) -> dict:
     quoted = "'" + wisp_bin.replace("'", "'\\''") + "'"
     hooks = [{"type": "command", "command": f"{quoted} hook {name}"} for name in GUARD_HOOKS]
     recall = [{"type": "command", "command": f"{quoted} hook recall", "timeout": RECALL_TIMEOUT}]
-    return {"hooks": {"PreToolUse": [{"matcher": GUARD_MATCHER, "hooks": hooks}], "UserPromptSubmit": [{"hooks": recall}]}}
+    lessons = [{"type": "command", "command": f"{quoted} hook aprendizados", "timeout": RECALL_TIMEOUT}]
+    return {
+        "hooks": {
+            "PreToolUse": [{"matcher": GUARD_MATCHER, "hooks": hooks}],
+            "UserPromptSubmit": [{"hooks": recall}],
+            "SessionStart": [{"hooks": lessons}],
+        }
+    }
 
 
 def guard_settings_path() -> Path:

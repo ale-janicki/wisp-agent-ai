@@ -9,6 +9,7 @@ final class BrainSettingsModel {
 
     private(set) var folder: String?
     private(set) var learns = true
+    private(set) var lessons: [LearnedLessons.Lesson] = []
     private(set) var profileIsLink = false
     private(set) var error: String?
 
@@ -23,6 +24,7 @@ final class BrainSettingsModel {
     func refresh() {
         folder = file.string("brain")
         learns = file.bool("brain_learn", default: true)
+        lessons = folder.flatMap { $0.isEmpty ? nil : LearnedLessons(brain: URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath)).lessons() } ?? []
         profileIsLink = (try? FileManager.default.destinationOfSymbolicLink(atPath: ConversationViewModel.profileURL.path)) != nil
     }
 
@@ -50,6 +52,11 @@ final class BrainSettingsModel {
     func setLearns(_ on: Bool) {
         guard AppSettings.shared.persists else { return }
         write { try file.setBool("brain_learn", to: on) }
+    }
+
+    func forget(_ lesson: LearnedLessons.Lesson) {
+        guard AppSettings.shared.persists, let folder, !folder.isEmpty else { return }
+        write { _ = try LearnedLessons(brain: URL(fileURLWithPath: (folder as NSString).expandingTildeInPath)).remove(lesson) }
     }
 
     private func write(_ change: () throws -> Void) {
