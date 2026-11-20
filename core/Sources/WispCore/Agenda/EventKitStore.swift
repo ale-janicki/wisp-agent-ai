@@ -3,8 +3,13 @@ import Foundation
 
 public final class EventKitStore: AgendaStore, @unchecked Sendable {
     private let store = EKEventStore()
+    private let calendar: Calendar
 
-    public init() {}
+    public init(timeZone: TimeZone = .current) {
+        var calendar = Calendar(identifier: Calendar.current.identifier)
+        calendar.timeZone = timeZone
+        self.calendar = calendar
+    }
 
     public func access(for kind: AgendaKind) -> AgendaAccess {
         switch EKEventStore.authorizationStatus(for: kind.entity) {
@@ -86,7 +91,7 @@ public final class EventKitStore: AgendaStore, @unchecked Sendable {
             : store.predicateForReminders(in: scope)
         let found: [AgendaReminder] = await withCheckedContinuation { continuation in
             store.fetchReminders(matching: predicate) { reminders in
-                continuation.resume(returning: (reminders ?? []).map(Self.reminder))
+                continuation.resume(returning: (reminders ?? []).map { self.reminder($0) })
             }
         }
         return found.sorted { ($0.due ?? .distantFuture) < ($1.due ?? .distantFuture) }
@@ -103,11 +108,15 @@ public final class EventKitStore: AgendaStore, @unchecked Sendable {
             throw AgendaError("não há lista padrão de lembretes; escolha uma com --lista")
         }
         if let due = new.due {
-            let fields: Set<Calendar.Component> = new.dueHasTime ? [.year, .month, .day, .hour, .minute] : [.year, .month, .day]
-            reminder.dueDateComponents = Calendar.current.dateComponents(fields, from: due)
+            reminder.dueDateComponents = Self.dueComponents(due, hasTime: new.dueHasTime, calendar: calendar)
         }
         try save(reminder)
-        return Self.reminder(reminder)
+        return self.reminder(reminder)
+    }
+
+    static func dueComponents(_ due: Date, hasTime: Bool, calendar: Calendar) -> DateComponents {
+        let fields: Set<Calendar.Component> = hasTime ? [.year, .month, .day, .hour, .minute] : [.year, .month, .day]
+        return calendar.dateComponents(fields, from: due)
     }
 
     public func completeReminder(id: String) throws -> AgendaReminder {
@@ -116,7 +125,7 @@ public final class EventKitStore: AgendaStore, @unchecked Sendable {
         }
         reminder.isCompleted = true
         try save(reminder)
-        return Self.reminder(reminder)
+        return self.reminder(reminder)
     }
 
     private func save(_ event: EKEvent, span: EKSpan) throws {
@@ -164,12 +173,12 @@ public final class EventKitStore: AgendaStore, @unchecked Sendable {
                     recurring: event.hasRecurrenceRules)
     }
 
-    private static func reminder(_ reminder: EKReminder) -> AgendaReminder {
+    private func reminder(_ reminder: EKReminder) -> AgendaReminder {
         let parts = reminder.dueDateComponents
         return AgendaReminder(id: reminder.calendarItemIdentifier, list: reminder.calendar?.title ?? "", title: reminder.title ?? "",
-                              due: parts.flatMap { ($0.calendar ?? Calendar.current).date(from: $0) },
+                              due: parts.flatMap { ($0.calendar ?? calendar).date(from: $0) },
                               dueHasTime: parts?.hour != nil, completed: reminder.isCompleted,
-                              completedAt: reminder.completionDate, notes: nonEmpty(reminder.notes))
+                              completedAt: reminder.completionDate, notes: Self.nonEmpty(reminder.notes))
     }
 
     private static func nonEmpty(_ text: String?) -> String? {

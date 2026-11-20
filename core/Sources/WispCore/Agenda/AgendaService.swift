@@ -47,7 +47,7 @@ public struct AgendaService: Sendable {
             let truncated = range.clamped || found.count > Self.maxEvents
             return try json(["events": found.prefix(Self.maxEvents).map(eventJSON), "truncado": truncated])
         case .createEvent(let title, let start, let end, let location, let notes, let calendar):
-            try await ensureAccess(.events)
+            try await ensureAccess(.events, writing: true)
             let begin = try parse(start, "--inicio"), finish = try parse(end, "--fim")
             guard finish.date >= begin.date else { throw AgendaError("o fim do evento é antes do início") }
             let id = try calendarID(named: calendar, kind: .events, needsWrite: true)
@@ -55,7 +55,7 @@ public struct AgendaService: Sendable {
                                location: location, notes: notes, calendarID: id)
             return try json(eventJSON(try store.createEvent(new)))
         case .editEvent(let id, let title, let start, let end, let location, let notes, let calendar, let series, let confirmed):
-            try await ensureAccess(.events)
+            try await ensureAccess(.events, writing: true)
             let begin = try start.map { try parse($0, "--inicio") }, finish = try end.map { try parse($0, "--fim") }
             let changes = EventChanges(title: title, start: begin?.date, end: finish?.date,
                                        allDay: (begin != nil && finish != nil) ? begin!.dateOnly && finish!.dateOnly : nil,
@@ -69,7 +69,7 @@ public struct AgendaService: Sendable {
             try requireConfirmation(event, confirmed: confirmed, action: "mudar")
             return try json(eventJSON(try store.updateEvent(ref: ref, changes, wholeSeries: series)))
         case .deleteEvent(let id, let series, let confirmed):
-            try await ensureAccess(.events)
+            try await ensureAccess(.events, writing: true)
             let (ref, event) = try resolve(id, series: series)
             try requireConfirmation(event, confirmed: confirmed, action: "apagar")
             try store.deleteEvent(ref: ref, wholeSeries: series)
@@ -82,13 +82,13 @@ public struct AgendaService: Sendable {
             let recent = found.filter { !$0.completed || ($0.completedAt.map { $0 >= cutoff } ?? false) }
             return try json(recent.map(reminderJSON))
         case .createReminder(let title, let when, let list):
-            try await ensureAccess(.reminders)
+            try await ensureAccess(.reminders, writing: true)
             let due = try when.map { try parse($0, "--quando") }
             let id = try calendarID(named: list, kind: .reminders, needsWrite: true)
             let new = NewReminder(title: title, due: due?.date, dueHasTime: !(due?.dateOnly ?? false), listID: id)
             return try json(reminderJSON(try store.createReminder(new)))
         case .completeReminder(let id):
-            try await ensureAccess(.reminders)
+            try await ensureAccess(.reminders, writing: true)
             return try json(reminderJSON(try store.completeReminder(id: id)))
         case .access(let request):
             var report: [String: String] = [:]
@@ -113,7 +113,7 @@ public struct AgendaService: Sendable {
         }
     }
 
-    private func ensureAccess(_ kind: AgendaKind) async throws {
+    private func ensureAccess(_ kind: AgendaKind, writing: Bool = false) async throws {
         let label = kind == .events ? "Calendários" : "Lembretes"
         switch store.access(for: kind) {
         case .granted:
@@ -121,13 +121,13 @@ public struct AgendaService: Sendable {
         case .notDetermined:
             switch await requestWithDeadline(kind) {
             case true?: return
-            case false?: throw denied(label)
+            case false?: throw denied(label, access: .denied, writing: writing)
             case nil:
                 throw AgendaError("o macOS não respondeu ao pedido de acesso a \(label) em \(Int(accessTimeout)) s: abra o Wisp no Mac e permita a agenda em Ajustes > Agenda.",
                                   exitCode: AgendaError.permissionExitCode)
             }
-        case .denied, .restricted, .writeOnly:
-            throw denied(label)
+        case let refused:
+            throw denied(label, access: refused, writing: writing)
         }
     }
 
@@ -135,10 +135,13 @@ public struct AgendaService: Sendable {
         await withCheckedContinuation { continuation in
             let once = Once(continuation)
             let store = store
-            Task { once.resume(await store.requestAccess(for: kind)) }
-            Task {
-                try? await Task.sleep(for: .seconds(accessTimeout))
+            let timeout = Task { [accessTimeout] in
+                guard (try? await Task.sleep(for: .seconds(accessTimeout))) != nil else { return }
                 once.resume(nil)
+            }
+            Task {
+                once.resume(await store.requestAccess(for: kind))
+                timeout.cancel()
             }
         }
     }
@@ -175,9 +178,12 @@ public struct AgendaService: Sendable {
                           exitCode: AgendaError.needsConfirmationExitCode)
     }
 
-    private func denied(_ label: String) -> AgendaError {
-        AgendaError("sem permissão para ler \(label). Abra Ajustes do Sistema > Privacidade e Segurança > \(label), ligue o Wisp (ou o wisp-agenda) com acesso total e tente de novo.",
-                    exitCode: AgendaError.permissionExitCode)
+    private func denied(_ label: String, access: AgendaAccess, writing: Bool) -> AgendaError {
+        let problem = access == .writeOnly
+            ? "o Wisp só tem acesso de escrita a \(label) e precisa de acesso total para \(writing ? "alterar" : "ler")"
+            : "sem permissão para \(writing ? "alterar" : "ler") \(label)"
+        return AgendaError("\(problem). Abra Ajustes do Sistema > Privacidade e Segurança > \(label), ligue o Wisp (ou o wisp-agenda) com acesso total e tente de novo.",
+                           exitCode: AgendaError.permissionExitCode)
     }
 
     private func eventRange(from: String?, to: String?, today: Bool, week: Bool) throws -> (start: Date, end: Date, clamped: Bool) {

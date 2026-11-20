@@ -2,16 +2,20 @@ import Foundation
 
 public enum EngineGuards {
     public static let matcher = "Bash|Read|Edit|MultiEdit|Write|NotebookEdit|Grep|Glob"
-    public static let hooks = ["guard-secrets", "guard-telegram", "guard-destructive", "guard-lessons"]
+    public static let hooks = ["guard-secrets", "guard-telegram", "guard-destructive", "guard-lessons", "guard-agenda"]
     public static let recallTimeout = 5
     public static let askRules = ["Bash(*aprender add*)", "Bash(*aprender confirmar*)", "Bash(*aprender descartar*)"]
+
+    static let agendaAsk = ["criar-evento", "editar-evento", "apagar-evento", "criar-lembrete", "concluir-lembrete", "permissao --pedir"]
+    static let agendaHeads = ["\"$WISP_BIN\" agenda", "$WISP_BIN agenda", "wisp agenda", "\"$WISP_AGENDA_BIN\""]
+    public static let agendaAskRules = agendaAsk.flatMap { sub in agendaHeads.map { "Bash(\($0) \(sub):*)" } }
 
     public static func settings(wispBinary: String) -> [String: Any] {
         let quoted = "'" + wispBinary.replacingOccurrences(of: "'", with: "'\\''") + "'"
         let commands = hooks.map { ["type": "command", "command": "\(quoted) hook \($0)"] }
         let recall: [[String: Any]] = [["type": "command", "command": "\(quoted) hook recall", "timeout": recallTimeout]]
         let lessons: [[String: Any]] = [["type": "command", "command": "\(quoted) hook aprendizados", "timeout": recallTimeout]]
-        return ["permissions": ["ask": askRules], "hooks": [
+        return ["permissions": ["ask": askRules + agendaAskRules], "hooks": [
             "PreToolUse": [["matcher": matcher, "hooks": commands]],
             "UserPromptSubmit": [["hooks": recall]],
             "SessionStart": [["hooks": lessons]],

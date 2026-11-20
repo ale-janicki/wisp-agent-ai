@@ -18,6 +18,7 @@ from wisp.fsops import OutsideHome
 from wisp.jobs import NotSupportedHere, manager_for
 from wisp.guard_brain_scope import hook_guard_brain_scope
 from wisp.mac import add_parser as add_mac_parser, run as run_mac
+from wisp.guard_agenda import hook_guard_agenda, render as render_agenda_decision
 from wisp.guard_destructive import hook_guard_destructive
 from wisp.guard_lessons import hook_guard_lessons
 from wisp.hooks import hook_boot, hook_brain_commit, hook_guard_secrets, hook_guard_telegram
@@ -214,6 +215,18 @@ def _brain_colher(args: argparse.Namespace) -> int:
     return run_brain_colher(flags)
 
 
+def _guard_agenda() -> int:
+    try:
+        payload = json.load(sys.stdin)
+        decision = hook_guard_agenda(payload if isinstance(payload, dict) else {})
+    except Exception as e:
+        print(f"wisp-guard: hook guard-agenda failed ({type(e).__name__})", file=sys.stderr)
+        return 2
+    if decision:
+        print(render_agenda_decision(decision))
+    return 0
+
+
 def _hook(args: argparse.Namespace) -> int:
     if args.which == "recall":
         return _recall()
@@ -229,6 +242,8 @@ def _hook(args: argparse.Namespace) -> int:
         return _guard_lessons()
     if args.which == "guard-brain-scope":
         return _guard_brain_scope()
+    if args.which == "guard-agenda":
+        return _guard_agenda()
     try:
         cfg, _ = _load_config_or_default()
         if args.which == "boot":
@@ -288,7 +303,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_mac_parser(sub)
     add_agenda_parser(sub)
     hook = sub.add_parser("hook")
-    hook.add_argument("which", choices=["boot", "recall", "aprendizados", "brain-commit", "guard-secrets", "guard-telegram", "guard-destructive", "guard-lessons", "guard-brain-scope"])
+    hook.add_argument("which", choices=["boot", "recall", "aprendizados", "brain-commit", "guard-secrets", "guard-telegram", "guard-destructive", "guard-lessons", "guard-brain-scope", "guard-agenda"])
     return parser
 
 

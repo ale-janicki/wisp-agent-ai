@@ -265,6 +265,46 @@ final class NativeAgendaTests: XCTestCase {
         }
     }
 
+    func testRefusedWritesSayTheyCannotChangeAndWriteOnlySaysSo() async {
+        let writes = [["criar-evento", "--titulo", "X", "--inicio", "2026-11-20T10:00", "--fim", "2026-11-20T11:00"],
+                      ["editar-evento", "e1", "--titulo", "X"], ["apagar-evento", "e1"]]
+        for arguments in writes {
+            let store = FakeStore()
+            store.eventsAccess = .denied
+            let outcome = await service(store).run(arguments: arguments)
+            XCTAssertEqual(outcome.exitCode, AgendaError.permissionExitCode)
+            XCTAssertTrue(outcome.stderr.contains("sem permissão para alterar Calendários"), outcome.stderr)
+            XCTAssertFalse(outcome.stderr.contains("para ler"))
+        }
+        for arguments in [["criar-lembrete", "--titulo", "X"], ["concluir-lembrete", "r1"]] {
+            let store = FakeStore()
+            store.remindersAccess = .denied
+            let outcome = await service(store).run(arguments: arguments)
+            XCTAssertTrue(outcome.stderr.contains("sem permissão para alterar Lembretes"), outcome.stderr)
+        }
+        let writeOnly = FakeStore()
+        writeOnly.eventsAccess = .writeOnly
+        let read = await service(writeOnly).run(arguments: ["eventos", "--hoje"])
+        XCTAssertTrue(read.stderr.contains("só tem acesso de escrita a Calendários e precisa de acesso total para ler"), read.stderr)
+        let write = await service(writeOnly).run(arguments: ["apagar-evento", "e1"])
+        XCTAssertTrue(write.stderr.contains("só tem acesso de escrita a Calendários e precisa de acesso total para alterar"), write.stderr)
+        XCTAssertEqual(write.exitCode, AgendaError.permissionExitCode)
+    }
+
+    func testReminderDueComponentsFollowTheGivenTimeZoneNotTheSystemOne() {
+        let due = dates.parse("2026-11-19T23:30:00-03:00")!.date
+        func components(_ zone: String) -> DateComponents {
+            var calendar = Calendar(identifier: .gregorian)
+            calendar.timeZone = TimeZone(identifier: zone)!
+            return EventKitStore.dueComponents(due, hasTime: true, calendar: calendar)
+        }
+        XCTAssertEqual([components("America/Sao_Paulo").day, components("America/Sao_Paulo").hour], [19, 23])
+        XCTAssertEqual([components("Asia/Tokyo").day, components("Asia/Tokyo").hour], [20, 11])
+        var dateOnly = Calendar(identifier: .gregorian)
+        dateOnly.timeZone = saoPaulo
+        XCTAssertNil(EventKitStore.dueComponents(due, hasTime: false, calendar: dateOnly).hour)
+    }
+
     func testRemindersPermissionNamesReminders() async {
         let store = FakeStore()
         store.remindersAccess = .denied
