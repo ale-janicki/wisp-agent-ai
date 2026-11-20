@@ -40,6 +40,18 @@ def render(text: str, values: Mapping[str, str]) -> str:
     return PLACEHOLDER.sub(lambda m: values.get(m.group(1), m.group(0)), text)
 
 
+AGENTE_PLACEHOLDER = re.compile(r"\{\{([A-Z_]+)\}\}")
+
+
+def render_agente(text: str, values: Mapping[str, str]) -> str:
+    rendered = AGENTE_PLACEHOLDER.sub(lambda m: values.get(m.group(1), m.group(0)), text)
+    return rendered.replace(BEGIN, "").replace(END, "")
+
+
+def wrap_block(body: str) -> str:
+    return f"{BEGIN}\n{body}{'' if body.endswith(chr(10)) else chr(10)}{END}\n"
+
+
 BLOCK_KEY = "CLAUDE.md#block"
 
 
@@ -174,11 +186,20 @@ def _classify(target: Path, root: Path, payload: bytes, recorded: str | None) ->
     return "updated" if sha256(current) == recorded else "conflict"
 
 
-def install_tree(src: Path, dst: Path, manifest: InstalledManifest, values: Mapping[str, str], *, dry_run: bool = False) -> list[Change]:
+def install_tree(
+    src: Path,
+    dst: Path,
+    manifest: InstalledManifest,
+    values: Mapping[str, str],
+    *,
+    dry_run: bool = False,
+    roots: Mapping[str, Path] | None = None,
+) -> list[Change]:
     changes: list[Change] = []
     for sub in TREE_DIRS:
-        for source in sorted(p for p in (src / sub).rglob("*") if p.is_file()):
-            rel = source.relative_to(src).as_posix()
+        root = (roots or {}).get(sub, src / sub)
+        for source in sorted(p for p in root.rglob("*") if p.is_file() and not has_symlink(p, root)):
+            rel = f"{sub}/{source.relative_to(root).as_posix()}"
             target = dst / rel
             payload = _render_bytes(source, values)
             kind = _classify(target, dst, payload, manifest.files.get(rel))

@@ -49,7 +49,10 @@
       "Bash(sudo *)",
       "Read(~/.config/wisp/secrets/**)",
       "Bash(cat *wisp/secrets*)",
-      "Bash(grep *wisp/secrets*)"
+      "Bash(grep *wisp/secrets*)",
+      "Read(~/.local/state/wisp/approvals/**)",
+      "Write(~/.local/state/wisp/approvals/**)",
+      "Edit(~/.local/state/wisp/approvals/**)"
     ]
   },
   "hooks": {
@@ -76,6 +79,10 @@
           {
             "type": "command",
             "command": "\"$HOME\"/.local/bin/wisp hook guard-agenda"
+          },
+          {
+            "type": "command",
+            "command": "\"$HOME\"/.local/bin/wisp hook guard-outbound"
           }
         ]
       }

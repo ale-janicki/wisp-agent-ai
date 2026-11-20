@@ -1,0 +1,14 @@
+# Limits per task size. Used from plan 4; nothing reads this file yet.
+# max_steps = 0 means no cap.
+
+[pequeno]
+max_steps = 6
+tools = []
+
+[medio]
+max_steps = 12
+tools = []
+
+[grande]
+max_steps = 0
+tools = []

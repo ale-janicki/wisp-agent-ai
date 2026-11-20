@@ -18,6 +18,8 @@ from . import sessao
 from . import topicos
 from . import tg_html
 from . import hosting, saude, vigilia, polling, session_lock, compartilhar, colheita
+from . import hosting, saude, vigilia, polling, session_lock, compartilhar
+from . import aprovacoes
 from .config import CURRENT as _CFG, ConfigError, _expand, config_path, load_bot_config
 from .hosting import HOST
 
@@ -640,6 +642,8 @@ async def _turno(bot, chat, thread_id: int | None, key: str, msg: str, contexto:
         base = topicos.onde_esta_hash(key) if exige else ""
         env = {"WISP_TOPIC_NOTE": nota_abs, "WISP_TOPIC_BASE": base} if exige else {}
         env["WISP_TOPIC_THREAD"] = str(thread_id or 0)
+        if thread_id is not None:
+            env["WISP_TELEGRAM_THREAD"] = str(thread_id)
         env = env or None
         parar = asyncio.Event()
         aviso_onde = ""
@@ -1080,6 +1084,12 @@ def _chat_principal() -> int | None:
     return int(sorted(ALLOWED_CHAT_IDS)[0]) if ALLOWED_CHAT_IDS else None
 
 
+async def on_aprovacao(update, context) -> None:
+    ap = context.application.bot_data.get("aprovacoes")
+    if ap is not None:
+        await ap.pressionou(update, context)
+
+
 async def _post_init(app) -> None:
     for t in store.all():
         nome = _CFG.system_topics.get(_thread_de(t.key))
@@ -1087,6 +1097,13 @@ async def _post_init(app) -> None:
             store.renomear(t.key, nome)
     app.bot_data["abridor"] = asyncio.create_task(abridor(app))
     app.bot_data["controlador"] = asyncio.create_task(controlador(app))
+    chat = _chat_principal()
+    if chat is not None:
+        ap = aprovacoes.Aprovacoes(
+            app.bot, chat, ALLOWED_USER_ID, estado=_CFG.state_dir / "aprovacoes.json",
+            ativo=lambda: (h := app.bot_data.get("hosting")) is not None and h.ativo)
+        app.bot_data["aprovacoes"] = ap
+        app.bot_data["aprovacoes_loop"] = asyncio.create_task(ap.loop())
 
 
 async def _ao_ativar(app, motivo: str) -> None:
@@ -1636,6 +1653,7 @@ def main() -> int:
     app.add_handler(CommandHandler("cwd", _contado(cmd_cwd)))
     app.add_handler(CommandHandler("puxar", _contado(cmd_puxar)))
     app.add_handler(CallbackQueryHandler(_contado(on_puxar_botao), pattern=r"^puxar:"))
+    app.add_handler(CallbackQueryHandler(on_aprovacao, pattern=r"^aprov:"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, _contado(on_message)))
     app.add_handler(MessageHandler(filters.Document.ALL | filters.PHOTO | filters.VIDEO | filters.VIDEO_NOTE, _contado(on_attachment)))
     app.add_handler(MessageHandler(filters.COMMAND, _contado(on_passthrough)))

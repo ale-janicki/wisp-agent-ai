@@ -295,3 +295,11 @@ def test_dry_run_with_no_change_is_skipped(fake_home):
     _run(fake_home, cfg)
     assert _run(fake_home, load_config(), dry_run=True).status == "skipped"
     assert _run(fake_home, load_config(), dry_run=True, name="Other").status == "done"
+
+
+def test_persona_rename_reports_incomplete_agente(fake_home):
+    cfg = _cfg(fake_home, persona="Ada", user_name="Rita")
+    setup_harness(FakeRunner(), _paths(fake_home), cfg, dry_run=False)
+    (fake_home / "Wisp/agente.md").write_text("regra X\n")
+    report = _run(fake_home, cfg, name="Bia")
+    assert [d.output for d in report.details if d.command == "agente"] == ["o agente.md parece incompleto; usei as regras padrão"]

@@ -202,6 +202,12 @@ struct SettingsView: View {
                 isOn: settings.settings.clipboardCapture
             ) { settings.setClipboardCapture($0) }
             Divider().overlay(Theme.stroke)
+            PathRow(title: "Pasta do Wisp", key: .wispDir)
+            Text("Trocar o caminho não move nada: aponta o Wisp para outra pasta.")
+                .font(Theme.Font.caption)
+                .foregroundStyle(Theme.textSecondary)
+                .padding(.bottom, Theme.Space.s)
+            Divider().overlay(Theme.stroke)
             SettingsRow(
                 title: "Setup",
                 detail: "Abre de novo o passo a passo que prepara o Wisp. O que já está pronto aparece marcado."
@@ -210,7 +216,10 @@ struct SettingsView: View {
                     .buttonStyle(CapsuleButtonStyle(kind: .ghost))
             }
         }
-        .onAppear { login.refresh() }
+        .onAppear {
+            login.refresh()
+            PathsModel.shared.refresh()
+        }
     }
 
     private var brain: some View {
@@ -524,6 +533,39 @@ private struct SettingsRow<Control: View>: View {
         }
         .padding(.vertical, Theme.Space.s)
         .frame(minHeight: Theme.Layout.rowHeight)
+    }
+}
+
+private struct PathRow: View {
+    let title: String
+    let key: PathsModel.Key
+    private let model = PathsModel.shared
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Theme.Space.xs) {
+            SettingsRow(title: title, detail: detail) {
+                HStack(spacing: Theme.Space.s) {
+                    Button("Trocar…") { model.choose(key) }
+                        .buttonStyle(CapsuleButtonStyle(kind: .ghost))
+                        .disabled(model.busy)
+                    Button("Mostrar no Finder") { model.reveal(key) }
+                        .buttonStyle(CapsuleButtonStyle(kind: .ghost))
+                        .disabled(!FileManager.default.fileExists(atPath: model.url(key).path))
+                }
+            }
+            if let error = model.errors[key] {
+                Text(error)
+                    .font(Theme.Font.caption)
+                    .foregroundStyle(Theme.error)
+                    .lineLimit(2)
+                    .truncationMode(.middle)
+            }
+        }
+    }
+
+    private var detail: String {
+        let path = model.path(key)
+        return path.isDefault ? "\(path.text) (padrão)" : path.text
     }
 }
 

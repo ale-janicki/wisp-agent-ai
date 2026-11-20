@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Observation
 import os
@@ -23,10 +24,17 @@ final class ConversationViewModel {
     private(set) var tailPreviews: [String: String] = [:]
     private(set) var current = ConversationRuntime()
     private(set) var runtimes: [UUID: ConversationRuntime] = [:]
+    private(set) var toolApprovals: [PermissionRequest] = []
 
     @ObservationIgnored weak var shell: ShellController? {
-        didSet { shell?.restTarget = { [weak self] in self?.restTarget() ?? .rest } }
+        didSet {
+            shell?.restTarget = { [weak self] in self?.restTarget() ?? .rest }
+            if shell != nil { refreshToolApprovals() }
+        }
     }
+    @ObservationIgnored private let toolApprovalFiles = ToolApprovals()
+    @ObservationIgnored private var noticedToolApprovals: Set<String> = []
+    @ObservationIgnored private var activationObserver: NSObjectProtocol?
     @ObservationIgnored private let store: ConversationStore
     @ObservationIgnored let sessionLock: SessionLock
     @ObservationIgnored private var tailsLoading: Set<String> = []
@@ -96,6 +104,7 @@ final class ConversationViewModel {
                 self?.runtimeSettled()
             }
         }
+        watchToolApprovals()
     }
 
     var sections: ConversationSections {
@@ -298,8 +307,73 @@ final class ConversationViewModel {
         }
     }
 
+    var approvalQueue: [PermissionRequest] { toolApprovals + state.approvals }
+
+    func isToolApproval(_ request: PermissionRequest) -> Bool { request.id.hasPrefix(ToolApprovals.idPrefix) }
+
     func answer(_ request: PermissionRequest, _ decision: PermissionDecision) {
-        current.answer(request, decision)
+        if isToolApproval(request) {
+            answerTool(request, decision)
+        } else {
+            current.answer(request, decision)
+        }
+    }
+
+    private func answerTool(_ request: PermissionRequest, _ decision: PermissionDecision) {
+        guard toolApprovals.contains(where: { $0.id == request.id }) else { return }
+        if !toolApprovalFiles.decide(id: request.id, allow: decision.allows) {
+            shell?.notices.post(Notice(
+                sourceId: "approval-gone:\(request.id)",
+                kind: .approval,
+                title: "Aprovação de ferramenta",
+                preview: "já respondido ou expirou",
+                time: Date(),
+                target: .conversation(currentId),
+                tone: .warning
+            ))
+        }
+        toolApprovals.removeAll { $0.id == request.id }
+        refreshToolApprovals()
+    }
+
+    @discardableResult
+    private func startToolWatcher() -> Bool {
+        toolApprovalFiles.watch { [weak self] in
+            Task { @MainActor [weak self] in self?.refreshToolApprovals() }
+        }
+    }
+
+    private func watchToolApprovals() {
+        startToolWatcher()
+        activationObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                if !self.toolApprovalFiles.isWatching { self.startToolWatcher() }
+                self.refreshToolApprovals()
+            }
+        }
+        refreshToolApprovals()
+    }
+
+    private func refreshToolApprovals() {
+        let found = toolApprovalFiles.pending()
+        if found != toolApprovals { toolApprovals = found }
+        noticedToolApprovals.formIntersection(found.map(\.id))
+        guard let shell else { return }
+        for request in found where !noticedToolApprovals.contains(request.id) {
+            shell.notices.post(Notice(
+                sourceId: "approval:\(request.id)",
+                kind: .approval,
+                title: "Uma ferramenta precisa da tua aprovação",
+                preview: Notices.preview(request.summary),
+                time: Date(),
+                target: .conversation(currentId),
+                tone: .warning
+            ))
+            noticedToolApprovals.insert(request.id)
+        }
     }
 
     // MARK: Runtimes
