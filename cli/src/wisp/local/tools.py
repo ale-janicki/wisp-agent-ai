@@ -1,4 +1,5 @@
 import os
+import shlex
 import signal
 import unicodedata
 import subprocess
@@ -30,6 +31,9 @@ BUILTIN_TOOLS = frozenset({"read_file", "list_files", "write_file", "run_shell"}
 RESERVED_TOOLS = EMAIL_TOOLS | BUILTIN_TOOLS
 CONTROL_FILES = frozenset({"guardrails.toml", "modelos.toml", "agente.md"})
 CONTROL_DIRS = frozenset({"ferramentas", "skills", "conversas"})
+INSTRUCTION_FILES = frozenset({"claude.md", "agents.md"})
+SCRIPT_SUFFIXES = frozenset({".sh", ".py", ".command", ".zsh", ".bash", ".js", ".rb", ".pl", ".applescript", ".scpt"})
+CARD_FILE_LIMIT = 4_000
 
 
 class ToolFailure(Exception):
@@ -83,8 +87,14 @@ def _text(description: str) -> dict:
     return {"type": "string", "description": description}
 
 
-def _key(path: Path) -> str:
-    return unicodedata.normalize("NFC", str(path)).casefold()
+def _fold(text: str) -> str:
+    return unicodedata.normalize("NFC", text).casefold()
+
+
+def is_script_write(arguments: dict) -> bool:
+    content, target = arguments.get("content"), arguments.get("path")
+    started = isinstance(content, str) and content.lstrip("\ufeff \t\r\n").startswith("#!")
+    return started or (isinstance(target, str) and Path(_fold(target)).suffix in SCRIPT_SUFFIXES)
 
 
 class Files:
@@ -102,13 +112,46 @@ class Files:
             raise ToolFailure(f"só posso mexer em arquivos dentro de {', '.join(str(r) for r in self.roots)}")
         return resolved
 
+    def _relative(self, resolved: Path) -> tuple[str, ...] | None:
+        for root in self.roots:
+            if resolved.is_relative_to(root):
+                return tuple(_fold(part) for part in resolved.relative_to(root).parts)
+        return None
+
     def is_control(self, resolved: Path) -> bool:
-        key = _key(resolved)
-        root = self.roots[0]
-        if not resolved.is_relative_to(root):
+        parts = self._relative(resolved)
+        if parts is None:
             return False
-        parts = [unicodedata.normalize("NFC", part).casefold() for part in resolved.relative_to(root).parts]
+        if any(part.startswith(".") for part in parts) or (parts and parts[-1] in INSTRUCTION_FILES):
+            return True
+        if not resolved.is_relative_to(self.roots[0]):
+            return False
         return bool(parts) and (parts[0] in CONTROL_DIRS or (len(parts) == 1 and parts[0] in CONTROL_FILES))
+
+    def referenced(self, workdir: Path, command: object) -> dict[str, str]:
+        if not isinstance(command, str):
+            return {}
+        try:
+            words = shlex.split(command)
+        except ValueError:
+            words = command.split()
+        found: dict[str, str] = {}
+        for word in words:
+            for candidate in {word, word.partition("=")[2]}:
+                if not candidate:
+                    continue
+                path = Path(candidate).expanduser()
+                path = (workdir / path if not path.is_absolute() else path)
+                try:
+                    resolved = path.resolve()
+                    if not resolved.is_file() or not any(resolved.is_relative_to(root) for root in self.roots):
+                        continue
+                    if resolved.stat().st_size > CARD_FILE_LIMIT:
+                        raise ToolFailure(f"o comando roda {resolved.name}, grande demais para mostrar inteiro no cartão; abra o arquivo você mesmo")
+                    found[str(resolved)] = resolved.read_text("utf-8", "replace")
+                except OSError:
+                    continue
+        return found
 
     def read(self, args: dict) -> str:
         path = self.confine(args.get("path"))

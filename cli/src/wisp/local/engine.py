@@ -15,7 +15,7 @@ from wisp.local import guardrails, modelos
 from wisp.local.approver import Approver, DenyApprover
 from wisp.local.guardrails import GuardrailsError, TurnGuard
 from wisp.local.ollama import OllamaClient, OllamaError
-from wisp.local.tools import ToolFailure, ToolHost, ServerSpec, load_servers, open_host
+from wisp.local.tools import Files, ToolFailure, ToolHost, ServerSpec, is_script_write, load_servers, open_host
 from wisp.paths import WispPaths
 
 ENGINE = "local"
@@ -310,8 +310,18 @@ class LocalEngine:
             return True, f"a ferramenta {name} não é permitida para este tamanho de modelo"
         if name not in host.specs:
             return True, f"a ferramenta {name} não existe ou não abriu"
-        if guardrails.needs_card(rails, guard.tier, session.mode, name):
-            outcome = await self.approver.ask(name, arguments, tool_use_id)
+        scripted = name == "write_file" and is_script_write(arguments)
+        if scripted or guardrails.needs_card(rails, guard.tier, session.mode, name):
+            shown = {k: v for k, v in arguments.items() if k != "arquivos"}
+            if name == "run_shell":
+                try:
+                    files = Files(self._roots()).referenced(self.folder, arguments.get("command"))
+                except ToolFailure as e:
+                    denials.append(name)
+                    return True, f"não executei: {e}"
+                if files:
+                    shown["arquivos"] = files
+            outcome = await self.approver.ask(name, shown, tool_use_id)
             if outcome != "allow":
                 denials.append(name)
                 return True, "o usuário negou a ação" if outcome == "deny" else "não executei: ninguém aprovou a tempo"

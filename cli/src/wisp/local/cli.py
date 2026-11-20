@@ -7,6 +7,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from wisp.config import load_config
+from wisp.local.approver import clean
 from wisp.local import catalog as catalogs
 from wisp.local import modelos, ollama
 from wisp.local.guardrails import MODES, GuardrailsError
@@ -18,7 +19,7 @@ DISK_CHECK_INTERVAL = 1.0
 
 
 def emit(event: dict) -> None:
-    print(json.dumps(event, ensure_ascii=False), flush=True)
+    print(clean(json.dumps(event, ensure_ascii=False)), flush=True)
 
 
 def add_parser(sub) -> None:

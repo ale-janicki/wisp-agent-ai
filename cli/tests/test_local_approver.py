@@ -181,3 +181,25 @@ def test_type_ahead_on_the_terminal_cannot_answer_the_next_prompt():
     screen = os.fdopen(os.open(os.devnull, os.O_WRONLY), "w")
     assert ask(TtyApprover(lambda: (reader, screen), timeout=0.4)) == "timeout"
     os.close(master)
+
+
+def test_the_question_and_the_recipients_come_before_the_long_body():
+    summary, head, body = describe("email_send", {"body": "linha\n" * 50, "subject": "Oi", "to": ["a@b.c"]})
+    assert "a@b.c" in head and "Oi" in head and "linha" not in head and "linha" in body
+    tty = FakeTty("n\n")
+    ask(TtyApprover(tty.open, timeout=5), "email_send", {"body": "linha\n" * 50, "subject": "Oi", "to": ["a@b.c"]})
+    shown = "".join(tty.written)
+    tty.close()
+    assert shown.index("a@b.c") < shown.index("linha") and shown.rstrip().endswith("[s/N]")
+    assert shown.split("Permitir?")[0].splitlines()[-1].startswith("O Wisp quer executar")
+
+
+def test_the_card_shows_the_referenced_file_content_with_controls_escaped():
+    _, _, body = describe("run_shell", {"command": "sh x.sh", "arquivos": {"/w/x.sh": "echo \x1b[31m\nrm x"}})
+    assert "/w/x.sh" in body and "echo \\u001b[31m" in body and "rm x" in body and "\x1b" not in body
+
+
+def test_tty_without_enter_still_times_out():
+    tty = FakeTty("s")
+    assert ask(TtyApprover(tty.open, timeout=0.4)) == "timeout"
+    tty.close()
