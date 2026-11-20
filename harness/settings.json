@@ -9,7 +9,13 @@
       "Bash(git log:*)",
       "Bash(date)",
       "Bash(~/.local/bin/wisp topic:*)",
+      "Bash(~/.local/bin/wisp aprender listar:*)",
       "WebSearch"
+    ],
+    "ask": [
+      "Bash(*aprender add*)",
+      "Bash(*aprender confirmar*)",
+      "Bash(*aprender descartar*)"
     ],
     "deny": [
       "Bash(rm -rf /*)",
@@ -38,6 +44,10 @@
           {
             "type": "command",
             "command": "\"$HOME\"/.local/bin/wisp hook guard-destructive"
+          },
+          {
+            "type": "command",
+            "command": "\"$HOME\"/.local/bin/wisp hook guard-lessons"
           }
         ]
       }
@@ -59,6 +69,11 @@
           {
             "type": "command",
             "command": "\"$HOME\"/.local/bin/wisp hook boot"
+          },
+          {
+            "type": "command",
+            "command": "\"$HOME\"/.local/bin/wisp hook aprendizados",
+            "timeout": 5
           }
         ]
       }
