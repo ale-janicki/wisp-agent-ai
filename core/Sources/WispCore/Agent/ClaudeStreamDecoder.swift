@@ -51,7 +51,7 @@ public enum ClaudeStreamDecoder {
                 .compactMap { $0["tool_name"] as? String }
             return [.result(
                 sessionId: object["session_id"] as? String ?? "",
-                text: object["result"] as? String ?? "",
+                text: object["result"] as? String ?? (object["errors"] as? [String])?.first ?? "",
                 isError: object["is_error"] as? Bool ?? false,
                 denials: denials
             )]

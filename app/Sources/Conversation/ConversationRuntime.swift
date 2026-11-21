@@ -38,6 +38,14 @@ final class ConversationRuntime {
     @ObservationIgnored private var answering: Set<String> = []
     @ObservationIgnored private var restartAfterTurn = false
     @ObservationIgnored private var launchedContext: AgentInstructions.Context?
+    @ObservationIgnored private var transcriptStore: TranscriptStore?
+    @ObservationIgnored private var transcriptKey: String?
+    @ObservationIgnored private var linkedSessions: Set<String> = []
+    @ObservationIgnored private var primeContext: String?
+    @ObservationIgnored private var rebuiltFrom: String?
+    @ObservationIgnored private var engineModel: String?
+    @ObservationIgnored private var inFlight: [(text: String, user: String)] = []
+    private static var transcriptFailureShown = false
 
     @ObservationIgnored private var titleGenerated: Bool
     @ObservationIgnored private var titleRequested: Bool
@@ -257,6 +265,8 @@ final class ConversationRuntime {
         sessionMode = nil
         restartAfterTurn = false
         turnsInFlight = 0
+        inFlight = []
+        primeContext = nil
         releaseTurn()
         eventTask?.cancel()
         eventTask = nil
@@ -272,6 +282,8 @@ final class ConversationRuntime {
         sessionMode = nil
         restartAfterTurn = false
         turnsInFlight = 0
+        inFlight = []
+        primeContext = nil
         waitingForTelegram = false
         eventTask?.cancel()
         eventTask = nil
@@ -400,7 +412,7 @@ final class ConversationRuntime {
         } ?? []
     }
 
-    private func deliver(_ text: String, user: String) async {
+    private func deliver(_ text: String, user: String, record: Bool = true) async {
         guard !Task.isCancelled else { return }
         var gen = generation
         do {
@@ -409,7 +421,16 @@ final class ConversationRuntime {
             mirrorUsers.append((user, Self.attachedPaths(text)))
             let active = try await ensureSession()
             guard gen == generation else { return }
-            try await active.send(text)
+            let outgoing = ConversationTranscript.prime(primeContext, prompt: text)
+            primeContext = nil
+            if record { recordUser(user) }
+            inFlight.append((text, user))
+            do {
+                try await active.send(outgoing)
+            } catch {
+                if gen == generation, !inFlight.isEmpty { inFlight.removeLast() }
+                throw error
+            }
             if gen == generation { turnsInFlight += 1 }
         } catch is CancellationError {
             return
@@ -442,8 +463,11 @@ final class ConversationRuntime {
         #if DEBUG
         log.notice("event: \(String(String(describing: event).prefix(300)), privacy: .public)")
         #endif
+        if case .claude(.result(_, let text, true, _)) = event, ConversationTranscript.isLostSession(text),
+           rebuildAfterLostSession() { return }
         let before = state.phase
         ConversationReducer.reduce(&state, event, statusPrefix: host.profile.agent.statusPrefix)
+        noteTranscript(event)
         if case .claude(.usage(let limit)) = event { host.setRateLimit(limit) }
 
         var isResult = false
@@ -461,6 +485,7 @@ final class ConversationRuntime {
             }
             logLatency()
             turnsInFlight = max(0, turnsInFlight - 1)
+            if !inFlight.isEmpty { inFlight.removeFirst() }
             let sent = mirrorUsers.isEmpty ? nil : mirrorUsers.removeFirst()
             if !isError, let sent { mirror(user: sent.user, files: sent.files) }
             if state.pendingTurns == 0 { releaseTurn() }
@@ -469,6 +494,7 @@ final class ConversationRuntime {
         if case .exited = event {
             settled = true
             turnsInFlight = 0
+            inFlight = []
             releaseTurn()
         }
         if isResult || state.phase != before { host.syncPill(for: self, result: isResult) }
@@ -483,6 +509,94 @@ final class ConversationRuntime {
             discardSession()
         }
         if settled { host.runtimeSettled() }
+    }
+
+    // MARK: Transcript
+
+    private func transcript() -> TranscriptStore {
+        let folder = WispFolder.conversations()
+        if let transcriptStore, transcriptStore.folder == folder { return transcriptStore }
+        let next = TranscriptStore(folder: folder)
+        transcriptStore = next
+        transcriptKey = nil
+        return next
+    }
+
+    private func conversationKey(_ store: TranscriptStore) -> String {
+        if let transcriptKey { return transcriptKey }
+        let key = store.find(session: state.sessionId) ?? state.sessionId ?? id.uuidString.lowercased()
+        transcriptKey = key
+        if let sessionId = state.sessionId { linkedSessions.insert(sessionId) }
+        return key
+    }
+
+    private func record(_ write: (TranscriptStore, String, String?) throws -> Void) {
+        let store = transcript()
+        let key = conversationKey(store)
+        do {
+            try write(store, key, key == state.sessionId ? key : nil)
+        } catch {
+            log.error("transcript write failed: \(error.localizedDescription, privacy: .public)")
+            guard !Self.transcriptFailureShown else { return }
+            Self.transcriptFailureShown = true
+            appendSystem("não consegui guardar a conversa na pasta do Wisp: \(error.localizedDescription)")
+        }
+    }
+
+    private func recordUser(_ text: String) {
+        record { try $0.appendUser(conversation: $1, openingSession: $2, text: text, surface: "app") }
+    }
+
+    private func noteTranscript(_ event: SessionEvent) {
+        switch event {
+        case .claude(.initialized(let sessionId, let model, _)):
+            if !model.isEmpty { engineModel = model }
+            linkSession(sessionId)
+        case .claude(.result(let sessionId, let text, false, _)):
+            linkSession(sessionId)
+            let body = ReplyFormatter.split(text, statusPrefix: host.profile.agent.statusPrefix).body
+            guard !body.isEmpty else { return }
+            let model = engineModel
+            record { try $0.appendAssistant(conversation: $1, openingSession: $2, text: body, surface: "app", engine: "claude", model: model) }
+        default:
+            break
+        }
+    }
+
+    private func linkSession(_ sessionId: String) {
+        guard !sessionId.isEmpty, transcriptKey != nil, !linkedSessions.contains(sessionId) else { return }
+        linkedSessions.insert(sessionId)
+        let reason = rebuiltFrom == nil ? "new" : "rebuilt"
+        rebuiltFrom = nil
+        guard sessionId != transcriptKey else { return }
+        record { store, key, _ in try store.link(session: sessionId, conversation: key, engine: "claude", reason: reason) }
+    }
+
+    private func rebuildAfterLostSession() -> Bool {
+        let pending = inFlight
+        let store = transcript()
+        guard !pending.isEmpty, let lost = state.sessionId,
+              let memory = store.context(
+                conversation: transcriptKey ?? store.find(session: lost), dropTrailingUsers: pending.count)
+        else { return false }
+        log.notice("resume lost; rebuilding from the Wisp transcript")
+        state.sessionId = nil
+        discardSession(keepingDeliveries: true)
+        primeContext = memory
+        rebuiltFrom = lost
+        state.pendingTurns = pending.count
+        state.phase = .thinking(step: nil)
+        appendSystem(ConversationTranscript.rebuiltNote)
+        let previous = deliveryTail
+        let deliveryId = UUID()
+        let task = Task { [weak self] in
+            await previous?.value
+            for item in pending { await self?.deliver(item.text, user: item.user, record: false) }
+            self?.deliveries[deliveryId] = nil
+        }
+        deliveries[deliveryId] = task
+        deliveryTail = task
+        return true
     }
 
     // MARK: Permissions

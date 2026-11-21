@@ -1,0 +1,7 @@
+{"at":"2026-11-20T12:00:01.000Z","engine":"claude","kind":"session","reason":"new","session":"11111111-1111-4111-8111-111111111111","v":1}
+{"at":"2026-11-20T12:00:01.000Z","kind":"user","surface":"app","text":"Oi, tudo bem?\nQuero \"ajuda\" com o café e o link https://exemplo.com/a.","v":1}
+{"at":"2026-11-20T12:00:09.250Z","engine":"claude","kind":"assistant","model":"claude-opus-4-8","surface":"app","text":"Claro! Em que posso ajudar?","v":1}
+{"at":"2026-11-20T12:05:00.000Z","kind":"user","surface":"telegram","text":"E agora pelo celular","v":1}
+{"at":"2026-11-20T12:05:07.000Z","engine":"claude","kind":"assistant","model":"claude-opus-4-8","surface":"telegram","text":"Continuamos aqui.","v":1}
+{"at":"2026-11-20T12:05:30.000Z","kind":"user","surface":"app","text":"Separa linhae fim","v":1}
+{"at":"2026-11-20T12:06:00.000Z","engine":"claude","kind":"session","reason":"rebuilt","session":"22222222-2222-4222-8222-222222222222","v":1}
