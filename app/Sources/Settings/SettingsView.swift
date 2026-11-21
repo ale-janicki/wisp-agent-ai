@@ -352,6 +352,12 @@ struct SettingsView: View {
                     .foregroundStyle(Theme.textSecondary)
             }
             Divider().overlay(Theme.stroke)
+            SettingsRow(title: "Modelo de voz", detail: SpeechModelSpec.attribution) {
+                Text("CC-BY-4.0")
+                    .font(Theme.Font.body)
+                    .foregroundStyle(Theme.textSecondary)
+            }
+            Divider().overlay(Theme.stroke)
             SettingsRow(title: "Avisos de terceiros", detail: "Licenças do SwiftTerm e do Sparkle, que vêm dentro do Wisp.") {
                 Button("Abrir avisos") {
                     for name in ["SwiftTerm-LICENSE", "Sparkle-LICENSE"] {

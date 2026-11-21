@@ -12,6 +12,9 @@ packages:
   Sparkle:
     url: https://github.com/sparkle-project/Sparkle
     exactVersion: 2.10.1
+  FluidAudio:
+    url: https://github.com/FluidInference/FluidAudio
+    exactVersion: 0.18.4
 targets:
   wisp-agenda:
     type: tool
@@ -58,6 +61,8 @@ targets:
         product: SwiftTerm
       - package: Sparkle
         product: Sparkle
+      - package: FluidAudio
+        product: FluidAudio
       - target: wisp-agenda
         embed: true
         codeSign: true
