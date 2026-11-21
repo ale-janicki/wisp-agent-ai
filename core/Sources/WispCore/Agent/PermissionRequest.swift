@@ -16,7 +16,8 @@ public struct PermissionRequest: Identifiable, Equatable, Sendable {
     public let requiresExpansion: Bool
     /// The tool input as the CLI sent it, echoed back as `updatedInput` on allow.
     public let inputJSON: String
-    /// The `addRules` suggestions that write a settings file, as a JSON array; nil when the CLI offered none.
+    /// The `addRules` suggestions that write a settings file, as a JSON array; nil when the CLI offered none
+    /// or the tool is one `EngineGuards.askTools` makes the user answer every time.
     public let persistJSON: String?
     /// The rules "Sempre permitir" adds, e.g. `Bash(touch x *)`.
     public let persistRules: [String]
@@ -47,7 +48,7 @@ public struct PermissionRequest: Identifiable, Equatable, Sendable {
         guard request["subtype"] as? String == "can_use_tool", !requestId.isEmpty else { return nil }
         let tool = request["tool_name"] as? String ?? ""
         let input = request["input"] as? [String: Any] ?? [:]
-        let persist = (request["permission_suggestions"] as? [[String: Any]] ?? []).filter(Self.persists)
+        let persist = EngineGuards.askTools.contains(tool) ? [] : (request["permission_suggestions"] as? [[String: Any]] ?? []).filter(Self.persists)
         let rules = persist.flatMap { ($0["rules"] as? [[String: Any]] ?? []).map(Self.ruleText) }
         let phrase = Self.phrase(tool: tool, input: input, home: home)
         let truncated = phrase.count > Self.summaryLimit

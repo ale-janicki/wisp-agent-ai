@@ -18,6 +18,8 @@ from . import sessao
 from . import topicos
 from . import tg_html
 from . import hosting, saude, vigilia, polling, session_lock, compartilhar, colheita
+from . import hosting, saude, vigilia, polling, session_lock, compartilhar
+from . import aprovacoes
 from .config import CURRENT as _CFG, ConfigError, _expand, config_path, load_bot_config
 from .hosting import HOST
 
@@ -640,6 +642,8 @@ async def _turno(bot, chat, thread_id: int | None, key: str, msg: str, contexto:
         base = topicos.onde_esta_hash(key) if exige else ""
         env = {"WISP_TOPIC_NOTE": nota_abs, "WISP_TOPIC_BASE": base} if exige else {}
         env["WISP_TOPIC_THREAD"] = str(thread_id or 0)
+        if thread_id is not None:
+            env["WISP_TELEGRAM_THREAD"] = str(thread_id)
         env = env or None
         parar = asyncio.Event()
         aviso_onde = ""
@@ -661,7 +665,8 @@ async def _turno(bot, chat, thread_id: int | None, key: str, msg: str, contexto:
                                    timeout=GERAL_TIMEOUT if is_geral(key) else TOPICO_TIMEOUT,
                                    extra_prompt=regra_para(key, chat.id, thread_id, nota),
                                    disallowed="",
-                                   env=env, on_event=on_event, on_text=on_text)
+                                   env=env, on_event=on_event, on_text=on_text,
+                                   on_permission=pedir_permissao(bot, chat.id, thread_id))
             if not res.ok and "dormiu no meio" in res.text:
                 async def aviso_dormiu() -> None:
                     await send(bot, chat, thread_id, "💤 Mac fechado na bateria — rodo quando abrir.")
@@ -672,12 +677,14 @@ async def _turno(bot, chat, thread_id: int | None, key: str, msg: str, contexto:
                                        cwd=topic.cwd, started=existe, model=MODELO,
                                        timeout=GERAL_TIMEOUT if is_geral(key) else TOPICO_TIMEOUT,
                                        extra_prompt=regra_para(key, chat.id, thread_id, nota),
-                                       disallowed="", env=env, on_event=on_event, on_text=on_text)
+                                       disallowed="", env=env, on_event=on_event, on_text=on_text,
+                                       on_permission=pedir_permissao(bot, chat.id, thread_id))
             if res.ok and exige and topicos.onde_esta_hash(key) == base:
                 log.warning("Onde está nao atualizado em %s: forcando", key)
                 f = await claude_run(FORCA_ONDE_ESTA.format(nota=nota_abs),
                                      session_id=topic.session_id, cwd=topic.cwd, started=True,
-                                     model=MODELO, timeout=300, env=env)
+                                     model=MODELO, timeout=300, env=env,
+                                     on_permission=pedir_permissao(bot, chat.id, thread_id))
                 if f.ok:
                     store.bump(key, f.cost_usd)
                 if topicos.onde_esta_hash(key) == base:
@@ -1080,6 +1087,26 @@ def _chat_principal() -> int | None:
     return int(sorted(ALLOWED_CHAT_IDS)[0]) if ALLOWED_CHAT_IDS else None
 
 
+_aprovacoes: aprovacoes.Aprovacoes | None = None
+
+
+def pedir_permissao(bot, chat_id: int, thread_id: int | None):
+    """O `on_permission` dos turnos do claude neste chat/topico: o pedido vira um cartao Permitir/Negar para o dono.
+    Sem o canal (bot ainda subindo) o pedido e negado pelo runner."""
+    if _aprovacoes is None:
+        return None
+    async def pedir(req: dict) -> str | None:
+        return await _aprovacoes.pedir(chat_id, thread_id, req)
+    return pedir
+
+
+async def on_aprovacao(update, context) -> None:
+    if _aprovacoes is None:
+        await update.callback_query.answer("expirou ou já respondido")
+    else:
+        await _aprovacoes.pressionou(update, context)
+
+
 async def _post_init(app) -> None:
     for t in store.all():
         nome = _CFG.system_topics.get(_thread_de(t.key))
@@ -1087,6 +1114,8 @@ async def _post_init(app) -> None:
             store.renomear(t.key, nome)
     app.bot_data["abridor"] = asyncio.create_task(abridor(app))
     app.bot_data["controlador"] = asyncio.create_task(controlador(app))
+    global _aprovacoes
+    _aprovacoes = aprovacoes.Aprovacoes(app.bot, ALLOWED_USER_ID)
 
 
 async def _ao_ativar(app, motivo: str) -> None:
@@ -1156,7 +1185,8 @@ async def fechar(bot, chat_id: int, thread_id: int, key: str) -> None:
                 res = await claude_run(RESUMO.format(brain=DEFAULT_CWD), session_id=t.session_id,
                                        cwd=t.cwd, started=True, model=MODELO,
                                        timeout=TOPICO_TIMEOUT,
-                                       extra_prompt=regra_para(key, chat_id, thread_id))
+                                       extra_prompt=regra_para(key, chat_id, thread_id),
+                                       on_permission=pedir_permissao(bot, chat_id, thread_id))
             if not res.ok:
                 await send(bot, chat, thread_id,
                            f"<b>não encerrei</b>: o resumo falhou, então o tópico fica.\n"
@@ -1636,6 +1666,7 @@ def main() -> int:
     app.add_handler(CommandHandler("cwd", _contado(cmd_cwd)))
     app.add_handler(CommandHandler("puxar", _contado(cmd_puxar)))
     app.add_handler(CallbackQueryHandler(_contado(on_puxar_botao), pattern=r"^puxar:"))
+    app.add_handler(CallbackQueryHandler(on_aprovacao, pattern=r"^aprov:"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, _contado(on_message)))
     app.add_handler(MessageHandler(filters.Document.ALL | filters.PHOTO | filters.VIDEO | filters.VIDEO_NOTE, _contado(on_attachment)))
     app.add_handler(MessageHandler(filters.COMMAND, _contado(on_passthrough)))

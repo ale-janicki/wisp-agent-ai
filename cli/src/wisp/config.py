@@ -27,6 +27,7 @@ class WispConfig:
     persona: str = "Wisp"
     language: str = "pt-BR"
     brain: str | None = None
+    wisp_dir: str = "~/Wisp"
     claude_bin: str | None = None
     brain_learn: bool = True
     telegram: TelegramConfig | None = None
@@ -52,6 +53,15 @@ def load_config(path: Path | None = None) -> WispConfig:
     data = _known(WispConfig, raw)
     data["telegram"] = TelegramConfig(**_known(TelegramConfig, telegram)) if telegram else None
     return WispConfig(**data)
+
+
+def is_unreadable(path: Path | None = None) -> bool:
+    """True when the config file exists but cannot be parsed: a step must refuse instead of saving defaults over it."""
+    try:
+        load_config(path)
+    except (ValueError, TypeError, OSError):
+        return True
+    return False
 
 
 def save_config(cfg: WispConfig, path: Path | None = None) -> None:

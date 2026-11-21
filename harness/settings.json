@@ -39,7 +39,8 @@
       "Bash(\"$WISP_BIN\" agenda permissao --pedir:*)",
       "Bash($WISP_BIN agenda permissao --pedir:*)",
       "Bash(wisp agenda permissao --pedir:*)",
-      "Bash(\"$WISP_AGENDA_BIN\" permissao --pedir:*)"
+      "Bash(\"$WISP_AGENDA_BIN\" permissao --pedir:*)",
+      "mcp__wisp-email__email_send"
     ],
     "deny": [
       "Bash(rm -rf /*)",
@@ -76,6 +77,10 @@
           {
             "type": "command",
             "command": "\"$HOME\"/.local/bin/wisp hook guard-agenda"
+          },
+          {
+            "type": "command",
+            "command": "\"$HOME\"/.local/bin/wisp hook guard-outbound"
           }
         ]
       }
