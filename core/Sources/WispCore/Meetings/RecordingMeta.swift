@@ -9,6 +9,11 @@ public enum RecordingMode: String, Codable, Equatable, Sendable {
     case call
 }
 
+public enum NoteState: String, Codable, Equatable, Sendable {
+    case generated
+    case raw
+}
+
 public struct RecordingMeta: Codable, Equatable, Sendable {
     public struct Devices: Codable, Equatable, Sendable {
         public var mic: String?
@@ -28,10 +33,16 @@ public struct RecordingMeta: Codable, Equatable, Sendable {
     public var detectedApp: String?
     public var status: RecordingStatus
     public var failure: String?
+    public var sources: RecordingSources?
+    public var title: String?
+    public var noteFile: String?
+    public var noteState: NoteState?
+    public var brainNote: String?
 
     public init(
         mode: RecordingMode = .call, startedAt: Date, durationSeconds: Double? = nil, devices: Devices,
-        detectedApp: String? = nil, status: RecordingStatus = .recording, failure: String? = nil
+        detectedApp: String? = nil, status: RecordingStatus = .recording, failure: String? = nil,
+        sources: RecordingSources? = nil, title: String? = nil
     ) {
         self.mode = mode
         self.startedAt = startedAt
@@ -40,10 +51,15 @@ public struct RecordingMeta: Codable, Equatable, Sendable {
         self.detectedApp = detectedApp
         self.status = status
         self.failure = failure
+        self.sources = sources
+        self.title = title
     }
 
     private enum CodingKeys: String, CodingKey {
-        case version, mode, devices, status, failure
+        case version, mode, devices, status, failure, sources, title
+        case noteFile = "note_file"
+        case noteState = "note_state"
+        case brainNote = "brain_note"
         case startedAt = "started_at"
         case durationSeconds = "duration_s"
         case detectedApp = "detected_app"
@@ -54,6 +70,7 @@ public enum RecordingFolder {
     public static let audioFileName = "audio.m4a"
     public static let rawAudioFileName = "audio.caf"
     public static let metaFileName = "meta.json"
+    public static let noteFileName = "nota.md"
     static let folderPermissions = 0o700
     static let filePermissions = 0o600
 
@@ -105,6 +122,7 @@ public enum RecordingFolder {
     public static func audioURL(in folder: URL) -> URL { folder.appendingPathComponent(audioFileName) }
     public static func rawAudioURL(in folder: URL) -> URL { folder.appendingPathComponent(rawAudioFileName) }
     public static func metaURL(in folder: URL) -> URL { folder.appendingPathComponent(metaFileName) }
+    public static func noteURL(in folder: URL) -> URL { folder.appendingPathComponent(noteFileName) }
 
     public static func write(_ meta: RecordingMeta, in folder: URL) throws {
         let encoder = JSONEncoder()

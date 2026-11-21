@@ -55,6 +55,7 @@ public final class MeetingRecorder: @unchecked Sendable {
     public static let defaultMinimumFreeBytes: Int64 = 1_000_000_000
     public static let defaultStopFreeBytes: Int64 = 200_000_000
     private static let pumpInterval: DispatchTimeInterval = .milliseconds(50)
+    private static let levelDecay: Float = 0.85
 
     private struct Lane {
         var frames = 0
@@ -86,6 +87,8 @@ public final class MeetingRecorder: @unchecked Sendable {
         var silence = SilenceDetector()
         var warnings: [RecordingWarning] = []
         var framesWritten = 0
+        var micLevel: Float = 0
+        var systemLevel: Float = 0
         var failure: String?
         var timer: DispatchSourceTimer?
 
@@ -108,6 +111,8 @@ public final class MeetingRecorder: @unchecked Sendable {
     private let minimumFreeBytes: Int64
     private let stopFreeBytes: Int64
     private let timeZone: TimeZone
+    private let sources: RecordingSources
+    private let onAudio: (@Sendable (AudioChannel, [Float], Double) -> Void)?
     private let writer = DispatchQueue(label: "\(AppIdentity.bundleID).meetings.writer", qos: .userInitiated)
     private var session: Session?
 
@@ -123,7 +128,9 @@ public final class MeetingRecorder: @unchecked Sendable {
         autoPump: Bool = true,
         minimumFreeBytes: Int64 = MeetingRecorder.defaultMinimumFreeBytes,
         stopFreeBytes: Int64 = MeetingRecorder.defaultStopFreeBytes,
-        timeZone: TimeZone = .current
+        timeZone: TimeZone = .current,
+        sources: RecordingSources = .both,
+        onAudio: (@Sendable (AudioChannel, [Float], Double) -> Void)? = nil
     ) {
         self.mic = mic
         self.system = system
@@ -137,6 +144,8 @@ public final class MeetingRecorder: @unchecked Sendable {
         self.minimumFreeBytes = minimumFreeBytes
         self.stopFreeBytes = stopFreeBytes
         self.timeZone = timeZone
+        self.sources = sources
+        self.onAudio = onAudio
     }
 
     public var isRecording: Bool { writer.sync { session != nil } }
@@ -158,8 +167,7 @@ public final class MeetingRecorder: @unchecked Sendable {
             guard let ending = session else { return }
             ending.timer?.cancel()
             ending.timer = nil
-            mic.stop()
-            system.stop()
+            stopSources()
             pumpOnWriter(ending, flush: true)
             session = nil
             try? ending.sink.finish()
@@ -181,6 +189,10 @@ public final class MeetingRecorder: @unchecked Sendable {
         if let failure = writer.sync(execute: { current.failure }) { return failure }
         guard let free = diskSpace.availableBytes(at: current.folder), free < stopFreeBytes else { return nil }
         return MeetingRecorderError.lowDisk(freeBytes: free).localizedDescription
+    }
+
+    public func levels() -> (mic: Float, system: Float) {
+        writer.sync { (session?.micLevel ?? 0, session?.systemLevel ?? 0) }
     }
 
     public func warnings() -> [RecordingWarning] {
@@ -209,7 +221,9 @@ public final class MeetingRecorder: @unchecked Sendable {
             throw MeetingRecorderError.sink(error.localizedDescription)
         }
         let meta = RecordingMeta(
-            startedAt: now, devices: .init(mic: mic.deviceName, system: system.deviceName), detectedApp: detectedApp
+            startedAt: now,
+            devices: .init(mic: sources.usesMic ? mic.deviceName : nil, system: sources.usesSystem ? system.deviceName : nil),
+            detectedApp: detectedApp, sources: sources
         )
         let started = Session(folder: folder, meta: meta, sink: sink)
         let begin = clock()
@@ -217,8 +231,8 @@ public final class MeetingRecorder: @unchecked Sendable {
         _ = started.systemWatch.observe(totalFrames: 0, now: begin)
         session = started
         do {
-            try mic.start(ring: started.micRing)
-            try system.start(ring: started.systemRing)
+            if sources.usesMic { try mic.start(ring: started.micRing) }
+            if sources.usesSystem { try system.start(ring: started.systemRing) }
             try RecordingFolder.write(meta, in: folder)
         } catch {
             abandon(started)
@@ -233,8 +247,7 @@ public final class MeetingRecorder: @unchecked Sendable {
         guard let ending = session else { throw MeetingRecorderError.notRecording }
         ending.timer?.cancel()
         ending.timer = nil
-        mic.stop()
-        system.stop()
+        stopSources()
         pumpOnWriter(ending, flush: true)
         session = nil
         do {
@@ -263,6 +276,11 @@ public final class MeetingRecorder: @unchecked Sendable {
         return RecordingResult(folder: ending.folder, audioURL: audio, durationSeconds: duration, failure: ending.failure)
     }
 
+    private func stopSources() {
+        if sources.usesMic { mic.stop() }
+        if sources.usesSystem { system.stop() }
+    }
+
     private func startTimer(for started: Session) {
         let timer = DispatchSource.makeTimerSource(queue: writer)
         timer.schedule(deadline: .now() + Self.pumpInterval, repeating: Self.pumpInterval)
@@ -277,29 +295,36 @@ public final class MeetingRecorder: @unchecked Sendable {
     private func abandon(_ failed: Session) {
         failed.timer?.cancel()
         session = nil
-        mic.stop()
-        system.stop()
+        stopSources()
         try? failed.sink.finish()
         try? FileManager.default.removeItem(at: failed.folder)
     }
 
     private func pumpOnWriter(_ current: Session, flush: Bool) {
+        var micPeak: Float = 0
+        var systemPeak: Float = 0
         while current.micRing.pop({ slot in
             let mono = current.micLane.mono(slot)
+            micPeak = max(micPeak, SignalLevel.rms(mono))
+            onAudio?(.mic, mono, slot.time)
             current.mixer.push(mic: mono, at: slot.time)
         }) {}
         while current.systemRing.pop({ slot in
             let mono = current.systemLane.mono(slot)
+            systemPeak = max(systemPeak, SignalLevel.rms(mono))
             current.silence.feed(mono)
+            onAudio?(.system, mono, slot.time)
             current.mixer.push(system: mono, at: slot.time)
         }) {}
+        current.micLevel = max(SignalLevel.normalized(rms: micPeak), current.micLevel * Self.levelDecay)
+        current.systemLevel = max(SignalLevel.normalized(rms: systemPeak), current.systemLevel * Self.levelDecay)
         let now = clock()
-        let micStalled = current.micWatch.observe(totalFrames: current.micLane.frames, now: now)
-        let systemStalled = current.systemWatch.observe(totalFrames: current.systemLane.frames, now: now)
+        let micStalled = sources.usesMic && current.micWatch.observe(totalFrames: current.micLane.frames, now: now)
+        let systemStalled = sources.usesSystem && current.systemWatch.observe(totalFrames: current.systemLane.frames, now: now)
         var raised: Set<RecordingWarning> = []
         if micStalled { raised.insert(.micStalled) }
         if systemStalled { raised.insert(.systemStalled) }
-        if current.silence.isSilent, !systemStalled { raised.insert(.systemSilent) }
+        if sources.usesSystem, current.silence.isSilent, !systemStalled { raised.insert(.systemSilent) }
         if current.micRing.overrunCount > 0 || current.systemRing.overrunCount > 0 { raised.insert(.overrun) }
         current.warnings = RecordingWarning.allCases.filter(raised.contains)
         let frames = current.mixer.pull(flush: flush)
