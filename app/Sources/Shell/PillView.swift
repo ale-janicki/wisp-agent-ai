@@ -18,10 +18,12 @@ final class FirstMouseHostingView<Content: View>: NSHostingView<Content> {
 struct PillView: View {
     @ObservedObject var controller: ShellController
     @ObservedObject private var media: NowPlayingService
+    @ObservedObject private var meetings: MeetingRecordingModel
 
     init(controller: ShellController) {
         self.controller = controller
         _media = ObservedObject(wrappedValue: controller.media)
+        _meetings = ObservedObject(wrappedValue: controller.meetings)
     }
 
     private var isPanel: Bool { controller.state == .panel }
@@ -211,7 +213,9 @@ extension PillView {
 
     private var statusWing: some View {
         HStack(spacing: 5) {
-            if media.isPlaying, controller.statusColor == .ok {
+            if let startedAt = meetings.startedAt {
+                RecordingIndicator(startedAt: startedAt, warns: !meetings.warnings.isEmpty)
+            } else if media.isPlaying, controller.statusColor == .ok {
                 EqualizerBars()
             }
             dot
@@ -313,5 +317,30 @@ private struct EqualizerBars: View {
             }
             .frame(height: 9, alignment: .bottom)
         }
+    }
+}
+
+private struct RecordingIndicator: View {
+    let startedAt: Date
+    let warns: Bool
+
+    var body: some View {
+        HStack(spacing: 3) {
+            Circle()
+                .fill(warns ? Theme.busy : Theme.error)
+                .frame(width: 6, height: 6)
+                .shadow(color: (warns ? Theme.busy : Theme.error).opacity(0.6), radius: 3)
+                .phaseAnimator([1.0, 0.35]) { dot, opacity in
+                    dot.opacity(opacity)
+                } animation: { _ in .easeInOut(duration: 0.8) }
+            TimelineView(.periodic(from: startedAt, by: 1)) { context in
+                Text(ElapsedFormat.clock(context.date.timeIntervalSince(startedAt)))
+                    .font(.system(size: 9, weight: .medium, design: .monospaced))
+                    .foregroundStyle(Theme.textPrimary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+            }
+        }
+        .accessibilityLabel(warns ? "Gravando reunião, com aviso" : "Gravando reunião")
     }
 }

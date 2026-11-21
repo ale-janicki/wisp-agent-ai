@@ -100,4 +100,6 @@ targets:
         LSMinimumSystemVersion: "15.0"
         NSCalendarsFullAccessUsageDescription: "O Wisp lê e cria os compromissos da sua agenda quando você pede."
         NSRemindersFullAccessUsageDescription: "O Wisp lê e cria os seus lembretes quando você pede."
+        NSMicrophoneUsageDescription: "O Wisp grava o seu microfone quando você clica em gravar uma reunião."
+        NSAudioCaptureUsageDescription: "O Wisp grava o áudio do Mac (a outra ponta da call) quando você clica em gravar uma reunião."
         NSAppleEventsUsageDescription: "O Wisp mostra e controla a música que está tocando no Spotify ou no Music."
