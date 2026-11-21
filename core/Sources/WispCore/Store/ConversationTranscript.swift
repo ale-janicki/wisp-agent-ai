@@ -120,35 +120,6 @@ public enum ConversationTranscript {
     }
 }
 
-public enum WispFolder {
-    public static func configURL(environment: [String: String], home: URL) -> URL {
-        if let explicit = environment["WISP_CONFIG"], !explicit.isEmpty {
-            return URL(fileURLWithPath: (explicit as NSString).expandingTildeInPath)
-        }
-        let base = environment["XDG_CONFIG_HOME"].flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0, isDirectory: true) }
-            ?? home.appendingPathComponent(".config", isDirectory: true)
-        return base.appendingPathComponent("wisp/wisp.json")
-    }
-
-    public static func directory(
-        environment: [String: String] = ProcessInfo.processInfo.environment,
-        home: URL = FileManager.default.homeDirectoryForCurrentUser
-    ) -> URL {
-        let data = try? Data(contentsOf: configURL(environment: environment, home: home))
-        let raw = data.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
-        let path = (raw?["wisp_dir"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "~/Wisp"
-        let expanded = path == "~" || path.hasPrefix("~/") ? home.path + path.dropFirst() : path
-        return URL(fileURLWithPath: expanded, isDirectory: true)
-    }
-
-    public static func conversations(
-        environment: [String: String] = ProcessInfo.processInfo.environment,
-        home: URL = FileManager.default.homeDirectoryForCurrentUser
-    ) -> URL {
-        directory(environment: environment, home: home).appendingPathComponent("conversas", isDirectory: true)
-    }
-}
-
 public final class TranscriptStore: @unchecked Sendable {
     public enum StoreError: Error, LocalizedError {
         case invalidId(String)

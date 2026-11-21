@@ -22,18 +22,21 @@ Entries are in descending chronological order (newest first).
 - A recording recovered after a crash is transcribed and gets its note like any other.
 - Hardening: the note engine runs with no tools, no MCP servers and no hooks in a temp folder; the transcript is fenced as data; a long transcript keeps its start and end and says the middle was omitted; one note per meeting at a time (lock file), and quitting or cancelling stops the note process. Silence on the Mac channel only shows a hint during that recording and is never remembered as a denied permission. The model is re-checked by SHA-256 on load, swapped in atomically, and its manifest paths are validated. The FluidAudio license ships with the app (Ajustes > Sobre > Avisos de terceiros) and the package is pinned by commit. Only one speech model is resident in memory at a time. A heavy live recording shows "Transcrição atrasada" instead of dropping text, the final pass waits while you record, and live times share one clock. The brain index line is sanitized and a symlinked `meetings` folder outside the brain is refused. The model's CC-BY-4.0 attribution is on the download card and in Ajustes > Sobre.
 - `meta.json` now records `sources`, `title`, `note_file`, `note_state` and `brain_note`.
+- Wisp folder for the whole product: `conversas/`, `reunioes/`, `brain/`, `modelos/` (local models), `anexos/`, `skills/`, `ferramentas/`, `logs/`, `agente.md`, `guardrails.toml` and `modelos.toml` under one folder, resolved the same way by the app, the CLI and the Telegram bot (shared contract fixture). Secrets, the runtime and app state stay outside it.
+- `wisp folder migrate`: on the first launch after the update, small attachments from the app and from Telegram move into `anexos/` (large ones stay and are reported). Each item moves with an atomic no-overwrite rename, a second run finishes what a first left, if the destination exists both stay and it is reported, a `MOVIDO.txt` stays at the old place and `logs/migracao.log` is written as each item moves.
+- Ajustes > Geral offers "Mover reuniões" after the Wisp folder changes: recordings never move on their own, and the move shows progress, has no timeout and can be run again.
+- A Wisp folder upgrade keeps a non-empty `~/Wisp/brain` as the brain instead of switching to an empty one.
+- Ajustes > Geral lists the subfolders of the Wisp folder and what each holds, next to "Mostrar no Finder".
 
 ### Changed
 
 - Recall no longer stops at 3 notes. It hands the agent the strong head of the matches (notes whose title or aliases match the message, up to 8, stopping at a clear score drop) and, within the token budget, notes one wikilink away from them. Small talk injects nothing. The agent is told to call `brain_search`, `brain_read` and `brain_links` freely and to cite the notes it used as `[[wikilinks]]`. The brain-scope guard, once-per-session offering and fail-open behavior are unchanged.
 
+- The default brain is `brain/` inside the Wisp folder, and meetings are recorded in its `reunioes/`, wherever the folder is. The Telegram bot's log goes to `logs/bot.log` the next time the Telegram step installs the job.
+
 ## [0.3.1] - 2026-11-21
 
 - Version 0.3.1 (build 6).
-
-### Fixed
-
-- Runtime install: `uv sync` can no longer hang the app. uv is killed only after 3 minutes without output or cache growth (a slow download is never cut off), runs with `UV_LOCK_TIMEOUT`, is retried once on a lock wait or a stall, and a failure names the last step reached with "Tentar de novo". Only uv's own lock messages count as a lock problem.
 
 ## [0.3.0] - 2026-11-21
 

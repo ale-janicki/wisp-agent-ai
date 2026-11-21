@@ -97,8 +97,8 @@ final class MeetingCaptureTests: XCTestCase {
 
     func testDefaultRootIsWispReunioesAndConfiguredPathWins() {
         let home = URL(fileURLWithPath: "/Users/x")
-        XCTAssertEqual(RecordingFolder.root(configured: nil, home: home).path, "/Users/x/Wisp/reunioes")
-        XCTAssertEqual(RecordingFolder.root(configured: "  ", home: home).path, "/Users/x/Wisp/reunioes")
+        XCTAssertEqual(RecordingFolder.root(configured: nil, environment: [:], home: home).path, "/Users/x/Wisp/reunioes")
+        XCTAssertEqual(RecordingFolder.root(configured: "  ", environment: [:], home: home).path, "/Users/x/Wisp/reunioes")
         XCTAssertEqual(RecordingFolder.root(configured: "~/Gravacoes", home: home).path, "/Users/x/Gravacoes")
         XCTAssertEqual(RecordingFolder.root(configured: "/Volumes/hd/rec", home: home).path, "/Volumes/hd/rec")
     }

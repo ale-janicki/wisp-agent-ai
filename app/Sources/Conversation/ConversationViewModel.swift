@@ -214,8 +214,7 @@ final class ConversationViewModel {
         if let folder = profile.blocks?.telegram?.attachments, !folder.isEmpty {
             return URL(fileURLWithPath: expandTilde(folder), isDirectory: true)
         }
-        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        return support.appendingPathComponent("Wisp/anexos", isDirectory: true)
+        return WispFolder.layout().anexos
     }
 
     private func deleteStaged(_ paths: [String]) {
