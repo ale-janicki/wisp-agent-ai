@@ -7,7 +7,7 @@ What Wisp installs into a new user's `~/.claude`, and what it leaves out. Source
 | Source | Destination | Scrubbed |
 |---|---|---|
 | `kit/CLAUDE.md` + `harness/CLAUDE.md` (memory rules) | `claude-md-block.md` | Rewritten in English; persona, user, brain path and language became placeholders; markers `wisp:begin/end` added; dropped the marketing and finance routing, the fixed vault name, and the author's routing table |
-| (new) | `settings.json` | Fragment with only `permissions` and `hooks`; hooks call `wisp hook` (`guard-secrets`, `guard-telegram`, `guard-destructive`, `boot`, `brain-commit`), never an interpreter. The three guards also run without this harness: the app and the bot pass them to every `claude` they start with `--settings` |
+| (new) | `settings.json` | Fragment with only `permissions` and `hooks`; hooks call `wisp hook` (`guard-secrets`, `guard-telegram`, `guard-destructive`, `boot`, `recall`, `brain-commit`), never an interpreter. The three guards also run without this harness: the app and the bot pass them to every `claude` they start with `--settings` |
 | `harness/agents/reader.md` | `agents/reader.md` | Owner and ecosystem name became `{{PERSONA_NAME}}'s harness` |
 | `harness/agents/operator.md` | `agents/operator.md` | Same; dropped the engineering-standard path; owner became `{{USER_NAME}}` |
 | `harness/agents/reviewer.md` | `agents/reviewer.md` | Same; dropped the pointer to the end-to-end reviewer |

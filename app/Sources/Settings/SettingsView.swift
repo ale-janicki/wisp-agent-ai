@@ -114,6 +114,7 @@ struct SettingsView: View {
             IntegrationsPane(media: media)
         case .general:
             general
+            brain
             updates
         case .about:
             about
@@ -209,6 +210,31 @@ struct SettingsView: View {
             }
         }
         .onAppear { login.refresh() }
+    }
+
+    private var brain: some View {
+        let model = BrainSettingsModel.shared
+        return SettingsGroup(title: "Brain") {
+            SettingsRow(
+                title: "Pasta do brain",
+                detail: model.profileIsLink ? "\(model.displayFolder)\nO perfil é gerenciado fora do Wisp: ajuste o caminho da memória nele." : model.displayFolder
+            ) {
+                Button("Alterar…") { model.chooseFolder() }
+                    .buttonStyle(CapsuleButtonStyle(kind: .ghost))
+            }
+            Divider().overlay(Theme.stroke)
+            ToggleRow(
+                title: "Aprender com as conversas",
+                detail: "Depois de 30 min sem mensagens, o Wisp guarda no brain o que a conversa teve de importante. Usa o seu plano.",
+                isOn: model.learns
+            ) { model.setLearns($0) }
+            if let error = model.error {
+                Text(error)
+                    .font(Theme.Font.caption)
+                    .foregroundStyle(Theme.error)
+            }
+        }
+        .onAppear { model.refresh() }
     }
 
     private func loginSentence(_ login: LoginItemModel) -> String {

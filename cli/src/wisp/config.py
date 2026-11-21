@@ -28,6 +28,7 @@ class WispConfig:
     language: str = "pt-BR"
     brain: str | None = None
     claude_bin: str | None = None
+    brain_learn: bool = True
     telegram: TelegramConfig | None = None
     telegram_token_at: int | None = None
 
