@@ -285,6 +285,37 @@ def test_a_runtime_python_is_allowed_by_its_resolved_and_its_framework_path(monk
     assert os.path.join(os.path.realpath(runtime), "py", gate.FRAMEWORK_PYTHON) in found
 
 
+def test_the_installed_runtime_layout_accepts_the_interpreter_the_wisp_entry_point_runs_on(monkeypatch, tmp_path):
+    runtime = tmp_path / ".local/share/wisp/runtime"
+    interpreter = runtime / "python/cpython-3.13.17-macos-aarch64-none/bin/python3.13"
+    interpreter.parent.mkdir(parents=True)
+    interpreter.write_text("")
+    bin_dir = runtime / "venv/bin"
+    bin_dir.mkdir(parents=True)
+    (bin_dir / "python").symlink_to(runtime / "python/cpython-3.13-macos-aarch64-none/bin/python3.13")
+    (runtime / "python/cpython-3.13-macos-aarch64-none").symlink_to(runtime / "python/cpython-3.13.17-macos-aarch64-none")
+    (bin_dir / "python3").symlink_to("python")
+    (bin_dir / "python3.13").symlink_to("python")
+    (bin_dir / "wisp").write_text(f"#!{bin_dir / 'python'}\n")
+    _fake_home(monkeypatch, tmp_path)
+    found = gate._host_executables()
+    assert os.path.realpath(interpreter) in found
+
+
+def test_this_machines_runtime_interpreter_is_an_accepted_host():
+    home = gate.pwd.getpwuid(os.getuid()).pw_dir
+    python = os.path.join(home, gate.RUNTIME_ROOT, "venv/bin/python")
+    if not os.path.exists(python):
+        pytest.skip("no installed Wisp runtime on this machine")
+    proc = subprocess.Popen([python, "-c", "import time; time.sleep(5)"])
+    try:
+        exe = gate._exe_of(proc.pid)
+    finally:
+        proc.kill()
+        proc.wait()
+    assert os.path.realpath(exe) in gate._host_executables()
+
+
 def test_a_venv_python_link_to_a_python_outside_the_runtime_is_refused(monkeypatch, tmp_path):
     bin_dir = tmp_path / ".local/share/wisp/runtime/venv/bin"
     outside = tmp_path / "system/bin"
