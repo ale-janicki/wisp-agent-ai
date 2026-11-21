@@ -74,13 +74,19 @@ public enum RecordingFolder {
     static let folderPermissions = 0o700
     static let filePermissions = 0o600
 
-    public static func defaultRoot(home: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL {
-        home.appendingPathComponent("Wisp", isDirectory: true).appendingPathComponent("reunioes", isDirectory: true)
+    public static func defaultRoot(
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        home: URL = FileManager.default.homeDirectoryForCurrentUser
+    ) -> URL {
+        WispFolder.layout(environment: environment, home: home).reunioes
     }
 
-    public static func root(configured: String?, home: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL {
+    public static func root(
+        configured: String?, environment: [String: String] = ProcessInfo.processInfo.environment,
+        home: URL = FileManager.default.homeDirectoryForCurrentUser
+    ) -> URL {
         let trimmed = configured?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        guard !trimmed.isEmpty else { return defaultRoot(home: home) }
+        guard !trimmed.isEmpty else { return defaultRoot(environment: environment, home: home) }
         if trimmed == "~" { return home }
         if trimmed.hasPrefix("~/") { return home.appendingPathComponent(String(trimmed.dropFirst(2)), isDirectory: true) }
         return URL(fileURLWithPath: trimmed, isDirectory: true)

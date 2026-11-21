@@ -807,7 +807,7 @@ async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     await processa(update, ctx, msg, contexto_resposta(update.effective_message))
 
 
-ANEXOS_DIR = hosting.DIR / "anexos"
+ANEXOS_DIR = _CFG.anexos
 ANEXO_JANELA = 3.0
 ANEXO_SEM_TEXTO = "(sem texto — veja o que é e me diga)"
 ANEXO_FOTO = (".jpg", ".jpeg", ".png", ".webp")

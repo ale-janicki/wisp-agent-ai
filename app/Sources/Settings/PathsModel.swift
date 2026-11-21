@@ -16,6 +16,12 @@ final class PathsModel {
     private(set) var hasWispDir = false
     private(set) var busy = false
     private(set) var errors: [Key: String] = [:]
+    private(set) var pendingMeetings = 0
+    private(set) var meetingsMove: MeetingsMove = .idle
+
+    enum MeetingsMove: Equatable {
+        case idle, moving(done: Int, total: Int), finished(String), failed(String)
+    }
 
     @ObservationIgnored private let layout = RuntimeLayout(
         bundle: Bundle.main.bundleURL, home: FileManager.default.homeDirectoryForCurrentUser)
@@ -33,7 +39,11 @@ final class PathsModel {
         WispFolder.configURL(environment: environment, home: FileManager.default.homeDirectoryForCurrentUser)
     }
 
+    @ObservationIgnored private var meetingsStream: LineStream?
+
     func refresh() {
+        pendingMeetings = WispFolder.pendingMeetings(
+            environment: environment, home: FileManager.default.homeDirectoryForCurrentUser)
         guard let data = try? Data(contentsOf: configURL),
               let raw = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
         hasWispDir = raw["wisp_dir"] is String
@@ -41,13 +51,11 @@ final class PathsModel {
         brain = raw["brain"] as? String
     }
 
-    /// The configured path, or the default the CLI falls back to: `~/Wisp`, and `~/Wisp/brain` for the brain whatever
-    /// the Wisp folder is (`setup/brain.py: DEFAULT_REL` is relative to home, not to `wisp_dir`).
     func path(_ key: Key) -> (text: String, isDefault: Bool) {
         switch key {
         case .wispDir: (wispDir, wispDir == "~/Wisp" && !hasWispDir)
         case .brain:
-            if let brain { (brain, false) } else { ("~/Wisp/brain", true) }
+            if let brain { (brain, false) } else { ("\(wispDir)/brain", true) }
         }
     }
 
@@ -74,6 +82,45 @@ final class PathsModel {
         panel.directoryURL = url(key)
         guard panel.runModal() == .OK, let picked = panel.url else { return }
         change(key, to: picked.path)
+    }
+
+    func moveMeetings() {
+        guard meetingsStream == nil else { return }
+        let stream = LineStream()
+        meetingsStream = stream
+        meetingsMove = .moving(done: 0, total: pendingMeetings)
+        let executable = layout.wisp
+        let environment = environment
+        Task {
+            let outcome = Outcome()
+            let result = await stream.run(
+                executable: executable, arguments: ["folder", "migrate", "--reunioes", "--json"], environment: environment
+            ) { line in
+                guard let data = line.data(using: .utf8),
+                      let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
+                if object["type"] as? String == "progress", let done = object["done"] as? Int, let total = object["total"] as? Int {
+                    Task { @MainActor in self.meetingsMove = .moving(done: done, total: total) }
+                } else if object["step"] != nil {
+                    outcome.report = (object["status"] as? String ?? "", object["summary"] as? String ?? "")
+                }
+            }
+            meetingsStream = nil
+            switch result {
+            case .failure:
+                meetingsMove = .failed("Não consegui rodar o wisp.")
+            case .success:
+                if let report = outcome.report, report.status != "failed" {
+                    meetingsMove = .finished(report.summary)
+                } else {
+                    meetingsMove = .failed(outcome.report?.summary ?? "O wisp não respondeu.")
+                }
+            }
+            refresh()
+        }
+    }
+
+    private final class Outcome: @unchecked Sendable {
+        var report: (status: String, summary: String)?
     }
 
     private func change(_ key: Key, to path: String) {

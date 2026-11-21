@@ -5,11 +5,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
-DEFAULT_BRAIN = "~/Wisp/brain"
 DEFAULT_TOPICS_REL = "wisp/topicos"
 DEFAULT_STATE_DIR = "~/.local/state/wisp/bot"
 DEFAULT_PERSONA = "Wisp"
 DEFAULT_WISP_DIR = "~/Wisp"
+SUBFOLDERS = ("conversas", "reunioes", "brain", "modelos", "anexos", "skills", "ferramentas", "logs")
 DEFAULT_CONVERSATIONS = "~/Library/Application Support/Wisp/conversations.json"
 HOSTINGS = ("solo", "pair")
 
@@ -38,6 +38,7 @@ class BotConfig:
     conversations_file: Path = Path(DEFAULT_CONVERSATIONS).expanduser()
     wisp_dir: Path = Path(DEFAULT_WISP_DIR).expanduser()
     codex_bin: str | None = None
+    anexos: Path = Path(DEFAULT_WISP_DIR).expanduser() / "anexos"
 
 
 def config_path(env: Mapping[str, str] = os.environ) -> Path:
@@ -55,6 +56,19 @@ def _expand(value: str, env: Mapping[str, str]) -> Path:
     if value == "~" or value.startswith("~/"):
         return _home(env) / value[2:]
     return Path(value)
+
+
+def folder_layout(raw: Mapping, env: Mapping[str, str]) -> dict[str, Path]:
+    wisp_dir = raw.get("wisp_dir")
+    root = _expand(wisp_dir if isinstance(wisp_dir, str) and wisp_dir else DEFAULT_WISP_DIR, env)
+    brain = raw.get("brain")
+    found = {name: root / name for name in SUBFOLDERS}
+    found["root"] = root
+    if isinstance(brain, str) and brain:
+        found["brain"] = _expand(brain, env)
+    for name in ("agente.md", "guardrails.toml", "modelos.toml"):
+        found[name] = root / name
+    return found
 
 
 def _command(value, key: str, env: Mapping[str, str]) -> list[str] | None:
@@ -122,7 +136,8 @@ def _build(raw: dict, env: Mapping[str, str], strict: bool) -> BotConfig:
     if strict and not chat_ids:
         raise ConfigError("telegram.chat_id is missing: the bot would not know its group.")
     token = _token(tg, env) if strict else ""
-    brain = _expand(str(raw.get("brain") or DEFAULT_BRAIN), env)
+    folder = folder_layout(raw, env)
+    brain = folder["brain"]
     topics_rel = str(tg.get("topics_rel") or DEFAULT_TOPICS_REL).strip("/")
     return BotConfig(
         token=token, chat_ids=chat_ids, user_id=user_id, brain=brain, topics_dir=brain / topics_rel,
@@ -133,7 +148,7 @@ def _build(raw: dict, env: Mapping[str, str], strict: bool) -> BotConfig:
         alert_cmd=_command(tg.get("alert_cmd"), "alert_cmd", env), pair=pair, system_topics=system_topics,
         user_name=str(raw.get("user_name") or "").strip(),
         conversations_file=_expand(str(tg.get("conversations_file") or DEFAULT_CONVERSATIONS), env),
-        wisp_dir=_expand(str(raw.get("wisp_dir") or DEFAULT_WISP_DIR), env),
+        wisp_dir=folder["root"], anexos=folder["anexos"],
         codex_bin=raw.get("codex_bin") or None)
 
 

@@ -10,6 +10,7 @@ from wisp.config import TelegramConfig, WispConfig, save_config
 from wisp.doctor import BOT_LABEL
 from wisp.fsops import atomic_write, ensure_dir
 from wisp.jobs import JobManager, JobSpec, JobState
+from wisp.layout import layout_of
 from wisp.paths import WispPaths
 from wisp.report import Detail, StepReport
 from wisp.runner import Runner
@@ -59,18 +60,18 @@ def _wait_up(runner: Runner, paths: WispPaths, details: list[Detail]) -> bool:
         sleep(UP_POLL_S)
 
 
-def _job_spec(paths: WispPaths) -> JobSpec:
+def _job_spec(paths: WispPaths, cfg: WispConfig) -> JobSpec:
     return JobSpec(
         label=BOT_LABEL,
         program=[str(paths.runtime / "venv/bin/wisp-bot")],
         env={"WISP_CONFIG": str(_config_path(paths)), "PATH": f"{paths.bin}:/opt/homebrew/bin:/usr/bin:/bin"},
-        log_path=paths.state / "bot" / "bot.log",
+        log_path=layout_of(cfg, paths.home).logs / "bot.log",
     )
 
 
-def _start_bot(runner: Runner, paths: WispPaths, jobs: JobManager) -> tuple[bool, list[Detail]]:
+def _start_bot(runner: Runner, paths: WispPaths, jobs: JobManager, cfg: WispConfig) -> tuple[bool, list[Detail]]:
     """(Re)installs the job (bootout, then bootstrap) and waits for the bot to answer."""
-    details = jobs.install(_job_spec(paths))
+    details = jobs.install(_job_spec(paths, cfg))
     return _wait_up(runner, paths, details), details
 
 
@@ -92,7 +93,7 @@ def _store_token(
     save_config(cfg, _config_path(paths))
     username = str(bot.get("username", ""))
     if cfg.telegram is not None:
-        up, details = _start_bot(runner, paths, jobs)
+        up, details = _start_bot(runner, paths, jobs, cfg)
         if not up:
             return StepReport(STEP, "failed", "troquei o token, mas o bot não respondeu a tempo", details, {"bot": username})
         return StepReport(STEP, "done", "token trocado e bot reiniciado", details, {"bot": username})
@@ -136,7 +137,7 @@ def _verify(runner: Runner, paths: WispPaths, cfg: WispConfig, jobs: JobManager)
         return StepReport(STEP, "skipped", "o Telegram já está configurado e conectado")
     if not Path(cfg.telegram.token_file).expanduser().is_file():
         return StepReport(STEP, "failed", "falta o token do bot; envie o token de novo", data={"job": state.value})
-    up, details = _start_bot(runner, paths, jobs)
+    up, details = _start_bot(runner, paths, jobs, cfg)
     if not up:
         return StepReport(STEP, "failed", "reiniciei o bot, mas ele não respondeu a tempo", details, {"job": state.value})
     return StepReport(STEP, "done", "o bot voltou a rodar", details)
@@ -147,7 +148,7 @@ def _discover(runner, paths, cfg, api_factory, jobs: JobManager) -> StepReport:
     if not token_file.is_file():
         return StepReport(STEP, "failed", "falta o token do bot; envie o token primeiro")
     profile = paths.config / "profile.json"
-    block_args = (profile, str(paths.bin / "wisp"), str(paths.state / "bot" / "anexos"))
+    block_args = (profile, str(paths.bin / "wisp"), str(layout_of(cfg, paths.home).anexos))
     names = {"name": cfg.persona or "Wisp", "language": cfg.language or "pt-BR"}
     try:
         render_telegram_block(*block_args, **names)
@@ -167,7 +168,7 @@ def _discover(runner, paths, cfg, api_factory, jobs: JobManager) -> StepReport:
         chat_id=found["chat_id"], user_id=found["user_id"], token_file=str(token_file), state_dir=str(paths.state / "bot")
     )
     save_config(cfg, _config_path(paths))
-    up, details = _start_bot(runner, paths, jobs)
+    up, details = _start_bot(runner, paths, jobs, cfg)
     problem = None if up else "o bot não respondeu a tempo; nada ficou configurado, tente de novo"
     if up:
         try:
