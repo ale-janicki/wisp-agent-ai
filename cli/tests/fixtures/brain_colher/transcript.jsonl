@@ -1,0 +1,12 @@
+{"type": "mode", "mode": "x"}
+{"type": "user", "isSidechain": false, "message": {"role": "user", "content": "[contexto do bot] historico anterior"}}
+{"type": "user", "isSidechain": false, "message": {"role": "user", "content": "Prefiro respostas curtas e sempre em portugues"}}
+{"type": "assistant", "isSidechain": false, "message": {"role": "assistant", "content": [{"type": "thinking", "thinking": "x"}, {"type": "text", "text": "Anotado, respostas curtas."}]}}
+{"type": "assistant", "isSidechain": false, "message": {"role": "assistant", "content": [{"type": "tool_use", "id": "t1", "name": "Read", "input": {}}]}}
+{"type": "user", "isSidechain": false, "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t1", "content": "segredo"}]}}
+{"type": "user", "isSidechain": false, "message": {"role": "user", "content": "[Image: original 100x100]"}, "isMeta": true}
+{"type": "user", "isSidechain": false, "message": {"role": "user", "content": "<command-name>/clear</command-name>"}}
+{"type": "user", "isSidechain": false, "message": {"role": "user", "content": "Decidimos usar Postgres no projeto Atlas"}}
+{"type": "assistant", "isSidechain": false, "message": {"role": "assistant", "content": [{"type": "thinking", "thinking": "x"}, {"type": "text", "text": "Registrado: Atlas usa Postgres."}]}}
+{"type": "user", "isSidechain": false, "message": {"role": "user", "content": "Lembra de renovar o dominio ate sexta"}}
+{"type": "assistant", "isSidechain": false, "message": {"role": "assistant", "content": [{"type": "thinking", "thinking": "x"}, {"type": "text", "text": "Ok, renovar dominio ate sexta."}]}}

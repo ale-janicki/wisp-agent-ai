@@ -53,7 +53,7 @@ def test_settings_hooks_never_call_python3():
 def test_settings_fragment_is_valid_json_with_only_known_keys():
     settings = json.loads((HARNESS / "settings.json").read_text())
     assert set(settings) <= {"permissions", "hooks"}
-    assert set(settings["hooks"]) == {"PreToolUse", "SessionStart", "Stop"}
+    assert set(settings["hooks"]) == {"PreToolUse", "UserPromptSubmit", "SessionStart", "Stop"}
     assert "Bash(sudo *)" in settings["permissions"]["deny"]
 
 

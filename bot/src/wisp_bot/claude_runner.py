@@ -37,12 +37,14 @@ WISP_BIN = str(Path(sys.executable).parent / "wisp")
 
 GUARD_MATCHER = "Bash|Read|Edit|MultiEdit|Write|NotebookEdit|Grep|Glob"
 GUARD_HOOKS = ("guard-secrets", "guard-telegram", "guard-destructive")
+RECALL_TIMEOUT = 5
 
 
 def guard_settings(wisp_bin: str) -> dict:
     quoted = "'" + wisp_bin.replace("'", "'\\''") + "'"
     hooks = [{"type": "command", "command": f"{quoted} hook {name}"} for name in GUARD_HOOKS]
-    return {"hooks": {"PreToolUse": [{"matcher": GUARD_MATCHER, "hooks": hooks}]}}
+    recall = [{"type": "command", "command": f"{quoted} hook recall", "timeout": RECALL_TIMEOUT}]
+    return {"hooks": {"PreToolUse": [{"matcher": GUARD_MATCHER, "hooks": hooks}], "UserPromptSubmit": [{"hooks": recall}]}}
 
 
 def guard_settings_path() -> Path:

@@ -17,7 +17,7 @@ from . import ctl
 from . import sessao
 from . import topicos
 from . import tg_html
-from . import hosting, saude, vigilia, polling, session_lock, compartilhar
+from . import hosting, saude, vigilia, polling, session_lock, compartilhar, colheita
 from .config import CURRENT as _CFG, ConfigError, _expand, config_path, load_bot_config
 from .hosting import HOST
 
@@ -1667,9 +1667,11 @@ async def _viver(app) -> None:
         async def _avisar_geral(texto: str) -> None:
             await app.bot.send_message(_chat_principal(), texto)
         canario = asyncio.create_task(saude.vigiar(_avisar_geral, parar))
+        colhedor = asyncio.create_task(colheita.vigiar(parar))
         await asyncio.wait([vida, asyncio.create_task(parar.wait())],
                            return_when=asyncio.FIRST_COMPLETED)
         canario.cancel()
+        colhedor.cancel()
         if vida.done() and vida.exception():
             log.error("hosting morreu: %r", vida.exception())
         vida.cancel()

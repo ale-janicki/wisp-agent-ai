@@ -3,11 +3,13 @@ import Foundation
 public enum EngineGuards {
     public static let matcher = "Bash|Read|Edit|MultiEdit|Write|NotebookEdit|Grep|Glob"
     public static let hooks = ["guard-secrets", "guard-telegram", "guard-destructive"]
+    public static let recallTimeout = 5
 
     public static func settings(wispBinary: String) -> [String: Any] {
         let quoted = "'" + wispBinary.replacingOccurrences(of: "'", with: "'\\''") + "'"
         let commands = hooks.map { ["type": "command", "command": "\(quoted) hook \($0)"] }
-        return ["hooks": ["PreToolUse": [["matcher": matcher, "hooks": commands]]]]
+        let recall: [[String: Any]] = [["type": "command", "command": "\(quoted) hook recall", "timeout": recallTimeout]]
+        return ["hooks": ["PreToolUse": [["matcher": matcher, "hooks": commands]], "UserPromptSubmit": [["hooks": recall]]]]
     }
 
     public static func install(wispBinary: String, at url: URL) throws -> URL {

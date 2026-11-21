@@ -9,6 +9,13 @@ Entries are in descending chronological order (newest first).
 
 ## [Unreleased]
 
+### Added
+
+- Recall: `wisp hook recall` (`UserPromptSubmit`) reads the user's message and, when it matches notes in the brain, hands the agent the notes' paths and snippets before it answers. A note is offered at most once per session.
+- Brain learning: `wisp brain colher [--if-due] [--dry-run] [--json]` summarizes Wisp conversations idle for 30 minutes into the brain through the model (uses the user's Claude plan). The app (launch +2 min, then every 10 min) and the Telegram bot (same cadence) call it with `--if-due`; a global lock makes concurrent callers no-ops. The `brain_learn` key in `wisp.json` (default true) turns it off.
+- Brain scope guard: `wisp hook guard-brain-scope` runs only in the harvest's model call and refuses any read, write, search or edit outside the brain folder, plus anything under its `.git` or `.obsidian`. Recall is off during the harvest, and recalled notes reach the agent framed as reference data, not instructions.
+- Settings > Geral > Brain: shows the brain folder with "Alterar…" (writes the `brain` key of `wisp.json`, keeping every other key and the file mode) and a switch "Aprender com as conversas" bound to `brain_learn`. Changing the folder also moves the profile's memory root, and the tasks file when it pointed at the old `pendencias.md`. When `profile.json` is a link the profile is left alone and the section says it is managed outside Wisp.
+
 ## [0.2.2] - 2026-11-19
 
 ### Added
