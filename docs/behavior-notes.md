@@ -92,6 +92,7 @@ Developer notes: traps, invariants and external-system quirks, grouped by module
 - `CommandRunner` replaces the whole environment when one is given: for uv always pass `RuntimeBootstrap.processEnvironment(layout, base:)`, never `uvEnvironment` alone (PATH, HOME, proxies and SSL_* would be lost).
 - Known gap: the runtime root is under `$HOME`; a home folder with a space is passed as separate argv/env values, but uv and the venv shebangs under such a path have not been run end to end.
 - `SetupState` is read and written only through `SetupState.load/save` (ISO 8601 dates), so the wizard and the gate agree.
+- Runtime sync (`RuntimeSync.run`) never has a total time cap: uv is killed (its process group) only after 3 minutes with no output and no growth of the cache, venv, python or tmp folders (`tmp` is the runtime's own `TMPDIR` for uv, so a silent sdist build still counts as progress), so a slow download is never cut off. `UV_LOCK_TIMEOUT` makes uv give up a held lock on its own; a lock failure is recognised only by uv's own wait messages, never by a generic error. A lock wait or a stall is retried once, and a failure ends with "Último passo: ..." naming the last step reached.
 
 ## app
 

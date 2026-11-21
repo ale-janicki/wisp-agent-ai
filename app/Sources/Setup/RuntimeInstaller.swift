@@ -75,7 +75,7 @@ final class RuntimeInstaller {
     }
 
     nonisolated private static func installIfNeeded(
-        layout: RuntimeLayout, bundled: String?, base: [String: String], progress: @Sendable (String) -> Void
+        layout: RuntimeLayout, bundled: String?, base: [String: String], progress: @escaping @Sendable (String) -> Void
     ) -> Outcome {
         let fm = FileManager.default
         do {
@@ -119,7 +119,7 @@ final class RuntimeInstaller {
     }
 
     nonisolated private static func fullInstall(
-        layout: RuntimeLayout, version: String, environment: [String: String], progress: @Sendable (String) -> Void
+        layout: RuntimeLayout, version: String, environment: [String: String], progress: @escaping @Sendable (String) -> Void
     ) -> String? {
         let fm = FileManager.default
         progress("Copiando os arquivos")
@@ -144,16 +144,13 @@ final class RuntimeInstaller {
         } catch {
             return "Não consegui preparar o instalador: \(error.localizedDescription)"
         }
-        switch CommandRunner.run(
-            executable: uv, arguments: RuntimeBootstrap.uvArguments(layout), environment: environment, timeout: 1200)
+        try? fm.createDirectory(at: layout.root.appendingPathComponent("tmp", isDirectory: true), withIntermediateDirectories: true)
+        if let failure = RuntimeSync.run(
+            executable: uv, arguments: RuntimeBootstrap.uvArguments(layout), environment: environment,
+            watch: RuntimeSync.watchedFolders(layout.root, venv: layout.venv),
+            onStep: { step in progress(step.prefix(1).uppercased() + step.dropFirst()) })
         {
-        case .failure(let error):
-            return "Não consegui rodar o instalador: \(error)"
-        case .success(let output):
-            if output.timedOut { return "A instalação demorou demais. Confira a internet e tente de novo." }
-            if output.status != 0 {
-                return lastLine(output.stderr) ?? "A instalação falhou (código \(output.status))."
-            }
+            return failure
         }
 
         progress("Instalando o comando wisp")

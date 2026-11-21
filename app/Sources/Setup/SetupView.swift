@@ -34,6 +34,7 @@ extension SetupStepID {
 enum RuntimeFailure {
     static func describe(_ text: String) -> (sentence: String, detail: String?) {
         let lower = text.lowercased()
+        if text == RuntimeSync.lockFailure { return (text, nil) }
         let markers = [
             "dns", "network", "offline", "internet", "connection", "connect", "resolve", "lookup", "timed out",
             "error sending request", "failed to fetch", "failed to download", "tcp",
@@ -173,7 +174,7 @@ private struct PreparingPane: View {
                 Text(failure.sentence)
                     .font(Theme.Font.body)
                     .foregroundStyle(Theme.busy)
-                Button("tentar de novo", action: retry)
+                Button("Tentar de novo", action: retry)
                     .buttonStyle(CapsuleButtonStyle())
                 if let raw = failure.detail {
                     StepDetailsView(

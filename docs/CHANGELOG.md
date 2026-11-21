@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Entries are in descending chronological order (newest first).
 
+## [0.3.1] - 2026-11-21
+
+- Version 0.3.1 (build 6).
+
+### Fixed
+
+- Runtime install: `uv sync` can no longer hang the app. uv is killed only after 3 minutes without output or cache growth (a slow download is never cut off), runs with `UV_LOCK_TIMEOUT`, is retried once on a lock wait or a stall, and a failure names the last step reached with "Tentar de novo". Only uv's own lock messages count as a lock problem.
+
 ## [0.3.0] - 2026-11-21
 
 - Version 0.3.0 (build 5).
