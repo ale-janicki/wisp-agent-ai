@@ -7,7 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Entries are in descending chronological order (newest first).
 
-## [Unreleased]
+## [0.3.0] - 2026-11-21
+
+- Version 0.3.0 (build 5).
 
 ### Added
 
