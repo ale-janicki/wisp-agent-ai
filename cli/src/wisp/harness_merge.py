@@ -14,6 +14,7 @@ END = "<!-- wisp:end -->"
 TREE_DIRS = ("agents", "skills", "commands")
 BACKUP_ITEMS = ("CLAUDE.md", "settings.json", "agents", "commands", "skills", "hooks")
 PERMISSION_LISTS = ("allow", "deny", "ask")
+REVOKED_ALLOW = ("Bash(~/.local/bin/wisp aprender add:*)",)
 
 
 @dataclass
@@ -103,6 +104,13 @@ def _merge_permissions(merged: dict, ours: dict, notes: list[str]) -> None:
             notes.append(f"permissions.{key}: mantido o valor do usuário")
 
 
+def _revoke_allow(merged: dict) -> None:
+    permissions = merged.get("permissions")
+    allow = permissions.get("allow") if isinstance(permissions, dict) else None
+    if isinstance(allow, list):
+        allow[:] = [rule for rule in allow if rule not in REVOKED_ALLOW]
+
+
 def _merge_hooks(merged: dict, ours: dict, notes: list[str]) -> None:
     if "hooks" not in merged:
         merged["hooks"] = copy.deepcopy(ours)
@@ -127,6 +135,7 @@ def merge_settings(user: dict, ours: dict) -> tuple[dict, list[str]]:
     for key, value in ours.items():
         if key == "permissions":
             _merge_permissions(merged, value, notes)
+            _revoke_allow(merged)
         elif key == "hooks":
             _merge_hooks(merged, value, notes)
         elif key not in merged:

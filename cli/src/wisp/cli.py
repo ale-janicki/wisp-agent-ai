@@ -8,6 +8,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 from wisp import __version__
+from wisp.aprendizados import add_parser as add_aprender_parser, hook_aprendizados, run as run_aprender
 from wisp.brain_colher import main as run_brain_colher
 from wisp.config import WispConfig, load_config
 from wisp.doctor import run_doctor
@@ -15,6 +16,7 @@ from wisp.fsops import OutsideHome
 from wisp.jobs import NotSupportedHere, manager_for
 from wisp.guard_brain_scope import hook_guard_brain_scope
 from wisp.guard_destructive import hook_guard_destructive
+from wisp.guard_lessons import hook_guard_lessons
 from wisp.hooks import hook_boot, hook_brain_commit, hook_guard_secrets, hook_guard_telegram
 from wisp.paths import WispPaths
 from wisp.recall import hook_recall
@@ -153,6 +155,20 @@ def _guard_destructive() -> int:
     return 0
 
 
+def _guard_lessons() -> int:
+    try:
+        payload = json.load(sys.stdin)
+        cfg, _ = _load_config_or_default()
+        reason = hook_guard_lessons(payload if isinstance(payload, dict) else {}, WispPaths.current(), cfg)
+    except Exception as e:
+        print(f"wisp-guard: hook guard-lessons failed ({type(e).__name__})", file=sys.stderr)
+        return 2
+    if reason:
+        print(reason, file=sys.stderr)
+        return 2
+    return 0
+
+
 def _guard_brain_scope() -> int:
     try:
         payload = json.load(sys.stdin)
@@ -178,6 +194,18 @@ def _recall() -> int:
     return 0
 
 
+def _aprendizados() -> int:
+    try:
+        payload = json.load(sys.stdin)
+        cfg, _ = _load_config_or_default()
+        out = hook_aprendizados(cfg, str(Path(sys.executable).parent / "wisp"), WispPaths.current(), payload if isinstance(payload, dict) else {})
+        if out:
+            sys.stdout.write(out)
+    except Exception:
+        pass
+    return 0
+
+
 def _brain_colher(args: argparse.Namespace) -> int:
     flags = [flag for flag, on in (("--if-due", args.if_due), ("--dry-run", args.dry_run), ("--json", args.json)) if on]
     return run_brain_colher(flags)
@@ -186,12 +214,16 @@ def _brain_colher(args: argparse.Namespace) -> int:
 def _hook(args: argparse.Namespace) -> int:
     if args.which == "recall":
         return _recall()
+    if args.which == "aprendizados":
+        return _aprendizados()
     if args.which == "guard-secrets":
         return _guard_secrets()
     if args.which == "guard-telegram":
         return _guard_telegram()
     if args.which == "guard-destructive":
         return _guard_destructive()
+    if args.which == "guard-lessons":
+        return _guard_lessons()
     if args.which == "guard-brain-scope":
         return _guard_brain_scope()
     try:
@@ -242,6 +274,7 @@ def build_parser() -> argparse.ArgumentParser:
     shim = steps.add_parser("shim")
     shim.add_argument("--json", action="store_true")
     add_topic_parser(sub)
+    add_aprender_parser(sub)
     brain_cmd = sub.add_parser("brain")
     brain_steps = brain_cmd.add_subparsers(dest="brain_action", required=True)
     colher = brain_steps.add_parser("colher")
@@ -249,7 +282,7 @@ def build_parser() -> argparse.ArgumentParser:
     colher.add_argument("--dry-run", action="store_true")
     colher.add_argument("--json", action="store_true")
     hook = sub.add_parser("hook")
-    hook.add_argument("which", choices=["boot", "recall", "brain-commit", "guard-secrets", "guard-telegram", "guard-destructive", "guard-brain-scope"])
+    hook.add_argument("which", choices=["boot", "recall", "aprendizados", "brain-commit", "guard-secrets", "guard-telegram", "guard-destructive", "guard-lessons", "guard-brain-scope"])
     return parser
 
 
@@ -275,5 +308,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _brain_colher(args)
     if args.command == "topic":
         return run_topic(args)
+    if args.command == "aprender":
+        return run_aprender(args, _load_config_or_default()[0])
     print(f"wisp {args.command}: not implemented yet", file=sys.stderr)
     return 1
