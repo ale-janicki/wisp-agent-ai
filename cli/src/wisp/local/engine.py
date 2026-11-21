@@ -8,6 +8,7 @@ from pathlib import Path
 
 import anyio.to_thread
 from wisp_bot import transcript
+from wisp_bot.broker import Broker
 
 from wisp.config import WispConfig
 from wisp.local import catalog as catalogs
@@ -15,7 +16,7 @@ from wisp.local import guardrails, modelos
 from wisp.local.approver import Approver, DenyApprover
 from wisp.local.guardrails import GuardrailsError, TurnGuard
 from wisp.local.ollama import OllamaClient, OllamaError
-from wisp.local.tools import Files, ToolFailure, ToolHost, ServerSpec, load_servers, open_host
+from wisp.local.tools import Files, ToolFailure, ToolHost, ServerSpec, load_servers, open_host, with_approval_socket
 from wisp.paths import WispPaths
 
 ENGINE = "local"
@@ -191,8 +192,14 @@ class LocalEngine:
         try:
             await anyio.to_thread.run_sync(self.ollama.ensure_running)
             servers, problems = (self.servers, []) if self.servers is not None else load_servers(self.folder)
-            async with self.open_tools(servers, self._roots(), self.folder, self.thread) as host:
-                return await self._loop(session, text, emit, rails, guard, host, problems)
+            broker = await Broker().start()
+            try:
+                servers = [with_approval_socket(server, broker.path) for server in servers]
+                async with self.open_tools(servers, self._roots(), self.folder, self.thread) as host:
+                    host.authorize = broker.autorizar
+                    return await self._loop(session, text, emit, rails, guard, host, problems)
+            finally:
+                await broker.close()
         except OllamaError as e:
             return self._fail(session, emit, str(e))
 
@@ -327,6 +334,8 @@ class LocalEngine:
             if outcome != "allow":
                 denials.append(name)
                 return True, "o usuário negou a ação" if outcome == "deny" else "não executei: ninguém aprovou a tempo"
+            if name == "email_send" and host.authorize:
+                host.authorize(arguments)
         try:
             return False, await host.call(name, arguments)
         except ToolFailure as e:

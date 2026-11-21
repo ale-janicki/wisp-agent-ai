@@ -283,7 +283,7 @@ public actor CodexSession: EngineSession {
     public static let noWispBinary = "não achei o CLI do Wisp; o Codex não roda sem a trava de aprovação do e-mail"
 
     private func childEnvironment() -> [String: String] {
-        var env = CodexCommand.environment(executable: executable, overrides: environmentOverrides)
+        var env = CodexCommand.environment(executable: executable, overrides: environmentOverrides, wispBinary: wispBinary)
         env[ApprovalBroker.socketEnvironment] = broker?.path
         return env
     }

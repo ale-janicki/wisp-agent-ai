@@ -14,10 +14,6 @@ struct ModelPickerCard: View {
                     .font(Theme.Font.caption)
                     .foregroundStyle(Theme.textSecondary)
             }
-            cloudRow(
-                "Claude", detail: "Assinatura Claude. É o que roda hoje: ferramentas completas e todos os modos de permissão.")
-            cloudRow("Codex", detail: "Assinatura ChatGPT, pelo Codex CLI.")
-            Divider().overlay(Theme.textTertiary.opacity(0.2))
             Text("Neste Mac")
                 .font(Theme.Font.bodyMedium)
                 .foregroundStyle(Theme.textPrimary)
@@ -54,18 +50,6 @@ struct ModelPickerCard: View {
     private var machineLine: String {
         let hardware = model.hardware
         return "\(hardware.chip) · \(ModelFit.gigabytes(hardware.totalMemory)) de memória · \(ModelFit.gigabytes(hardware.freeDisk)) livres no disco"
-    }
-
-    private func cloudRow(_ name: String, detail: String) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(name)
-                .font(Theme.Font.bodyMedium)
-                .foregroundStyle(Theme.textPrimary)
-            Text(detail)
-                .font(Theme.Font.caption)
-                .foregroundStyle(Theme.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
     }
 }
 

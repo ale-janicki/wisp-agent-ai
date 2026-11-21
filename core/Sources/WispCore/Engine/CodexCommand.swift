@@ -82,7 +82,8 @@ public enum CodexCommand {
     }
 
     public static func environment(
-        executable: URL, overrides: [String: String] = [:], base: [String: String] = ProcessInfo.processInfo.environment
+        executable: URL, overrides: [String: String] = [:], wispBinary: String? = nil,
+        base: [String: String] = ProcessInfo.processInfo.environment
     ) -> [String: String] {
         var env = base
         if let path = ClaudeLocator.cachedLoginShellPATH {
@@ -92,6 +93,7 @@ public enum CodexCommand {
             env["PATH"] = existing + ":" + executable.deletingLastPathComponent().path + ":/opt/homebrew/bin:/usr/local/bin"
         }
         for (key, value) in overrides { env[key] = value }
+        if let wispBinary, !wispBinary.isEmpty { env["WISP_BIN"] = wispBinary }
         return env
     }
 

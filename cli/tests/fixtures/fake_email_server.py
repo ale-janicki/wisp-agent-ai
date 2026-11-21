@@ -1,6 +1,7 @@
 import os
 import sys
 
+from wisp import send_gate
 from wisp.email.mail_app import MailSummary
 from wisp.email.server import build_server
 
@@ -22,4 +23,5 @@ class FakeMail:
             log.write(f"{to}|{subject}|{body}\n")
 
 
-build_server(FakeMail()).run("stdio")
+send_gate._host_executables = lambda: {os.path.realpath(send_gate._exe_of(os.getppid()))}
+build_server(FakeMail(), send_gate.gate_from_env(os.environ)).run("stdio")

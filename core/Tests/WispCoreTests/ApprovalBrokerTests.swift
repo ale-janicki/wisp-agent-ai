@@ -195,6 +195,32 @@ final class ApprovalBrokerTests: XCTestCase {
         XCTAssertNil(reply(fd, within: 1).flatMap { $0["decision"] == "allow" ? $0 : nil })
     }
 
+    func testTheCodexProcessEnvironmentCarriesTheSameWispBinaryAsTheEmailOverrides() async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("wisp-cx-\(UUID().uuidString.prefix(8))")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let script = dir.appendingPathComponent("codex")
+        let body = """
+        #!/bin/sh
+        cat > /dev/null
+        echo "$WISP_BIN" > "\(dir.path)/bin"
+        echo '{"type":"turn.completed"}'
+        """
+        try body.write(to: script, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
+        let session = CodexSession(
+            executable: script, cwd: dir, resume: nil, permission: .ask, environmentOverrides: ["WISP_BIN": "/elsewhere/wisp"],
+            wispBinary: "/opt/wisp/venv/bin/wisp")
+        try await session.start()
+        try await session.send("oi")
+        let file = dir.appendingPathComponent("bin")
+        await waitFor { FileManager.default.fileExists(atPath: file.path) }
+        XCTAssertEqual(try String(contentsOf: file, encoding: .utf8), "/opt/wisp/venv/bin/wisp\n")
+        XCTAssertEqual(CodexCommand.environment(executable: script, wispBinary: "/opt/wisp/venv/bin/wisp")["WISP_BIN"], "/opt/wisp/venv/bin/wisp")
+        XCTAssertTrue(CodexCommand.mcpOverrides(wispBinary: "/opt/wisp/venv/bin/wisp")[0].contains("/opt/wisp/venv/bin/wisp"))
+        await session.stop()
+    }
+
     func testTheSessionHandsTheSocketToCodexAndRoutesItsRequestToTheCardAndTheAnswerBack() async throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("wisp-cx-\(UUID().uuidString.prefix(8))")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
