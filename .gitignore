@@ -4,6 +4,7 @@ DerivedData/
 .DS_Store
 .superpowers/
 app/Sources/Info.plist
+app/Agenda/Info.plist
 .venv/
 __pycache__/
 .pytest_cache/
