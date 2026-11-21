@@ -32,4 +32,20 @@ final class EngineGuardsTests: XCTestCase {
         XCTAssertEqual(EngineGuards.wispBinary(telegramBinary: "/x/wisp", layout: layout), "/x/wisp")
         XCTAssertNil(EngineGuards.wispBinary(telegramBinary: nil, layout: layout))
     }
+
+    func testWithoutTelegramTheAgentStillGetsTheRuntimeBinaryInItsEnvironment() throws {
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent("wisp-nobin-\(UUID().uuidString)")
+        let bin = home.appendingPathComponent(".local/bin")
+        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+        let wisp = bin.appendingPathComponent("wisp")
+        try "#!/bin/sh\n".write(to: wisp, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: wisp.path)
+        let layout = RuntimeLayout(bundle: URL(fileURLWithPath: "/nope"), home: home)
+        let resolved = EngineGuards.wispBinary(telegramBinary: nil, layout: layout)
+        XCTAssertEqual(resolved, wisp.path)
+        let context = AgentInstructions.context(thread: nil, wispBinary: resolved)
+        XCTAssertEqual(context.environment, ["WISP_BIN": wisp.path])
+        XCTAssertTrue(context.prompt.contains(AgentInstructions.macTools))
+    }
 }

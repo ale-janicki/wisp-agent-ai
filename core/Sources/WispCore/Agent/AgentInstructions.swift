@@ -19,6 +19,14 @@ public enum AgentInstructions {
     Never say you cannot send files.
     """
 
+    public static let macTools = """
+    Mac tools: prefer these over ad-hoc shell commands; run them as `"${WISP_BIN:-wisp}" <command>`. Each prints one plain pt-BR result you can relay.
+    `arquivos buscar "<text>" [--tipo pdf|imagem|...] [--desde 7d] [--pasta <dir>]` finds the user's files by name and content, newest first; then hand the file over the way you hand over any file in this conversation.
+    `arquivos organizar <folder>` only shows a plan; always run it without --aplicar first, tell the user the plan in plain words and apply it (`--aplicar`) only after they agree. It never deletes or overwrites; `arquivos desfazer` reverts the last one.
+    `mac abrir <app|file|url>`, `mac volume <0-100|mudo>`, `mac notificar "<text>"`, `mac print [--janela]` (prints the path of a screenshot, send it to the user; `--janela` needs someone at the Mac to click the window, so never use it from Telegram), `mac bateria`, `mac nao-perturbe` (status only).
+    If a result says a macOS permission is missing, tell the user where to grant it; never work around it.
+    """
+
     public static let appSharedNote = """
 
     This conversation is also a Telegram topic; files you link here are sent to the topic automatically. \
@@ -41,10 +49,13 @@ public enum AgentInstructions {
 
     public static func context(thread: Int?, wispBinary: String?, awayOnPhone: Bool = false) -> Context {
         let phone = awayOnPhone ? "\n\n" + onThePhone : ""
-        guard let thread, let bin = wispBinary, !bin.isEmpty else {
-            return Context(prompt: appFiles + phone, environment: [:], thread: nil, awayOnPhone: awayOnPhone)
+        let base = appFiles + "\n\n" + macTools
+        let bin = wispBinary.flatMap { $0.isEmpty ? nil : $0 }
+        let binEnvironment = bin.map { ["WISP_BIN": $0] } ?? [:]
+        guard let thread, let bin else {
+            return Context(prompt: base + phone, environment: binEnvironment, thread: nil, awayOnPhone: awayOnPhone)
         }
-        return Context(prompt: appFiles + appSharedNote + phone, environment: ["WISP_BIN": bin, "WISP_TOPIC_THREAD": String(thread)],
+        return Context(prompt: base + appSharedNote + phone, environment: ["WISP_BIN": bin, "WISP_TOPIC_THREAD": String(thread)],
                        thread: thread, awayOnPhone: awayOnPhone)
     }
 }
