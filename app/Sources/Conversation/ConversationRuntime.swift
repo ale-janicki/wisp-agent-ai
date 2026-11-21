@@ -25,6 +25,8 @@ final class ConversationRuntime {
     @ObservationIgnored private var lastTurnEnded: Date?
     @ObservationIgnored private var turnsInFlight = 0
     @ObservationIgnored private var followedSession: String?
+    @ObservationIgnored private var earlierMessages: [ConversationMessage] = []
+    @ObservationIgnored private var lastReplyAt: String?
     @ObservationIgnored private var session: (any EngineSession)?
     @ObservationIgnored private var sessionKind: EngineKind?
     @ObservationIgnored private var forgetEngineSession = false
@@ -85,7 +87,7 @@ final class ConversationRuntime {
     }
 
     var linkedThread: Int? {
-        TelegramTopics.topic(forSession: state.sessionId, in: host.telegram.loadedTopics)?.thread
+        TelegramTopics.topic(forSession: state.sessionId, conversation: id, in: host.telegram.loadedTopics)?.thread
     }
 
     func snapshot(isCurrent: Bool) -> RuntimeSnapshot {
@@ -121,7 +123,7 @@ final class ConversationRuntime {
     }
 
     private func isInTelegram(_ sessionId: String?) -> Bool {
-        TelegramTopics.topic(forSession: sessionId, in: host.telegram.loadedTopics) != nil
+        TelegramTopics.topic(forSession: sessionId, conversation: id, in: host.telegram.loadedTopics) != nil
     }
 
     func touch() { lastUsed = Date() }
@@ -215,7 +217,7 @@ final class ConversationRuntime {
     }
 
     func syncFollowing() {
-        if let topic = TelegramTopics.topic(forSession: state.sessionId, in: host.telegram.loadedTopics) {
+        if let topic = TelegramTopics.topic(forSession: state.sessionId, conversation: id, in: host.telegram.loadedTopics) {
             guard followedSession != topic.sessionId else { return }
             follow(sessionId: topic.sessionId, cwd: cwd ?? topic.cwd)
         } else if followedSession != nil {
@@ -228,6 +230,8 @@ final class ConversationRuntime {
         let token = UUID()
         followToken = token
         followedSession = sessionId
+        earlierMessages = []
+        loadEarlierMessages(before: sessionId, cwd: cwd, token: token)
         let next = TranscriptFollower(
             sessionId: sessionId,
             cwd: expandTilde(cwd),
@@ -246,8 +250,26 @@ final class ConversationRuntime {
         guard token == followToken else { return }
         isLoadingHistory = false
         guard !turnRunning, !isFailed else { return }
-        state.messages = snapshot.messages
+        state.messages = earlierMessages + snapshot.messages
         state.status = snapshot.status
+    }
+
+    private func loadEarlierMessages(before session: String, cwd: String, token: UUID) {
+        let conversation = id.uuidString.lowercased()
+        let root = expandTilde(cwd)
+        let prefix = host.profile.agent.statusPrefix
+        Task { [weak self] in
+            let earlier = await Task.detached { () -> [ConversationMessage] in
+                TranscriptStore(folder: WispFolder.conversations()).earlierMessages(
+                    conversation: conversation, beforeSession: session,
+                    claude: { TranscriptReader.load(sessionId: $0, cwd: root, statusPrefix: prefix, telegramHTML: true) })
+            }.value
+            guard let self, self.followToken == token, !earlier.isEmpty else { return }
+            self.earlierMessages = earlier
+            if !self.turnRunning, !self.isFailed, !self.state.messages.isEmpty {
+                self.state.messages = earlier + self.state.messages
+            }
+        }
     }
 
     private func unfollow() {
@@ -255,6 +277,7 @@ final class ConversationRuntime {
         follower = nil
         followToken = UUID()
         followedSession = nil
+        earlierMessages = []
     }
 
     // MARK: Session
@@ -439,9 +462,23 @@ final class ConversationRuntime {
         waitingForTelegram = false
     }
 
+    private func adoptTopicSession() {
+        guard sessionKind != .codex, turnsInFlight == 0,
+              let topic = TelegramTopics.topic(forSession: state.sessionId, conversation: id, in: host.telegram.loadedTopics),
+              topic.turns > 0, !topic.sessionId.isEmpty, topic.sessionId != state.sessionId else { return }
+        let running = session != nil || startTask != nil
+        state.sessionId = topic.sessionId
+        if running {
+            restartProcess()
+            state.phase = .thinking(step: nil)
+        }
+    }
+
     private func acquireTurn() async throws -> Bool {
-        guard turnLease == nil, let sessionId = state.sessionId else { return !Task.isCancelled }
+        guard turnLease == nil else { return !Task.isCancelled }
         await host.telegram.refreshTopicsIfStale()
+        adoptTopicSession()
+        guard let sessionId = state.sessionId else { return !Task.isCancelled }
         let contended = LockedFlag()
         let gen = generation
         let lease = try await host.sessionLock.acquire(sessionId: sessionId) { [weak self] in
@@ -610,7 +647,7 @@ final class ConversationRuntime {
 
     private func conversationKey(_ store: TranscriptStore) -> String {
         if let transcriptKey { return transcriptKey }
-        let key = store.find(session: state.sessionId) ?? state.sessionId ?? id.uuidString.lowercased()
+        let key = store.find(session: id.uuidString.lowercased()) ?? store.find(session: state.sessionId) ?? id.uuidString.lowercased()
         transcriptKey = key
         if let sessionId = state.sessionId { linkedSessions.insert(sessionId) }
         return key
@@ -620,7 +657,7 @@ final class ConversationRuntime {
         let store = transcript()
         let key = conversationKey(store)
         do {
-            try write(store, key, key == state.sessionId ? key : nil)
+            try write(store, key, state.sessionId)
         } catch {
             log.error("transcript write failed: \(error.localizedDescription, privacy: .public)")
             guard !Self.transcriptFailureShown else { return }
@@ -646,7 +683,8 @@ final class ConversationRuntime {
             guard !body.isEmpty else { return }
             let model = engineModel
             let engine = sessionKind?.rawValue ?? "claude"
-            record { try $0.appendAssistant(conversation: $1, openingSession: $2, text: body, surface: "app", engine: engine, model: model) }
+            lastReplyAt = nil
+            record { lastReplyAt = try $0.appendAssistant(conversation: $1, openingSession: $2, text: body, surface: "app", engine: engine, model: model) }
         default:
             break
         }
@@ -806,16 +844,19 @@ final class ConversationRuntime {
     private func mirror(user: String, files: [String]) {
         guard host.telegram.canPost else { return }
         let sessionId = state.sessionId
+        let turnAt = lastReplyAt
         let reply = state.messages.last { $0.role == .assistant }?.text ?? ""
         let files = SentFiles.unsent(files + FileLinks.absolutePaths(in: reply), alreadySent: state.sentToTelegram)
         Task {
             let telegram = self.host.telegram
             await telegram.refreshTopicsIfStale()
-            guard let post = TelegramTopics.mirror(sessionId: sessionId, topics: telegram.loadedTopics, user: user, reply: reply, files: files),
+            guard let post = TelegramTopics.mirror(
+                    sessionId: sessionId, conversation: self.id, topics: telegram.loadedTopics, user: user, reply: reply, files: files,
+                    turnAt: turnAt),
                   let failure = await telegram.post(post)
             else { return }
             self.log.error("telegram mirror failed: \(failure.sentence, privacy: .public)")
-            self.telegramNotice = failure.sentence
+            self.telegramNotice = failure.retry ? "o Telegram não respondeu; esta conversa chega lá quando ele voltar" : failure.sentence
         }
     }
 

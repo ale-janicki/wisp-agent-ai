@@ -20,8 +20,8 @@ from . import topicos
 from . import tg_html
 from . import hosting, saude, vigilia, polling, session_lock, compartilhar, colheita
 from . import hosting, saude, vigilia, polling, session_lock, compartilhar
-from . import aprovacoes, codex_runner
-from .transcript import REBUILT_NOTE, Transcripts, prime, switched_note
+from . import aprovacoes, codex_runner, conversa
+from .transcript import ID as ID_CONVERSA, REBUILT_NOTE, Transcripts, prime, stamp as transcript_stamp, switched_note
 from . import engine as engines
 from .config import CURRENT as _CFG, ConfigError, _expand, config_path, load_bot_config
 from .hosting import HOST
@@ -121,6 +121,7 @@ anterior); esta e uma sessao nova em {host}. Antes de responder, leia a nota
 Mensagem do usuario:
 {msg}"""
 
+ALCANCE_S = 15.0
 GERAL_HOURS = float(os.environ.get("WISP_GERAL_HOURS", "24"))
 PAUSE_MIN = float(os.environ.get("WISP_PAUSE_MIN", "30"))
 GERAL_TIMEOUT = int(os.environ.get("WISP_GERAL_TIMEOUT", "3600"))
@@ -683,8 +684,16 @@ async def _turno(bot, chat, thread_id: int | None, key: str, msg: str, contexto:
     motivo = reset_due(topic)
     if motivo:
         log.info("reset automatico em %s: %s", key, motivo)
+        try:
+            conversa.garantir(store, transcripts, key)
+        except Exception as e:
+            log.warning("vinculo da conversa de %s falhou: %s", key, e)
         store.reset(key)
         topic = store.get_or_create(key, topic.name, topic.cwd)
+    try:
+        conversa.garantir(store, transcripts, key, "reset" if motivo else "new")
+    except Exception as e:
+        log.warning("vinculo da conversa de %s falhou: %s", key, e)
 
     nota = nota_do_topico(key, topic)
     if nota and motivo:
@@ -1062,7 +1071,15 @@ async def cmd_reset(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     if not authorized(update):
         return
     key, thread_id = topic_key(update)
+    try:
+        conversa.garantir(store, transcripts, key)
+    except Exception as e:
+        log.warning("vinculo da conversa de %s falhou: %s", key, e)
     store.reset(key)
+    try:
+        conversa.garantir(store, transcripts, key, "reset")
+    except Exception as e:
+        log.warning("vinculo da conversa de %s falhou: %s", key, e)
     try:
         gravar_sessao(key)
         topicos.push_logo()
@@ -1352,8 +1369,10 @@ def texto_saiu_do_telegram(t, thread_id: int, destino: str, onde_tg: str) -> str
     return f"↪ <b>{html.escape(t.name)}</b> saiu do Telegram ({onde_tg}). No terminal do {_host_nome(destino)}: {como}"
 
 
-async def compartilhar_conversa(bot, sid: str, cwd: str, nome: str) -> dict:
+async def compartilhar_conversa(bot, sid: str, cwd: str, nome: str, conversation: str = "") -> dict:
     nome = nome.strip()
+    if conversation and not ID_CONVERSA.match(conversation):
+        raise ValueError("compartilhar recebeu um id de conversa invalido")
     if not sessao.valido(sid) or not nome:
         raise ValueError("compartilhar precisa de session_id valido e nome")
     chat_id = _chat_principal()
@@ -1361,7 +1380,7 @@ async def compartilhar_conversa(bot, sid: str, cwd: str, nome: str) -> dict:
         raise ValueError("telegram.chat_id ausente: nao sei em que chat abrir o topico")
     async with _vincular_lock:
         for t in store.all():
-            if t.session_id == sid:
+            if t.session_id == sid or (conversation and t.conversation == conversation):
                 raise ValueError(f"essa conversa ja esta no Telegram (topico {_thread_de(t.key)})")
         cwd = os.path.expanduser(cwd or DEFAULT_CWD)
         if not os.path.isdir(cwd):
@@ -1374,6 +1393,10 @@ async def compartilhar_conversa(bot, sid: str, cwd: str, nome: str) -> dict:
         existe = compartilhar.jsonl_path(sid, cwd).exists() or sessao.achar_local(sid) is not None
         agora = time.time()
         store.seguir_sessao(key, sid, existe, born=agora, last_used=agora)
+        if conversation:
+            store.set_conversation(key, conversation)
+        store.set_meta(key, **{conversa.CURSOR: transcript_stamp()})
+        conversa.garantir(store, transcripts, key, "new")
         topicos.garantir(key, nome, cwd, "Conversa compartilhada do app Wisp.")
         topicos.set_campos(key, onde="telegram")
         topicos.gravar_ponteiro(HOST, key, sid, existe, agora, agora, sessao.tamanho_local(sid), cwd)
@@ -1388,7 +1411,7 @@ async def compartilhar_conversa(bot, sid: str, cwd: str, nome: str) -> dict:
 
 async def _ctl_compartilhar(bot, op: dict) -> dict:
     return await compartilhar_conversa(bot, str(op.get("session_id") or ""), str(op.get("cwd") or ""),
-                                       str(op.get("nome") or ""))
+                                       str(op.get("nome") or ""), str(op.get("conversation") or ""))
 
 
 async def cmd_puxar(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1473,11 +1496,50 @@ async def _ctl_vincular(bot, op: dict) -> dict:
         return {"ok": True, "thread_id": tid, "chat": chat_id}
 
 
+async def _alcancar_topico(bot, key: str) -> int:
+    chat = SimpleNamespace(id=int(key.rsplit(":", 1)[0]))
+    thread_id = _thread_de(key) or None
+
+    async def enviar(texto: str) -> None:
+        await send(bot, chat, thread_id, texto)
+    return await conversa.alcancar(store, transcripts, key, enviar)
+
+
+async def _alcancar_todos(bot) -> None:
+    for t in store.all():
+        try:
+            if not t.conversation:
+                conversa.garantir(store, transcripts, t.key)
+            await _alcancar_topico(bot, t.key)
+        except Exception as e:
+            log.warning("alcance do topico %s falhou: %s", t.key, e)
+
+
 async def _ctl_postar(bot, op: dict) -> dict:
+    app_bot = bot
     reply_txt = str(op.get("reply") or "").strip()
     texto = str(op.get("texto") or "").strip()
-    if not texto and not reply_txt:
+    if not texto and not reply_txt and not op.get("conversation"):
         raise ValueError("texto vazio")
+    if op.get("conversation"):
+        key = _key_da_thread(op.get("thread"))
+        topico = store.get(key) if key else None
+        if topico is not None and topico.conversation == str(op["conversation"]):
+            chat_id, tid = int(key.rsplit(":", 1)[0]), _thread_de(key)
+            postadas = await _alcancar_topico(app_bot, key)
+            arquivos = arquivos_validos(op["arquivos"]) if op.get("arquivos") else []
+            await _postar_arquivos(app_bot, chat_id, tid or None, arquivos, None)
+            visto = conversa.coberto(transcripts.conversation_entries(topico.conversation),
+                                     str(store.get(key).meta.get(conversa.CURSOR) or ""), reply_txt,
+                                     str(op.get("turn_at") or ""))
+            if postadas or visto or not reply_txt:
+                return {"ok": True, "thread_id": tid}
+            user = str(op.get("user") or "").strip()
+            chat = SimpleNamespace(id=chat_id)
+            if user:
+                await send(app_bot, chat, tid, "💻 " + html.escape(user))
+            await send(app_bot, chat, tid, reply_txt)
+            return {"ok": True, "thread_id": tid}
     if op.get("chat") not in (None, ""):
         chat_id, tid = int(op["chat"]), int(op.get("thread"))
     else:
@@ -1687,6 +1749,8 @@ async def controlador(app) -> None:
     em_voo: set[str] = set()
     falhas: dict[str, int] = {}
     resolvendo: asyncio.Task | None = None
+    alcancando: asyncio.Task | None = None
+    proximo_alcance = 0.0
     while True:
         await asyncio.sleep(2)
         try:
@@ -1717,6 +1781,11 @@ async def controlador(app) -> None:
                     and h.pc_estado == "active"):
                 proximo_espelho = agora + ESPELHO_S
                 espelhando = asyncio.create_task(_espelhar())
+            if alcancando is not None and alcancando.done():
+                alcancando = None
+            if ativo and alcancando is None and agora >= proximo_alcance:
+                proximo_alcance = agora + ALCANCE_S
+                alcancando = asyncio.create_task(_alcancar_todos(app.bot))
             if resolvendo is not None and resolvendo.done():
                 if not resolvendo.cancelled() and resolvendo.exception():
                     log.warning("em-voo falhou: %s", resolvendo.exception())

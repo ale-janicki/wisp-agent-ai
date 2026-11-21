@@ -99,9 +99,9 @@ final class TelegramModel {
 
     // MARK: Actions (each returns the failure as one sentence, nil when done)
 
-    func share(session: String, cwd: String, name: String) async -> Result<TelegramShared, TelegramFailure> {
-        guard let command = block?.share, !command.isEmpty else { return .failure(TelegramFailure("o perfil não sabe compartilhar no Telegram", retry: false)) }
-        let filled = CommandTemplate.fill(command, ["session": session, "cwd": cwd, "name": name])
+    func share(session: String, cwd: String, name: String, conversation: UUID) async -> Result<TelegramShared, TelegramFailure> {
+        guard let filled = block?.shareCommand(session: session, cwd: cwd, name: name, conversation: conversation.uuidString.lowercased())
+        else { return .failure(TelegramFailure("o perfil não sabe compartilhar no Telegram", retry: false)) }
         switch await Self.run(filled, timeout: Self.actionTimeout) {
         case .success(let data):
             guard let shared = try? TelegramTopics.parseShared(data) else {
