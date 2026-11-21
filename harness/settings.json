@@ -15,7 +15,31 @@
     "ask": [
       "Bash(*aprender add*)",
       "Bash(*aprender confirmar*)",
-      "Bash(*aprender descartar*)"
+      "Bash(*aprender descartar*)",
+      "Bash(\"$WISP_BIN\" agenda criar-evento:*)",
+      "Bash($WISP_BIN agenda criar-evento:*)",
+      "Bash(wisp agenda criar-evento:*)",
+      "Bash(\"$WISP_AGENDA_BIN\" criar-evento:*)",
+      "Bash(\"$WISP_BIN\" agenda editar-evento:*)",
+      "Bash($WISP_BIN agenda editar-evento:*)",
+      "Bash(wisp agenda editar-evento:*)",
+      "Bash(\"$WISP_AGENDA_BIN\" editar-evento:*)",
+      "Bash(\"$WISP_BIN\" agenda apagar-evento:*)",
+      "Bash($WISP_BIN agenda apagar-evento:*)",
+      "Bash(wisp agenda apagar-evento:*)",
+      "Bash(\"$WISP_AGENDA_BIN\" apagar-evento:*)",
+      "Bash(\"$WISP_BIN\" agenda criar-lembrete:*)",
+      "Bash($WISP_BIN agenda criar-lembrete:*)",
+      "Bash(wisp agenda criar-lembrete:*)",
+      "Bash(\"$WISP_AGENDA_BIN\" criar-lembrete:*)",
+      "Bash(\"$WISP_BIN\" agenda concluir-lembrete:*)",
+      "Bash($WISP_BIN agenda concluir-lembrete:*)",
+      "Bash(wisp agenda concluir-lembrete:*)",
+      "Bash(\"$WISP_AGENDA_BIN\" concluir-lembrete:*)",
+      "Bash(\"$WISP_BIN\" agenda permissao --pedir:*)",
+      "Bash($WISP_BIN agenda permissao --pedir:*)",
+      "Bash(wisp agenda permissao --pedir:*)",
+      "Bash(\"$WISP_AGENDA_BIN\" permissao --pedir:*)"
     ],
     "deny": [
       "Bash(rm -rf /*)",
@@ -48,6 +72,10 @@
           {
             "type": "command",
             "command": "\"$HOME\"/.local/bin/wisp hook guard-lessons"
+          },
+          {
+            "type": "command",
+            "command": "\"$HOME\"/.local/bin/wisp hook guard-agenda"
           }
         ]
       }

@@ -118,3 +118,11 @@ def test_phone_instruction_matches_the_shared_fixture_and_is_in_the_style():
     fixture = Path(__file__).parents[2] / "cli/tests/fixtures/contract/phone-instruction.txt"
     assert ON_THE_PHONE == fixture.read_text("utf-8")
     assert ON_THE_PHONE in TELEGRAM_STYLE
+
+
+def test_agenda_instruction_matches_the_shared_fixture_and_is_in_the_style():
+    from pathlib import Path
+    from wisp_bot.claude_runner import AGENDA, TELEGRAM_STYLE
+    fixture = Path(__file__).parents[2] / "cli/tests/fixtures/contract/agenda-instruction.txt"
+    assert AGENDA == fixture.read_text("utf-8")
+    assert AGENDA in TELEGRAM_STYLE

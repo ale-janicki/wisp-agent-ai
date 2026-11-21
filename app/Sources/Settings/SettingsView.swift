@@ -115,6 +115,7 @@ struct SettingsView: View {
         case .general:
             general
             brain
+            agenda
             updates
         case .about:
             about
@@ -269,6 +270,26 @@ struct SettingsView: View {
                     .buttonStyle(CapsuleButtonStyle(kind: .ghost))
             }
         }
+    }
+
+    private var agenda: some View {
+        let access = AgendaAccessModel.shared
+        return SettingsGroup(title: "Agenda") {
+            SettingsRow(title: "Agenda: permitir acesso", detail: access.sentence) {
+                if access.state != .granted {
+                    Button(access.state == .denied ? "Abrir Ajustes do Sistema" : "Permitir") {
+                        if access.state == .denied {
+                            NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Calendars")!)
+                        } else {
+                            access.ask()
+                        }
+                    }
+                    .buttonStyle(CapsuleButtonStyle(kind: .ghost))
+                    .disabled(access.busy)
+                }
+            }
+        }
+        .onAppear { access.refresh() }
     }
 
     private func loginSentence(_ login: LoginItemModel) -> String {
