@@ -13,6 +13,36 @@ packages:
     url: https://github.com/sparkle-project/Sparkle
     exactVersion: 2.10.1
 targets:
+  wisp-agenda:
+    type: tool
+    platform: macOS
+    sources:
+      - Agenda
+    dependencies:
+      - package: WispCore
+        product: WispCore
+    configFiles:
+      Debug: Signing.xcconfig
+      Release: Signing.xcconfig
+    settings:
+      base:
+        PRODUCT_NAME: wisp-agenda
+        PRODUCT_BUNDLE_IDENTIFIER: ai.wisp.agenda
+        SWIFT_VERSION: "6.0"
+        SWIFT_STRICT_CONCURRENCY: complete
+        MACOSX_DEPLOYMENT_TARGET: "15.0"
+        CREATE_INFOPLIST_SECTION_IN_BINARY: YES
+        ENABLE_HARDENED_RUNTIME: YES
+        CODE_SIGN_ENTITLEMENTS: ../scripts/agenda.entitlements
+    info:
+      path: Agenda/Info.plist
+      properties:
+        CFBundleName: wisp-agenda
+        CFBundleIdentifier: ai.wisp.agenda
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSCalendarsFullAccessUsageDescription: "O Wisp lê e cria os compromissos da sua agenda quando você pede."
+        NSRemindersFullAccessUsageDescription: "O Wisp lê e cria os seus lembretes quando você pede."
   Wisp:
     type: application
     platform: macOS
@@ -28,6 +58,12 @@ targets:
         product: SwiftTerm
       - package: Sparkle
         product: Sparkle
+      - target: wisp-agenda
+        embed: true
+        codeSign: true
+        copy:
+          destination: wrapper
+          subpath: Contents/Helpers
     configFiles:
       Debug: Signing.xcconfig
       Release: Signing.xcconfig
@@ -62,4 +98,6 @@ targets:
         SUAllowsAutomaticUpdates: false
         LSUIElement: true
         LSMinimumSystemVersion: "15.0"
+        NSCalendarsFullAccessUsageDescription: "O Wisp lê e cria os compromissos da sua agenda quando você pede."
+        NSRemindersFullAccessUsageDescription: "O Wisp lê e cria os seus lembretes quando você pede."
         NSAppleEventsUsageDescription: "O Wisp mostra e controla a música que está tocando no Spotify ou no Music."

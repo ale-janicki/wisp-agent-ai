@@ -56,6 +56,15 @@ def test_settings_permissions_keep_user_order_and_append_missing():
     assert user["permissions"]["allow"] == ["B", "A"]
 
 
+def test_settings_ask_rules_are_appended_when_missing_and_never_duplicated():
+    user = {"permissions": {"ask": ["Bash(rm:*)", "B"]}}
+    ours = {"permissions": {"ask": ["B", "Bash(wisp agenda apagar-evento:*)"]}}
+    merged, notes = merge_settings(user, ours)
+    assert merged["permissions"]["ask"] == ["Bash(rm:*)", "B", "Bash(wisp agenda apagar-evento:*)"]
+    assert notes == []
+    assert merge_settings({}, ours)[0]["permissions"]["ask"] == ours["permissions"]["ask"]
+
+
 def test_settings_hook_added_only_when_command_is_absent():
     group = {"hooks": [{"type": "command", "command": "wisp hook boot"}]}
     user = {"hooks": {"SessionStart": [{"matcher": "x", "hooks": [{"type": "command", "command": "wisp hook boot"}]}]}}

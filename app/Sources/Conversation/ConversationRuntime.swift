@@ -82,7 +82,8 @@ final class ConversationRuntime {
     }
 
     private func agentContext() -> AgentInstructions.Context {
-        AgentInstructions.context(thread: linkedThread, wispBinary: resolvedWispBinary(), awayOnPhone: awayOnPhone)
+        AgentInstructions.context(thread: linkedThread, wispBinary: resolvedWispBinary(), agendaBinary: AgendaAccessModel.helperURL.path,
+                                  awayOnPhone: awayOnPhone)
     }
 
     private func resolvedWispBinary() -> String? {

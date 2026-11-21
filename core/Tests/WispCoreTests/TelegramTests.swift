@@ -260,8 +260,9 @@ final class AgentInstructionsTests: XCTestCase {
         let noThread = AgentInstructions.context(thread: nil, wispBinary: "/bin/wisp")
         let noBinary = AgentInstructions.context(thread: 7, wispBinary: nil)
         for context in [noThread, noBinary] {
-            XCTAssertEqual(context.prompt, base)
+            XCTAssertEqual(context.prompt, context.environment.isEmpty ? base : base + "\n\n" + AgentInstructions.agenda)
             XCTAssertNil(context.thread)
+            XCTAssertNil(context.environment["WISP_TOPIC_THREAD"])
         }
         XCTAssertEqual(noThread.environment, ["WISP_BIN": "/bin/wisp"])
         XCTAssertTrue(noBinary.environment.isEmpty)
@@ -273,6 +274,29 @@ final class AgentInstructionsTests: XCTestCase {
                         AgentInstructions.context(thread: 3, wispBinary: "/bin/wisp")] {
             XCTAssertTrue(context.prompt.contains(AgentInstructions.macTools))
         }
+    }
+
+    func testTheAppGetsWispBinWithoutATopicSoTheAgendaCommandResolves() {
+        XCTAssertEqual(AgentInstructions.context(thread: nil, wispBinary: "/bin/wisp").environment, ["WISP_BIN": "/bin/wisp"])
+        XCTAssertTrue(AgentInstructions.context(thread: nil, wispBinary: nil).environment.isEmpty)
+        XCTAssertTrue(AgentInstructions.context(thread: nil, wispBinary: "").environment.isEmpty)
+    }
+
+    func testAgendaInstructionMatchesTheBotsFixtureAndNeedsTheBinary() throws {
+        XCTAssertEqual(AgentInstructions.agenda, try fixture("agenda-instruction.txt"))
+        for context in [AgentInstructions.context(thread: nil, wispBinary: "/bin/wisp"), AgentInstructions.context(thread: 3, wispBinary: "/bin/wisp")] {
+            XCTAssertTrue(context.prompt.contains(AgentInstructions.agenda))
+        }
+        for context in [AgentInstructions.context(thread: nil, wispBinary: nil), AgentInstructions.context(thread: 3, wispBinary: ""),
+                        AgentInstructions.context(thread: nil, wispBinary: nil, agendaBinary: "/x/wisp-agenda")] {
+            XCTAssertFalse(context.prompt.contains("agenda <command>"))
+            XCTAssertNil(context.environment["WISP_AGENDA_BIN"])
+        }
+    }
+
+    func testTheHelperPathReachesTheAgentOnlyWithTheWispBinary() {
+        let context = AgentInstructions.context(thread: nil, wispBinary: "/bin/wisp", agendaBinary: "/Apps/Wisp.app/Contents/Helpers/wisp-agenda")
+        XCTAssertEqual(context.environment, ["WISP_BIN": "/bin/wisp", "WISP_AGENDA_BIN": "/Apps/Wisp.app/Contents/Helpers/wisp-agenda"])
     }
 
     func testAppTextDoesNotSendFilesThroughTelegram() {
