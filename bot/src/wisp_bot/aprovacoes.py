@@ -11,6 +11,7 @@ LIMITE_RESUMO = 300
 VALIDADE_S = 600        # sem resposta em 600 s, nega
 PREFIXO = "aprov"
 EMAIL = "mcp__wisp-email__email_send"
+MAC_SEND = "mcp__wisp-mac__mac_send"
 
 NEGADO_NO_TELEGRAM = ("O usuário negou esta ação no Telegram. Não tente de novo do mesmo jeito; "
                       "siga sem ela ou pergunte o que fazer.")
@@ -55,6 +56,8 @@ def descrever(req: dict) -> dict:
     corpo = json.dumps(entrada, ensure_ascii=False, indent=2, sort_keys=True)
     if motor == "Codex" and ferramenta == EMAIL:
         return {"summary": "O Codex quer enviar um e-mail", "detail": corpo}
+    if motor == "Codex" and ferramenta == MAC_SEND:
+        return {"summary": "O Codex quer enviar uma mensagem pelo app", "detail": corpo}
     return {"summary": f"O {motor} quer usar {ferramenta}", "detail": corpo}
 
 

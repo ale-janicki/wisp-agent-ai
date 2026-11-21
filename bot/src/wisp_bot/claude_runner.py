@@ -22,6 +22,11 @@ MAC_TOOLS = """Mac tools: prefer these over ad-hoc shell commands; run them as `
 `arquivos buscar "<text>" [--tipo pdf|imagem|...] [--desde 7d] [--pasta <dir>]` finds the user's files by name and content, newest first; then hand the file over the way you hand over any file in this conversation.
 `arquivos organizar <folder>` only shows a plan; always run it without --aplicar first, tell the user the plan in plain words and apply it (`--aplicar`) only after they agree. It never deletes or overwrites; `arquivos desfazer` reverts the last one.
 `mac abrir <app|file|url>`, `mac volume <0-100|mudo>`, `mac notificar "<text>"`, `mac print [--janela]` (prints the path of a screenshot, send it to the user; `--janela` needs someone at the Mac to click the window, so never use it from Telegram), `mac bateria`, `mac nao-perturbe` (status only).
+You control this Mac. When the user asks for something it can do, do it with these tools: act, never describe the steps and never say you cannot. Run `"${WISP_BIN:-wisp}" mac <command>`; under Claude Code and Codex the same actions are also the `mac_*` tools of the wisp-mac server, use those when they are listed.
+`mac abrir-url --site youtube` opens YouTube in the browser; "toca lo-fi no YouTube" is `mac abrir-url --site youtube --busca "lo-fi"`; "pesquisa X no Google" is `mac abrir-url --site google --busca "X"`; add `--navegador safari|chrome|firefox|arc|brave|edge` for a chosen browser. `mac abrir "<file>" --com Preview` opens a file in an app.
+`mac apps`, `mac janelas`, `mac app focar|esconder|sair "<app>"`, `mac midia tocar|pausar|alternar|proxima|anterior [--app Spotify]`, `mac brilho mais|menos`, `mac modo-escuro escuro|claro|alternar`, `mac wifi`, `mac ajustes <painel>`, `mac atalho "<name>"`, `mac script "<AppleScript>" [--linguagem jxa]`.
+To work an app's screen: `mac arvore` reads the front window as numbered elements, then `mac clicar --titulo "<text>" [--papel AXButton]`, `mac digitar "<text>"`, `mac tecla cmd+t`, `mac rolar baixo`, `mac menu "Arquivo > Salvar"`. Read the screen, act, then read it again to check it worked.
+Sending a message through an app's screen needs the user's approval: write the message in the app, then call the `mac_send` tool (MCP only); clicking Send yourself is refused. Typing into a password field is refused.
 If a result says a macOS permission is missing, tell the user where to grant it; never work around it."""
 
 AGENDA = """For anything about the user's schedule, meetings or reminders, use the Mac's own Calendar and Reminders through `"$WISP_BIN" agenda <command>` (JSON output): eventos (--hoje, --semana, --de ISO --ate ISO, --calendario NOME), criar-evento, editar-evento, apagar-evento, lembretes (--pendentes), criar-lembrete, concluir-lembrete, calendarios. Run it with no command to see every option.
@@ -54,7 +59,7 @@ RECALL_TIMEOUT = 5
 AGENDA_ASK = ("criar-evento", "editar-evento", "apagar-evento", "criar-lembrete", "concluir-lembrete", "permissao --pedir")
 AGENDA_HEADS = ('"$WISP_BIN" agenda', "$WISP_BIN agenda", "wisp agenda", '"$WISP_AGENDA_BIN"')
 AGENDA_ASK_RULES = [f"Bash({head} {sub}:*)" for sub in AGENDA_ASK for head in AGENDA_HEADS]
-ASK_TOOLS = ("mcp__wisp-email__email_send",)
+ASK_TOOLS = ("mcp__wisp-email__email_send", "mcp__wisp-mac__mac_send")
 
 
 def guard_settings(wisp_bin: str) -> dict:

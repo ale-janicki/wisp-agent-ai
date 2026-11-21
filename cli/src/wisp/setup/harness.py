@@ -6,6 +6,7 @@ from pathlib import Path
 
 from wisp.config import WispConfig
 from wisp.fsops import atomic_write
+from wisp.mac_control import READ_ONLY as MAC_READ_ONLY
 from wisp.harness_merge import (
     Change,
     InstalledManifest,
@@ -33,9 +34,12 @@ MCP_NAME = "wisp-email"
 BRAIN_MCP_NAME = "wisp-brain"
 MCP_ALLOW = [f"mcp__{MCP_NAME}__email_{name}" for name in ("list", "read", "search")]   # never email_send: it has an ask rule
 BRAIN_MCP_ALLOW = [f"mcp__{BRAIN_MCP_NAME}__brain_{name}" for name in ("search", "read", "links")]
+MAC_MCP_NAME = "wisp-mac"
+MAC_ALLOW = [f"mcp__{MAC_MCP_NAME}__{name}" for name in sorted(MAC_READ_ONLY)]
 INCOMPLETE = "o agente.md parece incompleto; usei as regras padrão"
 FOREIGN = "já existe outro servidor chamado wisp-email no Claude; o Wisp não mexeu nele"
 BRAIN_FOREIGN = "já existe outro servidor chamado wisp-brain no Claude; o Wisp não mexeu nele"
+MAC_FOREIGN = "já existe outro servidor chamado wisp-mac no Claude; o Wisp não mexeu nele"
 
 
 def _load_manifest(path: Path) -> InstalledManifest:
@@ -127,6 +131,10 @@ def _register(runner: Runner, paths: WispPaths, cfg: WispConfig, name: str, serv
     return "added", None
 
 
+def _register_mac(runner: Runner, paths: WispPaths, cfg: WispConfig) -> tuple[str, str | None]:
+    return _register(runner, paths, cfg, MAC_MCP_NAME, "mac", MAC_FOREIGN, "não consegui registrar o controle do Mac no Claude; rode wisp setup harness de novo")
+
+
 def _register_email(runner: Runner, paths: WispPaths, cfg: WispConfig) -> tuple[str, str | None]:
     return _register(runner, paths, cfg, MCP_NAME, "email", FOREIGN, "não consegui registrar o e-mail no Claude; rode wisp setup harness de novo")
 
@@ -180,6 +188,9 @@ def setup_harness(runner: Runner, paths: WispPaths, cfg: WispConfig, *, dry_run:
         ours["permissions"]["allow"].extend(MCP_ALLOW)
     if brain_state in ("present", "added"):
         ours["permissions"]["allow"].extend(BRAIN_MCP_ALLOW)
+    mac_state, mac_problem = ("skipped", None) if dry_run else _register_mac(runner, paths, cfg)
+    if mac_state in ("present", "added"):
+        ours["permissions"]["allow"].extend(MAC_ALLOW)
     new_settings, notes = merge_settings(user_settings or {}, ours)
 
     changes = install_tree(source, claude_dir, plan, values, dry_run=True, roots=_roots(cfg))
@@ -198,6 +209,8 @@ def setup_harness(runner: Runner, paths: WispPaths, cfg: WispConfig, *, dry_run:
         details.append(Detail("e-mail", 0, email_problem))
     if brain_problem:
         details.append(Detail("brain", 0, brain_problem))
+    if mac_problem:
+        details.append(Detail("controle do mac", 0, mac_problem))
     if dry_run:
         return StepReport("harness", "done", "dry run: nada foi escrito", details, data)
 
@@ -214,7 +227,7 @@ def setup_harness(runner: Runner, paths: WispPaths, cfg: WispConfig, *, dry_run:
     if manifest != _load_manifest(manifest_path):
         atomic_write(manifest_path, json.dumps({"version": manifest.version, "files": manifest.files}, indent=2, sort_keys=True) + "\n")
 
-    if not pending and "added" not in (email_state, brain_state):
+    if not pending and "added" not in (email_state, brain_state, mac_state):
         return StepReport("harness", "skipped", "o harness já está instalado", details, data)
     summary = "harness instalado"
     if conflicts:

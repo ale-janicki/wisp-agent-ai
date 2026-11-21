@@ -55,7 +55,8 @@ public struct PermissionRequest: Identifiable, Equatable, Sendable {
         let input = request["input"] as? [String: Any] ?? [:]
         let persist = EngineGuards.askTools.contains(tool) ? [] : (request["permission_suggestions"] as? [[String: Any]] ?? []).filter(Self.persists)
         let rules = persist.flatMap { ($0["rules"] as? [[String: Any]] ?? []).map(Self.ruleText) }
-        let phrase = engine == "codex" && tool == EngineGuards.askTools[0] ? "enviar um e-mail" : Self.phrase(tool: tool, input: input, home: home)
+        let codexAsk = engine == "codex" && EngineGuards.askTools.contains(tool)
+        let phrase = codexAsk ? (tool == EngineGuards.askTools[0] ? "enviar um e-mail" : "enviar uma mensagem pelo app") : Self.phrase(tool: tool, input: input, home: home)
         let truncated = phrase.count > Self.summaryLimit
         self.init(
             id: requestId,

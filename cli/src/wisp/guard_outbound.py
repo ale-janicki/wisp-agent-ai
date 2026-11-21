@@ -15,6 +15,11 @@ SERVER_MESSAGE = (
     "Use the email_send tool, which asks the user first. Best-effort defense in depth"
 )
 
+HELPER_MESSAGE = (
+    GUARD_PREFIX + " blocked, calling the wisp-mac helper directly skips the check that keeps messages from being sent without the user's approval. "
+    "Use `wisp mac ...` or the mac_* tools. Best-effort defense in depth"
+)
+
 SQUASH = re.compile(r"[\"'`\\+\s,\[\]()]")
 TOKEN_SPLIT = re.compile(r"[\s;|&<>(){}\"'`=,:]+")
 MAIL_APP = re.compile(r"application(id)?(com\.apple\.)?mail|com\.apple\.mail")
@@ -22,6 +27,7 @@ PYTHON_LAUNCHER = re.compile(r"\bpython[\d.]*\b|\bpypy\d*\b|\bipython\b", re.I)
 WISP_EMAIL = re.compile(r"wisp\.?email|fromwispimportemail|mailapp")
 LIGHT = re.compile(r"[\"'`\\]")
 MCP_SERVER = re.compile(r"(^|[\s/;&|(])wisp(\.exe)?\s+(-\S+\s+)*mcp(?=\s|$)|\s-m\s+wisp\b.*\smcp(?=\s|$)")
+HELPER_CALL = re.compile(r"(wisp-mac|wisp_mac_bin)\}?\s+([^\s;&|]+\s+){0,4}?(clicar|digitar|tecla|rolar|menu|ativar|esconder|sair)\b")
 OPEN_MAILTO = re.compile(r"(^|[\s/;&|(])open\s.*mailto:")
 HEREDOC = re.compile(r"<<-?\s*[\"']?(\w+)[\"']?([^\n]*)\n.*?(\n\s*\1\s*(?=\n|$)|$)", re.S)
 OPERATORS = {";", "&", "&&", "|", "||", "(", ")", "\n", "|&", ";;"}
@@ -254,6 +260,10 @@ def _starts_server(text: str) -> bool:
     return bool(MCP_SERVER.search(plain) or MCP_SERVER.search(listed) or "wisp_approval_socket" in plain or "wisp_approval_socket" in squashed)
 
 
+def _calls_helper(text: str) -> bool:
+    return bool(HELPER_CALL.search(re.sub(r"\s+", " ", LIGHT.sub("", text)).casefold()))
+
+
 def _sends_mail(command: str, combined: str) -> bool:
     if OPEN_MAILTO.search(re.sub(r"\s+", " ", LIGHT.sub("", command)).casefold()):
         return True
@@ -279,4 +289,6 @@ def hook_guard_outbound(payload: dict, paths: WispPaths) -> str | None:
     combined = command + "\n" + _script_contents(command, cwd, paths.home) + "\n" + file_text
     if _starts_server(combined):
         return SERVER_MESSAGE
+    if _calls_helper(combined):
+        return HELPER_MESSAGE
     return MAIL_MESSAGE if _sends_mail(command, combined) else None

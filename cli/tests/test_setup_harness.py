@@ -6,7 +6,7 @@ from wisp.config import WispConfig, save_config
 from wisp.harness_merge import render_agente
 from wisp.paths import WispPaths, resources_root
 from wisp.runner import FakeRunner
-from wisp.setup.harness import BRAIN_MCP_ALLOW, MCP_ALLOW, setup_harness
+from wisp.setup.harness import BRAIN_MCP_ALLOW, MAC_ALLOW, MCP_ALLOW, setup_harness
 
 
 def _paths(home):
@@ -53,7 +53,7 @@ def test_existing_settings_keeps_user_values(fake_home):
     ours = json.loads((resources_root() / "harness/settings.json").read_text())["permissions"]["allow"]
     assert merged["model"] == "sonnet"
     assert merged["permissions"]["allow"][:2] == ["Mine", "Bash(ls:*)"]
-    assert merged["permissions"]["allow"][2:] == [a for a in ours if a != "Bash(ls:*)"] + MCP_ALLOW + BRAIN_MCP_ALLOW
+    assert merged["permissions"]["allow"][2:] == [a for a in ours if a != "Bash(ls:*)"] + MCP_ALLOW + BRAIN_MCP_ALLOW + MAC_ALLOW
     assert len(set(merged["permissions"]["allow"])) == len(merged["permissions"]["allow"])
 
 
@@ -362,10 +362,12 @@ def test_harness_registers_server_once(fake_home):
     assert adds == [
         ["claude", "mcp", "add", "--scope", "user", "wisp-email", "--", wisp_bin, "mcp", "email"],
         ["claude", "mcp", "add", "--scope", "user", "wisp-brain", "--", wisp_bin, "mcp", "brain"],
+        ["claude", "mcp", "add", "--scope", "user", "wisp-mac", "--", wisp_bin, "mcp", "mac"],
     ]
     allow = json.loads((fake_home / ".claude/settings.json").read_text())["permissions"]["allow"]
     assert [a for a in allow if a.startswith("mcp__wisp-email")] == MCP_ALLOW
     assert [a for a in allow if a.startswith("mcp__wisp-brain")] == BRAIN_MCP_ALLOW
+    assert [a for a in allow if a.startswith("mcp__wisp-mac")] == MAC_ALLOW
 
 
 def test_a_foreign_brain_server_is_left_alone_and_gets_no_allow_rule(fake_home):
@@ -381,7 +383,7 @@ def test_a_foreign_brain_server_is_left_alone_and_gets_no_allow_rule(fake_home):
 
     runner = Runner({("claude", "mcp", "get"): RunResult([], 1, "", ""), ("claude", "mcp", "add"): RunResult([], 0, "", "")})
     report = setup_harness(runner, _paths(fake_home), _cfg(fake_home), dry_run=False)
-    assert [c[5] for c in _adds(runner)] == ["wisp-email"]
+    assert [c[5] for c in _adds(runner)] == ["wisp-email", "wisp-mac"]
     assert not any(a.startswith("mcp__wisp-brain") for a in _allow(fake_home))
     assert any(d.command == "brain" for d in report.details)
 
@@ -434,8 +436,36 @@ def test_lookalike_path_is_not_ours(fake_home):
 def test_add_failure_no_allow(fake_home):
     runner = _mcp_runner(1, add_exit=1)
     setup_harness(runner, _paths(fake_home), _cfg(fake_home), dry_run=False)
-    assert len(_adds(runner)) == 2
-    assert not any(a.startswith(("mcp__wisp-email", "mcp__wisp-brain")) for a in _allow(fake_home))
+    assert len(_adds(runner)) == 3
+    assert not any(a.startswith(("mcp__wisp-email", "mcp__wisp-brain", "mcp__wisp-mac")) for a in _allow(fake_home))
+
+
+def test_mac_allow_lists_only_read_only_tools_and_never_the_send(fake_home):
+    from wisp.mac_control import TOOLS
+
+    assert MAC_ALLOW and all(TOOLS[a.split("__")[-1]].read_only for a in MAC_ALLOW)
+    assert "mcp__wisp-mac__mac_send" not in MAC_ALLOW and "mcp__wisp-mac__mac_ui_click" not in MAC_ALLOW
+    setup_harness(_mcp_runner(1), _paths(fake_home), _cfg(fake_home), dry_run=False)
+    allow = _allow(fake_home)
+    assert "mcp__wisp-mac__mac_apps" in allow and "mcp__wisp-mac__mac_send" not in allow and "mcp__wisp-mac__mac_open_url" not in allow
+
+
+def test_foreign_mac_server_is_left_alone(fake_home):
+    from wisp.runner import RunResult
+
+    class Runner(FakeRunner):
+        def run(self, argv, **kw):
+            args = list(argv)
+            if args[:4] == ["claude", "mcp", "get", "wisp-mac"]:
+                self.calls.append(args)
+                return RunResult(args, 0, "wisp-mac:\n  Command: /usr/bin/other\n  Args: serve\n", "")
+            return super().run(args, **kw)
+
+    runner = Runner({("claude", "mcp", "get"): RunResult([], 1, "", ""), ("claude", "mcp", "add"): RunResult([], 0, "", "")})
+    report = setup_harness(runner, _paths(fake_home), _cfg(fake_home), dry_run=False)
+    assert [c[5] for c in _adds(runner)] == ["wisp-email", "wisp-brain"]
+    assert not any(a.startswith("mcp__wisp-mac") for a in _allow(fake_home))
+    assert "já existe outro servidor chamado wisp-mac" in report.to_json()
 
 
 def test_dry_run_no_allow_rule(fake_home):

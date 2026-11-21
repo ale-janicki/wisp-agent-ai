@@ -329,3 +329,37 @@ def test_a_python_package_main_is_read_and_a_harmless_module_passes(paths, tmp_p
 def test_inline_code_still_reads_no_file(paths, tmp_path, command):
     (tmp_path / "runme").write_text(SERVER_SCRIPT)
     assert _decide(paths, command + " runme", cwd=tmp_path) is None
+
+
+HELPER_CALLS = [
+    '"/Applications/Wisp.app/Contents/Helpers/wisp-mac" clicar --titulo Enviar --app Mail',
+    "~/Applications/Wisp.app/Contents/Helpers/wisp-mac clicar --regex send",
+    '"$WISP_MAC_BIN" tecla cmd+return',
+    '${WISP_MAC_BIN} digitar "oi"',
+    "WISP_MAC_BIN=/x/wisp-mac; $WISP_MAC_BIN menu 'Mensagem > Enviar'",
+    "wisp-mac --app Mail clicar --titulo Send",
+    "cat > /tmp/a.sh <<'EOS'\n/x/wisp-mac clicar --titulo Enviar\nEOS\nbash /tmp/a.sh",
+]
+
+HELPER_ALLOWED = [
+    '"$WISP_MAC_BIN" arvore',
+    "wisp-mac foco",
+    "wisp-mac selftest",
+    "wisp mac clicar --titulo OK",
+    "cd ~/repos/pessoal/wisp-mac && git log --oneline | grep menu",
+    "ls ~/repos/pessoal/wisp-mac/app/MacControl",
+]
+
+
+@pytest.mark.parametrize("command", HELPER_CALLS)
+def test_calling_the_mac_helper_directly_to_act_is_blocked(paths, command):
+    assert "wisp-mac helper" in (_decide(paths, command) or "")
+
+
+@pytest.mark.parametrize("command", HELPER_ALLOWED)
+def test_reading_with_the_helper_or_using_wisp_mac_is_allowed(paths, command):
+    assert _decide(paths, command) is None
+
+
+def test_the_mac_mcp_server_cannot_be_started_by_hand(paths):
+    assert "starting the email server" in (_decide(paths, "wisp mcp mac") or "")

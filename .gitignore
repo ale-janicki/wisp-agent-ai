@@ -5,6 +5,7 @@ DerivedData/
 .superpowers/
 app/Sources/Info.plist
 app/Agenda/Info.plist
+app/MacControl/Info.plist
 .venv/
 __pycache__/
 .pytest_cache/

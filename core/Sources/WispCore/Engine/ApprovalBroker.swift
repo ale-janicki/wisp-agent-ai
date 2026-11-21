@@ -61,7 +61,7 @@ public final class ApprovalBroker: @unchecked Sendable {
 }
 
 final class BrokerCore: @unchecked Sendable {
-    static let tools = ["email_send": "mcp__wisp-email__email_send"]
+    static let tools = ["email_send": "mcp__wisp-email__email_send", "mac_send": "mcp__wisp-mac__mac_send"]
     static let defaultValidity: TimeInterval = 610
     static let defaultTicketValidity: TimeInterval = 120
     static let maxLine = 1 << 20

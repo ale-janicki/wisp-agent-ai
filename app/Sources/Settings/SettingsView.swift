@@ -118,6 +118,7 @@ struct SettingsView: View {
             general
             brain
             agenda
+            macControl
             updates
         case .about:
             about
@@ -307,6 +308,24 @@ struct SettingsView: View {
                     .disabled(access.busy)
                 }
             }
+        }
+        .onAppear { access.refresh() }
+    }
+
+    private var macControl: some View {
+        let access = MacControlAccessModel.shared
+        return SettingsGroup(title: "Controle do Mac") {
+            SettingsRow(title: "Controle do Mac: permitir", detail: access.sentence) {
+                if !access.granted {
+                    Button(access.buttonTitle) { access.ask() }
+                        .buttonStyle(CapsuleButtonStyle(kind: .ghost))
+                        .disabled(access.busy)
+                }
+            }
+            Divider().overlay(Theme.stroke)
+            SettingsRow(title: access.accessibilityLine, detail: "Ler a janela, clicar, digitar e apertar teclas em qualquer app.") { EmptyView() }
+            Divider().overlay(Theme.stroke)
+            SettingsRow(title: access.automationLine, detail: "Abrir e controlar apps, como Música, Safari e Mail, por script.") { EmptyView() }
         }
         .onAppear { access.refresh() }
     }
