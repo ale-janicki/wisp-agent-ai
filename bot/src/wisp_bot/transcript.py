@@ -17,6 +17,11 @@ HEADER = ("[Wisp conversation memory: this conversation continues from Wisp's ow
           "engine session was not available. Older messages are shortened.]")
 FOOTER = "[end of Wisp conversation memory]"
 REBUILT_NOTE = "<i>↻ a sessão do Claude não estava aqui; retomei pela conversa guardada no Wisp.</i>"
+ENGINE_NAMES = {"claude": "Claude", "codex": "Codex"}
+
+
+def switched_note(engine: str) -> str:
+    return f"<i>↻ agora quem responde é o {ENGINE_NAMES.get(engine, engine)}; ele retomou pela conversa guardada no Wisp.</i>"
 
 
 def stamp(moment: datetime | None = None) -> str:
@@ -132,6 +137,21 @@ class Transcripts:
         if drop_last_user and entries and entries[-1].get("kind") == "user":
             entries = entries[:-1]
         return build_context(entries)
+
+    def last_engine(self, session_id: str) -> str | None:
+        for entry in reversed(self.entries(session_id)):
+            if entry.get("kind") == "assistant" and isinstance(entry.get("engine"), str):
+                return entry["engine"]
+        return None
+
+    def engine_session(self, session_id: str, engine: str) -> str | None:
+        for entry in reversed(self.entries(session_id)):
+            if entry.get("kind") == "session" and entry.get("engine") == engine and isinstance(entry.get("session"), str):
+                return entry["session"]
+        return None
+
+    def engine_started(self, session_id: str, engine_session: str, engine: str, reason: str) -> None:
+        self._write(session_id, {"kind": "session", "session": engine_session, "engine": engine, "reason": reason})
 
     def user(self, session_id: str, text: str, surface: str) -> None:
         self._write(session_id, {"kind": "user", "surface": surface, "text": text})

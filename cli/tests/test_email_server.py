@@ -32,11 +32,15 @@ class FakeMail:
         self.sent.append((to, subject, body, cc))
 
 
+def _allow(request):
+    return None
+
+
 def _send(mail, to=("a@b.c",)):
-    return email_send(mail, list(to), "Teste", "corpo", ["d@e.f"])
+    return email_send(mail, list(to), "Teste", "corpo", ["d@e.f"], gate=_allow)
 
 
-def test_send_goes_straight_to_mail():
+def test_send_goes_to_mail_once_the_gate_allows():
     mail = FakeMail()
     assert _send(mail) == "enviado"
     assert mail.sent == [(["a@b.c"], "Teste", "corpo", ["d@e.f"])]
@@ -70,7 +74,7 @@ def test_mail_error_is_tool_text():
 
 
 def test_server_exposes_tools_and_flags_error():
-    server = build_server(FakeMail(MailError("falhou")))
+    server = build_server(FakeMail(MailError("falhou")), _allow)
     names = {t.name for t in asyncio.run(server.list_tools())}
     assert names == {"email_list", "email_read", "email_search", "email_send"}
     result = asyncio.run(server.call_tool("email_list", {}))
@@ -78,11 +82,13 @@ def test_server_exposes_tools_and_flags_error():
 
 
 SERVER = """
+import os
 from wisp.email.server import build_server
+from wisp.send_gate import gate_from_env
 class Mail:
     def send(self, *a):
         import sys; print("SENT", file=sys.stderr, flush=True)
-build_server(Mail()).run("stdio")
+build_server(Mail(), gate_from_env(os.environ)).run("stdio")
 """
 
 
@@ -91,13 +97,13 @@ def _rpc(id, method, params=None):
     return (json.dumps(msg) + "\n").encode()
 
 
-def test_send_never_touches_the_approvals_folder(fake_home):
-    """Over real stdio: the call returns and the mail goes out with no approvals folder created or read."""
-    state = fake_home / ".local/state/wisp"
+def test_over_real_stdio_with_the_old_switch_empty_and_no_host_nothing_is_sent(fake_home):
     init = {"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "t", "version": "1"}}
     call = {"name": "email_send", "arguments": {"to": ["a@b.c"], "subject": "s", "body": "b"}}
     stdin = _rpc(1, "initialize", init) + _rpc(None, "notifications/initialized") + _rpc(2, "tools/call", call)
+    env = {k: v for k, v in os.environ.items() if k != "WISP_APPROVAL_SOCKET"}
     done = subprocess.run([sys.executable, "-c", SERVER], input=stdin, capture_output=True, timeout=30,
-                          env={**os.environ, "HOME": str(fake_home)}, start_new_session=True)
-    assert b"SENT" in done.stderr
-    assert not (state / "approvals").exists()
+                          env={**env, "HOME": str(fake_home), "WISP_SEND_GATE": ""}, start_new_session=True)
+    assert b"SENT" not in done.stderr
+    assert b"n\\u00e3o enviei" in done.stdout or "não enviei".encode() in done.stdout
+    assert not (fake_home / ".local/state/wisp/approvals").exists()

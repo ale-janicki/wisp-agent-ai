@@ -21,6 +21,10 @@ public struct PermissionRequest: Identifiable, Equatable, Sendable {
     public let persistJSON: String?
     /// The rules "Sempre permitir" adds, e.g. `Bash(touch x *)`.
     public let persistRules: [String]
+    /// The engine that asks: "claude" or "codex".
+    public let engine: String
+
+    public var asker: String { engine == "codex" ? "Codex" : "Claude" }
 
     public var canPersist: Bool { persistJSON != nil }
 
@@ -29,8 +33,9 @@ public struct PermissionRequest: Identifiable, Equatable, Sendable {
     public init(
         id: String, toolName: String, toolUseId: String? = nil, summary: String, detail: String,
         summaryTruncated: Bool = false, requiresExpansion: Bool = false,
-        inputJSON: String = "{}", persistJSON: String? = nil, persistRules: [String] = []
+        inputJSON: String = "{}", persistJSON: String? = nil, persistRules: [String] = [], engine: String = "claude"
     ) {
+        self.engine = engine
         self.id = id
         self.toolName = toolName
         self.toolUseId = toolUseId
@@ -44,13 +49,13 @@ public struct PermissionRequest: Identifiable, Equatable, Sendable {
     }
 
     /// The `request` object of a `control_request` line; nil when it is not a `can_use_tool` with an id.
-    public init?(requestId: String, request: [String: Any], home: String = NSHomeDirectory()) {
+    public init?(requestId: String, request: [String: Any], home: String = NSHomeDirectory(), engine: String = "claude") {
         guard request["subtype"] as? String == "can_use_tool", !requestId.isEmpty else { return nil }
         let tool = request["tool_name"] as? String ?? ""
         let input = request["input"] as? [String: Any] ?? [:]
         let persist = EngineGuards.askTools.contains(tool) ? [] : (request["permission_suggestions"] as? [[String: Any]] ?? []).filter(Self.persists)
         let rules = persist.flatMap { ($0["rules"] as? [[String: Any]] ?? []).map(Self.ruleText) }
-        let phrase = Self.phrase(tool: tool, input: input, home: home)
+        let phrase = engine == "codex" && tool == EngineGuards.askTools[0] ? "enviar um e-mail" : Self.phrase(tool: tool, input: input, home: home)
         let truncated = phrase.count > Self.summaryLimit
         self.init(
             id: requestId,
@@ -62,7 +67,8 @@ public struct PermissionRequest: Identifiable, Equatable, Sendable {
             requiresExpansion: Self.requiresExpansion(tool: tool, input: input, summaryTruncated: truncated),
             inputJSON: Self.json(input, pretty: false) ?? "{}",
             persistJSON: persist.isEmpty ? nil : Self.json(persist, pretty: false),
-            persistRules: rules
+            persistRules: rules,
+            engine: engine
         )
     }
 

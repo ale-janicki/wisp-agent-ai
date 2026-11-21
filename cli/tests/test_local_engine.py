@@ -13,7 +13,7 @@ from wisp.config import WispConfig
 from wisp.local import guardrails
 from wisp.local.engine import FILES_KEY, EngineError, LocalEngine, fit_context, history_from, record_turn
 from wisp.local.guardrails import MODES
-from wisp.local.tools import Files, ServerSpec, ToolFailure, load_servers
+from wisp.local.tools import Files, ServerSpec, ToolFailure, load_servers, open_host, with_approval_socket
 from wisp.paths import WispPaths
 
 WISP_FOLDER = Path(guardrails.__file__).parents[1] / "wisp_folder"
@@ -272,6 +272,51 @@ def test_email_send_goes_through_the_loop_card_before_the_real_tool_runs(folder,
     else:
         assert not log.exists() and tool_results(events)[0]["is_error"]
         assert events[-1]["permission_denials"] == [{"tool_name": "email_send"}]
+
+
+def _send_calls(folder, fake_home, monkeypatch, steps):
+    log = fake_home / "mail.log"
+    monkeypatch.setenv("FAKE_MAIL_LOG", str(log))
+    server = ServerSpec("fake-mail", sys.executable, (str(FIXTURES / "fake_email_server.py"),), (("FAKE_MAIL_LOG", str(log)),), trusted=True)
+    mail = {"to": ["a@b.c"], "subject": "Oi", "body": "texto"}
+
+    async def go():
+        from wisp_bot.broker import Broker
+        broker = await Broker().start()
+        try:
+            async with open_host([with_approval_socket(server, broker.path)], [folder], folder) as host:
+                return [await _step(host, broker, mail, step) for step in steps]
+        finally:
+            await broker.close()
+
+    return log, asyncio.run(go())
+
+
+async def _step(host, broker, mail, step):
+    kind, changes = step
+    if kind == "allow":
+        broker.autorizar(mail)
+    try:
+        return await host.call("email_send", {**mail, **changes})
+    except ToolFailure as e:
+        return str(e)
+
+
+def test_the_local_engine_hosts_a_ticket_broker_the_real_email_gate_accepts(folder, fake_home, monkeypatch):
+    log, out = _send_calls(folder, fake_home, monkeypatch, [("allow", {})])
+    assert out == ["enviado"] and log.read_text() == "['a@b.c']|Oi|texto\n"
+
+
+def test_without_an_allow_the_real_email_gate_refuses_and_nothing_is_sent(folder, fake_home, monkeypatch):
+    log, out = _send_calls(folder, fake_home, monkeypatch, [("none", {})])
+    assert out[0].startswith("Não há aprovação") and not log.exists()
+
+
+def test_a_ticket_is_single_use_and_an_altered_body_is_refused(folder, fake_home, monkeypatch):
+    steps = [("allow", {}), ("none", {}), ("allow", {"body": "outro texto"})]
+    log, out = _send_calls(folder, fake_home, monkeypatch, steps)
+    assert out[0] == "enviado" and out[1].startswith("Não há aprovação") and out[2].startswith("Não há aprovação")
+    assert log.read_text() == "['a@b.c']|Oi|texto\n"
 
 
 def test_the_default_approver_denies(folder):

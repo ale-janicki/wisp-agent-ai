@@ -1,11 +1,12 @@
 from __future__ import annotations
 import asyncio, json, logging, os, re, shutil, sys
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Awaitable, Callable
 
 from . import hosting
+from .broker import SOCKET_ENV, Broker
 from .config import CURRENT as _CFG, config_path
+from .engine import Result, Status
 from .hosting import HOST
 
 log = logging.getLogger("wisp.claude")
@@ -195,16 +196,6 @@ def fechar_oauth() -> None:
     _solta(_alerta("resolve", CHAVE_OAUTH))
 
 
-@dataclass
-class Result:
-    ok: bool
-    text: str
-    session_id: str | None = None
-    cost_usd: float | None = None
-    model: str | None = None
-    resume_failed: bool = False
-
-
 LIMITE_LINHA = 32 * 1024 * 1024
 SEM_CANAL = "Este turno não tem como perguntar ao usuário, então a ação foi negada. Siga sem ela."
 PedirPermissao = Callable[[dict], Awaitable[str | None]]   # recebe o `request` de um can_use_tool; None permite, um texto nega
@@ -303,10 +294,31 @@ async def _turno(cmd: list[str], modo: str, prompt: str, *, cwd: str, timeout: i
                  on_event: Callable[[str], None] | None,
                  on_text: Callable[[str], Awaitable[None] | None] | None,
                  on_permission: PedirPermissao | None = None) -> tuple[Result, bool]:
+    broker = None
+    if on_permission:
+        try:
+            broker = await Broker().start()
+        except OSError as e:
+            log.warning("sem canal de aprovacao neste turno do claude (o envio de e-mail fica negado): %s", e)
+    try:
+        return await _turno_com(cmd, modo, prompt, cwd=cwd, timeout=timeout, env=env, on_event=on_event, on_text=on_text,
+                                on_permission=on_permission, broker=broker)
+    finally:
+        if broker:
+            await broker.close()
+
+
+async def _turno_com(cmd: list[str], modo: str, prompt: str, *, cwd: str, timeout: int, env: dict | None,
+                     on_event: Callable[[str], None] | None,
+                     on_text: Callable[[str], Awaitable[None] | None] | None,
+                     on_permission: PedirPermissao | None, broker: Broker | None) -> tuple[Result, bool]:
+    child_env = {**os.environ, "WISP_SKIP_PULL": "1", "WISP_BIN": WISP_BIN, **(env or {})}
+    child_env.pop(SOCKET_ENV, None)
+    if broker:
+        child_env[SOCKET_ENV] = broker.path
     try:
         proc = await asyncio.create_subprocess_exec(
-            *cmd, cwd=cwd, stdin=asyncio.subprocess.PIPE,
-            env={**os.environ, "WISP_SKIP_PULL": "1", "WISP_BIN": WISP_BIN, **(env or {})}, limit=LIMITE_LINHA,
+            *cmd, cwd=cwd, stdin=asyncio.subprocess.PIPE, env=child_env, limit=LIMITE_LINHA,
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
     except FileNotFoundError:
         return Result(False, f"binario do claude nao encontrado: {claude_bin()}"), False
@@ -341,6 +353,8 @@ async def _turno(cmd: list[str], modo: str, prompt: str, *, cwd: str, timeout: i
             except Exception as e:
                 log.warning("pedido de permissao %s falhou: %s", id, e)
                 negativa = "Não consegui perguntar ao usuário, então a ação foi negada. Siga sem ela."
+        if negativa is None and broker and req.get("tool_name") in ASK_TOOLS:
+            broker.autorizar(req.get("input"))
         resposta = ({"behavior": "allow", "updatedInput": req.get("input") if isinstance(req.get("input"), dict) else {}}
                     if negativa is None else {"behavior": "deny", "message": negativa})
         await escrever({"type": "control_response",
@@ -478,3 +492,17 @@ _STATUS = re.compile(r"\n*(?:```[a-z]*\n)?STATUS\s*[·.].*\Z", re.S | re.I)
 
 def strip_status(text: str) -> str:
     return _STATUS.sub("", text).strip()
+
+
+class ClaudeEngine:
+    name = "claude"
+
+    async def run(self, prompt: str, **kwargs) -> Result:
+        return await run(prompt, **kwargs)
+
+    async def status(self) -> Status:
+        found = os.path.isfile(claude_bin())
+        return Status(installed=found, logged_in=found)
+
+
+CLAUDE = ClaudeEngine()

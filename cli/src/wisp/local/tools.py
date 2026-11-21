@@ -7,7 +7,7 @@ import sys
 import tomllib
 from collections.abc import AsyncIterator, Callable
 from contextlib import AsyncExitStack, asynccontextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 import anyio
@@ -16,6 +16,7 @@ from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import get_default_environment, stdio_client
 
 from wisp.secrets_scan import scan_text
+from wisp.send_gate import SOCKET_ENV
 
 CONNECT_TIMEOUT = 30.0
 SHELL_TIMEOUT = 60.0
@@ -70,6 +71,7 @@ class ToolHost:
     problems: list[str] = field(default_factory=list)
     _builtin: dict[str, Callable[[dict], str]] = field(default_factory=dict)
     _sessions: dict[str, ClientSession] = field(default_factory=dict)
+    authorize: Callable[[dict], bool] | None = None
 
     async def call(self, name: str, arguments: dict) -> str:
         if name in self._builtin:
@@ -254,6 +256,10 @@ def builtins(roots: list[Path], workdir: Path) -> tuple[dict[str, ToolSpec], dic
 
 def email_server() -> ServerSpec:
     return ServerSpec(EMAIL_SERVER, sys.executable, ("-m", "wisp", "mcp", "email"), trusted=True)
+
+
+def with_approval_socket(server: ServerSpec, path: str) -> ServerSpec:
+    return replace(server, env=(*server.env, (SOCKET_ENV, path))) if server.trusted else server
 
 
 def load_servers(folder: Path) -> tuple[list[ServerSpec], list[str]]:

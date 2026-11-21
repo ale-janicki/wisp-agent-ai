@@ -37,6 +37,7 @@ class BotConfig:
     user_name: str = ""
     conversations_file: Path = Path(DEFAULT_CONVERSATIONS).expanduser()
     wisp_dir: Path = Path(DEFAULT_WISP_DIR).expanduser()
+    codex_bin: str | None = None
 
 
 def config_path(env: Mapping[str, str] = os.environ) -> Path:
@@ -132,7 +133,8 @@ def _build(raw: dict, env: Mapping[str, str], strict: bool) -> BotConfig:
         alert_cmd=_command(tg.get("alert_cmd"), "alert_cmd", env), pair=pair, system_topics=system_topics,
         user_name=str(raw.get("user_name") or "").strip(),
         conversations_file=_expand(str(tg.get("conversations_file") or DEFAULT_CONVERSATIONS), env),
-        wisp_dir=_expand(str(raw.get("wisp_dir") or DEFAULT_WISP_DIR), env))
+        wisp_dir=_expand(str(raw.get("wisp_dir") or DEFAULT_WISP_DIR), env),
+        codex_bin=raw.get("codex_bin") or None)
 
 
 def _token(tg: dict, env: Mapping[str, str]) -> str:

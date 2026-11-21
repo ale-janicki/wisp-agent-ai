@@ -1,4 +1,5 @@
 import re
+import shlex
 from pathlib import Path
 
 from wisp.paths import WispPaths
@@ -9,11 +10,49 @@ MAIL_MESSAGE = (
     "Use the email_send tool, which asks the user first. Best-effort defense in depth"
 )
 
+SERVER_MESSAGE = (
+    GUARD_PREFIX + " blocked, starting the email server by hand or touching WISP_APPROVAL_SOCKET would skip the user's approval. "
+    "Use the email_send tool, which asks the user first. Best-effort defense in depth"
+)
+
 SQUASH = re.compile(r"[\"'`\\+\s,\[\]()]")
 TOKEN_SPLIT = re.compile(r"[\s;|&<>(){}\"'`=,:]+")
 MAIL_APP = re.compile(r"application(id)?(com\.apple\.)?mail|com\.apple\.mail")
 PYTHON_LAUNCHER = re.compile(r"\bpython[\d.]*\b|\bpypy\d*\b|\bipython\b", re.I)
 WISP_EMAIL = re.compile(r"wisp\.?email|fromwispimportemail|mailapp")
+LIGHT = re.compile(r"[\"'`\\]")
+MCP_SERVER = re.compile(r"(^|[\s/;&|(])wisp(\.exe)?\s+(-\S+\s+)*mcp(?=\s|$)|\s-m\s+wisp\b.*\smcp(?=\s|$)")
+OPEN_MAILTO = re.compile(r"(^|[\s/;&|(])open\s.*mailto:")
+HEREDOC = re.compile(r"<<-?\s*[\"']?(\w+)[\"']?([^\n]*)\n.*?(\n\s*\1\s*(?=\n|$)|$)", re.S)
+OPERATORS = {";", "&", "&&", "|", "||", "(", ")", "\n", "|&", ";;"}
+REDIRECTS = {"<", "<<", "<<<", ">", ">>", "<&", ">&", "<>"}
+INTERPRETER = re.compile(r"python[\d.]*|pypy\d*|ipython|node|ruby|perl|bash|sh|zsh")
+SHELLS = {"bash", "sh", "zsh"}
+PYTHON_PLAIN_FLAGS = "bBdEhiIOPqsSuvVxR"
+PYTHON_CODE_CLUSTER = re.compile(rf"-[{PYTHON_PLAIN_FLAGS}]*c.*")
+PYTHON_MODULE_CLUSTER = re.compile(rf"-[{PYTHON_PLAIN_FLAGS}]*m")
+PYTHON_MODULE_ATTACHED = re.compile(rf"-[{PYTHON_PLAIN_FLAGS}]*m(.+)")
+INTERPRETER_PROFILES = {
+    "python": ({"-W", "-X", "--check-hash-based-pycs"}, set(), PYTHON_CODE_CLUSTER),
+    "shell": ({"-o", "+o", "-O", "+O", "--rcfile", "--init-file"}, set(), re.compile(r"-[A-Za-z]*c[A-Za-z]*")),
+    "perl": ({"-I"}, set(), re.compile(r"-[lnpaWwtTuUsScCfF0-9]*[eE]")),
+    "ruby": ({"-I", "-r", "-C"}, set(), re.compile(r"-[nlpaswSdyvW0-9]*e")),
+    "node": ({"-r", "--require", "--import", "-C", "--conditions", "--loader", "--experimental-loader", "--input-type"}, {"-e", "-p", "-pe", "-ep", "--eval", "--print"}, None),
+    "osascript": ({"-l", "-s"}, {"-e"}, None),
+}
+ASSIGNMENT = re.compile(r"[A-Za-z_]\w*=")
+FD_REDIRECT = re.compile(r"\d*[<>]+&?\d*")
+WRAPPER_VALUE_FLAGS = {
+    "env": {"-u", "-C", "-S", "--unset", "--chdir"},
+    "sudo": {"-u", "-g", "-h", "-p", "-C", "-D", "-R", "-T", "-U"},
+    "exec": {"-a"},
+    "nohup": set(),
+    "command": set(),
+    "time": {"-o", "-f"},
+    "timeout": {"-s", "-k", "--signal", "--kill-after"},
+    "xargs": {"-n", "-I", "-L", "-P", "-s", "-d", "-E", "-a", "-J"},
+}
+UV_VALUE_FLAGS = {"-p", "--python", "--with", "--with-requirements", "--directory", "--project", "--env-file", "--index", "--extra", "--group", "--package"}
 SCRIPT_SUFFIXES = {".py", ".js", ".jxa", ".scpt", ".applescript", ".sh", ".command"}
 SCRIPT_READ_LIMIT = 1_000_000
 
@@ -37,8 +76,187 @@ def _script_contents(command: str, cwd: Path, home: Path) -> str:
     return "\n".join(chunks)
 
 
-def _sends_mail(command: str, cwd: Path, home: Path) -> bool:
-    combined = command + "\n" + _script_contents(command, cwd, home)
+def _family(name: str) -> str:
+    if name in SHELLS:
+        return "shell"
+    if name.startswith(("python", "pypy", "ipython")):
+        return "python"
+    return name
+
+
+def _python_module(args: list[str], index: int) -> list[str] | None:
+    word = args[index]
+    module = None
+    if PYTHON_MODULE_CLUSTER.fullmatch(word):
+        module = args[index + 1] if index + 1 < len(args) else None
+    else:
+        attached = PYTHON_MODULE_ATTACHED.fullmatch(word)
+        module = attached.group(1) if attached else None
+    if module is None:
+        return [] if PYTHON_MODULE_CLUSTER.fullmatch(word) else None
+    base = module.replace(".", "/")
+    return [base + ".py", base + "/__main__.py"]
+
+
+def _command_index(segment: list[str]) -> int | None:
+    index = 0
+    while index < len(segment):
+        word = segment[index]
+        name = Path(word).name
+        if ASSIGNMENT.match(word):
+            index += 1
+            continue
+        if name not in WRAPPER_VALUE_FLAGS:
+            return index
+        value_flags = WRAPPER_VALUE_FLAGS[name]
+        index += 1
+        if name == "command" and index < len(segment) and segment[index] in {"-v", "-V"}:
+            return None
+        while index < len(segment) and (segment[index].startswith("-") or ASSIGNMENT.match(segment[index])):
+            index += 2 if segment[index] in value_flags else 1
+        if name == "timeout" and index < len(segment):
+            index += 1
+    return None
+
+
+def _interpreter_args(name: str, args: list[str]) -> tuple[list[str], bool]:
+    family = _family(name)
+    value_flags, inline_flags, code_cluster = INTERPRETER_PROFILES[family]
+    files: list[str] = []
+    seen_file = False
+    index = 0
+    while index < len(args):
+        word = args[index]
+        if family == "python":
+            module = _python_module(args, index)
+            if module is not None:
+                return files + module, True
+        if word in inline_flags or (code_cluster is not None and code_cluster.fullmatch(word)):
+            return files, True
+        if word == "<" and index + 1 < len(args):
+            files.append(args[index + 1])
+            index += 2
+            continue
+        if word in value_flags:
+            index += 2
+            continue
+        if word in REDIRECTS or FD_REDIRECT.fullmatch(word):
+            index += 2
+            continue
+        if word != "-" and not word.startswith(("-", "+")) and not seen_file:
+            files.append(word)
+            seen_file = True
+        index += 1
+    return files, False
+
+
+def _uv_args(args: list[str]) -> tuple[list[str], bool]:
+    if not args or args[0] != "run":
+        return [], False
+    index = 1
+    while index < len(args):
+        word = args[index]
+        if word == "--script" and index + 1 < len(args):
+            return [args[index + 1]], False
+        if word in UV_VALUE_FLAGS:
+            index += 2
+            continue
+        if word.startswith("-"):
+            index += 1
+            continue
+        name = Path(word).name
+        if INTERPRETER.fullmatch(name):
+            return _interpreter_args(name, args[index + 1:])
+        return [word], False
+    return [], False
+
+
+def _segments(words: list[str]) -> list[tuple[list[str], str]]:
+    segments: list[tuple[list[str], str]] = []
+    current: list[str] = []
+    for word in words:
+        if word in OPERATORS:
+            segments.append((current, word))
+            current = []
+        else:
+            current.append(word)
+    segments.append((current, ""))
+    return segments
+
+
+def _segment_files(segment: list[str]) -> tuple[list[str], bool, bool]:
+    start = _command_index(segment)
+    if start is None:
+        return [], False, False
+    name = Path(segment[start]).name
+    args = segment[start + 1:]
+    if name == "uv":
+        files, inline = _uv_args(args)
+    elif name == "osascript" or INTERPRETER.fullmatch(name):
+        files, inline = _interpreter_args(name, args)
+    else:
+        return [], False, False
+    return files, inline, True
+
+
+def _script_files(command: str) -> list[str] | None:
+    flat = HEREDOC.sub(lambda m: " " + m.group(2), command).replace("\n", " ; ")
+    lexer = shlex.shlex(flat, posix=True, punctuation_chars=True)
+    lexer.whitespace_split = True
+    lexer.commenters = ""
+    try:
+        words = list(lexer)
+    except ValueError:
+        return None
+    segments = _segments(words)
+    files: list[str] = []
+    for position, (segment, _) in enumerate(segments):
+        segment_files, inline, interpreter = _segment_files(segment)
+        files.extend(segment_files)
+        if not interpreter or inline or segment_files or position == 0:
+            continue
+        previous, separator = segments[position - 1]
+        if separator != "|":
+            continue
+        source = _command_index(previous)
+        if source is not None and Path(previous[source]).name == "cat":
+            files.extend(w for w in previous[source + 1:] if not w.startswith("-"))
+    return files
+
+
+def _interpreter_contents(command: str, cwd: Path, home: Path) -> tuple[str, bool]:
+    files = _script_files(command)
+    if files is None:
+        return "", True
+    chunks: list[str] = []
+    for name in files:
+        path = Path(home / name[2:] if name.startswith("~/") else name)
+        path = path if path.is_absolute() else cwd / path
+        try:
+            info = path.stat()
+        except (FileNotFoundError, NotADirectoryError):
+            continue
+        except OSError:
+            return "", True
+        try:
+            if not path.is_file() or info.st_size > SCRIPT_READ_LIMIT:
+                return "", True
+            chunks.append(path.read_bytes().decode("utf-8", errors="replace"))
+        except OSError:
+            return "", True
+    return "\n".join(chunks), False
+
+
+def _starts_server(text: str) -> bool:
+    plain = re.sub(r"\s+", " ", LIGHT.sub("", text)).casefold()
+    squashed = SQUASH.sub("", text).casefold()
+    listed = re.sub(r"\s+", " ", re.sub(r"[\"'`\\,\[\]()]", " ", text)).casefold()
+    return bool(MCP_SERVER.search(plain) or MCP_SERVER.search(listed) or "wisp_approval_socket" in plain or "wisp_approval_socket" in squashed)
+
+
+def _sends_mail(command: str, combined: str) -> bool:
+    if OPEN_MAILTO.search(re.sub(r"\s+", " ", LIGHT.sub("", command)).casefold()):
+        return True
     squashed = SQUASH.sub("", combined).casefold()
     if "osascript" in squashed and MAIL_APP.search(squashed):
         unsent = squashed.replace("sender", "")
@@ -55,4 +273,10 @@ def hook_guard_outbound(payload: dict, paths: WispPaths) -> str | None:
     if not isinstance(command, str):
         return None
     cwd = Path(payload["cwd"]) if isinstance(payload.get("cwd"), str) and payload["cwd"] else paths.home
-    return MAIL_MESSAGE if _sends_mail(command, cwd, paths.home) else None
+    file_text, unreadable = _interpreter_contents(command, cwd, paths.home)
+    if unreadable:
+        return MAIL_MESSAGE
+    combined = command + "\n" + _script_contents(command, cwd, paths.home) + "\n" + file_text
+    if _starts_server(combined):
+        return SERVER_MESSAGE
+    return MAIL_MESSAGE if _sends_mail(command, combined) else None
