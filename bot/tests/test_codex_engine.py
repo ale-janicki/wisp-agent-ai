@@ -311,6 +311,17 @@ def test_the_fake_binary_receives_the_overrides_on_a_real_turn(tmp_path, monkeyp
     assert 'mcp_servers.wisp-email.command="/opt/wisp/venv/bin/wisp"' in seen
 
 
+def test_the_codex_process_env_carries_the_same_wisp_bin_as_the_email_overrides(tmp_path, monkeypatch):
+    log = tmp_path / "argv"
+    fake = Path(_fake_codex(tmp_path, "codex-exec-stream-from-docs.jsonl", log=log))
+    fake.write_text(fake.read_text().replace("cat > /dev/null", "").replace(f'echo "$@" > {log}', f'echo "$@" > {log}; echo "$WISP_BIN" > {log}.bin'))
+    monkeypatch.setattr(codex_runner, "CODEX_BIN", str(fake))
+    monkeypatch.setattr(codex_runner, "WISP_BIN", "/opt/wisp/venv/bin/wisp")
+    res = asyncio.run(codex_runner.run("oi", session_id="", cwd=str(tmp_path), started=False, timeout=20, env={"WISP_BIN": "/elsewhere"}))
+    assert res.ok and (tmp_path / "argv.bin").read_text().strip() == "/opt/wisp/venv/bin/wisp"
+    assert 'mcp_servers.wisp-email.command="/opt/wisp/venv/bin/wisp"' in log.read_text()
+
+
 def _planted(home, body='[mcp_servers.wisp-email]\ncommand = "x"\n'):
     root = home / "work" / "proj"
     (root / "sub").mkdir(parents=True)

@@ -37,6 +37,15 @@ Entries are in descending chronological order (newest first).
 - Codex as a second engine: Ajustes > Claude has a "Motor" picker (Claude or Codex) and the choice (`ativo` in `modelos.toml`, set with `wisp config set engine claude|codex`) is followed by the app and by the Telegram bot. Wisp renders your agent into `~/.codex/AGENTS.md` and the email server into `~/.codex/config.toml`, each inside a marked block; everything outside the blocks is untouched. Switching engine in the middle of a conversation starts the new engine from Wisp's saved conversation, with a one-line note. If the chosen engine is Codex and it is not installed or not logged in on this Mac, the reply comes from Claude and says so.
 - Under Codex the permission choices become sandboxes, not questions: "Pedir minha aprovação" only reads (Codex cannot ask here), "Automático" and "Sem pedir" are the same: Codex writes only in the working folder, without network and without any way out of its sandbox (Wisp never lets Codex approve its own commands). Codex never runs in your whole home folder. Wisp's guard hooks exist only under Claude; sending an email still asks for your approval in every mode: under Codex the email tool itself asks the app or the Telegram bot (Permitir/Negar, only you can answer) through a private socket before it sends, and sends nothing if there is no answer, a refusal, 10 minutes of silence or no channel to ask on. If the Codex config from an older Wisp lacks that protection, Codex is treated as not ready (the conversation runs on Claude with a note) until you run `wisp harness sync`. Every Codex launch also carries the email server's definition, approval gate included, on its command line, so an old or edited Codex config cannot switch the gate off. Codex is not used in a folder whose `.codex/config.toml` (or a parent's, up to your home folder) defines the `wisp-email` server or cannot be read: the reply comes from Claude with a note naming the file.
 
+### Changed
+
+- Ajustes > Modelo no longer lists static "Claude" and "Codex" rows under the engine switch: the "Motor" card is the only place to pick Claude or Codex, and the model card below it lists only the local models.
+
+### Fixed
+
+- The local engine can send email. After you allow the card in a local conversation, the `wisp-email` tool gets its approval from a single-use ticket the engine mints for that exact email (to, cc, subject, body); before, the tool asked a host that was not there and always refused. A second identical send needs a new allow, and an altered body is refused.
+- Codex finds the agenda commands: both the bot and the app set `WISP_BIN` in the Codex process, to the same binary the email server override uses, so `"$WISP_BIN" agenda ...` runs.
+
 ## [0.2.2] - 2026-11-19
 
 ### Added

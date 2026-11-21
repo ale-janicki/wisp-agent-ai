@@ -219,7 +219,7 @@ async def _turn(prompt: str, *, session_id: str, cwd: str, started: bool, model:
         return Result(False, conflict, engine="codex")
     cmd = command(root=root, mode=mode, extra_prompt=extra_prompt, session=session_id if started else None)
     log.info("permissao do turno no codex: %s; pasta %s", mode, root)
-    child_env = {**os.environ, "WISP_SKIP_PULL": "1", "WISP_BIN": WISP_BIN, **(env or {})}
+    child_env = {**os.environ, "WISP_SKIP_PULL": "1", **(env or {}), "WISP_BIN": WISP_BIN}
     child_env.pop(SOCKET_ENV, None)
     if socket:
         child_env[SOCKET_ENV] = socket
