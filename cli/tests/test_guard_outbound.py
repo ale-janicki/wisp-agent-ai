@@ -44,6 +44,20 @@ MAIL_SENDS = [
     '''python3 -c "__import__('wisp.' + 'email')"''',
 ]
 
+SERVER_STARTS = [
+    "wisp mcp email",
+    "~/.local/share/wisp/runtime/venv/bin/wisp mcp email",
+    "uv run wisp mcp email",
+    "WISP_APPROVAL_SOCKET=/tmp/x/b wisp mcp email",
+    "python3 -m wisp mcp email",
+    "python -m wisp.cli mcp email",
+    "export WISP_APPROVAL_SOCKET=/tmp/x/b",
+    "env WISP_APPROVAL_SOCKET=/tmp/x/b true",
+    "echo $WISP_APPROVAL_SOCKET",
+    "w'is'p m\\cp email",
+    "ls && wisp mcp email",
+]
+
 MAIL_ALLOWED = [
     '''osascript -e 'tell application "Finder" to get name of home' ''',
     '''osascript -l JavaScript -e 'Application("Mail").inbox().messages().length' ''',
@@ -53,6 +67,11 @@ MAIL_ALLOWED = [
     "uv run pytest cli/tests/test_mail_app.py -q",
     "python3 -c 'print(1)'",
     "ls docs/approvals",
+    "wisp email list --limit 3",
+    "wisp topic status --json",
+    "open https://example.com",
+    "osascript -e 'display dialog \"oi\"'",
+    "osascript -e 'tell application \"Finder\" to get name of home' && ls",
 ]
 
 
@@ -111,3 +130,202 @@ def test_cli_exits_2_on_block_and_0_otherwise(fake_home, monkeypatch, capsys):
     assert main(["hook", "guard-outbound"]) == 0
     monkeypatch.setattr("sys.stdin", io.StringIO("not json"))
     assert main(["hook", "guard-outbound"]) == 2
+
+
+MAILTO_OPENS = [
+    "open mailto:a@b.c?subject=x",
+    "open 'mailto:a@b.c'",
+    "/usr/bin/open -a Mail \"mailto:a@b.c?body=hi\"",
+    "ls && open MAILTO:a@b.c",
+]
+
+
+@pytest.mark.parametrize("command", SERVER_STARTS)
+def test_starting_the_email_server_or_touching_the_socket_variable_is_blocked(paths, command):
+    assert (_decide(paths, command) or "").startswith("wisp-guard:")
+
+
+@pytest.mark.parametrize("command", MAILTO_OPENS)
+def test_open_with_a_mailto_url_is_blocked(paths, command):
+    assert "email_send" in (_decide(paths, command) or "")
+
+
+def test_osascript_script_file_with_any_name_is_read_and_checked(paths, tmp_path):
+    sends = tmp_path / "go"
+    sends.write_text('tell application "Mail" to send m')
+    assert _decide(paths, f"osascript {sends}")
+    assert _decide(paths, "osascript go", cwd=tmp_path)
+    assert _decide(paths, f"osascript -l AppleScript {sends} arg")
+    assert _decide(paths, f"cd /tmp && osascript {sends} ; ls")
+    reads = tmp_path / "read"
+    reads.write_text('tell application "Mail" to get sender of message 1 of inbox')
+    assert _decide(paths, f"osascript {reads}") is None
+    other = tmp_path / "other"
+    other.write_text('tell application "Finder" to get name of home')
+    assert _decide(paths, f"osascript {other}") is None
+
+
+def test_osascript_target_that_is_not_a_readable_file_is_blocked_and_a_missing_one_is_not(paths, tmp_path):
+    assert _decide(paths, "osascript .")
+    assert _decide(paths, "osascript missing-file", cwd=tmp_path) is None
+    locked = tmp_path / "locked"
+    locked.write_text("beep")
+    locked.chmod(0)
+    try:
+        assert _decide(paths, "osascript locked", cwd=tmp_path)
+    finally:
+        locked.chmod(0o600)
+
+
+def test_osascript_with_inline_script_and_here_document_is_not_treated_as_a_file(paths):
+    assert _decide(paths, "osascript -e 'beep'") is None
+    assert _decide(paths, "osascript - <<EOF\nbeep\nEOF") is None
+
+
+SERVER_SCRIPT = (
+    "import subprocess\n"
+    "subprocess.Popen([\"wisp\", \"mcp\", \"email\"], env={\"WISP_APPROVAL_SOCKET\": \"/tmp/x/b\"})\n"
+)
+
+
+@pytest.mark.parametrize("launcher", ["python3", "python", "{runtime}/venv/bin/python", "uv run python", "node", "ruby", "perl", "bash", "sh", "zsh"])
+def test_a_script_given_to_an_interpreter_that_starts_the_server_is_blocked(paths, tmp_path, launcher):
+    script = tmp_path / "srv.py"
+    script.write_text(SERVER_SCRIPT)
+    command = launcher.format(runtime=paths.runtime) + f" {script}"
+    assert (_decide(paths, command) or "").startswith("wisp-guard:")
+    assert _decide(paths, launcher.format(runtime=paths.runtime) + " srv.py", cwd=tmp_path)
+
+
+def test_a_list_style_server_launch_in_a_script_is_blocked_without_the_variable(paths, tmp_path):
+    script = tmp_path / "srv.py"
+    script.write_text('import subprocess\nsubprocess.Popen(["wisp", "mcp", "email"])\n')
+    assert (_decide(paths, f"python3 {script}") or "").startswith("wisp-guard:")
+
+
+def test_a_harmless_script_passes_and_an_unreadable_one_is_blocked(paths, tmp_path):
+    script = tmp_path / "ok.py"
+    script.write_text("print(1)\n")
+    assert _decide(paths, f"python3 {script}") is None
+    assert _decide(paths, "python3 -c 'print(1)'") is None
+    assert _decide(paths, "python3 -m pytest -q") is None
+    assert _decide(paths, "python3 - <<EOF\nprint(1)\nEOF") is None
+    assert _decide(paths, "python3 missing.py", cwd=tmp_path) is None
+    big = tmp_path / "big.sh"
+    big.write_text("#" * 1_000_001)
+    assert _decide(paths, f"bash {big}")
+
+
+def test_mcp_must_be_a_whole_word_after_wisp(paths):
+    assert _decide(paths, "wisp mcp-list") is None
+    assert _decide(paths, "wisp mcp") is not None
+    assert _decide(paths, "wisp mcp email") is not None
+    assert _decide(paths, "ls && wisp mcp") is not None
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "brew install node yarn",
+        "echo python3 nonexist",
+        "ls /usr/bin/python3 nofile",
+        "which -a python3 foo",
+        "apt install python3 python3-pip",
+        "command -v python3 foo",
+    ],
+)
+def test_an_interpreter_name_outside_command_position_is_not_a_command(paths, tmp_path, command):
+    assert _decide(paths, command, cwd=tmp_path) is None
+
+
+@pytest.mark.parametrize(
+    "prefix",
+    ["", "cd /tmp && ", "true; ", "false || ", "ls | ", "(", "\n", "env FOO=1 ", "sudo -u root ", "exec ", "nohup ", "timeout 5 ", "xargs ", "command ", "time ", "FOO=1 "],
+)
+def test_an_interpreter_in_command_position_or_after_a_wrapper_reads_its_file(paths, tmp_path, prefix):
+    (tmp_path / "srv.py").write_text(SERVER_SCRIPT)
+    assert (_decide(paths, f"{prefix}python3 srv.py", cwd=tmp_path) or "").startswith("wisp-guard:")
+
+
+@pytest.mark.parametrize("command", ["bash -lc 'ls'", "zsh -lc 'ls'", "sh -ec 'ls'", "bash -ic 'ls'", "perl -le 'print 1'", "ruby -ne 'p 1'", "node -pe '1'", "osascript -e 'beep'"])
+def test_a_short_flag_cluster_with_c_or_e_is_inline_code_and_reads_no_file(paths, tmp_path, command):
+    assert _decide(paths, command, cwd=tmp_path) is None
+
+
+@pytest.mark.parametrize("command", ["bash -lc 'wisp mcp email'", "sh -ec 'wisp mcp'", "bash -ic 'echo $WISP_APPROVAL_SOCKET'"])
+def test_inline_text_of_a_flag_cluster_is_still_checked(paths, command):
+    assert (_decide(paths, command) or "").startswith("wisp-guard:")
+
+
+@pytest.mark.parametrize("command", ["cat runme | python3", "cat runme | python3 -", "python3 < runme", "python3 - < runme", "uv run runme", "uv run python runme", "uv run --with x python runme", "cat runme | sudo bash"])
+def test_a_poc_in_an_extensionless_file_is_read_through_stdin_and_uv(paths, tmp_path, command):
+    (tmp_path / "runme").write_text(SERVER_SCRIPT)
+    assert (_decide(paths, command, cwd=tmp_path) or "").startswith("wisp-guard:")
+
+
+def test_a_harmless_extensionless_file_through_stdin_and_uv_passes(paths, tmp_path):
+    (tmp_path / "runme").write_text("print(1)\n")
+    for command in ["cat runme | python3", "python3 < runme", "uv run runme", "uv run python runme", "cat runme | grep x"]:
+        assert _decide(paths, command, cwd=tmp_path) is None
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "# run it\npython3 runme",
+        "echo a#b; python3 runme",
+        "echo hi # don't\npython3 runme",
+        "# x\ncat runme | python3",
+        "echo ok\n# c\nuv run runme",
+    ],
+)
+def test_a_hash_never_hides_a_later_line(paths, tmp_path, command):
+    (tmp_path / "runme").write_text(SERVER_SCRIPT)
+    assert (_decide(paths, command, cwd=tmp_path) or "").startswith("wisp-guard:")
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "python3 -I runme",
+        "python3 -E runme",
+        "python3 -W ignore runme",
+        "python3 -X dev runme",
+        "python3 -Wignore runme",
+        "python3 -B -u runme",
+        "node -r pkg runme",
+        "perl -I lib runme",
+        "ruby -I lib -r json runme",
+        "bash +x runme",
+        "bash -o pipefail runme",
+        "osascript -l JavaScript runme",
+    ],
+)
+def test_each_interpreter_has_its_own_flag_tables(paths, tmp_path, command):
+    (tmp_path / "runme").write_text(SERVER_SCRIPT)
+    assert (_decide(paths, command, cwd=tmp_path) or "").startswith("wisp-guard:")
+
+
+@pytest.mark.parametrize("command", ["python3 -m runme", "python3 -mrunme", "python3 -Im runme", "python3 -m pkg.runme"])
+def test_a_python_module_is_resolved_in_the_cwd(paths, tmp_path, command):
+    (tmp_path / "runme.py").write_text(SERVER_SCRIPT)
+    package = tmp_path / "pkg" / "runme"
+    package.mkdir(parents=True)
+    (package / "__main__.py").write_text(SERVER_SCRIPT)
+    assert (_decide(paths, command, cwd=tmp_path) or "").startswith("wisp-guard:")
+
+
+def test_a_python_package_main_is_read_and_a_harmless_module_passes(paths, tmp_path):
+    package = tmp_path / "runme"
+    package.mkdir()
+    (package / "__main__.py").write_text(SERVER_SCRIPT)
+    assert _decide(paths, "python3 -m runme", cwd=tmp_path)
+    (package / "__main__.py").write_text("print(1)\n")
+    assert _decide(paths, "python3 -m runme", cwd=tmp_path) is None
+    assert _decide(paths, "python3 -m missing", cwd=tmp_path) is None
+
+
+@pytest.mark.parametrize("command", ["python3 -c 'print(1)'", "python3 -Ic 'print(1)'", "python3 -cprint(1)", "node -e '1'", "perl -Mstrict -e 1", "ruby -I lib -e 1"])
+def test_inline_code_still_reads_no_file(paths, tmp_path, command):
+    (tmp_path / "runme").write_text(SERVER_SCRIPT)
+    assert _decide(paths, command + " runme", cwd=tmp_path) is None

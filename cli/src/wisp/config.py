@@ -30,6 +30,7 @@ class WispConfig:
     wisp_dir: str = "~/Wisp"
     claude_bin: str | None = None
     brain_learn: bool = True
+    codex_bin: str | None = None
     telegram: TelegramConfig | None = None
     telegram_token_at: int | None = None
 

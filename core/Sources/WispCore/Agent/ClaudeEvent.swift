@@ -10,6 +10,7 @@ public enum ClaudeEvent: Sendable, Equatable {
     case permissionCancelled(id: String)
     case usage(RateLimit)
     case result(sessionId: String, text: String, isError: Bool, denials: [String])
+    case engineSession(engine: String, id: String)
     case ignored(type: String)
     case malformed(String)
 }

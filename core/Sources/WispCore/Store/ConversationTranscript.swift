@@ -36,10 +36,22 @@ public enum ConversationTranscript {
     public static let header = "[Wisp conversation memory: this conversation continues from Wisp's own transcript because the engine session was not available. Older messages are shortened.]"
     public static let footer = "[end of Wisp conversation memory]"
     public static let rebuiltNote = "↻ a sessão do Claude não estava aqui; retomei pela conversa guardada no Wisp."
-    private static let lostSessionMarker = "no conversation found with session id"
+
+    public static func rebuiltNote(engine: EngineKind) -> String {
+        "↻ a sessão do \(engine.displayName) não estava aqui; retomei pela conversa guardada no Wisp."
+    }
+
+    public static let noWorkspaceNote = "o Codex não tem uma pasta de trabalho segura neste Mac (a pasta do Wisp é a pasta pessoal ou fica acima dela); esta conversa roda no Claude"
+
+    public static func switchedNote(to engine: EngineKind) -> String {
+        "↻ agora quem responde é o \(engine.displayName); ele retomou pela conversa guardada no Wisp."
+    }
+    public static let codexLostSession = "codex session not found: the saved conversation will be replayed"
+    private static let lostSessionMarkers = ["no conversation found with session id", codexLostSession]
 
     public static func isLostSession(_ text: String) -> Bool {
-        text.lowercased().contains(lostSessionMarker)
+        let lowered = text.lowercased()
+        return lostSessionMarkers.contains { lowered.contains($0) }
     }
 
     public static func stamp(_ date: Date = Date()) -> String {
@@ -195,6 +207,31 @@ public final class TranscriptStore: @unchecked Sendable {
         return ConversationTranscript.decode(data)
     }
 
+    public func lastEngine(conversation: String?) -> String? {
+        guard let conversation else { return nil }
+        return entries(conversation: conversation).last { $0.kind == .assistant && !($0.engine ?? "").isEmpty }?.engine
+    }
+
+    public func engineSession(conversation: String?, engine: String) -> String? {
+        guard let conversation else { return nil }
+        return entries(conversation: conversation).last { $0.kind == .session && $0.engine == engine && $0.session != nil }?.session
+    }
+
+    public func engines(conversation: String) -> Set<String> {
+        Set(entries(conversation: conversation).filter { $0.kind == .assistant }.compactMap(\.engine))
+    }
+
+    public func messages(conversation: String) -> [ConversationMessage] {
+        entries(conversation: conversation).compactMap { entry in
+            guard let text = entry.text, !text.isEmpty else { return nil }
+            switch entry.kind {
+            case .user: return ConversationMessage(role: .user, text: text)
+            case .assistant: return ConversationMessage(role: .assistant, text: text)
+            case .session: return nil
+            }
+        }
+    }
+
     public func context(conversation: String?, dropTrailingUsers: Int = 0) -> String? {
         guard let conversation else { return nil }
         var all = entries(conversation: conversation)
@@ -265,5 +302,18 @@ public final class TranscriptStore: @unchecked Sendable {
     private static func valid(_ id: String) -> Bool {
         (1...64).contains(id.utf8.count)
             && id.utf8.allSatisfy { ($0 >= 0x30 && $0 <= 0x39) || ($0 >= 0x41 && $0 <= 0x5A) || ($0 >= 0x61 && $0 <= 0x7A) || $0 == 0x2D }
+    }
+}
+
+public enum TranscriptHistory {
+    public static func load(
+        store: TranscriptStore, sessionId: String?, conversationKey: String,
+        claude: (String) -> [ConversationMessage]?
+    ) -> [ConversationMessage]? {
+        let key = store.find(session: sessionId) ?? store.find(session: conversationKey)
+        let wisp = key.map { store.messages(conversation: $0) }.flatMap { $0.isEmpty ? nil : $0 }
+        if let key, store.engines(conversation: key).contains(where: { $0 != "claude" }) { return wisp }
+        guard let sessionId else { return wisp }
+        return claude(sessionId) ?? wisp
     }
 }

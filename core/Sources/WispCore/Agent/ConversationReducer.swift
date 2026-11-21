@@ -40,6 +40,7 @@ public struct ConversationState: Equatable, Sendable {
     public var pendingSends: [String: [String]] = [:]
     public var turnSentFiles: [String] = []
     public var sentToTelegram: [String] = []
+    public var engineName = "claude"
 
     public init() {}
 }
@@ -105,7 +106,8 @@ public enum ConversationReducer {
             s.approvals = []
             s.userDenials = []
             clearTurnFiles(&s)
-            s.phase = .failed(tail.isEmpty ? "claude encerrou (código \(code))" : "claude encerrou (código \(code)): \(tail)")
+            let name = s.engineName
+            s.phase = .failed(tail.isEmpty ? "\(name) encerrou (código \(code))" : "\(name) encerrou (código \(code)): \(tail)")
         }
     }
 
@@ -186,7 +188,7 @@ public enum ConversationReducer {
             }
             s.status = parts.status
             s.phase = s.pendingTurns == 0 ? .idle : .thinking(step: nil)
-        case .ignored, .malformed:
+        case .engineSession, .ignored, .malformed:
             break
         }
     }

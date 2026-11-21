@@ -1,0 +1,12 @@
+{
+  "wisp_bin": "/opt/wisp/venv/bin/wisp",
+  "overrides": [
+    "mcp_servers.wisp-email.command=\"/opt/wisp/venv/bin/wisp\"",
+    "mcp_servers.wisp-email.args=[\"mcp\", \"email\"]",
+    "mcp_servers.wisp-email.env_vars=[\"WISP_TELEGRAM_THREAD\", \"WISP_APPROVAL_SOCKET\"]",
+    "mcp_servers.wisp-email.default_tools_approval_mode=\"approve\"",
+    "mcp_servers.wisp-email.startup_timeout_sec=30",
+    "mcp_servers.wisp-email.tool_timeout_sec=660",
+    "mcp_servers.wisp-email.enabled=true"
+  ]
+}

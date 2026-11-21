@@ -25,11 +25,15 @@ final class ConversationRuntime {
     @ObservationIgnored private var lastTurnEnded: Date?
     @ObservationIgnored private var turnsInFlight = 0
     @ObservationIgnored private var followedSession: String?
-    @ObservationIgnored private var session: AgentSession?
+    @ObservationIgnored private var session: (any EngineSession)?
+    @ObservationIgnored private var sessionKind: EngineKind?
+    @ObservationIgnored private var forgetEngineSession = false
+    @ObservationIgnored private var engineLinkReason = "new"
+    @ObservationIgnored private var engineNote: String?
     @ObservationIgnored private var eventTask: Task<Void, Never>?
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private var pendingStop: Task<Void, Never>?
-    @ObservationIgnored private var startTask: Task<AgentSession, Error>?
+    @ObservationIgnored private var startTask: Task<any EngineSession, Error>?
     @ObservationIgnored private var historyLoad: UUID?
     @ObservationIgnored private var sentAt: ContinuousClock.Instant?
     @ObservationIgnored private var follower: TranscriptFollower?
@@ -181,18 +185,18 @@ final class ConversationRuntime {
     func loadHistory(of record: ConversationRecord) {
         let token = UUID()
         historyLoad = token
-        guard let sessionId = record.sessionId else {
-            isLoadingHistory = false
-            state.messages.insert(Self.historyMissing, at: 0)
-            return
-        }
         isLoadingHistory = true
         let profile = host.profile
         let cwd = expandTilde(record.cwd ?? profile.agent.cwd)
         let prefix = profile.agent.statusPrefix
+        let sessionId = record.sessionId
+        let conversationKey = record.id.uuidString.lowercased()
         Task { [weak self] in
-            let history = await Task.detached {
-                TranscriptReader.load(sessionId: sessionId, cwd: cwd, statusPrefix: prefix, telegramHTML: true)
+            let history = await Task.detached { () -> [ConversationMessage]? in
+                let store = TranscriptStore(folder: WispFolder.conversations())
+                return TranscriptHistory.load(
+                    store: store, sessionId: sessionId, conversationKey: conversationKey,
+                    claude: { TranscriptReader.load(sessionId: $0, cwd: cwd, statusPrefix: prefix, telegramHTML: true) })
             }.value
             guard let self, self.historyLoad == token else { return }
             self.historyLoad = nil
@@ -274,6 +278,7 @@ final class ConversationRuntime {
         ConversationReducer.sessionDiscarded(&state)
         let old = session
         session = nil
+        sessionKind = nil
         if let old { chainStop(old) }
     }
 
@@ -291,10 +296,11 @@ final class ConversationRuntime {
         ConversationReducer.processRestarted(&state)
         let old = session
         session = nil
+        sessionKind = nil
         if let old { chainStop(old) }
     }
 
-    private func chainStop(_ old: AgentSession) {
+    private func chainStop(_ old: any EngineSession) {
         let previous = pendingStop
         pendingStop = Task {
             await previous?.value
@@ -302,49 +308,71 @@ final class ConversationRuntime {
         }
     }
 
-    private func ensureSession() async throws -> AgentSession {
+    private func ensureSession(kind: EngineKind) async throws -> any EngineSession {
         if let session { return session }
         if let startTask { return try await startTask.value }
         let gen = generation
-        let task = Task { try await self.startSession(generation: gen) }
+        let task = Task { try await self.startSession(generation: gen, kind: kind) }
         startTask = task
         return try await task.value
     }
 
-    private func startSession(generation gen: Int) async throws -> AgentSession {
+    private func startSession(generation gen: Int, kind: EngineKind) async throws -> any EngineSession {
         do {
             await pendingStop?.value
             guard gen == generation else { throw CancellationError() }
             let profile = host.profile
             let configured = profile.agent.claudePath
-            let executable = try await Task.detached { try ClaudeLocator.resolve(configured: configured) }.value
+            let executable = try await Task.detached {
+                kind == .codex ? try CodexLocator.resolve(configured: nil) : try ClaudeLocator.resolve(configured: configured)
+            }.value
             guard gen == generation else { throw CancellationError() }
-            let resume = state.sessionId
             PermissionModel.shared.refresh()
             let mode = PermissionModel.shared.cliMode
             let context = agentContext()
             launchedContext = context
-            let settings = try guardSettingsPath()
-            let next = AgentSession(
-                executable: executable,
-                cwd: URL(fileURLWithPath: expandTilde(cwd ?? profile.agent.cwd)),
-                model: profile.agent.model,
-                resume: resume,
-                permissionMode: mode,
-                appendSystemPrompt: context.prompt,
-                settingsPath: settings,
-                disallowedTools: context.disallowedTools,
-                environmentOverrides: context.environment
-            )
+            let resume = prepareResume(kind: kind)
+            let launch: EngineLaunch
+            switch kind {
+            case .claude:
+                launch = EngineLaunch(
+                    kind: .claude, executable: executable,
+                    cwd: URL(fileURLWithPath: expandTilde(cwd ?? profile.agent.cwd)), model: profile.agent.model,
+                    resume: resume, claudePermissionMode: mode, instructions: context.prompt,
+                    claudeSettingsPath: try guardSettingsPath(), disallowedTools: context.disallowedTools,
+                    environment: context.environment)
+            case .codex:
+                let wispDir = WispFolder.directory().path
+                PathsModel.shared.refresh()
+                guard let workspace = codexWorkspace() else { throw GuardsUnavailable(reason: ConversationTranscript.noWorkspaceNote) }
+                guard let wispBinary = codexWispBinary() else { throw GuardsUnavailable(reason: CodexSession.noWispBinary) }
+                launch = EngineLaunch(
+                    kind: .codex, executable: executable, cwd: URL(fileURLWithPath: workspace), resume: resume,
+                    permission: mode.flatMap(PermissionChoice.init(mode:)),
+                    instructions: context.prompt + AgentInstructions.codexNote,
+                    addDirs: CodexCommand.extraDirectories(
+                        workspace: workspace, candidates: [wispDir, PathsModel.shared.url(.brain).path]),
+                    environment: context.environment, wispBinary: wispBinary,
+                    preflight: { [environment = CodexCommand.environment(executable: executable, overrides: context.environment)] workspace in
+                        CodexReadiness.projectProblem(wispBinary: wispBinary, environment: environment, workspace: workspace)
+                    })
+            }
+            let next = EngineFactory.make(launch)
             try await next.start()
+            if let codex = next as? CodexSession, let problem = await codex.approvalChannelProblem {
+                log.error("approval channel for Codex unavailable: \(problem, privacy: .public)")
+                appendSystem("não consegui abrir o canal de aprovação do e-mail; nesta conversa o Codex não envia e-mails (\(problem))")
+            }
             guard gen == generation else {
                 chainStop(next)
                 throw CancellationError()
             }
             session = next
+            sessionKind = kind
+            state.engineName = kind.rawValue
             sessionMode = mode
             startTask = nil
-            log.notice("session started resume=\(resume ?? "nil", privacy: .private) mode=\(mode ?? "claude", privacy: .public)")
+            log.notice("session started engine=\(kind.rawValue, privacy: .public) resume=\(resume ?? "nil", privacy: .private) mode=\(mode ?? "default", privacy: .public)")
             eventTask = Task { [weak self] in
                 for await event in next.events { self?.handle(event, generation: gen) }
             }
@@ -353,6 +381,54 @@ final class ConversationRuntime {
             if gen == generation { startTask = nil }
             throw error
         }
+    }
+
+    private func prepareResume(kind: EngineKind) -> String? {
+        let store = transcript()
+        let key = conversationKey(store)
+        let plan = EngineResume.plan(
+            kind: kind, lastEngine: store.lastEngine(conversation: key), claudeSession: state.sessionId,
+            codexSession: store.engineSession(conversation: key, engine: "codex"), lost: forgetEngineSession)
+        forgetEngineSession = false
+        engineLinkReason = plan.linkReason
+        guard plan.prime else { return plan.resume }
+        if primeContext == nil { primeContext = store.context(conversation: key) }
+        if plan.switched, primeContext != nil { appendSystem(ConversationTranscript.switchedNote(to: kind)) }
+        if plan.dropClaudeSession {
+            rebuiltFrom = state.sessionId ?? key
+            state.sessionId = nil
+        }
+        return plan.resume
+    }
+
+    private func codexWorkspace() -> String? {
+        CodexCommand.workspace(
+            preferred: expandTilde(cwd ?? host.profile.agent.cwd), wispDir: WispFolder.directory().path)
+    }
+
+    private func codexWispBinary() -> String? {
+        EngineGuards.wispBinary(
+            telegramBinary: host.telegram.wispBinary,
+            layout: RuntimeLayout(bundle: Bundle.main.bundleURL, home: FileManager.default.homeDirectoryForCurrentUser))
+    }
+
+    private func desiredEngine() async -> EngineKind {
+        guard EngineChoice.active() == .codex else { return .claude }
+        let wisp = codexWispBinary()
+        let environment = agentContext().environment
+        let workspace = codexWorkspace()
+        let readiness = await Task.detached {
+            CodexReadiness.check(configured: nil, wispBinary: wisp, environment: environment, workspace: workspace)
+        }.value
+        guard readiness.ready else {
+            if engineNote == nil, sessionKind != .claude { engineNote = readiness.note() }
+            return .claude
+        }
+        guard codexWorkspace() != nil else {
+            if engineNote == nil, sessionKind != .claude { engineNote = ConversationTranscript.noWorkspaceNote }
+            return .claude
+        }
+        return .codex
     }
 
     private func releaseTurn() {
@@ -419,8 +495,18 @@ final class ConversationRuntime {
             guard try await acquireTurn() else { return }
             gen = generation
             mirrorUsers.append((user, Self.attachedPaths(text)))
-            let active = try await ensureSession()
+            let kind = await desiredEngine()
+            if let sessionKind, sessionKind != kind, turnsInFlight == 0 {
+                restartProcess()
+                state.phase = .thinking(step: nil)
+                gen = generation
+            }
+            let active = try await ensureSession(kind: sessionKind ?? kind)
             guard gen == generation else { return }
+            if let note = engineNote {
+                engineNote = nil
+                appendSystem(note)
+            }
             let outgoing = ConversationTranscript.prime(primeContext, prompt: text)
             primeContext = nil
             if record { recordUser(user) }
@@ -434,7 +520,7 @@ final class ConversationRuntime {
             if gen == generation { turnsInFlight += 1 }
         } catch is CancellationError {
             return
-        } catch AgentError.claudeNotFound {
+        } catch AgentError.claudeNotFound where EngineChoice.active() == .claude {
             guard gen == generation else { return }
             releaseTurn()
             host.setOnboarding(.claudeMissing)
@@ -451,7 +537,7 @@ final class ConversationRuntime {
             guard gen == generation else { return }
             releaseTurn()
             state.pendingTurns = 0
-            state.phase = .failed("não consegui falar com o claude: \(error.localizedDescription)")
+            state.phase = .failed("não consegui falar com o \((sessionKind ?? EngineChoice.active()).rawValue): \(error.localizedDescription)")
             host.syncPill(for: self)
         }
     }
@@ -552,12 +638,15 @@ final class ConversationRuntime {
         case .claude(.initialized(let sessionId, let model, _)):
             if !model.isEmpty { engineModel = model }
             linkSession(sessionId)
+        case .claude(.engineSession(let engine, let sessionId)):
+            linkEngineSession(engine: engine, sessionId: sessionId)
         case .claude(.result(let sessionId, let text, false, _)):
             linkSession(sessionId)
             let body = ReplyFormatter.split(text, statusPrefix: host.profile.agent.statusPrefix).body
             guard !body.isEmpty else { return }
             let model = engineModel
-            record { try $0.appendAssistant(conversation: $1, openingSession: $2, text: body, surface: "app", engine: "claude", model: model) }
+            let engine = sessionKind?.rawValue ?? "claude"
+            record { try $0.appendAssistant(conversation: $1, openingSession: $2, text: body, surface: "app", engine: engine, model: model) }
         default:
             break
         }
@@ -572,6 +661,14 @@ final class ConversationRuntime {
         record { store, key, _ in try store.link(session: sessionId, conversation: key, engine: "claude", reason: reason) }
     }
 
+    private func linkEngineSession(engine: String, sessionId: String) {
+        guard !sessionId.isEmpty, transcriptKey != nil, !linkedSessions.contains(sessionId) else { return }
+        linkedSessions.insert(sessionId)
+        let reason = engineLinkReason
+        engineLinkReason = "new"
+        record { store, key, _ in try store.link(session: sessionId, conversation: key, engine: engine, reason: reason) }
+    }
+
     private func rebuildAfterLostSession() -> Bool {
         let pending = inFlight
         let store = transcript()
@@ -580,13 +677,14 @@ final class ConversationRuntime {
                 conversation: transcriptKey ?? store.find(session: lost), dropTrailingUsers: pending.count)
         else { return false }
         log.notice("resume lost; rebuilding from the Wisp transcript")
-        state.sessionId = nil
+        let kind = sessionKind ?? .claude
+        if kind == .claude { state.sessionId = nil }
         discardSession(keepingDeliveries: true)
         primeContext = memory
-        rebuiltFrom = lost
+        if kind == .claude { rebuiltFrom = lost } else { forgetEngineSession = true }
         state.pendingTurns = pending.count
         state.phase = .thinking(step: nil)
-        appendSystem(ConversationTranscript.rebuiltNote)
+        appendSystem(ConversationTranscript.rebuiltNote(engine: kind))
         let previous = deliveryTail
         let deliveryId = UUID()
         let task = Task { [weak self] in
@@ -738,7 +836,7 @@ final class ConversationRuntime {
         host.shell?.notices.post(Notice(
             sourceId: "approval:\(id.uuidString)",
             kind: .approval,
-            title: "O Claude precisa da tua aprovação",
+            title: "O \(request.asker) precisa da tua aprovação",
             preview: Notices.preview("Quer \(request.summary)"),
             time: Date(),
             target: .conversation(id),

@@ -107,6 +107,7 @@ struct SettingsView: View {
             colors
             order
         case .model:
+            EngineSettingsCard()
             ModelPickerCard()
             PermissionSettingsCard()
         case .notices:
