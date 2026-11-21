@@ -201,6 +201,8 @@ class Result:
     text: str
     session_id: str | None = None
     cost_usd: float | None = None
+    model: str | None = None
+    resume_failed: bool = False
 
 
 LIMITE_LINHA = 32 * 1024 * 1024
@@ -312,6 +314,7 @@ async def _turno(cmd: list[str], modo: str, prompt: str, *, cwd: str, timeout: i
     parciais: list[str] = []
     final: dict | None = None
     modo_init: str | None = None
+    modelo: str | None = None
     tarefas: list[asyncio.Task] = []
     pedidos: dict[str, asyncio.Future] = {}
 
@@ -365,7 +368,7 @@ async def _turno(cmd: list[str], modo: str, prompt: str, *, cwd: str, timeout: i
             await asyncio.gather(*tarefas, return_exceptions=True)
 
     async def ler_stdout() -> None:
-        nonlocal final, modo_init
+        nonlocal final, modo_init, modelo
         async for bruta in proc.stdout:
             linha = bruta.decode("utf-8", "replace").strip()
             if not linha:
@@ -391,6 +394,7 @@ async def _turno(cmd: list[str], modo: str, prompt: str, *, cwd: str, timeout: i
                     tarefa.cancel()
             elif ev.get("type") == "system" and ev.get("subtype") == "init":
                 modo_init = ev.get("permissionMode") if isinstance(ev.get("permissionMode"), str) else None
+                modelo = ev.get("model") if isinstance(ev.get("model"), str) else None
                 if modo_init and modo_init != modo:
                     log.warning("pedi --permission-mode %s e o claude roda em %s", modo, modo_init)
             elif ev.get("type") == "assistant":
@@ -435,6 +439,8 @@ async def _turno(cmd: list[str], modo: str, prompt: str, *, cwd: str, timeout: i
     await esperar_textos()
     if modo == "auto" and auto_recusado(proc.returncode, (err or b"").decode("utf-8", "replace"), modo_init):
         return Result(False, "o claude recusou o modo auto"), True
+    if proc.returncode != 0 and sessao_perdida((err or b"").decode("utf-8", "replace"), final):
+        return Result(False, "a sessão do claude não existe mais aqui", resume_failed=True), False
     if proc.returncode != 0:
         if falha_de_auth((err or b"").decode("utf-8", "replace"), "\n".join(parciais),
                          str((final or {}).get("result") or "")):
@@ -455,7 +461,16 @@ async def _turno(cmd: list[str], modo: str, prompt: str, *, cwd: str, timeout: i
         text=strip_status(final.get("result") or "") or "(resposta vazia)",
         session_id=final.get("session_id"),
         cost_usd=final.get("total_cost_usd"),
+        model=modelo or next(iter(final.get("modelUsage") or {}), None),
     ), False
+
+
+NO_SESSION = "no conversation found with session id"
+
+
+def sessao_perdida(stderr: str, final: dict | None) -> bool:
+    erros = " ".join(str(e) for e in (final or {}).get("errors") or [])
+    return NO_SESSION in f"{stderr} {erros}".lower()
 
 
 _STATUS = re.compile(r"\n*(?:```[a-z]*\n)?STATUS\s*[·.].*\Z", re.S | re.I)

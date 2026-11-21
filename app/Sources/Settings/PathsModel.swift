@@ -30,12 +30,7 @@ final class PathsModel {
 
     /// Same order as the CLI: `$WISP_CONFIG`, then `$XDG_CONFIG_HOME/wisp/wisp.json`, then `~/.config/wisp/wisp.json`.
     private var configURL: URL {
-        if let explicit = environment["WISP_CONFIG"], !explicit.isEmpty {
-            return URL(fileURLWithPath: (explicit as NSString).expandingTildeInPath)
-        }
-        let base = environment["XDG_CONFIG_HOME"].flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0, isDirectory: true) }
-            ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".config", isDirectory: true)
-        return base.appendingPathComponent("wisp/wisp.json")
+        WispFolder.configURL(environment: environment, home: FileManager.default.homeDirectoryForCurrentUser)
     }
 
     func refresh() {
