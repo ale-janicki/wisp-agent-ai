@@ -1,0 +1,2 @@
+# Which model runs the agent. Used from plan 4.
+ativo = "claude"

@@ -208,6 +208,16 @@ def test_relative_and_dot_targets_resolve_against_the_call_cwd():
     assert _decide("rm -rf *", cwd=WORK) is None
 
 
+def test_the_configured_wisp_folder_is_protected_not_a_fixed_one():
+    cfg = WispConfig(brain=BRAIN, wisp_dir="~/Meu Wisp")
+    def decide(command, cwd=WORK):
+        return hook_guard_destructive({"tool_name": "Bash", "tool_input": {"command": command}, "cwd": cwd}, PATHS, cfg)
+    assert decide("rm -rf ~/Meu\\ Wisp")
+    assert decide("git clean -fd", cwd=f"{HOME}/Meu Wisp")
+    assert decide("rm -rf ~/Wisp") is None
+    assert decide("git clean -fd", cwd=f"{HOME}/Wisp") is None
+
+
 def test_other_tools_and_bad_payloads_pass():
     assert _decide("rm -rf ~", tool="Read") is None
     assert hook_guard_destructive({"tool_name": "Bash", "tool_input": "x"}, PATHS, WispConfig()) is None
