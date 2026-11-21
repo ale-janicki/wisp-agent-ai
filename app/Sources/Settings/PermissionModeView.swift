@@ -6,15 +6,25 @@ struct PermissionModePicker: View {
     private let model = PermissionModel.shared
     @State private var confirmingBypass = false
 
-    private static let options: [(PermissionChoice, String, String)] = [
+    private static let claudeOptions: [(PermissionChoice, String, String)] = [
         (.ask, "Pedir minha aprovação", "O Claude pergunta aqui no Wisp antes de rodar um comando ou mexer num arquivo."),
         (.auto, "Automático", "O Claude decide sozinho o que é seguro; pode executar ações destrutivas sem perguntar."),
         (.bypass, "Sem pedir (perigoso)", "O Claude roda qualquer comando e edita qualquer arquivo sem perguntar."),
     ]
 
+    private static let codexOptions: [(PermissionChoice, String, String)] = [
+        (.ask, "Pedir minha aprovação", "O Codex não consegue pedir aprovação aqui, então só lê: não escreve arquivos nem altera nada."),
+        (.auto, "Automático", "Igual a Sem pedir: o Codex só escreve na pasta de trabalho, sem rede e sem sair do isolamento. Ele não decide sozinho o que é seguro."),
+        (.bypass, "Sem pedir (perigoso)", "O Codex roda sem perguntar, mas só escreve na pasta de trabalho (nunca na pasta pessoal inteira) e sem rede."),
+    ]
+
+    private var options: [(PermissionChoice, String, String)] {
+        EngineModel.shared.active == .codex ? Self.codexOptions : Self.claudeOptions
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Space.s) {
-            ForEach(Self.options, id: \.0) { choice, title, sentence in
+            ForEach(options, id: \.0) { choice, title, sentence in
                 row(choice, title: title, sentence: choice == .auto && model.autoUnavailable
                     ? "Indisponível nesta conta: o Claude não aceitou o modo Automático." : sentence)
             }
@@ -24,7 +34,9 @@ struct PermissionModePicker: View {
                 .fixedSize(horizontal: false, vertical: true)
             if confirmingBypass {
                 VStack(alignment: .leading, spacing: Theme.Space.s) {
-                    Text("Sem pedir, o Claude age sem perguntar nada. Só as regras de bloqueio do Claude e os hooks continuam valendo.")
+                    Text(EngineModel.shared.active == .codex
+                         ? "Sem pedir, o Codex age sem perguntar dentro da pasta de trabalho. As travas do Wisp (hooks) não existem no Codex: o que protege é o sandbox do sistema."
+                         : "Sem pedir, o Claude age sem perguntar nada. Só as regras de bloqueio do Claude e os hooks continuam valendo.")
                         .font(Theme.Font.caption)
                         .foregroundStyle(Theme.textPrimary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -110,7 +122,7 @@ struct PermissionSettingsCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Space.m) {
             VStack(alignment: .leading, spacing: 2) {
-                Text("Permissões do Claude")
+                Text("Permissões do \(EngineModel.shared.active.displayName)")
                     .font(Theme.Font.title)
                     .foregroundStyle(Theme.textPrimary)
                 Text("Vale para as conversas do Wisp a partir da próxima mensagem; uma resposta em andamento termina no modo anterior.")

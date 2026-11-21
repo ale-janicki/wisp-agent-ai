@@ -10,6 +10,7 @@ LIMITE_MENSAGEM = 4000  # o Telegram recusa mais de 4096 caracteres; o HTML esca
 LIMITE_RESUMO = 300
 VALIDADE_S = 600        # sem resposta em 600 s, nega
 PREFIXO = "aprov"
+EMAIL = "mcp__wisp-email__email_send"
 
 NEGADO_NO_TELEGRAM = ("O usuário negou esta ação no Telegram. Não tente de novo do mesmo jeito; "
                       "siga sem ela ou pergunte o que fazer.")
@@ -40,14 +41,21 @@ def texto(pedido: dict) -> str:
             "aprove pelo app")
 
 
+def motor_de(req: dict) -> str:
+    return "Codex" if req.get("engine") == "codex" else "Claude"
+
+
 def descrever(req: dict) -> dict:
     """O `request` de um can_use_tool vira {summary, detail}: o que o dono le antes de permitir."""
     ferramenta = str(req.get("tool_name") or "uma ferramenta")
+    motor = motor_de(req)
     entrada = req.get("input") if isinstance(req.get("input"), dict) else {}
     if ferramenta == "Bash" and isinstance(entrada.get("command"), str):
-        return {"summary": "O Claude quer rodar um comando", "detail": entrada["command"]}
+        return {"summary": f"O {motor} quer rodar um comando", "detail": entrada["command"]}
     corpo = json.dumps(entrada, ensure_ascii=False, indent=2, sort_keys=True)
-    return {"summary": f"O Claude quer usar {ferramenta}", "detail": corpo}
+    if motor == "Codex" and ferramenta == EMAIL:
+        return {"summary": "O Codex quer enviar um e-mail", "detail": corpo}
+    return {"summary": f"O {motor} quer usar {ferramenta}", "detail": corpo}
 
 
 def _teclado(token: str):
@@ -69,7 +77,7 @@ class Aprovacoes:
             log.warning("nao consegui editar a mensagem %s: %s", message_id, e)
 
     async def pedir(self, chat_id: int, thread_id: int | None, req: dict) -> str | None:
-        """Posta o cartao e espera o dono. None permite; um texto nega e e o que o Claude le."""
+        """Posta o cartao e espera o dono. None permite; um texto nega e e o que o modelo le."""
         pedido = descrever(req)
         corpo = texto(pedido)
         kw: dict = {"parse_mode": "HTML", "message_thread_id": thread_id}
@@ -88,7 +96,7 @@ class Aprovacoes:
             await self._fechar(chat_id, msg.message_id, corpo, "expirou")
             return EXPIROU
         except asyncio.CancelledError:
-            await self._fechar(chat_id, msg.message_id, corpo, "cancelado (o Claude desistiu)")
+            await self._fechar(chat_id, msg.message_id, corpo, f"cancelado (o {motor_de(req)} desistiu)")
             raise
         finally:
             self._abertos.pop(token, None)

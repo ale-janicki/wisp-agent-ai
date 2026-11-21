@@ -64,26 +64,34 @@ def block_digest(text: str) -> str:
     return sha256(text.replace("\r\n", "\n").strip("\n").encode())
 
 
-def current_block(user: str) -> str | None:
-    begin = user.find(BEGIN)
-    if begin == -1 and END not in user:
+def find_block(user: str, begin: str, end: str, label: str) -> str | None:
+    start = user.find(begin)
+    if start == -1 and end not in user:
         return None
-    end = user.find(END, begin + len(BEGIN)) if begin != -1 else -1
-    if end == -1 or user.count(BEGIN) != 1 or user.count(END) != 1:
-        raise ValueError("os marcadores do Wisp no CLAUDE.md estão incompletos")
-    return user[begin : end + len(END)]
+    stop = user.find(end, start + len(begin)) if start != -1 else -1
+    if stop == -1 or user.count(begin) != 1 or user.count(end) != 1:
+        raise ValueError(f"os marcadores do Wisp no {label} estão incompletos")
+    return user[start : stop + len(end)]
 
 
-def merge_claude_md(user: str | None, block: str) -> str:
+def merge_block(user: str | None, block: str, begin: str, end: str, label: str) -> str:
     if user is None:
         return block
     eol = detect_eol(user)
     inner = block.rstrip("\n").replace("\n", eol)
-    existing = current_block(user)
+    existing = find_block(user, begin, end, label)
     if existing is None:
         return user + eol * 2 + inner + (eol if block.endswith("\n") else "")
-    begin = user.index(existing)
-    return user[:begin] + inner + user[begin + len(existing) :]
+    start = user.index(existing)
+    return user[:start] + inner + user[start + len(existing) :]
+
+
+def current_block(user: str) -> str | None:
+    return find_block(user, BEGIN, END, "CLAUDE.md")
+
+
+def merge_claude_md(user: str | None, block: str) -> str:
+    return merge_block(user, block, BEGIN, END, "CLAUDE.md")
 
 
 def _append_missing(target: list, extra: list) -> None:
