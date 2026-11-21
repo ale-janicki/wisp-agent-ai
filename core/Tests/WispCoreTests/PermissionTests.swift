@@ -31,6 +31,20 @@ import Testing
         #expect(found[2].persistRules == ["WebFetch(domain:example.com)"])
     }
 
+    @Test func theSendToolNeverOffersAlways() throws {
+        let rule: [String: Any] = ["toolName": "mcp__wisp-email__email_send"]
+        let suggestion: [String: Any] = ["type": "addRules", "behavior": "allow", "destination": "localSettings", "rules": [rule]]
+        func request(_ tool: String) throws -> PermissionRequest {
+            try #require(PermissionRequest(requestId: "r", request: [
+                "subtype": "can_use_tool", "tool_name": tool, "input": ["to": ["ana@exemplo.com"]],
+                "permission_suggestions": [suggestion],
+            ]))
+        }
+        let send = try request("mcp__wisp-email__email_send")
+        #expect(!send.canPersist && send.persistRules.isEmpty)
+        #expect(try request("mcp__wisp-email__email_list").canPersist, "only the asked tool loses Sempre permitir")
+    }
+
     @Test func initReportsTheMode() throws {
         #expect(try fixtureEvents().contains(.permissionMode("default")))
     }

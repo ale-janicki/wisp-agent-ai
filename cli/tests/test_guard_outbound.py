@@ -1,0 +1,113 @@
+import io
+import json
+import os
+from pathlib import Path
+
+import pytest
+
+from wisp.cli import main
+from wisp.guard_outbound import hook_guard_outbound
+from wisp.paths import WispPaths
+
+
+@pytest.fixture
+def home(tmp_path):
+    root = tmp_path / "home"
+    root.mkdir(parents=True, exist_ok=True)
+    return root
+
+
+@pytest.fixture
+def paths(home):
+    return WispPaths(home, home / ".config/wisp", home / ".local/share/wisp/runtime", home / ".local/state/wisp", home / ".local/bin", None)
+
+
+def _decide(paths, command, cwd=None, tool="Bash", **extra):
+    tool_input = {"command": command} if tool == "Bash" else extra
+    return hook_guard_outbound({"tool_name": tool, "tool_input": tool_input, "cwd": str(cwd or paths.home)}, paths)
+
+
+MAIL_SENDS = [
+    '''osascript -e 'tell application "Mail" to send (make new outgoing message with properties {subject:"x"})' ''',
+    '''osascript -e 'tell application "Mail"' -e 'set m to make new outgoing message' -e 'send m' -e 'end tell' ''',
+    '''/usr/bin/osascript -l JavaScript -e 'const m=Application("Mail").OutgoingMessage({subject:"x"}); m.send()' ''',
+    '''osascript -l JavaScript -e "Application('Ma'+'il').outgoingMessages.push(1)"''',
+    '''osascript -l JavaScript -e 'var a=Application(["Ma","il"].join("")); a.OutgoingMessage().send()' ''',
+    '''osascript -e 'tell application id "com.apple.mail" to send theMessage' ''',
+    '''o"sa"script -e 'tell application "Mail" to send m' ''',
+    '''osascript <<EOF\ntell application "Mail"\nsend m\nend tell\nEOF''',
+    '''env osascript -e 'TELL APPLICATION "MAIL" TO SEND M' ''',
+    '''python3 -c "from wisp.email.mail_app import MailApp; MailApp(None).send(['a@b.c'], 's', 'b')"''',
+    '''uv run python - <<EOF\nimport wisp.email.server as s\ns.email_send()\nEOF''',
+    '''python -c "import importlib; importlib.import_module('wisp'+'.email')"''',
+    '''python3 -c "from wisp import email"''',
+    '''python3 -c "__import__('wisp.' + 'email')"''',
+]
+
+MAIL_ALLOWED = [
+    '''osascript -e 'tell application "Finder" to get name of home' ''',
+    '''osascript -l JavaScript -e 'Application("Mail").inbox().messages().length' ''',
+    '''osascript -e 'tell application "Mail" to get sender of message 1 of inbox' ''',
+    "wisp email list --limit 3",
+    "grep -rn wisp.email cli/src",
+    "uv run pytest cli/tests/test_mail_app.py -q",
+    "python3 -c 'print(1)'",
+    "ls docs/approvals",
+]
+
+
+@pytest.mark.parametrize("command", MAIL_SENDS)
+def test_mail_sends_from_scripts_are_blocked(paths, command):
+    assert "email_send" in (_decide(paths, command) or "")
+
+
+@pytest.mark.parametrize("command", MAIL_ALLOWED)
+def test_reading_mail_and_unrelated_commands_pass(paths, command):
+    assert _decide(paths, command) is None
+
+
+def test_script_file_given_to_osascript_is_read(paths, tmp_path):
+    script = tmp_path / "go.js"
+    script.write_text('Application("Mail").OutgoingMessage({}).send()')
+    assert _decide(paths, f"osascript -l JavaScript {script}")
+    assert _decide(paths, "osascript -l JavaScript go.js", cwd=tmp_path)
+    harmless = tmp_path / "ok.js"
+    harmless.write_text('Application("Finder").name()')
+    assert _decide(paths, f"osascript -l JavaScript {harmless}") is None
+
+
+def test_python_script_file_importing_the_email_module_is_read(paths, tmp_path):
+    script = tmp_path / "x.py"
+    script.write_text("from wisp.email.mail_app import MailApp\n")
+    assert _decide(paths, "python3 x.py", cwd=tmp_path)
+
+
+def test_shell_script_file_running_osascript_is_read(paths, tmp_path):
+    script = tmp_path / "x.sh"
+    script.write_text('osascript -e \'tell application "Mail" to send m\'\n')
+    assert _decide(paths, "bash x.sh", cwd=tmp_path)
+
+
+def test_writing_scripts_and_touching_the_state_folder_pass(paths, home):
+    """The folder-forgery checks are gone (approval now lives in Claude Code's prompt); file tools are never blocked."""
+    assert _decide(paths, "cat ~/.local/state/wisp/approvals/abc.json") is None
+    assert _decide(paths, "", tool="Write", file_path=str(home / "x.py"), content="import wisp.email.server\n# approvals decision") is None
+    assert _decide(paths, "", tool="Read", file_path=str(home / ".local/state/wisp/x.json")) is None
+
+
+def test_bad_payloads_pass(paths):
+    assert hook_guard_outbound({}, paths) is None
+    assert hook_guard_outbound({"tool_name": "Bash", "tool_input": "x"}, paths) is None
+    assert hook_guard_outbound({"tool_name": "Bash", "tool_input": {"command": 3}}, paths) is None
+
+
+def test_cli_exits_2_on_block_and_0_otherwise(fake_home, monkeypatch, capsys):
+    block = {"tool_name": "Bash", "tool_input": {"command": 'osascript -e \'tell application "Mail" to send m\''}, "cwd": str(fake_home)}
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(block)))
+    assert main(["hook", "guard-outbound"]) == 2
+    assert capsys.readouterr().err.startswith("wisp-guard:")
+    ok = {"tool_name": "Bash", "tool_input": {"command": "ls"}, "cwd": str(fake_home)}
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(ok)))
+    assert main(["hook", "guard-outbound"]) == 0
+    monkeypatch.setattr("sys.stdin", io.StringIO("not json"))
+    assert main(["hook", "guard-outbound"]) == 2

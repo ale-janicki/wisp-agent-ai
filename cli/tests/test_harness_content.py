@@ -4,7 +4,7 @@ import re
 from wisp.paths import resources_root
 
 HARNESS = resources_root() / "harness"
-PLACEHOLDERS = {"PERSONA_NAME", "USER_NAME", "BRAIN_DIR", "LANGUAGE"}
+PLACEHOLDERS = {"PERSONA_NAME", "USER_NAME", "BRAIN_DIR", "LANGUAGE", "WISP_DIR"}
 
 
 def _shipped_files():
@@ -64,7 +64,7 @@ def test_settings_ask_before_every_agenda_change():
         assert f'Bash("$WISP_AGENDA_BIN" {sub}:*)' in ask
 
 
-def test_placeholders_are_only_the_four_known():
+def test_placeholders_are_only_the_five_known():
     found = set()
     for path in _shipped_files():
         found |= set(re.findall(r"\{\{([^}]*)\}\}", path.read_text()))
@@ -81,6 +81,18 @@ def test_settings_deny_the_secrets_folder_for_read_and_shell():
     assert "Bash(git push -f*)" in deny
 
 
+def test_settings_ask_before_sending_mail_and_never_allow_it():
+    permissions = json.loads((HARNESS / "settings.json").read_text())["permissions"]
+    assert "mcp__wisp-email__email_send" in permissions["ask"]
+    assert not any(rule.startswith("mcp__wisp-email") for rule in permissions["allow"])
+    assert not any("approvals" in rule for rule in permissions["deny"])
+
+
+def test_block_tells_the_agent_to_sync_after_changing_the_wisp_folder():
+    line = next(ln for ln in (HARNESS / "claude-md-block.md").read_text().splitlines() if "{{WISP_DIR}}" in ln)
+    assert "never under ~/.claude" in line and "`wisp harness sync`" in line
+
+
 def _format_line(path) -> str:
     lines = [ln.strip().strip("`") for ln in path.read_text().splitlines() if ln.strip().strip("`").startswith("- **[Quem]")]
     assert len(lines) == 1, path
@@ -89,3 +101,9 @@ def _format_line(path) -> str:
 
 def test_pendencias_format_matches_the_vault_template():
     assert _format_line(HARNESS / "claude-md-block.md") == _format_line(resources_root() / "vault-template/pendencias.md")
+
+
+def test_settings_register_the_outbound_guard():
+    groups = json.loads((HARNESS / "settings.json").read_text())["hooks"]["PreToolUse"]
+    commands = [h["command"] for g in groups for h in g["hooks"]]
+    assert any(c.endswith("wisp hook guard-outbound") for c in commands)

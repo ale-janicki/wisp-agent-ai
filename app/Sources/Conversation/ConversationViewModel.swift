@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Observation
 import os
@@ -25,7 +26,9 @@ final class ConversationViewModel {
     private(set) var runtimes: [UUID: ConversationRuntime] = [:]
 
     @ObservationIgnored weak var shell: ShellController? {
-        didSet { shell?.restTarget = { [weak self] in self?.restTarget() ?? .rest } }
+        didSet {
+            shell?.restTarget = { [weak self] in self?.restTarget() ?? .rest }
+        }
     }
     @ObservationIgnored private let store: ConversationStore
     @ObservationIgnored let sessionLock: SessionLock
@@ -297,6 +300,8 @@ final class ConversationViewModel {
             open(record)
         }
     }
+
+    var approvalQueue: [PermissionRequest] { state.approvals }
 
     func answer(_ request: PermissionRequest, _ decision: PermissionDecision) {
         current.answer(request, decision)

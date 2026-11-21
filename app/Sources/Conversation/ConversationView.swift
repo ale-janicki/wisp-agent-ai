@@ -54,8 +54,8 @@ struct ConversationView: View {
                                 case .tools(let group): ToolsRow(messages: group)
                                 }
                             }
-                            if let request = model.state.approvals.first {
-                                ApprovalCard(request: request, queued: model.state.approvals.count - 1) { model.answer(request, $0) }
+                            if let request = model.approvalQueue.first {
+                                ApprovalCard(request: request, queued: model.approvalQueue.count - 1) { model.answer(request, $0) }
                                     .id(request.id)
                             } else if model.isThinking {
                                 TypingRow(text: model.waitingForTelegram ? ConversationViewModel.waitingStep : "\(model.personaName) pensando…")

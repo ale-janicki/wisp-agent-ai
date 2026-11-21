@@ -2,10 +2,11 @@ import hashlib
 import json
 
 from wisp.cli import main
-from wisp.config import WispConfig
+from wisp.config import WispConfig, save_config
+from wisp.harness_merge import render_agente
 from wisp.paths import WispPaths, resources_root
 from wisp.runner import FakeRunner
-from wisp.setup.harness import setup_harness
+from wisp.setup.harness import MCP_ALLOW, setup_harness
 
 
 def _paths(home):
@@ -47,12 +48,12 @@ def test_existing_settings_keeps_user_values(fake_home):
     claude = fake_home / ".claude"
     claude.mkdir()
     (claude / "settings.json").write_text(json.dumps({"model": "sonnet", "permissions": {"allow": ["Mine", "Bash(ls:*)"]}}))
-    _run(fake_home)
+    setup_harness(_mcp_runner(1), _paths(fake_home), _cfg(fake_home), dry_run=False)
     merged = json.loads((claude / "settings.json").read_text())
     ours = json.loads((resources_root() / "harness/settings.json").read_text())["permissions"]["allow"]
     assert merged["model"] == "sonnet"
     assert merged["permissions"]["allow"][:2] == ["Mine", "Bash(ls:*)"]
-    assert merged["permissions"]["allow"][2:] == [a for a in ours if a != "Bash(ls:*)"]
+    assert merged["permissions"]["allow"][2:] == [a for a in ours if a != "Bash(ls:*)"] + MCP_ALLOW
     assert len(set(merged["permissions"]["allow"])) == len(merged["permissions"]["allow"])
 
 
@@ -262,3 +263,262 @@ def test_existing_agent_file_is_kept_and_reported(fake_home):
     assert report.data["conflicts"] != "0"
     files = json.loads((fake_home / ".config/wisp/harness-installed.json").read_text())["files"]
     assert "agents/operator.md" not in files
+
+
+def _wisp(home):
+    root = home / "Wisp"
+    root.mkdir(parents=True, exist_ok=True)
+    return root
+
+
+def test_block_comes_from_agente_md(fake_home):
+    (_wisp(fake_home) / "agente.md").write_text(_template_body() + "\nregra X\n")
+    _run(fake_home)
+    text = (fake_home / ".claude/CLAUDE.md").read_text()
+    assert "# Ada" in text and "regra X" in text
+    assert text.count("<!-- wisp:begin -->") == 1 and text.count("<!-- wisp:end -->") == 1
+
+
+def test_unknown_braces_kept_verbatim():
+    assert render_agente("a {{NAO_EXISTE}} b {{USER_NAME}}", {"USER_NAME": "Rafa"}) == "a {{NAO_EXISTE}} b Rafa"
+
+
+def test_markers_inside_agente_md_cannot_corrupt_claude_md(fake_home):
+    (_wisp(fake_home) / "agente.md").write_text(_template_body() + "\n<!-- wisp:end -->\nregra Y\n<!-- wisp:begin -->\n")
+    _run(fake_home)
+    first = (fake_home / ".claude/CLAUDE.md").read_text()
+    assert first.count("<!-- wisp:begin -->") == 1 and first.count("<!-- wisp:end -->") == 1
+    assert "regra Y" in first
+    _run(fake_home)
+    assert (fake_home / ".claude/CLAUDE.md").read_text() == first
+
+
+def test_render_agente_strips_block_markers():
+    assert render_agente("a <!-- wisp:begin --> b <!-- wisp:end --> {{USER_NAME}}", {"USER_NAME": "Rafa"}) == "a  b  Rafa"
+
+
+def test_user_text_outside_block_untouched(fake_home):
+    claude = fake_home / ".claude"
+    claude.mkdir()
+    (claude / "CLAUDE.md").write_text("# Mine\nkeep\n")
+    (_wisp(fake_home) / "agente.md").write_text(_template_body() + "\nregra X\n")
+    _run(fake_home)
+    text = (claude / "CLAUDE.md").read_text()
+    assert text.startswith("# Mine\nkeep\n") and "regra X" in text
+
+
+def test_skills_from_wisp_folder(fake_home):
+    skill = _wisp(fake_home) / "skills/minha"
+    skill.mkdir(parents=True)
+    (skill / "SKILL.md").write_text("---\nname: minha\n---\nPara {{USER_NAME}}\n")
+    _run(fake_home)
+    assert "Para Rita" in (fake_home / ".claude/skills/minha/SKILL.md").read_text()
+
+
+def test_brain_dir_outside_wisp_rendered_in_place(fake_home):
+    brain = fake_home / "Documents/cerebro"
+    brain.mkdir(parents=True)
+    (_wisp(fake_home) / "agente.md").write_text(_template_body() + "\ncerebro: {{BRAIN_DIR}}\n")
+    _run(fake_home, WispConfig(user_name="Rita", persona="Ada", brain=str(brain)))
+    assert f"cerebro: {brain}" in (fake_home / ".claude/CLAUDE.md").read_text()
+
+
+def test_block_mentions_wisp_dir(fake_home):
+    _run(fake_home)
+    assert f"live in `{fake_home / 'Wisp'}`" in (fake_home / ".claude/CLAUDE.md").read_text()
+
+
+def test_cli_harness_sync_prints_one_json_object(fake_home, capsys):
+    save_config(_cfg(fake_home))
+    assert main(["harness", "sync", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["step"] == "harness"
+    assert (fake_home / ".claude/CLAUDE.md").is_file()
+
+
+def test_harness_registers_server_once(fake_home):
+    from wisp.runner import RunResult
+
+    wisp_bin = str(_paths(fake_home).runtime / "venv/bin/wisp")
+    add = ("claude", "mcp", "add")
+
+    class Runner(FakeRunner):
+        added = False
+
+        def run(self, argv, **kw):
+            args = list(argv)
+            if args[:3] == ["claude", "mcp", "get"]:
+                self.calls.append(args)
+                return RunResult(args, 0, f"wisp-email:\n  Command: {wisp_bin}\n  Args: mcp email\n", "") if self.added else RunResult(args, 1, "", "not found")
+            if tuple(args[:3]) == add:
+                self.added = True
+            return super().run(args, **kw)
+
+    runner = Runner({add: RunResult([], 0, "", "")})
+    cfg = _cfg(fake_home)
+    setup_harness(runner, _paths(fake_home), cfg, dry_run=False)
+    setup_harness(runner, _paths(fake_home), cfg, dry_run=False)
+    adds = [c for c in runner.calls if tuple(c[:3]) == add]
+    assert adds == [["claude", "mcp", "add", "--scope", "user", "wisp-email", "--", wisp_bin, "mcp", "email"]]
+    allow = json.loads((fake_home / ".claude/settings.json").read_text())["permissions"]["allow"]
+    assert [a for a in allow if a.startswith("mcp__wisp-email")] == MCP_ALLOW
+
+
+def test_harness_dry_run_does_not_register(fake_home):
+    runner = FakeRunner()
+    setup_harness(runner, _paths(fake_home), _cfg(fake_home), dry_run=True)
+    assert runner.calls == []
+
+
+def _mcp_runner(get_exit, get_out="", add_exit=0):
+    from wisp.runner import RunResult
+
+    return FakeRunner({
+        ("claude", "mcp", "get"): RunResult([], get_exit, get_out, ""),
+        ("claude", "mcp", "add"): RunResult([], add_exit, "", "boom"),
+    })
+
+
+def _allow(home):
+    path = home / ".claude/settings.json"
+    return json.loads(path.read_text())["permissions"]["allow"] if path.exists() else []
+
+
+def _adds(runner):
+    return [c for c in runner.calls if c[:3] == ["claude", "mcp", "add"]]
+
+
+FOREIGN = "já existe outro servidor chamado wisp-email no Claude; o Wisp não mexeu nele"
+
+
+def test_foreign_server_untouched_no_allow(fake_home):
+    runner = _mcp_runner(0, "wisp-email:\n  Command: /usr/bin/other\n  Args: serve\n")
+    report = setup_harness(runner, _paths(fake_home), _cfg(fake_home), dry_run=False)
+    assert _adds(runner) == []
+    assert not any(a.startswith("mcp__wisp-email") for a in _allow(fake_home))
+    assert FOREIGN in report.to_json()
+
+
+def test_lookalike_path_is_not_ours(fake_home):
+    other = str(_paths(fake_home).runtime / "venv/bin/wisp-other")
+    runner = _mcp_runner(0, f"wisp-email:\n  Command: {other}\n  Args: mcp email\n")
+    setup_harness(runner, _paths(fake_home), _cfg(fake_home), dry_run=False)
+    assert _adds(runner) == [] and not any(a.startswith("mcp__wisp-email") for a in _allow(fake_home))
+    runner = _mcp_runner(0, f"wisp-email: {other} mcp email")
+    setup_harness(runner, _paths(fake_home), _cfg(fake_home), dry_run=False)
+    assert not any(a.startswith("mcp__wisp-email") for a in _allow(fake_home))
+
+
+def test_add_failure_no_allow(fake_home):
+    runner = _mcp_runner(1, add_exit=1)
+    setup_harness(runner, _paths(fake_home), _cfg(fake_home), dry_run=False)
+    assert len(_adds(runner)) == 1
+    assert not any(a.startswith("mcp__wisp-email") for a in _allow(fake_home))
+
+
+def test_dry_run_no_allow_rule(fake_home):
+    runner = _mcp_runner(1)
+    setup_harness(runner, _paths(fake_home), _cfg(fake_home), dry_run=True)
+    assert runner.calls == [] and not (fake_home / ".claude/settings.json").exists()
+
+
+def test_merged_settings_ask_before_sending_and_never_allow_it(fake_home):
+    claude = fake_home / ".claude"
+    claude.mkdir()
+    (claude / "settings.json").write_text(json.dumps({"permissions": {"ask": ["Mine"]}}))
+    _run(fake_home)
+    permissions = json.loads((claude / "settings.json").read_text())["permissions"]
+    assert permissions["ask"][0] == "Mine" and "mcp__wisp-email__email_send" in permissions["ask"]
+    assert "mcp__wisp-email__email_send" not in permissions["allow"] and "mcp__wisp-email" not in permissions["allow"]
+
+
+def _template_body():
+    text = (resources_root() / "harness/claude-md-block.md").read_text()
+    return text.split("<!-- wisp:begin -->\n", 1)[1].split("<!-- wisp:end -->", 1)[0]
+
+
+def test_new_user_gets_seeded_agente_with_full_template(fake_home):
+    report = _run(fake_home)
+    root = fake_home / "Wisp"
+    assert (root / "agente.md").read_text() == _template_body()
+    assert (root / "guardrails.toml").is_file() and (root / "skills/brain-boot/SKILL.md").is_file()
+    assert "You are **Ada**" in (fake_home / ".claude/CLAUDE.md").read_text()
+    assert not [d for d in report.details if d.command == "agente"]
+
+
+def test_seeding_never_overwrites_and_dry_run_seeds_nothing(fake_home):
+    _run(fake_home, dry_run=True)
+    assert sorted(p.name for p in (fake_home / "Wisp").iterdir()) == ["brain"]
+    mine = _template_body() + "\nminhas regras\n"
+    (_wisp(fake_home) / "agente.md").write_text(mine)
+    _run(fake_home)
+    assert (fake_home / "Wisp/agente.md").read_text() == mine
+    assert (fake_home / "Wisp/modelos.toml").is_file()
+
+
+def test_incomplete_agente_falls_back_to_the_template(fake_home):
+    (_wisp(fake_home) / "agente.md").write_text("regra X\n")
+    report = _run(fake_home)
+    text = (fake_home / ".claude/CLAUDE.md").read_text()
+    assert "You are **Ada**" in text and "regra X" not in text
+    assert [d.output for d in report.details if d.command == "agente"] == ["o agente.md parece incompleto; usei as regras padrão"]
+    assert (fake_home / "Wisp/agente.md").read_text() == "regra X\n"
+
+
+_INCOMPLETE_DETAIL = ["o agente.md parece incompleto; usei as regras padrão"]
+
+
+def _falls_back(fake_home):
+    report = _run(fake_home)
+    text = (fake_home / ".claude/CLAUDE.md").read_text()
+    assert "You are **Ada**" in text
+    assert [d.output for d in report.details if d.command == "agente"] == _INCOMPLETE_DETAIL
+
+
+def test_unreadable_agente_falls_back_to_the_template(fake_home):
+    path = _wisp(fake_home) / "agente.md"
+    path.write_text(_template_body() + "\nregra X\n")
+    path.chmod(0)
+    try:
+        _falls_back(fake_home)
+    finally:
+        path.chmod(0o644)
+
+
+def test_non_utf8_agente_falls_back_to_the_template(fake_home):
+    (_wisp(fake_home) / "agente.md").write_bytes(b"# {{PERSONA_NAME}}\n\xff\xfe regra\n")
+    _falls_back(fake_home)
+
+
+def test_truncated_agente_with_heading_falls_back_to_the_template(fake_home):
+    body = _template_body()
+    (_wisp(fake_home) / "agente.md").write_text(body[: body.index("## Hard rules")])
+    _falls_back(fake_home)
+
+
+def test_complete_user_edited_agente_is_kept(fake_home):
+    (_wisp(fake_home) / "agente.md").write_text(_template_body() + "\nminha regra Z\n")
+    report = _run(fake_home)
+    assert "minha regra Z" in (fake_home / ".claude/CLAUDE.md").read_text()
+    assert not [d for d in report.details if d.command == "agente"]
+
+
+def test_rendered_persona_heading_counts_as_complete(fake_home):
+    (_wisp(fake_home) / "agente.md").write_text(_template_body().replace("{{PERSONA_NAME}}", "Ada") + "\nregra X\n")
+    report = _run(fake_home)
+    assert "regra X" in (fake_home / ".claude/CLAUDE.md").read_text()
+    assert not [d for d in report.details if d.command == "agente"]
+
+
+def test_symlinks_in_wisp_skills_are_not_followed(fake_home):
+    outside = fake_home / "segredos"
+    outside.mkdir()
+    (outside / "SKILL.md").write_text("segredo\n")
+    skills = _wisp(fake_home) / "skills"
+    (skills / "real").mkdir(parents=True)
+    (skills / "real/SKILL.md").write_text("ok {{USER_NAME}}\n")
+    (skills / "linkado").symlink_to(outside)
+    (skills / "real/atalho.md").symlink_to(outside / "SKILL.md")
+    _run(fake_home)
+    installed = fake_home / ".claude/skills"
+    assert (installed / "real/SKILL.md").read_text() == "ok Rita\n"
+    assert not (installed / "linkado").exists() and not (installed / "real/atalho.md").exists()
