@@ -241,7 +241,8 @@ final class CodexEngineTests: XCTestCase {
         XCTAssertFalse(argv[0].contains("resume"))
         XCTAssertTrue(argv[1].contains("resume \(Self.thread) -"))
         XCTAssertTrue(argv[0].contains("--sandbox read-only"))
-        for override in try overridesContract() { XCTAssertTrue(argv[0].contains(override), override) }
+        for override in try overridesContract("overrides_read_only") { XCTAssertTrue(argv[0].contains(override), override) }
+        XCTAssertFalse(argv[0].contains("mac_send"))
         XCTAssertLessThan(try XCTUnwrap(argv[1].range(of: "enabled=true")).lowerBound, try XCTUnwrap(argv[1].range(of: "resume \(Self.thread)")).lowerBound)
         let routes = session.routesApprovals
         XCTAssertFalse(routes)
@@ -278,12 +279,12 @@ final class CodexEngineTests: XCTestCase {
         await session.stop()
     }
 
-    private func overridesContract() throws -> [String] {
+    private func overridesContract(_ key: String = "overrides") throws -> [String] {
         let data = try Data(contentsOf: URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("cli/tests/fixtures/contract/codex-mcp-overrides.json"))
         let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
-        return try XCTUnwrap(object["overrides"] as? [String])
+        return try XCTUnwrap(object[key] as? [String])
     }
 
     func testTheWholeEmailServerIsPassedAsOverridesOnEveryLaunchAndMatchesTheContract() throws {
@@ -293,14 +294,20 @@ final class CodexEngineTests: XCTestCase {
         let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
         let binary = try XCTUnwrap(object["wisp_bin"] as? String)
         XCTAssertEqual(CodexCommand.mcpOverrides(wispBinary: binary), try overridesContract())
-        for permission in [PermissionChoice.ask, .auto, .bypass] {
+        XCTAssertEqual(CodexCommand.mcpOverrides(wispBinary: binary, allowChanges: false), try overridesContract("overrides_read_only"))
+        for permission in [PermissionChoice?.some(.ask), .some(.auto), .some(.bypass), nil] {
             for resume in [nil, Self.thread] {
                 let args = CodexCommand.arguments(workspace: "/w", permission: permission, wispBinary: binary, resume: resume)
-                for override in try overridesContract() {
+                let changes = permission == .auto || permission == .bypass
+                let wanted = try overridesContract(changes ? "overrides" : "overrides_read_only")
+                for override in wanted {
                     let index = try XCTUnwrap(args.firstIndex(of: override), override)
                     XCTAssertEqual(args[index - 1], "-c")
                 }
-                let last = try XCTUnwrap(overridesContract().last)
+                let tools = args.filter { $0.hasPrefix("mcp_servers.wisp-mac.enabled_tools=") }
+                XCTAssertEqual(tools.count, 1)
+                XCTAssertEqual(tools[0].contains("mac_send"), changes, "mac_send and every changing tool are left out in Pedir mode")
+                let last = try XCTUnwrap(wanted.last)
                 if resume != nil { XCTAssertLessThan(try XCTUnwrap(args.firstIndex(of: last)), try XCTUnwrap(args.firstIndex(of: "resume"))) }
             }
         }

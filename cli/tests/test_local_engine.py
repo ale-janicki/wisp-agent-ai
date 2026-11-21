@@ -70,7 +70,9 @@ def test_a_plain_answer_streams_init_text_and_result_with_engine_and_model(folde
     sent = fake.chats()[0]
     assert sent["options"]["num_ctx"] == 8192
     assert sent["messages"][0]["role"] == "system" and "Você é o Wisp." in sent["messages"][0]["content"]
-    assert [t["function"]["name"] for t in sent["tools"]] == ["read_file", "list_files", "write_file"]
+    names = [t["function"]["name"] for t in sent["tools"]]
+    assert names[:3] == ["read_file", "list_files", "write_file"]
+    assert set(names[3:]) == {"mac_apps", "mac_windows", "mac_battery", "mac_wifi", "mac_screenshot", "mac_open", "mac_open_url", "mac_volume", "mac_media"}
     assert result.text == "Olá!" and result.steps == 1
 
 

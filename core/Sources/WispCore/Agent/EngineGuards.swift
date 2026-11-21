@@ -10,7 +10,7 @@ public enum EngineGuards {
     static let agendaAsk = ["criar-evento", "editar-evento", "apagar-evento", "criar-lembrete", "concluir-lembrete", "permissao --pedir"]
     static let agendaHeads = ["\"$WISP_BIN\" agenda", "$WISP_BIN agenda", "wisp agenda", "\"$WISP_AGENDA_BIN\""]
     public static let agendaAskRules = agendaAsk.flatMap { sub in agendaHeads.map { "Bash(\($0) \(sub):*)" } }
-    public static let askTools = ["mcp__wisp-email__email_send"]
+    public static let askTools = ["mcp__wisp-email__email_send", "mcp__wisp-mac__mac_send"]
 
     public static func settings(wispBinary: String) -> [String: Any] {
         let quoted = "'" + wispBinary.replacingOccurrences(of: "'", with: "'\\''") + "'"

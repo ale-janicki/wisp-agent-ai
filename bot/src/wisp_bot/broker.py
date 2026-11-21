@@ -12,7 +12,7 @@ log = logging.getLogger("wisp-bot.broker")
 
 SOCKET_ENV = "WISP_APPROVAL_SOCKET"
 OP_REQUEST = "request"
-TOOLS = {"email_send": "mcp__wisp-email__email_send"}
+TOOLS = {"email_send": "mcp__wisp-email__email_send", "mac_send": "mcp__wisp-mac__mac_send"}
 LINHA_MAX = 1 << 20
 LEITURA_S = 10
 VALIDADE_S = 610   # um pouco acima dos 600 s do cartao, para a recusa do cartao chegar antes

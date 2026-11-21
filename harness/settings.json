@@ -42,7 +42,8 @@
       "Bash($WISP_BIN agenda permissao --pedir:*)",
       "Bash(wisp agenda permissao --pedir:*)",
       "Bash(\"$WISP_AGENDA_BIN\" permissao --pedir:*)",
-      "mcp__wisp-email__email_send"
+      "mcp__wisp-email__email_send",
+      "mcp__wisp-mac__mac_send"
     ],
     "deny": [
       "Bash(rm -rf /*)",

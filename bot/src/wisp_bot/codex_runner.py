@@ -72,7 +72,7 @@ def workspace(cwd: str, wisp_dir: Path) -> Path | None:
     return safe_dir(cwd) or safe_dir(wisp_dir)
 
 
-PROJECT_DEFINES = ("o arquivo {file} define o servidor wisp-email do Codex; o Wisp não usa o Codex nesta pasta "
+PROJECT_DEFINES = ("o arquivo {file} define o servidor {name} do Codex; o Wisp não usa o Codex nesta pasta "
                    "enquanto ele existir (apague essa parte do arquivo ou use outra pasta)")
 PROJECT_UNREADABLE = ("não consegui ler {file} como TOML; o Wisp não usa o Codex nesta pasta enquanto ele estiver assim "
                       "(corrija o arquivo ou use outra pasta)")
@@ -90,8 +90,9 @@ def project_conflict(root: Path | None, home: Path | None = None) -> str | None:
                 servers = tomllib.loads(file.read_bytes().decode()).get("mcp_servers")
             except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError):
                 return PROJECT_UNREADABLE.format(file=file)
-            if isinstance(servers, dict) and "wisp-email" in servers:
-                return PROJECT_DEFINES.format(file=file)
+            taken = next((name for name in ("wisp-email", "wisp-mac") if isinstance(servers, dict) and name in servers), None)
+            if taken:
+                return PROJECT_DEFINES.format(file=file, name=taken)
         folder = folder.parent
     return None
 
@@ -105,7 +106,17 @@ def extra_dirs(root: Path, brain: Path, wisp_dir: Path) -> list[str]:
     return out
 
 
-def mcp_overrides(wisp_bin: str, owned: frozenset[str] = frozenset()) -> list[str]:
+MAC_READ_ONLY = ("mac_apps", "mac_battery", "mac_dnd_status", "mac_screenshot", "mac_shortcuts_list", "mac_ui_tree", "mac_wifi", "mac_windows")
+MAC_ALL = ("mac_app", "mac_apps", "mac_battery", "mac_brightness", "mac_dark_mode", "mac_dnd_status", "mac_media", "mac_notify",
+           "mac_open", "mac_open_url", "mac_screenshot", "mac_script", "mac_send", "mac_settings_pane", "mac_shortcut",
+           "mac_shortcuts_list", "mac_ui_click", "mac_ui_key", "mac_ui_menu", "mac_ui_scroll", "mac_ui_tree", "mac_ui_type",
+           "mac_volume", "mac_wifi", "mac_windows")
+CHANGING_MODES = ("auto", "bypassPermissions")
+OWNABLE = ("wisp-email", "wisp-brain", "wisp-mac")
+
+
+def mcp_overrides(wisp_bin: str, owned: frozenset[str] = frozenset(), allow_changes: bool = True) -> list[str]:
+    mac_tools = "[" + ", ".join(json.dumps(t) for t in (MAC_ALL if allow_changes else MAC_READ_ONLY)) + "]"
     servers = {
         "wisp-email": [
             ("command", toml_string(wisp_bin)),
@@ -125,6 +136,16 @@ def mcp_overrides(wisp_bin: str, owned: frozenset[str] = frozenset()) -> list[st
             ("tool_timeout_sec", "60"),
             ("enabled", "true"),
         ],
+        "wisp-mac": [
+            ("command", toml_string(wisp_bin)),
+            ("args", '["mcp", "mac"]'),
+            ("env_vars", f'["WISP_TELEGRAM_THREAD", "{SOCKET_ENV}"]'),
+            ("default_tools_approval_mode", '"approve"'),
+            ("startup_timeout_sec", "30"),
+            ("tool_timeout_sec", "660"),
+            ("enabled_tools", mac_tools),
+            ("enabled", "true"),
+        ],
     }
     return [f"mcp_servers.{name}.{key}={value}" for name, fields in servers.items() if name == "wisp-email" or name not in owned for key, value in fields]
 
@@ -137,7 +158,7 @@ def user_owned_servers() -> frozenset[str]:
         servers = tomllib.loads(outside).get("mcp_servers")
     except (OSError, ValueError):
         return frozenset()
-    return frozenset(name for name in ("wisp-email", "wisp-brain") if isinstance(servers, dict) and name in servers)
+    return frozenset(name for name in OWNABLE if isinstance(servers, dict) and name in servers)
 
 
 def command(*, root: Path, mode: str, extra_prompt: str, session: str | None, wisp_bin: str | None = None) -> list[str]:
@@ -146,7 +167,7 @@ def command(*, root: Path, mode: str, extra_prompt: str, session: str | None, wi
         cmd += ["--add-dir", folder]
     instructions = "\n\n".join(x for x in (TELEGRAM_STYLE, CODEX_FILES_NOTE, extra_prompt) if x)
     cmd += ["-c", f"developer_instructions={toml_string(instructions)}"]
-    for override in mcp_overrides(wisp_bin or WISP_BIN, user_owned_servers()):
+    for override in mcp_overrides(wisp_bin or WISP_BIN, user_owned_servers(), mode in CHANGING_MODES):
         cmd += ["-c", override]
     if session:
         cmd += ["resume", session]
