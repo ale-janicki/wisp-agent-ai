@@ -15,6 +15,7 @@ from wisp.agenda import add_parser as add_agenda_parser, run as run_agenda
 from wisp.config import WispConfig, is_unreadable, load_config, save_config
 from wisp.doctor import run_doctor
 from wisp.fsops import OutsideHome, ensure_dir
+from wisp.local.cli import add_parser as add_local_parser, run as run_local
 from wisp.jobs import NotSupportedHere, manager_for
 from wisp.guard_brain_scope import hook_guard_brain_scope
 from wisp.mac import add_parser as add_mac_parser, run as run_mac
@@ -406,6 +407,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_arquivos_parser(sub)
     add_mac_parser(sub)
     add_agenda_parser(sub)
+    add_local_parser(sub)
     hook = sub.add_parser("hook")
     hook.add_argument("which", choices=["boot", "recall", "aprendizados", "brain-commit", "guard-secrets", "guard-telegram", "guard-destructive", "guard-lessons", "guard-outbound", "guard-brain-scope", "guard-agenda"])
     return parser
@@ -455,5 +457,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return run_mac(args)
     if args.command == "agenda":
         return run_agenda(args)
+    if args.command == "local":
+        return run_local(args)
     print(f"wisp {args.command}: not implemented yet", file=sys.stderr)
     return 1

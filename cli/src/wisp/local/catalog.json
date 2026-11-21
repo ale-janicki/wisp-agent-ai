@@ -1,0 +1,66 @@
+{
+  "source": "https://ollama.com/library/qwen3 (sizes as shown on the tags list, checked 2026-11-20; tool support is the page's tools tag; the 30b tag is Qwen3-30B-A3B)",
+  "disk_margin_bytes": 5000000000,
+  "models": [
+    {
+      "tag": "qwen3:4b",
+      "name": "Qwen3 4B",
+      "params": "4B",
+      "size_bytes": 2500000000,
+      "tier": "pequeno",
+      "context_tokens": 8192,
+      "memory_overhead_bytes": 1500000000,
+      "speed": "rapido",
+      "limitations": "Bom para resumir e escrever textos curtos; erra com frequência ao encadear ferramentas e perde o fio em conversas longas.",
+      "library_url": "https://ollama.com/library/qwen3"
+    },
+    {
+      "tag": "qwen3:8b",
+      "name": "Qwen3 8B",
+      "params": "8B",
+      "size_bytes": 5200000000,
+      "tier": "pequeno",
+      "context_tokens": 8192,
+      "memory_overhead_bytes": 1500000000,
+      "speed": "rapido",
+      "limitations": "Bom para ler e resumir e-mails e redigir rascunhos; fraco em código longo e em tarefas com muitos passos.",
+      "library_url": "https://ollama.com/library/qwen3"
+    },
+    {
+      "tag": "qwen3:14b",
+      "name": "Qwen3 14B",
+      "params": "14B",
+      "size_bytes": 9300000000,
+      "tier": "medio",
+      "context_tokens": 16384,
+      "memory_overhead_bytes": 3000000000,
+      "speed": "medio",
+      "limitations": "Segue instruções e usa ferramentas melhor que os menores; ainda fraco em código longo e em planos de muitos passos.",
+      "library_url": "https://ollama.com/library/qwen3"
+    },
+    {
+      "tag": "qwen3:30b",
+      "name": "Qwen3 30B",
+      "params": "30B (MoE, ~3B ativos)",
+      "size_bytes": 19000000000,
+      "tier": "medio",
+      "context_tokens": 16384,
+      "memory_overhead_bytes": 3000000000,
+      "speed": "medio",
+      "limitations": "Bom para o dia a dia e para editar arquivos; usa só ~3B parâmetros por resposta, então pode falhar em cadeias longas de ferramentas.",
+      "library_url": "https://ollama.com/library/qwen3"
+    },
+    {
+      "tag": "qwen3:32b",
+      "name": "Qwen3 32B",
+      "params": "32B",
+      "size_bytes": 20000000000,
+      "tier": "medio",
+      "context_tokens": 16384,
+      "memory_overhead_bytes": 3000000000,
+      "speed": "lento",
+      "limitations": "O mais capaz do catálogo local; lento e pesado, e ainda abaixo do Claude e do Codex em tarefas longas.",
+      "library_url": "https://ollama.com/library/qwen3"
+    }
+  ]
+}
