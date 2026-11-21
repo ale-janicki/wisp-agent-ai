@@ -98,6 +98,6 @@ final class PhoneModeRecordAndCommandTests: XCTestCase {
         XCTAssertTrue(home.disallowedTools.isEmpty)
         XCTAssertNotEqual(away, home, "a process started at home restarts when phone mode is on")
         let bare = AgentInstructions.context(thread: nil, wispBinary: nil, awayOnPhone: true)
-        XCTAssertEqual(bare.prompt, AgentInstructions.appFiles + "\n\n" + AgentInstructions.onThePhone)
+        XCTAssertEqual(bare.prompt, AgentInstructions.appFiles + "\n\n" + AgentInstructions.macTools + "\n\n" + AgentInstructions.onThePhone)
     }
 }

@@ -82,15 +82,20 @@ final class ConversationRuntime {
     }
 
     private func agentContext() -> AgentInstructions.Context {
-        AgentInstructions.context(thread: linkedThread, wispBinary: host.telegram.wispBinary, awayOnPhone: awayOnPhone)
+        AgentInstructions.context(thread: linkedThread, wispBinary: resolvedWispBinary(), awayOnPhone: awayOnPhone)
+    }
+
+    private func resolvedWispBinary() -> String? {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        let layout = RuntimeLayout(bundle: Bundle.main.bundleURL, home: home)
+        return EngineGuards.wispBinary(telegramBinary: host.telegram.wispBinary, layout: layout)
     }
 
     private struct GuardsUnavailable: Error { let reason: String }
 
     private func guardSettingsPath() throws -> String {
         let home = FileManager.default.homeDirectoryForCurrentUser
-        let layout = RuntimeLayout(bundle: Bundle.main.bundleURL, home: home)
-        guard let bin = EngineGuards.wispBinary(telegramBinary: host.telegram.wispBinary, layout: layout) else {
+        guard let bin = resolvedWispBinary() else {
             log.error("no wisp CLI for the engine guards; the turn is refused")
             throw GuardsUnavailable(reason: "não achei o CLI do Wisp")
         }
