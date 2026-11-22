@@ -62,7 +62,7 @@ struct SearchField: View {
         }
         .padding(.leading, Theme.Space.m)
         .padding(.trailing, 5)
-        .frame(height: 30)
+        .frame(height: Theme.Control.height)
         .background(Capsule().fill(Theme.surfaceHi))
         .overlay(Capsule().strokeBorder(Theme.stroke, lineWidth: 1))
         .onAppear { if autofocus { focused = true } }
@@ -146,45 +146,14 @@ struct ConfirmAction: View {
                     asking = false
                     action()
                 }
-                .buttonStyle(CompactCapsuleStyle(accent: true))
+                .buttonStyle(CapsuleButtonStyle(kind: .accent, size: .compact))
                 Button("Não") { asking = false }
-                    .buttonStyle(CompactCapsuleStyle(accent: false))
+                    .buttonStyle(CapsuleButtonStyle(kind: .ghost, size: .compact))
             } else {
                 Button(label) { asking = true }
-                    .buttonStyle(CompactCapsuleStyle(accent: false))
+                    .buttonStyle(CapsuleButtonStyle(kind: .ghost, size: .compact))
             }
         }
         .fixedSize()
-    }
-}
-
-struct CompactCapsuleStyle: ButtonStyle {
-    var accent: Bool
-
-    func makeBody(configuration: Configuration) -> some View {
-        CompactCapsuleBody(configuration: configuration, accent: accent)
-    }
-}
-
-private struct CompactCapsuleBody: View {
-    let configuration: ButtonStyleConfiguration
-    let accent: Bool
-    @State private var hovering = false
-
-    var body: some View {
-        configuration.label
-            .font(Theme.Font.caption)
-            .foregroundStyle(accent ? Theme.bg : Theme.textPrimary)
-            .padding(.horizontal, 10)
-            .frame(height: 22)
-            .background(Capsule().fill(fill))
-            .contentShape(Capsule())
-            .opacity(configuration.isPressed ? 0.85 : 1)
-            .onHover { hovering = $0 }
-            .pointerStyle(.link)
-    }
-
-    private var fill: Color {
-        accent ? (hovering ? Theme.accentText : Theme.accent) : (hovering ? Theme.bg : Theme.surface)
     }
 }

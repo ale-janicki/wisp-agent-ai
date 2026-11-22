@@ -121,7 +121,7 @@ struct BrainTab: View {
                             .font(Theme.Font.caption)
                             .foregroundStyle(Theme.textPrimary)
                             .fixedSize(horizontal: false, vertical: true)
-                        Button("Salvar mesmo assim") { model.saveDespiteMarkers() }.buttonStyle(CompactCapsuleStyle(accent: false))
+                        Button("Salvar mesmo assim") { model.saveDespiteMarkers() }.buttonStyle(CapsuleButtonStyle(kind: .ghost, size: .compact))
                     }
                     .padding(Theme.Space.m)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -182,7 +182,7 @@ struct BrainTab: View {
             }
             iconButton("magnifyingglass", help: "Buscar no texto (⇧⌘F)") { model.showsSearch = true }
             iconButton("circle.hexagongrid", help: "Grafo", on: model.showsGraph) { model.showsGraph.toggle() }
-            Menu {
+            IconMenu(systemImage: "ellipsis", help: "Mais ações", compact: true) {
                 Button("Ir para nota… (⌘O)") { model.showsSwitcher = true }
                 Button("Nota de hoje (⇧⌘D)") { model.openDaily() }
                 Menu("Inserir modelo") {
@@ -201,19 +201,13 @@ struct BrainTab: View {
                     .disabled(model.active?.kind != .note || BrainDocument(model.active?.text ?? "").hasFrontmatter)
                 Button("Perguntar ao Wisp sobre esta nota…") { asking = true }
                     .disabled(model.active?.kind != .note)
-            } label: {
-                Image(systemName: "ellipsis")
             }
-            .menuStyle(.borderlessButton)
-            .menuIndicator(.hidden)
-            .fixedSize()
-            .frame(width: 28, height: 28)
         }
     }
 
     private func iconButton(_ name: String, help: String, on: Bool = false, enabled: Bool = true, action: @escaping () -> Void) -> some View {
         Button(action: action) { Image(systemName: name) }
-            .buttonStyle(CircleButtonStyle(kind: on ? .accent : .plain, size: 28))
+            .buttonStyle(CircleButtonStyle(kind: on ? .accent : .plain, size: Theme.Control.compactHeight))
             .disabled(!enabled)
             .help(help)
     }
@@ -290,12 +284,12 @@ private struct ConflictBanner: View {
             HStack(spacing: 6) {
                 if conflict.kind == .changed {
                     Button(conflict.hasMarkers ? "Mesclar com marcadores" : "Mesclar") { model.resolveConflict(.merge) }
-                        .buttonStyle(CompactCapsuleStyle(accent: true))
+                        .buttonStyle(CapsuleButtonStyle(kind: .accent, size: .compact))
                     Button("Usar a do disco") { model.resolveConflict(.useDisk) }
-                        .buttonStyle(CompactCapsuleStyle(accent: false))
+                        .buttonStyle(CapsuleButtonStyle(kind: .ghost, size: .compact))
                 }
                 Button(conflict.kind == .deleted ? "Recriar com meu texto" : "Manter a minha") { model.resolveConflict(.keepMine) }
-                    .buttonStyle(CompactCapsuleStyle(accent: false))
+                    .buttonStyle(CapsuleButtonStyle(kind: .ghost, size: .compact))
             }
             Text("O texto descartado fica guardado em Application Support/Wisp/brain-recuperado.")
                 .font(Theme.Font.caption)

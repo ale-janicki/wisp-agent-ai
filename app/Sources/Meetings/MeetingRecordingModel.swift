@@ -97,6 +97,8 @@ final class MeetingRecordingModel: ObservableObject {
         }
     }
 
+    func dismissMessage() { message = nil }
+
     func start(linkedTo context: MeetingEventContext? = nil) {
         guard phase == .idle else { return }
         pendingLink = context
@@ -273,7 +275,7 @@ final class MeetingRecordingModel: ObservableObject {
         switch outcome {
         case .success(let result):
             lastFolder = result.folder
-            let saved = result.failure ?? "Gravação salva em \(result.folder.lastPathComponent) (\(ElapsedFormat.clock(result.durationSeconds)))."
+            let saved = result.failure ?? "Gravação salva (\(ElapsedFormat.clock(result.durationSeconds)))."
             message = reason.map { "A gravação parou: \($0) \(saved)" } ?? saved
             log.info("recording stopped")
             let folder = result.folder.lastPathComponent

@@ -9,6 +9,10 @@ Entries are in descending chronological order (newest first).
 
 ## [Unreleased]
 
+### Changed
+
+- Reuniões: one button standard (primary, secondary, icon, all 32 pt tall), the source and event pickers look like buttons, the detail header keeps back and sidebar together on the left, and "Gravação salva" no longer shows the folder name and can be dismissed.
+
 ## [0.4.3] - 2026-11-22
 
 - Version 0.4.3 (build 10).

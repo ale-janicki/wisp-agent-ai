@@ -251,7 +251,7 @@ private struct ConversationCard: View {
                     } label: {
                         Image(systemName: "paperplane")
                     }
-                    .buttonStyle(CircleButtonStyle(size: 24))
+                    .buttonStyle(CircleButtonStyle(size: Theme.Control.compactHeight))
                     .disabled(!model.canShareCurrent)
                     .help("Compartilhar no Telegram")
                 }
@@ -261,7 +261,7 @@ private struct ConversationCard: View {
                     } label: {
                         Image(systemName: "iphone.slash")
                     }
-                    .buttonStyle(CircleButtonStyle(size: 24))
+                    .buttonStyle(CircleButtonStyle(size: Theme.Control.compactHeight))
                     .help("Voltar ao Mac")
                 } else if model.telegram.canShare, model.telegram.canPost, !model.isSharing {
                     Button {
@@ -269,7 +269,7 @@ private struct ConversationCard: View {
                     } label: {
                         Image(systemName: "iphone")
                     }
-                    .buttonStyle(CircleButtonStyle(size: 24))
+                    .buttonStyle(CircleButtonStyle(size: Theme.Control.compactHeight))
                     .disabled(!model.canContinueOnPhoneCurrent)
                     .help("Continuar no celular")
                 }

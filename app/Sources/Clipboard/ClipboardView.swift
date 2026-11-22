@@ -154,14 +154,14 @@ private struct ClipRow: View {
                         Image(systemName: item.pinned ? "pin.fill" : "pin")
                             .foregroundStyle(item.pinned ? Theme.accent : Theme.textPrimary)
                     }
-                    .buttonStyle(CircleButtonStyle(size: 26))
+                    .buttonStyle(CircleButtonStyle(size: Theme.Control.compactHeight))
                     .help(item.pinned ? "Desafixar" : "Fixar")
                 }
                 if hovering {
                     Button(action: remove) {
                         Image(systemName: "trash")
                     }
-                    .buttonStyle(CircleButtonStyle(size: 26))
+                    .buttonStyle(CircleButtonStyle(size: Theme.Control.compactHeight))
                     .help("Remover")
                 }
             }
