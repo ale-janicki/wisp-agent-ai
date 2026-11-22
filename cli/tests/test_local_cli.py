@@ -42,6 +42,8 @@ def install_model(folder, tag):
         target.parent.mkdir(parents=True, exist_ok=True)
         with target.open("wb") as out:
             out.truncate(item["size"])
+    shards = {item["path"]: item["path"] for item in catalogs.load().find(tag).files if item["path"].endswith(".safetensors")}
+    (fetch.model_dir(folder, tag) / "model.safetensors.index.json").write_text(json.dumps({"weight_map": shards}))
 
 
 @pytest.fixture(autouse=True)

@@ -26,7 +26,7 @@ THINK = re.compile(r"<think>(.*?)</think>", re.DOTALL)
 LOOPBACK_HOSTS = ("127.0.0.1", "localhost", "::1")
 MLX_NOT_LOCAL = "o MLX só aceita um endereço local (127.0.0.1); para outro servidor use `wisp local backend openai`"
 NOT_OURS = "o que respondeu no endereço do MLX não é o servidor do Wisp; não enviei nada"
-MLX_MISSING = "o mlx-lm não está instalado neste Wisp; atualize o Wisp"
+MLX_MISSING = "o componente de IA local ainda está sendo instalado (a instalação foi interrompida); ele termina sozinho"
 
 
 class BackendError(Exception):
@@ -295,7 +295,7 @@ class MlxBackend(Backend):
         return str(fetch.model_dir(self.folder, tag))
 
     def available(self) -> list[str]:
-        return [m.tag for m in self.catalog.models if fetch.is_complete(self.folder, m)]
+        return [m.tag for m in self.catalog.models if fetch.state_of(self.folder, m.tag) == "downloaded"]
 
     def _key(self) -> str | None:
         try:
