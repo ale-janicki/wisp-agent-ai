@@ -93,6 +93,7 @@ public struct MeetingPipeline: Sendable {
     struct LiveCheck {
         var document: MeetingTranscriptDocument?
         var sparse: Bool
+        var noise: [NoiseRange] = []
     }
 
     func liveCheck(folder: URL, meta: RecordingMeta) -> LiveCheck {
@@ -102,7 +103,7 @@ public struct MeetingPipeline: Sendable {
         live.durationSeconds = max(live.durationSeconds, meta.durationSeconds ?? 0)
         live.segments = TranscriptTidy.mergeAdjacent(live.segments)
         if MeetingSpeech.isSparse(live.segments, duration: live.durationSeconds) { return LiveCheck(document: nil, sparse: true) }
-        return LiveCheck(document: live, sparse: false)
+        return LiveCheck(document: live, sparse: false, noise: live.noiseRanges ?? [])
     }
 
     func transcribeFinal(
@@ -150,7 +151,14 @@ public struct MeetingPipeline: Sendable {
                 let document: MeetingTranscriptDocument
                 var notice: String?
                 let check = liveCheck(folder: folder, meta: meta)
-                if let live = check.document {
+                if var live = check.document {
+                    if !check.noise.isEmpty {
+                        let filled = try await transcriber.transcribeRanges(
+                            folder: folder, ranges: check.noise, progress: { stage(.transcribing($0)) }
+                        )
+                        live.segments = TranscriptTidy.mergeAdjacent(live.segments + filled)
+                    }
+                    live.noiseRanges = nil
                     document = live
                 } else {
                     let result = try await transcribeFinal(

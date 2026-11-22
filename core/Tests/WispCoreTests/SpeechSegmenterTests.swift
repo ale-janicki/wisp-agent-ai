@@ -119,6 +119,7 @@ final class SpeechSegmenterTests: XCTestCase {
             case .opened: "opened"
             case .segment: "segment"
             case .dropped: "dropped"
+            case .noise: "noise"
             }
         }, ["opened", "segment", "opened", "segment"])
         let found = segments(events)

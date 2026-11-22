@@ -32,6 +32,7 @@ public final class MeetingTranscriptStore: @unchecked Sendable {
     private let lock = NSLock()
     private var merger = TranscriptMerger()
     private var failedSegments = 0
+    private var noiseRanges: [NoiseRange] = []
     private let startedAt: Date
     private let engine: String
     private let language: String
@@ -61,6 +62,15 @@ public final class MeetingTranscriptStore: @unchecked Sendable {
         if let saved, let folder { try? MeetingTranscriptFile.write(saved, in: folder, live: true) }
     }
 
+    public func recordNoise(_ range: NoiseRange) {
+        let saved = lock.withLock { () -> MeetingTranscriptDocument? in
+            noiseRanges.append(range)
+            guard folder != nil else { return nil }
+            return document(duration: merger.finals.map(\.end).max() ?? 0, segments: merger.finals)
+        }
+        if let saved, let folder { try? MeetingTranscriptFile.write(saved, in: folder, live: true) }
+    }
+
     public func recordFailure() {
         lock.withLock { failedSegments += 1 }
     }
@@ -74,6 +84,7 @@ public final class MeetingTranscriptStore: @unchecked Sendable {
             startedAt: startedAt, durationSeconds: duration, language: language, engine: engine, segments: segments
         )
         made.failedSegments = failedSegments > 0 ? failedSegments : nil
+        made.noiseRanges = noiseRanges.isEmpty ? nil : noiseRanges
         return made
     }
 }
@@ -215,6 +226,10 @@ public final class LiveTranscriber: @unchecked Sendable {
         if job.kind == .typing {
             store.setPartial(RecognizedSpan(text: "…", start: job.startSeconds, end: job.startSeconds), channel: job.channel)
             onUpdate(store.snapshot)
+            return
+        }
+        if job.kind == .noise {
+            store.recordNoise(NoiseRange(channel: job.channel, start: job.startSeconds, end: job.endSeconds))
             return
         }
         if job.samples.isEmpty {
