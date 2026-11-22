@@ -1,6 +1,7 @@
 import errno
 import json
 import os
+import time
 
 import pytest
 
@@ -26,6 +27,14 @@ def _put(path, text="x"):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text)
     return path
+
+
+def _age(path, seconds=3600):
+    stamp = time.time() - seconds
+    for folder, dirs, names in os.walk(path, topdown=False):
+        for name in (*names, *dirs):
+            os.utime(os.path.join(folder, name), (stamp, stamp), follow_symlinks=False)
+    os.utime(path, (stamp, stamp))
 
 
 def test_fresh_home_has_nothing_to_move(fake_home):
@@ -192,6 +201,7 @@ def test_the_explicit_recordings_move_reports_progress_and_resumes(fake_home):
     for name in ("a", "b", "c"):
         _put(fake_home / f"Wisp/reunioes/{name}/meta.json", name)
     cfg = WispConfig(wisp_dir=str(fake_home / "Dados/Meu Wisp"))
+    _age(fake_home / "Wisp/reunioes")
     paths = _paths(fake_home)
     assert meetings_pending(paths, cfg) == 3
     events = []
@@ -200,12 +210,14 @@ def test_the_explicit_recordings_move_reports_progress_and_resumes(fake_home):
     assert (fake_home / "Dados/Meu Wisp/reunioes/b/meta.json").read_text() == "b"
     assert meetings_pending(paths, cfg) == 0
     _put(fake_home / "Wisp/reunioes/d/meta.json", "d")
+    _age(fake_home / "Wisp/reunioes")
     assert migrate_meetings(paths, cfg).data["moved"] == "1"
 
 
 def test_the_recordings_move_has_no_size_cap(fake_home, monkeypatch):
     monkeypatch.setattr(migrate, "ENTRY_CAP", 1)
     _put(fake_home / "Wisp/reunioes/a/audio.m4a", "x" * 100)
+    _age(fake_home / "Wisp/reunioes")
     cfg = WispConfig(wisp_dir=str(fake_home / "Dados/W"))
     assert migrate_meetings(_paths(fake_home), cfg).data["moved"] == "1"
 
@@ -248,6 +260,7 @@ def test_the_recordings_move_has_no_size_cap_even_across_volumes(fake_home, monk
     monkeypatch.setattr(migrate, "ENTRY_CAP", 1)
     _force_exdev_always(monkeypatch)
     _put(fake_home / "Wisp/reunioes/a/audio.m4a", "x" * 100)
+    _age(fake_home / "Wisp/reunioes")
     cfg = WispConfig(wisp_dir=str(fake_home / "Dados/W"))
     assert migrate_meetings(_paths(fake_home), cfg).data["moved"] == "1"
 
@@ -403,7 +416,117 @@ def test_the_cli_prints_progress_lines_then_the_report(fake_home, capsys):
     cfgfile = fake_home / ".config/wisp/wisp.json"
     _put(cfgfile, json.dumps({"wisp_dir": str(fake_home / "Dados/W")}))
     _put(fake_home / "Wisp/reunioes/a/meta.json", "{}")
+    _age(fake_home / "Wisp/reunioes")
     assert main(["folder", "migrate", "--reunioes", "--json"]) == 0
     lines = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
     assert lines[0] == {"type": "progress", "done": 1, "total": 1, "item": "a"}
     assert lines[-1]["step"] == "folder-migrate" and lines[-1]["data"]["moved"] == "1"
+
+
+def _recording(folder, status="recording"):
+    _put(folder / "meta.json", json.dumps({"status": status}))
+    _put(folder / "audio.caf", "x")
+
+
+def test_the_recordings_move_refuses_while_a_recording_is_active(fake_home):
+    _recording(fake_home / "Wisp/reunioes/ativa")
+    _put(fake_home / "Wisp/reunioes/outra/meta.json", "{}")
+    _age(fake_home / "Wisp/reunioes/outra")
+    cfg = WispConfig(wisp_dir=str(fake_home / "Dados/W"))
+    report = migrate_meetings(_paths(fake_home), cfg)
+    assert report.status == "failed" and report.data == {"recording": "true"}
+    assert (fake_home / "Wisp/reunioes/ativa/audio.caf").is_file()
+    assert (fake_home / "Wisp/reunioes/outra/meta.json").is_file()
+    assert not (fake_home / "Dados/W/reunioes").exists()
+
+
+def test_a_crashed_recording_that_stopped_changing_moves_normally(fake_home):
+    _recording(fake_home / "Wisp/reunioes/velha")
+    _age(fake_home / "Wisp/reunioes")
+    cfg = WispConfig(wisp_dir=str(fake_home / "Dados/W"))
+    assert migrate_meetings(_paths(fake_home), cfg).data["moved"] == "1"
+
+
+def test_an_entry_modified_in_the_last_minute_is_left_in_place(fake_home):
+    _recording(fake_home / "Wisp/reunioes/finalizada", "transcribing")
+    _put(fake_home / "Wisp/reunioes/antiga/meta.json", "{}")
+    _age(fake_home / "Wisp/reunioes/antiga")
+    cfg = WispConfig(wisp_dir=str(fake_home / "Dados/W"))
+    report = migrate_meetings(_paths(fake_home), cfg)
+    assert report.data["moved"] == "1" and report.data["left"] == "1"
+    assert (fake_home / "Wisp/reunioes/finalizada/audio.caf").is_file()
+    assert "modificada há pouco" in (fake_home / "Dados/W/logs" / LOG).read_text()
+
+
+def test_an_old_folder_that_is_a_symlink_is_skipped_and_never_touched(fake_home):
+    external = fake_home / "Disco/anexos"
+    _put(external / "dia/a.txt", "a")
+    link = _app_anexos(fake_home)
+    link.parent.mkdir(parents=True)
+    link.symlink_to(external)
+    report = migrate_folder(_paths(fake_home), WispConfig())
+    assert report.data["skipped"] == "1" and report.data["moved"] == "0"
+    assert link.is_symlink() and (external / "dia/a.txt").read_text() == "a"
+    assert not (link / NOTE).exists()
+    assert "atalho" in (fake_home / "Wisp/logs" / LOG).read_text()
+
+
+def test_relative_symlinks_in_a_moved_tree_still_resolve(fake_home):
+    root = _app_anexos(fake_home)
+    _put(root / "dia/real.txt", "real")
+    _put(root / "fora.txt", "fora")
+    (root / "dia/interno").symlink_to("real.txt")
+    (root / "dia/para-irmao").symlink_to("../fora.txt")
+    (root / "topo").symlink_to("fora.txt")
+    migrate_folder(_paths(fake_home), WispConfig())
+    new = fake_home / "Wisp/anexos"
+    assert (new / "dia/interno").read_text() == "real"
+    assert (new / "dia/para-irmao").read_text() == "fora"
+    assert (new / "topo").read_text() == "fora"
+
+
+def test_relative_symlinks_pointing_outside_the_folder_are_rewritten(fake_home):
+    root = _app_anexos(fake_home)
+    _put(fake_home / "Documentos/nota.txt", "nota")
+    (root / "dia").mkdir(parents=True)
+    (root / "dia/nota").symlink_to(os.path.relpath(fake_home / "Documentos/nota.txt", root / "dia"))
+    migrate_folder(_paths(fake_home), WispConfig())
+    assert (fake_home / "Wisp/anexos/dia/nota").read_text() == "nota"
+
+
+def test_relative_symlinks_survive_a_cross_volume_copy(fake_home, monkeypatch):
+    root = _bot_anexos(fake_home)
+    _put(root / "dia/real.txt", "real")
+    _put(fake_home / "Documentos/nota.txt", "nota")
+    (root / "dia/interno").symlink_to("real.txt")
+    (root / "dia/nota").symlink_to(os.path.relpath(fake_home / "Documentos/nota.txt", root / "dia"))
+    _force_exdev_once(monkeypatch, "dia")
+    migrate_folder(_paths(fake_home), WispConfig())
+    new = fake_home / "Wisp/anexos/dia"
+    assert (new / "interno").read_text() == "real" and (new / "nota").read_text() == "nota"
+
+
+def _case_insensitive(home):
+    (home / "CaseProbe").mkdir()
+    return (home / "caseprobe").exists()
+
+
+def test_the_same_folder_in_a_different_case_is_the_same_folder(fake_home):
+    if not _case_insensitive(fake_home):
+        pytest.skip("case-sensitive volume")
+    _put(fake_home / "Wisp/reunioes/a/meta.json", "{}")
+    _age(fake_home / "Wisp/reunioes")
+    cfg = WispConfig(wisp_dir=str(fake_home / "wisp"))
+    paths = _paths(fake_home)
+    assert migrate._same(fake_home / "Wisp/reunioes", fake_home / "wisp/reunioes")
+    assert meetings_pending(paths, cfg) == 0
+    report = migrate_meetings(paths, cfg)
+    assert report.data["moved"] == "0" and report.data["skipped"] == "0"
+    assert (fake_home / "Wisp/reunioes/a/meta.json").is_file()
+
+
+def test_a_case_variant_destination_inside_the_source_is_nested(fake_home):
+    if not _case_insensitive(fake_home):
+        pytest.skip("case-sensitive volume")
+    _put(fake_home / "Wisp/reunioes/a/meta.json", "{}")
+    assert migrate._nested(fake_home / "WISP/reunioes", fake_home / "wisp/Reunioes/reunioes")

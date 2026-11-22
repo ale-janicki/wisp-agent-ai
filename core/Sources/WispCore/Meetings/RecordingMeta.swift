@@ -125,6 +125,25 @@ public enum RecordingFolder {
         try fileManager.setAttributes([.posixPermissions: filePermissions], ofItemAtPath: url.path)
     }
 
+    public static func hasActiveRecording(
+        in root: URL, within seconds: TimeInterval = 60, now: Date = Date(), fileManager: FileManager = .default
+    ) -> Bool {
+        let names = (try? fileManager.contentsOfDirectory(atPath: root.path)) ?? []
+        for name in names {
+            let folder = root.appendingPathComponent(name, isDirectory: true)
+            guard let meta = try? read(in: folder), meta.status == .recording else { continue }
+            let walker = fileManager.enumerator(at: folder, includingPropertiesForKeys: [.contentModificationDateKey])
+            var newest = (try? folder.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+            for case let url as URL in walker ?? NSEnumerator() {
+                if let date = try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate, date > newest {
+                    newest = date
+                }
+            }
+            if now.timeIntervalSince(newest) < seconds { return true }
+        }
+        return false
+    }
+
     public static func audioURL(in folder: URL) -> URL { folder.appendingPathComponent(audioFileName) }
     public static func rawAudioURL(in folder: URL) -> URL { folder.appendingPathComponent(rawAudioFileName) }
     public static func metaURL(in folder: URL) -> URL { folder.appendingPathComponent(metaFileName) }

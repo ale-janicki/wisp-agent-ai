@@ -26,6 +26,7 @@ TOTAL_CAP = 1024 * 1024 * 1024
 UNSUPPORTED = (errno.ENOTSUP, errno.EOPNOTSUPP, errno.ENOSYS)
 NO_HARD_LINKS = (*UNSUPPORTED, errno.EPERM)
 NOTES_SKIPPED = {".git", ".obsidian"}
+RECENT_SECONDS = 60
 
 Progress = Callable[[int, int, str], None]
 
@@ -51,13 +52,84 @@ def _legacy_meetings(paths: WispPaths) -> Path:
     return paths.home / DEFAULT_WISP_DIR[2:] / "reunioes"
 
 
+def _identical(a: Path, b: Path) -> bool:
+    try:
+        return os.path.samefile(a, b)
+    except OSError:
+        return a.resolve() == b.resolve()
+
+
+def _inside(child: Path, parent: Path) -> bool:
+    resolved = child.resolve()
+    return any(_identical(p, parent) for p in (resolved, *resolved.parents))
+
+
 def _same(a: Path, b: Path) -> bool:
-    return a.resolve() == b.resolve()
+    return _identical(a, b)
 
 
 def _nested(a: Path, b: Path) -> bool:
-    ra, rb = a.resolve(), b.resolve()
-    return ra.is_relative_to(rb) or rb.is_relative_to(ra)
+    return _inside(a, b) or _inside(b, a)
+
+
+def _newest_mtime(path: Path) -> float:
+    try:
+        newest = path.lstat().st_mtime
+    except OSError:
+        return 0.0
+    if path.is_dir() and not path.is_symlink():
+        for folder, dirs, names in os.walk(path):
+            for name in (*dirs, *names):
+                try:
+                    newest = max(newest, os.lstat(os.path.join(folder, name)).st_mtime)
+                except OSError:
+                    pass
+    return newest
+
+
+def _is_recent(path: Path) -> bool:
+    return time.time() - _newest_mtime(path) < RECENT_SECONDS
+
+
+def _recording_active(entry: Path) -> bool:
+    try:
+        status = json.loads((entry / "meta.json").read_text("utf-8")).get("status")
+    except (OSError, ValueError, AttributeError):
+        return False
+    return status == "recording" and _is_recent(entry)
+
+
+def _relink(link: Path, original: Path, translate: Callable[[Path], Path]) -> None:
+    target = os.readlink(link)
+    if os.path.isabs(target):
+        return
+    wanted = translate(Path(os.path.normpath(original.parent / target)))
+    fixed = os.path.relpath(wanted, link.parent)
+    if fixed == target:
+        return
+    temp = link.with_name(PART + link.name)
+    temp.unlink(missing_ok=True)
+    os.symlink(fixed, temp)
+    os.replace(temp, link)
+
+
+def _fix_links(src: Path, dst: Path, old: Path, new: Path) -> None:
+    def translate(path: Path) -> Path:
+        for base, moved in ((src, dst), (old, new)):
+            try:
+                return moved / path.relative_to(base)
+            except ValueError:
+                continue
+        return path
+
+    if dst.is_symlink():
+        _relink(dst, src, translate)
+        return
+    for folder, dirs, names in os.walk(dst):
+        for name in (*dirs, *names):
+            path = Path(folder) / name
+            if path.is_symlink():
+                _relink(path, src / path.relative_to(dst), translate)
 
 
 def _exclusive_file(src: Path, dst: Path) -> None:
@@ -294,13 +366,18 @@ def _pin_legacy_brain(cfg: WispConfig, paths: WispPaths, layout: FolderLayout) -
 
 
 def _run_pairs(
-    pairs: list[tuple[Path, Path]], log: _Log, moves: Moves, *, capped: bool, progress: Progress | None
+    pairs: list[tuple[Path, Path]], log: _Log, moves: Moves, *, capped: bool, progress: Progress | None,
+    skip_recent: bool = False,
 ) -> list[tuple[Path, Path, list[Path]]]:
     touched: list[tuple[Path, Path, list[Path]]] = []
     budget: list[int] | None = [0] if capped else None
     work: list[tuple[Path, Path, list[Path]]] = []
     for old, new in pairs:
         if _same(old, new):
+            continue
+        if old.is_symlink():
+            moves.skipped.append((old, new))
+            log.write("pulou", f"{old} -> {new}: a pasta antiga é um atalho", once=True)
             continue
         if _nested(old, new):
             moves.skipped.append((old, new))
@@ -324,6 +401,12 @@ def _run_pairs(
         for entry in entries:
             done += 1
             target = new / entry.name
+            if skip_recent and _is_recent(entry):
+                moves.left.append((entry, "modificada há pouco"))
+                log.write("ficou", f"{entry}: modificada há pouco", once=True)
+                if progress:
+                    progress(done, total, entry.name)
+                continue
             try:
                 status, errors = _place(entry, target, budget)
             except OSError as e:
@@ -340,6 +423,12 @@ def _run_pairs(
                     moves.moved.append((entry, target))
                     moved_here.append(entry)
                     log.write("moveu", f"{entry} -> {target}")
+                    try:
+                        _fix_links(entry, target, old, new)
+                    except OSError as e:
+                        reason = e.strerror or type(e).__name__
+                        moves.failed.append((target, f"atalho não corrigido: {reason}"))
+                        log.write("falhou", f"{target}: atalho não corrigido: {reason}")
                     if errors:
                         moves.failed.append((entry, "copiado, mas não consegui apagar a origem: " + "; ".join(errors)))
                         log.write("parcial", f"{entry}: {'; '.join(errors)}")
@@ -398,5 +487,10 @@ def migrate_meetings(paths: WispPaths, cfg: WispConfig, progress: Progress | Non
     layout = layout_of(cfg, paths.home)
     moves = Moves()
     log = _Log(layout.logs / LOG)
-    _run_pairs([(_legacy_meetings(paths), layout.reunioes)], log, moves, capped=False, progress=progress)
+    old = _legacy_meetings(paths)
+    if any(_recording_active(entry) for entry in _entries(old)):
+        return StepReport(
+            STEP, "failed", "há uma reunião sendo gravada; espere terminar e tente de novo", data={"recording": "true"}
+        )
+    _run_pairs([(old, layout.reunioes)], log, moves, capped=False, progress=progress, skip_recent=True)
     return _report(moves, log.path, {})

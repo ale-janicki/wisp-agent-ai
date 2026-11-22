@@ -84,8 +84,17 @@ final class PathsModel {
         change(key, to: picked.path)
     }
 
+    func recordingActive() -> Bool {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        let roots = [WispFolder.legacyMeetings(home: home), WispFolder.layout(environment: environment, home: home).reunioes]
+        return roots.contains { RecordingFolder.hasActiveRecording(in: $0) }
+    }
+
     func moveMeetings() {
-        guard meetingsStream == nil else { return }
+        guard meetingsStream == nil, !recordingActive() else {
+            meetingsMove = .failed("Há uma reunião sendo gravada.")
+            return
+        }
         let stream = LineStream()
         meetingsStream = stream
         meetingsMove = .moving(done: 0, total: pendingMeetings)

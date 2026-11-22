@@ -75,4 +75,25 @@ final class WispFolderTests: XCTestCase {
         try JSONSerialization.data(withJSONObject: ["wisp_dir": "~/Wisp/reunioes"]).write(to: inside)
         XCTAssertEqual(WispFolder.pendingMeetings(environment: ["WISP_CONFIG": inside.path], home: home), 0)
     }
+
+    func testTheSameFolderInAnotherCaseIsNotPending() throws {
+        let old = home.appendingPathComponent("Wisp/reunioes/a", isDirectory: true)
+        try FileManager.default.createDirectory(at: old, withIntermediateDirectories: true)
+        try XCTSkipUnless(FileManager.default.fileExists(atPath: home.appendingPathComponent("wisp").path), "case-sensitive volume")
+        let config = home.appendingPathComponent("case.json")
+        try JSONSerialization.data(withJSONObject: ["wisp_dir": "~/wisp"]).write(to: config)
+        XCTAssertEqual(WispFolder.pendingMeetings(environment: ["WISP_CONFIG": config.path], home: home), 0)
+        XCTAssertTrue(WispFolder.isSameFolder(home.appendingPathComponent("Wisp"), home.appendingPathComponent("wisp")))
+        XCTAssertTrue(WispFolder.isInside(home.appendingPathComponent("WISP/reunioes/a"), home.appendingPathComponent("wisp")))
+    }
+
+    func testAnOldMeetingsFolderThatIsALinkIsNotOffered() throws {
+        let external = home.appendingPathComponent("Disco/reunioes", isDirectory: true)
+        try FileManager.default.createDirectory(at: external.appendingPathComponent("a"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: home.appendingPathComponent("Wisp"), withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(at: home.appendingPathComponent("Wisp/reunioes"), withDestinationURL: external)
+        let config = home.appendingPathComponent("moved.json")
+        try JSONSerialization.data(withJSONObject: ["wisp_dir": "~/Dados"]).write(to: config)
+        XCTAssertEqual(WispFolder.pendingMeetings(environment: ["WISP_CONFIG": config.path], home: home), 0)
+    }
 }

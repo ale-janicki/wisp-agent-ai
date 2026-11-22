@@ -90,14 +90,34 @@ public enum WispFolder {
         expand(defaultDirectory, home: home).appendingPathComponent("reunioes", isDirectory: true)
     }
 
+    public static func isSameFolder(_ a: URL, _ b: URL) -> Bool {
+        let keys: Set<URLResourceKey> = [.fileResourceIdentifierKey]
+        if let left = try? a.resourceValues(forKeys: keys).fileResourceIdentifier as? NSObject,
+           let right = try? b.resourceValues(forKeys: keys).fileResourceIdentifier as? NSObject {
+            return left.isEqual(right)
+        }
+        return a.resolvingSymlinksInPath().path == b.resolvingSymlinksInPath().path
+    }
+
+    public static func isInside(_ child: URL, _ parent: URL) -> Bool {
+        var current = child.resolvingSymlinksInPath()
+        while true {
+            if isSameFolder(current, parent) { return true }
+            let up = current.deletingLastPathComponent()
+            if up.path == current.path { return false }
+            current = up
+        }
+    }
+
     public static func pendingMeetings(
         environment: [String: String] = ProcessInfo.processInfo.environment,
         home: URL = FileManager.default.homeDirectoryForCurrentUser
     ) -> Int {
-        let old = legacyMeetings(home: home).resolvingSymlinksInPath().path
-        let new = layout(environment: environment, home: home).reunioes.resolvingSymlinksInPath().path
-        guard old != new, !old.hasPrefix(new + "/"), !new.hasPrefix(old + "/") else { return 0 }
-        let names = (try? FileManager.default.contentsOfDirectory(atPath: old)) ?? []
+        let old = legacyMeetings(home: home)
+        let new = layout(environment: environment, home: home).reunioes
+        guard !isInside(old, new), !isInside(new, old) else { return 0 }
+        if (try? old.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) == true { return 0 }
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: old.path)) ?? []
         return names.filter { $0 != "MOVIDO.txt" && !$0.hasPrefix(".wisp-part-") }.count
     }
 }
