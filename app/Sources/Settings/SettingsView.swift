@@ -232,7 +232,7 @@ struct SettingsView: View {
             Divider().overlay(Theme.stroke)
             SettingsRow(
                 title: "Setup",
-                detail: "Abre de novo o passo a passo que prepara o Wisp. O que já está pronto aparece marcado."
+                detail: "Abre de novo a tela que reconhece o Mac e confere o motor, o cérebro e as ferramentas. Começar só refaz o que faltar ou o que você mudar."
             ) {
                 Button("Rodar o setup de novo") { (NSApp.delegate as? AppDelegate)?.showSetup() }
                     .buttonStyle(CapsuleButtonStyle(kind: .ghost))
@@ -381,6 +381,17 @@ struct BrainSettingsGroup: View {
             ) {
                 Button("Alterar…") { model.chooseFolder() }
                     .buttonStyle(CapsuleButtonStyle(kind: .ghost))
+            }
+            if model.brainMissing {
+                Divider().overlay(Theme.stroke)
+                SettingsRow(
+                    title: "Criar o cérebro",
+                    detail: "Confere se a pasta já existe e, se não existir, cria com o modelo do Wisp e atualiza o perfil."
+                ) {
+                    Button("Criar o cérebro") { model.createBrain() }
+                        .buttonStyle(CapsuleButtonStyle())
+                        .disabled(model.creating)
+                }
             }
             Divider().overlay(Theme.stroke)
             ToggleRow(

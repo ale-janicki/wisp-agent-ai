@@ -69,18 +69,36 @@ public struct SetupOffer: Equatable, Sendable {
     public static let connected = "Conectado"
     public static let connectLater = "Conecte depois em Ajustes > Modelo"
 
+    public struct Current: Equatable, Sendable {
+        public var engine: EngineKind
+        public var localTag: String?
+
+        public init(engine: EngineKind, localTag: String? = nil) {
+            self.engine = engine
+            self.localTag = localTag
+        }
+    }
+
     public var options: [Option]
     public var readiness: SetupReadiness
+    public var current: Current?
 
     public var recommended: Option? { options.first { $0.recommended && $0.enabled } }
     public var localAvailable: Bool { options.contains { $0.enabled } }
-    public var defaultEngine: EngineKind { recommended == nil ? .claude : .local }
-    public var defaultModelTag: String? { (recommended ?? options.first { $0.enabled })?.tag }
-    public var note: String? { recommended == nil ? Self.noLocalNote : nil }
+    public var defaultEngine: EngineKind {
+        if let current { return current.engine == .local && !localAvailable ? .claude : current.engine }
+        return recommended == nil ? .claude : .local
+    }
+    public var defaultModelTag: String? {
+        if let tag = current?.localTag, option(tag) != nil { return tag }
+        return (recommended ?? options.first { $0.enabled })?.tag
+    }
+    public var note: String? { current == nil && recommended == nil ? Self.noLocalNote : nil }
 
-    public init(options: [Option], readiness: SetupReadiness) {
+    public init(options: [Option], readiness: SetupReadiness, current: Current? = nil) {
         self.options = options
         self.readiness = readiness
+        self.current = current
     }
 
     public func option(_ tag: String?) -> Option? {
@@ -89,9 +107,12 @@ public struct SetupOffer: Equatable, Sendable {
     }
 
     public static func make(
-        hardware: HardwareProfile, recommendation: LocalRecommendation?, status: LocalModelStatus?, readiness: SetupReadiness
+        hardware: HardwareProfile, recommendation: LocalRecommendation?, status: LocalModelStatus?, readiness: SetupReadiness,
+        current: Current? = nil
     ) -> SetupOffer {
-        guard LocalAdvisor.appleSilicon(hardware.chip), let status else { return SetupOffer(options: [], readiness: readiness) }
+        guard LocalAdvisor.appleSilicon(hardware.chip), let status else {
+            return SetupOffer(options: [], readiness: readiness, current: current)
+        }
         let options = status.models.map { model -> Option in
             let presence = status.presence(of: model.tag)
             let onDisk = presence == .downloaded || presence == .inUse
@@ -100,7 +121,7 @@ public struct SetupOffer: Equatable, Sendable {
                 tag: model.tag, name: model.name, sizeBytes: model.sizeBytes, speed: speedWord(model.speed), onDisk: onDisk,
                 recommended: recommendation?.best?.tag == model.tag, fit: fit.level, diskShort: fit.diskShortBy != nil)
         }
-        return SetupOffer(options: options, readiness: readiness)
+        return SetupOffer(options: options, readiness: readiness, current: current)
     }
 
     static func speedWord(_ speed: String) -> String {
@@ -138,21 +159,29 @@ public enum SetupPlan {
         let readiness = offer.readiness
         let local = engine == .local ? (offer.option(modelTag) ?? offer.option(offer.defaultModelTag)) : nil
         let chosen: EngineKind = engine == .local && local == nil ? .claude : engine
+        let unchanged = offer.current.map { $0.engine == chosen && (chosen != .local || $0.localTag == local?.tag) } ?? false
         var steps: [SetupAction] = []
         if !readiness.brainReady { steps.append(.brain) }
         if !readiness.harnessReady { steps.append(.harness) }
-        if let local, local.onDisk { steps.append(.useModel(local.tag)) }
-        steps.append(.selectEngine(chosen))
+        if let local, local.onDisk, offer.current?.localTag != local.tag { steps.append(.useModel(local.tag)) }
+        if !unchanged { steps.append(.selectEngine(chosen)) }
         if !readiness.profileReady { steps.append(.profile) }
         if let local, !local.onDisk { steps.append(.pullModel(local.tag)) }
         return steps
+    }
+
+    public static let brainDeferredNote =
+        "O cérebro fica para depois: instale as Ferramentas de linha de comando (xcode-select --install)"
+
+    public static func brainDeferred(_ report: SetupReport) -> Bool {
+        report.status == .failed && report.data["step"] == "system"
     }
 
     public static func succeeded(_ action: SetupAction, report: SetupReport) -> Bool {
         switch report.status {
         case .done, .skipped: true
         case .needsUser: false
-        case .failed: action == .brain && report.data["step"] == "system"
+        case .failed: action == .brain && brainDeferred(report)
         }
     }
 }
