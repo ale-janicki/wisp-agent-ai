@@ -32,6 +32,7 @@ final class MeetingRecordingModel: ObservableObject {
 
     let speech = SpeechModelModel()
     let library: MeetingLibraryModel
+    let copilot = MeetingCopilotModel()
 
     private static let sourcesKey = "meetings.sources"
     private static let systemKey = "meetings.systemAudioPermission"
@@ -132,6 +133,7 @@ final class MeetingRecordingModel: ObservableObject {
         micLevel = 0
         systemLevel = 0
         bridge.detach()
+        copilot.end()
         let ending = live
         live = nil
         liveLagging = false
@@ -145,6 +147,7 @@ final class MeetingRecordingModel: ObservableObject {
     }
 
     func stopForQuit() {
+        copilot.end()
         watchTask?.cancel()
         bridge.detach()
         live?.cancel()
@@ -200,6 +203,10 @@ final class MeetingRecordingModel: ObservableObject {
             phase = .recording
             library.select(nil)
             log.info("recording started")
+            let limit = AppSettings.shared.settings.meetings.limitSeconds
+            copilot.begin(startedAt: now, limitSeconds: limit, brainRoot: PathsModel.shared.url(.brain).path) { [weak self] in
+                self?.stop(reason: "chegou ao limite de \(Self.limitText(limit)) de gravação.")
+            }
             startLive(folder: folder, startedAt: now)
             watch()
         case .failure(let error):
@@ -225,7 +232,10 @@ final class MeetingRecordingModel: ObservableObject {
             recognizer: recognizer, store: store, channels: channels,
             onUpdate: { [weak self] segments in
                 let lines = TranscriptLine.lines(segments)
-                Task { @MainActor in self?.liveLines = lines }
+                Task { @MainActor in
+                    self?.liveLines = lines
+                    self?.copilot.ingest(segments)
+                }
             },
             onFailure: { [weak self] reason in
                 Task { @MainActor in self?.liveNotice = "A transcrição ao vivo falhou (\(reason)). Eu refaço quando você parar." }
@@ -250,7 +260,15 @@ final class MeetingRecordingModel: ObservableObject {
             log.info("recording stopped")
             let folder = result.folder.lastPathComponent
             let process = result.failure == nil
+            let snapshot = copilot.takeSnapshot()
+            let recorded = result.folder
             Task { [weak self] in
+                await Task.detached {
+                    _ = try? RecordingFolder.update(in: recorded) {
+                        $0.bookmarks = snapshot.bookmarks.isEmpty ? nil : snapshot.bookmarks
+                        $0.checklist = snapshot.checklist.isEmpty ? nil : snapshot.checklist
+                    }
+                }.value
                 await self?.speech.releaseLive()
                 self?.library.reload(select: folder, thenProcess: process)
             }
@@ -291,6 +309,12 @@ final class MeetingRecordingModel: ObservableObject {
         if systemPermission != systemWatch.state { systemPermission = systemWatch.state }
         if systemSilent != systemWatch.silentNow { systemSilent = systemWatch.silentNow }
         if systemWatch.shouldPersist { defaults.set("granted", forKey: Self.systemKey) }
+    }
+
+    private static func limitText(_ seconds: Double) -> String {
+        let minutes = Int(seconds / 60)
+        if minutes % 60 == 0 { return "\(minutes / 60) h" }
+        return minutes < 60 ? "\(minutes) min" : "\(minutes / 60) h \(minutes % 60) min"
     }
 
     private static func storedSystemPermission() -> PermissionState {

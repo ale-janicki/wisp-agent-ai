@@ -10,6 +10,12 @@ struct MeetingDetail: Equatable {
     var note: String?
 }
 
+struct WebhookOffer: Identifiable, Equatable {
+    var id: String
+    var title: String
+    var pending: PendingWebhook
+}
+
 @MainActor
 final class MeetingLibraryModel: ObservableObject {
     @Published private(set) var entries: [MeetingEntry] = []
@@ -17,6 +23,7 @@ final class MeetingLibraryModel: ObservableObject {
     @Published private(set) var detail: MeetingDetail?
     @Published private(set) var notice: String?
     @Published private(set) var selectedID: String?
+    @Published private(set) var webhookOffers: [WebhookOffer] = []
 
     var root: () -> URL = { RecordingFolder.defaultRoot() }
     var isRecording: @MainActor @Sendable () -> Bool = { false }
@@ -29,6 +36,7 @@ final class MeetingLibraryModel: ObservableObject {
     private var deferred: Set<String> = []
     private var reloadToken = 0
     private var readiness: AnyCancellable?
+    private var approval = WebhookApproval()
 
     init(speech: SpeechModelModel) {
         self.speech = speech
@@ -163,6 +171,58 @@ final class MeetingLibraryModel: ObservableObject {
 
     func dismissNotice() { notice = nil }
 
+    func allowWebhook(_ id: String) {
+        let approved = approval.approve(id)
+        let title = webhookOffers.first { $0.id == id }?.title ?? id
+        webhookOffers.removeAll { $0.id == id }
+        let folder = root().appendingPathComponent(id, isDirectory: true)
+        Task { [weak self] in
+            do {
+                let sent = try await WebhookDelivery.deliver(approved, via: MeetingWebhookSender.send)
+                guard sent, let approved else { return }
+                _ = try? RecordingFolder.update(in: folder) { $0.webhookSentAt = Date() }
+                self?.notice = "Enviei \"\(title)\" para \(approved.host)."
+            } catch {
+                self?.notice = "Não consegui enviar para o webhook: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    func dismissWebhook(_ id: String) {
+        approval.dismiss(id)
+        webhookOffers.removeAll { $0.id == id }
+    }
+
+    private func offerWebhook(folder: URL) async {
+        let settings = AppSettings.shared.settings.meetings
+        guard settings.webhookEnabled else { return }
+        let id = folder.lastPathComponent
+        guard !webhookOffers.contains(where: { $0.id == id }) else { return }
+        let prepared = await Task.detached { () -> Result<WebhookOffer?, any Error> in
+            Result {
+                let meta = try RecordingFolder.read(in: folder)
+                guard meta.noteState == .generated, meta.webhookSentAt == nil else { return nil }
+                let target = try MeetingWebhook.validate(WebhookKeychain.load(.url) ?? "")
+                let note = try String(contentsOf: RecordingFolder.noteURL(in: folder), encoding: .utf8)
+                let title = meta.title ?? MeetingRowModel.defaultTitle(meta.startedAt)
+                let content = try MeetingWebhook.content(
+                    title: title, startedAt: meta.startedAt, durationSeconds: meta.durationSeconds ?? 0, note: note, metrics: meta.metrics
+                )
+                if settings.webhookSigns, WebhookKeychain.load(.secret) == nil { throw WebhookError.invalid }
+                return WebhookOffer(id: id, title: title, pending: PendingWebhook(target: target, body: content.body, preview: content.preview, signed: settings.webhookSigns))
+            }
+        }.value
+        switch prepared {
+        case .success(let offer?):
+            approval.offer(offer.pending, for: id)
+            webhookOffers.append(offer)
+        case .success(nil):
+            break
+        case .failure(let error):
+            notice = "Não ofereci o envio do webhook: \(error.localizedDescription)"
+        }
+    }
+
     private func enqueue(_ folder: URL) {
         let id = folder.lastPathComponent
         guard working[id] == nil, !queue.contains(folder), !deferred.contains(id) else { return }
@@ -195,6 +255,7 @@ final class MeetingLibraryModel: ObservableObject {
                     guard gate.allow(stage) else { return }
                     publish(id, stage)
                 })
+                await offerWebhook(folder: folder)
             } catch is CancellationError {
             } catch is MeetingNoteBusy {
                 deferred.insert(id)

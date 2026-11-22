@@ -118,6 +118,28 @@ public enum DashboardTileID {
     }
 }
 
+public struct MeetingSettings: Codable, Equatable, Sendable {
+    public static let defaultLimitMinutes = 120
+    public static let limitChoices = [30, 60, 90, 120, 180, 240]
+
+    public var webhookEnabled = false
+    public var webhookSigns = false
+    public var limitMinutes = defaultLimitMinutes
+
+    public init() {}
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        webhookEnabled = (try? container.decodeIfPresent(Bool.self, forKey: .webhookEnabled)) ?? false
+        webhookSigns = (try? container.decodeIfPresent(Bool.self, forKey: .webhookSigns)) ?? false
+        limitMinutes = (try? container.decodeIfPresent(Int.self, forKey: .limitMinutes)) ?? Self.defaultLimitMinutes
+    }
+
+    public var limitSeconds: Double { Double(min(max(limitMinutes, 15), 720) * 60) }
+
+    private enum CodingKeys: String, CodingKey { case webhookEnabled, webhookSigns, limitMinutes }
+}
+
 public struct WispSettings: Codable, Equatable, Sendable {
     public static let customTheme = "custom"
 
@@ -140,6 +162,7 @@ public struct WispSettings: Codable, Equatable, Sendable {
     public var settingsSection: String?
     public var recordingsPath: String?
     public var agenda = AgendaPreferences()
+    public var meetings = MeetingSettings()
     var graphWasInvalid = false
 
     public init(theme: String = ThemePreset.lime.id, custom: CustomTheme? = nil, dashboardOrder: [String] = DashboardTileID.defaultOrder) {
@@ -148,7 +171,7 @@ public struct WispSettings: Codable, Equatable, Sendable {
         self.dashboardOrder = DashboardTileID.normalized(dashboardOrder)
     }
 
-    private enum CodingKeys: String, CodingKey { case theme, custom, dashboardOrder, telegramOrder, clipboardCapture, spotifyClientID, graph, notices, openAtLogin, loginItemRegistered, permissionMode, settingsSection, recordingsPath, agenda }
+    private enum CodingKeys: String, CodingKey { case theme, custom, dashboardOrder, telegramOrder, clipboardCapture, spotifyClientID, graph, notices, openAtLogin, loginItemRegistered, permissionMode, settingsSection, recordingsPath, agenda, meetings }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -165,6 +188,7 @@ public struct WispSettings: Codable, Equatable, Sendable {
         settingsSection = try? container.decodeIfPresent(String.self, forKey: .settingsSection)
         recordingsPath = try? container.decodeIfPresent(String.self, forKey: .recordingsPath)
         agenda = (try? container.decodeIfPresent(AgendaPreferences.self, forKey: .agenda)) ?? AgendaPreferences()
+        meetings = (try? container.decodeIfPresent(MeetingSettings.self, forKey: .meetings)) ?? MeetingSettings()
         do {
             graph = try container.decodeIfPresent(GraphControls.self, forKey: .graph) ?? GraphControls()
         } catch {

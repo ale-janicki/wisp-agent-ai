@@ -116,6 +116,7 @@ struct SettingsView: View {
             IntegrationsPane(media: media)
         case .general:
             general
+            meetings
             brain
             agenda
             macControl
@@ -231,6 +232,61 @@ struct SettingsView: View {
             login.refresh()
             PathsModel.shared.refresh()
         }
+    }
+
+    private var meetings: some View {
+        let current = settings.settings.meetings
+        return SettingsGroup(
+            title: "Reuniões",
+            caption: "O áudio e a transcrição ficam no seu Mac. O webhook é opcional e só envia depois do seu clique."
+        ) {
+            SettingsRow(
+                title: "Limite de gravação",
+                detail: "Para sozinho depois desse tempo corrido desde o início, com um aviso 5 min antes. Só pausas explícitas ficam de fora; o Mac dormindo conta."
+            ) {
+                Picker("Limite de gravação", selection: Binding(
+                    get: { current.limitMinutes },
+                    set: { value in settings.setMeetings { $0.limitMinutes = value } }
+                )) {
+                    ForEach(MeetingSettings.limitChoices, id: \.self) { minutes in
+                        Text(Self.limitLabel(minutes)).tag(minutes)
+                    }
+                }
+                .labelsHidden()
+                .frame(width: 110)
+            }
+            Divider().overlay(Theme.stroke)
+            ToggleRow(
+                title: "Webhook ao terminar",
+                detail: "Quando a nota ficar pronta, o Wisp mostra um cartão com o destino e o tamanho e só envia quando você clicar em Permitir. Vai o título, a data, a duração, o resumo, os pontos principais, as ações e as métricas em números. Não vai a transcrição, os marcadores, a checklist nem o texto das métricas. O endereço fica no Keychain.",
+                isOn: current.webhookEnabled
+            ) { on in settings.setMeetings { $0.webhookEnabled = on } }
+            if current.webhookEnabled {
+                WebhookURLField()
+                Divider().overlay(Theme.stroke)
+                ToggleRow(
+                    title: "Assinar o envio",
+                    detail: "Manda X-Wisp-Timestamp e X-Wisp-Signature: sha256=… (HMAC-SHA256 de data.corpo) com um segredo só seu, guardado no Keychain. Quem recebe deve recusar datas com mais de 5 min.",
+                    isOn: current.webhookSigns
+                ) { on in
+                    if on { _ = WebhookKeychain.ensureSecret() }
+                    settings.setMeetings { $0.webhookSigns = on }
+                } accessory: {
+                    if current.webhookSigns {
+                        Button("Copiar segredo") {
+                            guard let secret = WebhookKeychain.load(.secret) else { return }
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(secret, forType: .string)
+                        }
+                        .buttonStyle(CapsuleButtonStyle(kind: .ghost))
+                    }
+                }
+            }
+        }
+    }
+
+    private static func limitLabel(_ minutes: Int) -> String {
+        minutes % 60 == 0 ? "\(minutes / 60) h" : "\(minutes) min"
     }
 
     private var brain: some View {
@@ -611,6 +667,40 @@ private struct MeetingsMoveRow: View {
         case .failed(let message): "\(message) Dá para tentar de novo: o que já foi movido fica."
         case .idle: "\(model.pendingMeetings) reuniões ficaram em ~/Wisp/reunioes. Mover leva as gravações para a pasta nova."
         }
+    }
+}
+
+private struct WebhookURLField: View {
+    @State private var draft = ""
+
+    private var problem: String? {
+        let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return nil }
+        do {
+            _ = try MeetingWebhook.validate(text)
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Theme.Space.xs) {
+            TextField("", text: $draft, prompt: Text("https://…").foregroundStyle(Theme.textTertiary))
+                .textFieldStyle(.plain)
+                .font(Theme.Font.tool)
+                .foregroundStyle(Theme.textPrimary)
+                .padding(.horizontal, 10)
+                .frame(height: 26)
+                .background(Theme.surfaceHi, in: Capsule())
+                .onChange(of: draft) { _, text in WebhookKeychain.save(text.trimmingCharacters(in: .whitespacesAndNewlines), for: .url) }
+            Text(problem ?? "Só https e só endereços públicos: localhost, IPs privados e redes locais são recusados. Qualquer porta é aceita; o que protege é o envio ir só para um IP público.")
+                .font(Theme.Font.caption)
+                .foregroundStyle(problem == nil ? Theme.textSecondary : Theme.error)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.bottom, Theme.Space.s)
+        .onAppear { draft = WebhookKeychain.load(.url) ?? "" }
     }
 }
 

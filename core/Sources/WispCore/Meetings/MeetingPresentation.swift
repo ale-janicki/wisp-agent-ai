@@ -68,6 +68,17 @@ public struct TranscriptLine: Identifiable, Equatable, Sendable {
     public var text: String
     public var isPartial: Bool
     public var isMine: Bool
+    public var isBookmark = false
+
+    public init(bookmark: MeetingBookmark) {
+        id = "bookmark-\(bookmark.id)"
+        time = ElapsedFormat.clock(bookmark.time)
+        speaker = "Marcador"
+        text = bookmark.label.isEmpty ? "Momento marcado" : bookmark.label
+        isPartial = false
+        isMine = false
+        isBookmark = true
+    }
 
     public init(_ segment: MeetingSegment) {
         id = segment.id
