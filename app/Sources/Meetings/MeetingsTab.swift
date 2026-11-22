@@ -512,14 +512,7 @@ private struct MeetingDetailView: View {
         switch page {
         case .note:
             if let note = detail?.note {
-                ScrollView {
-                    Text(Self.rendered(note))
-                        .font(Theme.Font.body)
-                        .foregroundStyle(Theme.textPrimary)
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .scrollIndicators(.hidden)
+                MeetingNoteView(markdown: note)
             } else {
                 TabMessage(text: library.stage(of: entry.id) != nil ? "Gerando a nota…" : "Ainda não tem nota.")
             }
@@ -531,10 +524,31 @@ private struct MeetingDetailView: View {
             }
         }
     }
+}
 
-    private static func rendered(_ markdown: String) -> AttributedString {
-        let options = AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace)
-        return (try? AttributedString(markdown: markdown, options: options)) ?? AttributedString(markdown)
+private struct MeetingNoteView: View {
+    let markdown: String
+    @State private var nodes: [BrainBlockNode] = []
+
+    var body: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 10) {
+                ForEach(nodes) { node in
+                    BrainBlockView(node: node, source: "", model: BrainModel.shared, depth: 0)
+                }
+            }
+            .textSelection(.enabled)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .scrollIndicators(.hidden)
+        .environment(\.brainReadOnly, true)
+        .environment(\.openURL, OpenURLAction { url in
+            guard BrainLinkScheme.action(for: url) == nil else { return .handled }
+            return BrainLinkRouter.handle(url, source: "", model: BrainModel.shared)
+        })
+        .task(id: markdown) {
+            nodes = BrainMarkdown.parse(markdown).nodes
+        }
     }
 }
 
@@ -614,6 +628,8 @@ private struct TranscriptLineView: View {
                 .frame(width: 44, alignment: .trailing)
             Text(line.speaker)
                 .font(Theme.Font.caption)
+                .lineLimit(1)
+                .fixedSize()
                 .foregroundStyle(line.isMine ? Theme.accentText : Theme.accentTeal)
                 .padding(.horizontal, 7)
                 .frame(height: 18)
@@ -623,6 +639,7 @@ private struct TranscriptLineView: View {
                 .foregroundStyle(line.isPartial ? Theme.textSecondary : Theme.textPrimary)
                 .italic(line.isPartial)
                 .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
     }

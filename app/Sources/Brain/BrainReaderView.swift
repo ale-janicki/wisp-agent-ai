@@ -38,6 +38,17 @@ struct BrainReaderView: View {
     }
 }
 
+private struct BrainReadOnlyKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    var brainReadOnly: Bool {
+        get { self[BrainReadOnlyKey.self] }
+        set { self[BrainReadOnlyKey.self] = newValue }
+    }
+}
+
 @MainActor
 enum BrainLinkRouter {
     static func handle(_ url: URL, source: String, model: BrainModel) -> OpenURLAction.Result {
@@ -150,10 +161,15 @@ private struct BrainListItemView: View {
     let source: String
     var model: BrainModel
     let depth: Int
+    @Environment(\.brainReadOnly) private var readOnly
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
-            if let task = item.task {
+            if let task = item.task, readOnly {
+                Image(systemName: task == .done ? "checkmark.square.fill" : "square")
+                    .font(.system(size: 13))
+                    .foregroundStyle(task == .done ? Theme.accent : Theme.textSecondary)
+            } else if let task = item.task {
                 Button {
                     model.toggleTask(line: item.line, raw: item.raw)
                 } label: {
