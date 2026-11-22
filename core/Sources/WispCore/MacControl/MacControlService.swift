@@ -56,11 +56,14 @@ public struct MacHit: Equatable, Sendable {
     public let element: MacElement
     public let ancestors: [MacElement]
     public let app: String
+    /// False when the parent chain was cut (limit reached, or it did not end at the AXApplication), so a tab cannot be proven native.
+    public let complete: Bool
 
-    public init(element: MacElement, ancestors: [MacElement] = [], app: String = "") {
+    public init(element: MacElement, ancestors: [MacElement] = [], app: String = "", complete: Bool = true) {
         self.element = element
         self.ancestors = ancestors
         self.app = app
+        self.complete = complete
     }
 }
 
@@ -68,7 +71,7 @@ public protocol MacDriver {
     var trusted: Bool { get }
     func requestTrust()
     func tree(app: String?, max: Int, depth: Int) throws -> [MacElement]
-    func pressElement(app: String?, max: Int, depth: Int, at index: Int, expect: MacElement, block: String?) throws
+    func pressElement(app: String?, max: Int, depth: Int, at index: Int, expect: MacElement, block: String?, strict: Bool) throws
     func hit(x: Int, y: Int) -> MacHit?
     func clickPoint(x: Int, y: Int) throws
     func focus(app: String?) throws -> MacFocus
@@ -202,7 +205,7 @@ public struct MacControlService {
         guard same else { throw MacError(MacRefusal.composeChanged, exitCode: MacError.refused) }
         let buttons = elements.indices.filter { elements[$0].role == "AXButton" && MacSafety.blocks(elements[$0], pattern: pattern) }
         guard buttons.count == 1, let index = buttons.first else { throw MacError(MacRefusal.noSingleSend, exitCode: MacError.refused) }
-        try driver.pressElement(app: app, max: Self.composeMax, depth: Self.composeDepth, at: index, expect: elements[index], block: nil)
+        try driver.pressElement(app: app, max: Self.composeMax, depth: Self.composeDepth, at: index, expect: elements[index], block: nil, strict: false)
         return try json(["enviado": true, "botao": elements[index].label])
     }
 
@@ -211,12 +214,14 @@ public struct MacControlService {
         case .point(let x, let y):
             let found = driver.hit(x: x, y: y)
             if let found, MacSafety.blocks(found.element, ancestors: found.ancestors, pattern: block)
-                || MacSafety.requiresCard(found.element, ancestors: found.ancestors, strict: strict) { throw blocked(found.element) }
+                || MacSafety.requiresCard(found.element, ancestors: found.ancestors, strict: strict, lineage: found.complete ? found.ancestors : nil) {
+                throw blocked(found.element)
+            }
             if !resolveOnly { try driver.clickPoint(x: x, y: y) }
             guard let found else { return try json(["ponto": "\(x),\(y)"]) }
             var report = elementReport(found.element)
             report["app"] = found.app
-            report["ancestrais"] = found.ancestors.map(\.label)
+            report["ancestrais"] = found.ancestors.prefix(MacSafety.ancestorLimit).map(\.label)
             return try json(report)
         case .query(let title, let regex, let role, let index):
             let max = MacTree.defaultMax, depth = MacTree.defaultDepth
@@ -227,10 +232,10 @@ public struct MacControlService {
             }
             let target = elements[found[index]]
             let chain = MacSafety.ancestors(of: found[index], in: elements)
-            if MacSafety.blocks(target, ancestors: chain, pattern: block) || MacSafety.requiresCard(target, ancestors: chain, strict: strict) {
+            if MacSafety.blocks(target, ancestors: chain, pattern: block) || MacSafety.requiresCard(target, ancestors: chain, strict: strict, lineage: MacSafety.lineage(of: found[index], in: elements)) {
                 throw blocked(target)
             }
-            if !resolveOnly { try driver.pressElement(app: app, max: max, depth: depth, at: found[index], expect: target, block: block) }
+            if !resolveOnly { try driver.pressElement(app: app, max: max, depth: depth, at: found[index], expect: target, block: block, strict: strict) }
             return try json(elementReport(target))
         }
     }

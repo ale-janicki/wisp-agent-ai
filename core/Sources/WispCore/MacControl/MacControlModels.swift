@@ -103,20 +103,42 @@ public enum MacSafety {
 
     public static let freeRoles: Set<String> = ["AXTextField", "AXTextArea", "AXSearchField", "AXComboBox", "AXScrollArea", "AXScrollBar"]
 
+    public static let webRole = "AXWebArea"
+    public static let lineageLimit = 64
+
+    /// Tabs and tab-group radios are free only in native UI. Anything under an AXWebArea (a browser page, an Electron or
+    /// webview app) is page content, where role=tab runs the page's own handler. `lineage` is the whole chain of parents;
+    /// nil means it could not be read in full, and then nothing is exempt.
+    static func isNativeTab(_ element: MacElement, ancestors: [MacElement], lineage: [MacElement]?) -> Bool {
+        isTab(element, ancestors: ancestors) && isNativeLineage(lineage)
+    }
+
     static func isTab(_ element: MacElement, ancestors: [MacElement]) -> Bool {
         element.role == "AXTab" || (element.role == "AXRadioButton" && ancestors.prefix(ancestorLimit).contains { $0.role == "AXTabGroup" })
     }
 
-    static func asksCard(_ element: MacElement, ancestors: [MacElement]) -> Bool {
+    static func asksCard(_ element: MacElement, ancestors: [MacElement], lineage: [MacElement]?) -> Bool {
         if cardRoles.contains(element.role) { return true }
-        return element.pressable && !freeRoles.contains(element.role) && !isTab(element, ancestors: ancestors)
+        if isTab(element, ancestors: ancestors) { return !isNativeTab(element, ancestors: ancestors, lineage: lineage) }
+        guard element.pressable else { return false }
+        if freeRoles.contains(element.role) { return !isNativeLineage(lineage) }
+        return true
     }
 
-    public static func requiresCard(_ element: MacElement, ancestors: [MacElement], strict: Bool) -> Bool {
+    /// ARIA role=textbox/searchbox/combobox/scrollbar on a div becomes a free AX role too, so those are free only in native UI.
+    static func isNativeLineage(_ lineage: [MacElement]?) -> Bool {
+        guard let lineage else { return false }
+        return !lineage.contains { $0.role == webRole }
+    }
+
+    /// `lineage`: every parent of `element`, nearest first; nil when the chain is cut or unreadable (then tabs ask).
+    public static func requiresCard(_ element: MacElement, ancestors: [MacElement], strict: Bool, lineage: [MacElement]?) -> Bool {
         guard strict else { return false }
         let chain = Array(ancestors.prefix(ancestorLimit))
-        if asksCard(element, ancestors: chain) { return true }
-        return chain.indices.contains { asksCard(chain[$0], ancestors: Array(chain.dropFirst($0 + 1))) }
+        if asksCard(element, ancestors: chain, lineage: lineage) { return true }
+        return chain.indices.contains { index in
+            asksCard(chain[index], ancestors: Array(chain.dropFirst(index + 1)), lineage: lineage.map { Array($0.dropFirst(index + 1)) })
+        }
     }
 
     public static let ancestorLimit = 3
@@ -130,6 +152,24 @@ public enum MacSafety {
         var depth = elements[index].depth
         var cursor = index - 1
         while cursor >= 0, out.count < ancestorLimit, depth > 0 {
+            if elements[cursor].depth < depth {
+                out.append(elements[cursor])
+                depth = elements[cursor].depth
+            }
+            cursor -= 1
+        }
+        return out
+    }
+}
+
+extension MacSafety {
+    /// All parents of `elements[index]` up to depth 0; nil when the walk does not reach a root or passes `lineageLimit`.
+    public static func lineage(of index: Int, in elements: [MacElement]) -> [MacElement]? {
+        var out: [MacElement] = []
+        var depth = elements[index].depth
+        var cursor = index - 1
+        while depth > 0 {
+            guard cursor >= 0, out.count < lineageLimit else { return nil }
             if elements[cursor].depth < depth {
                 out.append(elements[cursor])
                 depth = elements[cursor].depth
@@ -346,10 +386,16 @@ public enum MacCaller {
         return runtimePrefixes(home: home).contains { real.hasPrefix($0) }
     }
 
+    /// The account's home from the passwd database, not `$HOME` (a caller can change the environment).
+    public static func passwdHome(uid: uid_t = getuid()) -> String {
+        if let entry = getpwuid(uid), let dir = entry.pointee.pw_dir { return String(cString: dir) }
+        return NSHomeDirectoryForUser(NSUserName()) ?? "/var/empty"
+    }
+
     public static func isWispRuntime(_ pid: pid_t) -> Bool {
         var buffer = [CChar](repeating: 0, count: 4096)
         guard proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 else { return false }
-        return isWispRuntimePath(String(cString: buffer), home: FileManager.default.homeDirectoryForCurrentUser.path)
+        return isWispRuntimePath(String(cString: buffer), home: passwdHome())
     }
 
     public static func valid(nonce: String?, directory: URL, uid: uid_t = getuid(), fileManager: FileManager = .default,

@@ -14,7 +14,7 @@ private final class FakeDriver: MacDriver, @unchecked Sendable {
     var expected: [MacElement] = []
     var blocks: [String?] = []
     var hits: [MacHit] = []
-    func pressElement(app: String?, max: Int, depth: Int, at index: Int, expect: MacElement, block: String?) throws {
+    func pressElement(app: String?, max: Int, depth: Int, at index: Int, expect: MacElement, block: String?, strict: Bool) throws {
         calls.append("press \(index)")
         expected.append(expect)
         blocks.append(block)
@@ -355,7 +355,7 @@ private final class FakeDriver: MacDriver, @unchecked Sendable {
 
     @Test func strictModeAsksForEveryPressableElementExceptTextFieldsScrollAreasAndTabs() {
         func card(_ role: String, label: String = "", pressable: Bool = true, ancestors: [MacElement] = []) -> Bool {
-            MacSafety.requiresCard(MacElement(role: role, title: label, pressable: pressable), ancestors: ancestors, strict: true)
+            MacSafety.requiresCard(MacElement(role: role, title: label, pressable: pressable), ancestors: ancestors, strict: true, lineage: [])
         }
         for role in ["AXButton", "AXMenuItem", "AXMenuButton"] { #expect(card(role, label: "Continuar", pressable: false), Comment(rawValue: role)) }
         for role in ["AXGroup", "AXLink", "AXStaticText", "AXRow", "AXCell", "AXMenuBarItem", "AXImage", "AXUnknown", "AXDisclosureTriangle"] {
@@ -369,7 +369,80 @@ private final class FakeDriver: MacDriver, @unchecked Sendable {
         #expect(card("AXButton", label: "Run", ancestors: [MacElement(role: "AXToolbar")]), "a toolbar gives no exemption, so Run and Build ask")
         #expect(card("AXGroup", label: "Build", ancestors: [MacElement(role: "AXToolbar")]))
         #expect(!card("AXGroup", pressable: false) && !card("AXLink", pressable: false) && !card("AXStaticText", pressable: false))
-        #expect(!MacSafety.requiresCard(MacElement(role: "AXButton", title: "X"), ancestors: [], strict: false))
+        #expect(!MacSafety.requiresCard(MacElement(role: "AXButton", title: "X"), ancestors: [], strict: false, lineage: []))
+    }
+
+    @Test func tabsAreFreeOnlyWhenTheWholeParentChainHasNoWebArea() {
+        func card(_ element: MacElement, _ ancestors: [MacElement], lineage: [MacElement]?) -> Bool {
+            MacSafety.requiresCard(element, ancestors: ancestors, strict: true, lineage: lineage)
+        }
+        let group = MacElement(role: "AXTabGroup"), web = MacElement(role: "AXWebArea"), window = MacElement(role: "AXWindow")
+        let radio = MacElement(role: "AXRadioButton", pressable: true), tab = MacElement(role: "AXTab", pressable: true)
+        #expect(!card(radio, [group], lineage: [group, window]))
+        #expect(!card(tab, [], lineage: [window]))
+        #expect(card(radio, [group], lineage: [group, window, window, window, web]), "the web area is deeper than the 3 ancestors")
+        #expect(card(tab, [web], lineage: [web, window]))
+        #expect(card(MacElement(role: "AXTab"), [], lineage: [web]), "a web tab asks even when it does not expose press")
+        #expect(card(radio, [group], lineage: nil), "an unreadable or cut chain asks")
+        #expect(card(tab, [], lineage: nil))
+        #expect(!MacSafety.requiresCard(tab, ancestors: [], strict: false, lineage: nil))
+        let field = MacElement(role: "AXSearchField", pressable: true)
+        #expect(!card(MacElement(role: "AXTextField", pressable: true), [], lineage: [window]), "a native text field stays free")
+        #expect(card(field, [], lineage: [web, window]), "a div with role=searchbox under a web area asks")
+        #expect(card(MacElement(role: "AXScrollBar", pressable: true), [], lineage: [window, window, window, window, web]))
+        #expect(card(field, [], lineage: nil), "an unreadable chain asks for a free role too")
+    }
+
+    @Test func lineageIsTheWholeChainAndNilWhenItDoesNotReachARoot() {
+        let tree = [MacElement(role: "AXWindow", depth: 0), MacElement(role: "AXGroup", depth: 1), MacElement(role: "AXGroup", depth: 2),
+                    MacElement(role: "AXGroup", depth: 3), MacElement(role: "AXGroup", depth: 4), MacElement(role: "AXTab", depth: 5)]
+        #expect(MacSafety.lineage(of: 5, in: tree)?.count == 5)
+        #expect(MacSafety.lineage(of: 0, in: tree)?.isEmpty == true)
+        #expect(MacSafety.lineage(of: 1, in: Array(tree.dropFirst())) == nil, "no root above it")
+    }
+
+    @Test func aTabClickIsRefusedInStrictModeUnderAWebAreaInAnyAppAndPassesWhenNative() {
+        func tree(web: Bool) -> [MacElement] {
+            let tab = MacElement(role: "AXRadioButton", title: "Inbox", pressable: true, x: 10, y: 10, width: 10, height: 10, depth: web ? 6 : 2)
+            return web ? [MacElement(role: "AXWindow", depth: 0), MacElement(role: "AXWebArea", depth: 1), MacElement(role: "AXGroup", depth: 2),
+                          MacElement(role: "AXGroup", depth: 3), MacElement(role: "AXGroup", depth: 4), MacElement(role: "AXTabGroup", depth: 5), tab]
+                       : [MacElement(role: "AXWindow", depth: 0), MacElement(role: "AXTabGroup", depth: 1), tab]
+        }
+        let arguments = ["clicar", "--titulo", "Inbox", "--estrito"]
+        let driver = FakeDriver()
+        driver.focused = MacFocus(app: "Slack", element: nil, bundle: "com.tinyspeck.slackmacgap")
+        driver.elements = tree(web: true)
+        #expect(service(driver).run(arguments: arguments).exitCode == MacError.blocked, "a non-browser app with a web view asks")
+        #expect(driver.calls.isEmpty)
+        driver.elements = tree(web: false)
+        #expect(service(driver).run(arguments: arguments).exitCode == 0)
+        #expect(driver.calls == ["press 2"])
+        driver.calls = []
+        driver.elements = Array(tree(web: false).dropFirst())
+        #expect(service(driver).run(arguments: arguments).exitCode == MacError.blocked, "a chain that does not reach a root asks")
+        #expect(driver.calls.isEmpty)
+    }
+
+    @Test func aPointClickOnATabAsksWhenTheParentChainIsCutOrHasAWebArea() {
+        let tab = MacElement(role: "AXTab", title: "Inbox", x: 10, y: 10, width: 10, height: 10)
+        let arguments = ["clicar", "--ponto", "15,15", "--estrito"]
+        let driver = FakeDriver()
+        driver.hits = [MacHit(element: tab, ancestors: [MacElement(role: "AXWindow")], app: "Calendar")]
+        #expect(service(driver).run(arguments: arguments).exitCode == 0)
+        driver.hits = [MacHit(element: tab, ancestors: [MacElement(role: "AXWindow")], app: "Calendar", complete: false)]
+        #expect(service(driver).run(arguments: arguments).exitCode == MacError.blocked)
+        driver.hits = [MacHit(element: tab, ancestors: [MacElement(role: "AXGroup"), MacElement(role: "AXGroup"), MacElement(role: "AXGroup"), MacElement(role: "AXWebArea")], app: "Slack")]
+        #expect(service(driver).run(arguments: arguments).exitCode == MacError.blocked)
+    }
+
+    @Test func theRuntimeRootComesFromThePasswdHomeNotFromTheEnvironment() {
+        let before = MacCaller.passwdHome()
+        let saved = getenv("HOME").map { String(cString: $0) }
+        setenv("HOME", "/tmp/attacker-home", 1)
+        defer { if let saved { setenv("HOME", saved, 1) } else { unsetenv("HOME") } }
+        #expect(MacCaller.passwdHome() == before)
+        #expect(!before.isEmpty && before != "/tmp/attacker-home")
+        #expect(MacCaller.runtimePrefixes(home: MacCaller.passwdHome()).allSatisfy { !$0.hasPrefix("/tmp/attacker-home") })
     }
 
     @Test func strictClicksAreRefusedOnButtonsAndPassOnTextFields() {
@@ -438,7 +511,7 @@ private final class FakeDriver: MacDriver, @unchecked Sendable {
     }
 
     @Test func anyElementThatExposesPressNeedsTheCardInStrictModeWhateverItsRole() {
-        func card(_ element: MacElement, _ ancestors: [MacElement] = []) -> Bool { MacSafety.requiresCard(element, ancestors: ancestors, strict: true) }
+        func card(_ element: MacElement, _ ancestors: [MacElement] = []) -> Bool { MacSafety.requiresCard(element, ancestors: ancestors, strict: true, lineage: []) }
         #expect(card(MacElement(role: "AXImage", title: "x", pressable: true)))
         #expect(card(MacElement(role: "AXStaticText", pressable: true)))
         #expect(card(MacElement(role: "AXUnknown", pressable: true)))
@@ -451,7 +524,7 @@ private final class FakeDriver: MacDriver, @unchecked Sendable {
         #expect(card(MacElement(role: "AXImage"), [MacElement(role: "AXImage", pressable: true)]))
         #expect(!card(MacElement(role: "AXImage"), [MacElement(role: "AXToolbar")]))
         #expect(card(MacElement(role: "AXImage"), [MacElement(role: "AXToolbar", pressable: true)]), "a page posing as a toolbar is no exemption")
-        #expect(!MacSafety.requiresCard(MacElement(role: "AXImage", pressable: true), ancestors: [], strict: false))
+        #expect(!MacSafety.requiresCard(MacElement(role: "AXImage", pressable: true), ancestors: [], strict: false, lineage: []))
     }
 
     @Test func theRuntimeCheckIsAnExactPrefixOfTheRealPathUnderTheInstallLocations() {
