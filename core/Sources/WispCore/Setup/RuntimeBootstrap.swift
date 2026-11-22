@@ -37,6 +37,7 @@ public enum RuntimeBootstrap {
             "UV_LOCK_TIMEOUT": String(RuntimeSync.lockTimeoutSeconds),
             "TMPDIR": layout.root.appendingPathComponent("tmp").path,
             "WISP_RESOURCES": layout.src.path,
+            "PYTHONDONTWRITEBYTECODE": "1",
         ]
     }
 
