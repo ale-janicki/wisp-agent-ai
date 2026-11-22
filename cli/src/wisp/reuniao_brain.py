@@ -30,6 +30,8 @@ MIN_KEY_CHARS = 3
 MAX_KEYS = 20_000
 HEADER_PROBE = 16384
 VAULT_LOCK = ".wisp-index.lock"
+LOCKS_DIR = "locks"
+LOCK_FILE = "meetings-index.lock"
 MOVED = "a nota da reunião foi movida ou apagada no brain"
 DATED = re.compile(r"\d{4}-\d{2}-\d{2}-\d{2}h\d{2}m-")
 LOCK_NAME = ".brain.lock"
@@ -189,8 +191,13 @@ def index_line(name: str, title: str, moment: datetime) -> str:
 
 @contextmanager
 def vault_lock(meetings: Path):
-    fd = os.open(meetings / VAULT_LOCK, os.O_RDWR | os.O_CREAT, 0o600)
+    folder = WispPaths.current().state / LOCKS_DIR / hashlib.sha1(str(meetings.resolve()).encode("utf-8", "surrogateescape")).hexdigest()[:12]
+    folder.mkdir(parents=True, exist_ok=True)
+    fd = os.open(folder / LOCK_FILE, os.O_RDWR | os.O_CREAT, 0o600)
     try:
+        old = meetings / VAULT_LOCK
+        if old.is_file() and old.stat().st_size == 0:
+            old.unlink(missing_ok=True)
         fcntl.flock(fd, fcntl.LOCK_EX)
         yield
     finally:

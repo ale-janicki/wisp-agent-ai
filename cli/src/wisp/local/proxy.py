@@ -161,6 +161,23 @@ def write_info(path: Path, info: dict) -> None:
         json.dump(info, out)
 
 
+def remove_own_files(info_path: Path, key: str) -> None:
+    try:
+        owner = json.loads(info_path.read_text("utf-8")).get("pid")
+    except (OSError, ValueError, AttributeError):
+        return
+    if owner != os.getpid():
+        return
+    key_path = info_path.parent / "server.key"
+    try:
+        same_key = key_path.read_text("utf-8").strip() == key
+    except (OSError, UnicodeDecodeError):
+        same_key = False
+    info_path.unlink(missing_ok=True)
+    if same_key:
+        key_path.unlink(missing_ok=True)
+
+
 def serve(*, model: str, port: int, key: str, idle_minutes: float, info_path: Path, child_argv: list[str] | None = None,
           marker: str = "") -> int:
     sockets = tempfile.mkdtemp(prefix="wisp-mlx-", dir="/tmp")
@@ -206,7 +223,6 @@ def serve(*, model: str, port: int, key: str, idle_minutes: float, info_path: Pa
         except subprocess.TimeoutExpired:
             child.kill()
             child.wait()
-    info_path.unlink(missing_ok=True)
-    (info_path.parent / "server.key").unlink(missing_ok=True)
+    remove_own_files(info_path, key)
     shutil.rmtree(sockets, ignore_errors=True)
     return 0
