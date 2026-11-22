@@ -1173,3 +1173,17 @@ private final class CallCounter: @unchecked Sendable {
     private var count = 0
     func next() -> Int { lock.withLock { count += 1; return count } }
 }
+
+final class ConvertedCoverageTests: XCTestCase {
+    func testALongRecordingOnePercentShortKeepsTheOriginal() {
+        let total = 66 * 60 * 48_000
+        XCTAssertFalse(M4AFileConverter.covers(written: total - total / 100, total: total))
+    }
+
+    func testEncoderPaddingWithinTheFixedSlackPasses() {
+        let total = 66 * 60 * 48_000
+        XCTAssertTrue(M4AFileConverter.covers(written: total - 2_112, total: total))
+        XCTAssertTrue(M4AFileConverter.covers(written: total + 1_024, total: total))
+        XCTAssertFalse(M4AFileConverter.covers(written: total - 8_193, total: total))
+    }
+}
