@@ -10,6 +10,8 @@ TIERS = ("pequeno", "medio", "grande")
 TIER_LABELS = {"pequeno": "Pequeno", "medio": "Médio", "grande": "Grande"}
 ALWAYS_IRREVERSIBLE = frozenset({"email_send", "run_shell"}) | MAC_ALWAYS_ASK
 READ_ONLY = frozenset({"read_file", "list_files", "email_list", "email_read", "email_search", "brain_search", "brain_read", "brain_links", "web_search", "web_fetch"}) | MAC_READ_ONLY
+DEFAULT_TOOLS = frozenset({"web_search", "web_fetch", "brain_search", "brain_read", "brain_links"})
+REMOVABLE = DEFAULT_TOOLS | frozenset(MAC_TOOLS)
 DEFAULT_REPEAT_LIMIT = 3
 TIER_KEYS = {"max_steps", "tools", "approve", "remove"}
 SHIPPED = Path(__file__).parents[1] / "wisp_folder" / "guardrails.toml"
@@ -69,8 +71,8 @@ def _tier(name: str, raw: object) -> Tier:
     if not approve <= tools:
         raise _fail(f"[{name}] approve lista {sorted(approve - tools)[0]!r}, que não está em tools")
     removed = _names(name, "remove", raw.get("remove", []))
-    if not removed <= set(MAC_TOOLS):
-        raise _fail(f"[{name}] remove lista {sorted(removed - set(MAC_TOOLS))[0]!r}, que não é uma ferramenta do Mac; remove só tira ferramentas mac_ dos padrões do Wisp")
+    if not removed <= REMOVABLE:
+        raise _fail(f"[{name}] remove lista {sorted(removed - REMOVABLE)[0]!r}, que não é uma ferramenta que o Wisp acrescenta sozinho; remove só tira as ferramentas mac_ e {', '.join(sorted(DEFAULT_TOOLS))} dos padrões do Wisp")
     return Tier(name, steps, tools, approve, removed)
 
 
@@ -104,7 +106,7 @@ def load(folder: Path) -> Guardrails:
         raise _fail(f"não achei o arquivo em {path}; rode `wisp setup folder` para recriá-lo") from None
     except (OSError, UnicodeDecodeError) as e:
         raise _fail(f"não consegui ler {path} ({type(e).__name__})") from None
-    return with_mac_defaults(parse(text))
+    return with_defaults(parse(text))
 
 
 def shipped_mac_defaults() -> dict[str, frozenset[str]]:
@@ -112,9 +114,9 @@ def shipped_mac_defaults() -> dict[str, frozenset[str]]:
     return {name: frozenset(t for t in shipped.tier(name).tools if t in MAC_TOOLS) for name in TIERS}
 
 
-def with_mac_defaults(rails: Guardrails) -> Guardrails:
-    defaults = shipped_mac_defaults()
-    tiers = {name: replace(tier, tools=(tier.tools | defaults[name]) - tier.removed) for name, tier in rails.tiers.items()}
+def with_defaults(rails: Guardrails) -> Guardrails:
+    mac = shipped_mac_defaults()
+    tiers = {name: replace(tier, tools=(tier.tools | DEFAULT_TOOLS | mac[name]) - tier.removed) for name, tier in rails.tiers.items()}
     return replace(rails, tiers=tiers)
 
 

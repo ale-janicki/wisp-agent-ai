@@ -26,6 +26,9 @@ INPUT_SHARE = 0.75
 OLD_RESULT_CHARS = 300
 RESULT_CHARS = 8000
 FILES_KEY = "conteúdo dos arquivos que o comando executa"
+QUERY_FREE_CHARS = 120
+READS_PRIVATE = frozenset({"read_file", "web_fetch"})
+READS_PRIVATE_PREFIXES = ("brain_", "email_")
 URL = re.compile(r"https?://[^\s<>\"']+")
 URL_TAIL = ".,;:!?)]}"
 SKILL_HEADER = re.compile(r"^(name|description):\s*(.+)$", re.MULTILINE)
@@ -334,7 +337,9 @@ class LocalEngine:
         scripted = name == "write_file" and Files(self._roots()).is_script_write(arguments)
         url = arguments.get("url")
         unvouched = name == "web_fetch" and not (isinstance(url, str) and url in host.trusted_urls)
-        if scripted or unvouched or guardrails.needs_card(rails, guard.tier, session.mode, name):
+        query = arguments.get("query")
+        leaky = name == "web_search" and (host.read_private or not isinstance(query, str) or len(query) > QUERY_FREE_CHARS)
+        if scripted or unvouched or leaky or guardrails.needs_card(rails, guard.tier, session.mode, name):
             shown = dict(arguments)
             if name == "run_shell":
                 try:
@@ -350,6 +355,8 @@ class LocalEngine:
                 return True, "o usuário negou a ação" if outcome == "deny" else "não executei: ninguém aprovou a tempo"
             if name == "email_send" and host.authorize:
                 host.authorize(arguments)
+        if name in READS_PRIVATE or name.startswith(READS_PRIVATE_PREFIXES):
+            host.read_private = True
         try:
             return False, await host.call(name, arguments)
         except ToolFailure as e:

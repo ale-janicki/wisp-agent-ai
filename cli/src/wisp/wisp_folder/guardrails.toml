@@ -2,12 +2,16 @@
 # If a value here is invalid, the local engine refuses to start and says which one.
 #
 # max_steps  how many model replies one turn may take; 0 means no cap
-# tools      the only tools the model can call at this size
+# tools      the tools the model can call at this size (plus the ones Wisp adds, below)
 # approve    tools that always wait for your approval card at this size
 # remove     optional: built-in mac_ tools Wisp adds to this size on its own (you do not need to list them) that you
 #            do not want here, for example remove = ["mac_script"]
 #
-# web_search and web_fetch are read-only and allowed at every size, even when a list below omits them.
+# Wisp adds web_search, web_fetch, brain_search, brain_read and brain_links to every size in code, even when a list
+# below omits them. To take one away at a size, list it in that size's remove = ["web_fetch"]; taking it out of tools is not enough.
+# They never wait for a card, with two exceptions: a web_fetch of an address that is neither in this turn's web_search
+# results nor typed by you, and a web_search made after the turn read a file, a note, an email or a page, or with a
+# query longer than 120 characters.
 
 [irreversible]
 # Always behind the approval card, in every permission mode. Wisp already includes email_send, mac_send and
