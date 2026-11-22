@@ -25,29 +25,64 @@ public struct ActionItem: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey { case text, owner, due }
 }
 
+public struct WebhookTarget: Equatable, Sendable {
+    public var url: URL
+    public var host: String
+}
+
 public struct PendingWebhook: Equatable, Sendable {
     public var url: URL
+    public var host: String
     public var body: Data
     public var preview: String
-    public var signature: String?
+    public var signed: Bool
 
-    public init(url: URL, body: Data, preview: String = "", signature: String? = nil) {
-        self.url = url
+    public init(target: WebhookTarget, body: Data, preview: String = "", signed: Bool = false) {
+        url = target.url
+        host = target.host
         self.body = body
         self.preview = preview
-        self.signature = signature
+        self.signed = signed
     }
 
-    public var host: String { url.host ?? url.absoluteString }
+    public var target: WebhookTarget { WebhookTarget(url: url, host: host) }
 
     public var maskedURL: String {
         let path = url.path
         let hidden = path.isEmpty || path == "/" ? "" : "/•••"
-        return "\(url.scheme ?? "https")://\(url.host ?? "")\(url.port.map { ":\($0)" } ?? "")\(hidden)"
+        return "\(url.scheme ?? "https")://\(host)\(url.port.map { ":\($0)" } ?? "")\(hidden)"
     }
 
     public var sizeText: String {
         body.count < 1024 ? "\(body.count) B" : String(format: "%.1f KB", Double(body.count) / 1024)
+    }
+
+    public var bodyText: String {
+        guard let object = try? JSONSerialization.jsonObject(with: body),
+              let data = try? JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
+        else { return String(decoding: body, as: UTF8.self) }
+        return String(decoding: data, as: UTF8.self)
+    }
+}
+
+public enum WebhookAttempt: Sendable {
+    case delivered
+    case failedBeforeSend(any Error)
+    case failedAfterSend(any Error)
+}
+
+public enum WebhookFailover {
+    public static func run(addresses: [String], attempt: (String) async -> WebhookAttempt) async throws {
+        var last: (any Error)?
+        for address in addresses {
+            switch await attempt(address) {
+            case .delivered: return
+            case .failedAfterSend(let error): throw error
+            case .failedBeforeSend(let error): last = error
+            }
+        }
+        if let last { throw last }
+        throw WebhookError.invalid
     }
 }
 
@@ -60,14 +95,19 @@ public enum MeetingWebhook {
     public static let maximumURLLength = 2048
     public static let previewLimit = 280
 
-    public static func validate(_ text: String) throws -> URL {
+    public static func validate(_ text: String) throws -> WebhookTarget {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, trimmed.count <= maximumURLLength, let components = URLComponents(string: trimmed),
-              let host = components.host?.lowercased(), !host.isEmpty, let url = components.url else { throw WebhookError.invalid }
+        guard !trimmed.isEmpty, trimmed.count <= maximumURLLength, !trimmed.contains("\\"),
+              trimmed.unicodeScalars.allSatisfy({ $0.isASCII && $0.value > 0x20 && $0.value != 0x7F }),
+              let components = URLComponents(string: trimmed), let parsed = components.host, !parsed.isEmpty,
+              !(components.percentEncodedHost ?? "").contains("%"), let url = components.url else { throw WebhookError.invalid }
+        let host = parsed.trimmingCharacters(in: CharacterSet(charactersIn: "[]")).lowercased()
+        guard !host.hasSuffix("."), URL(string: trimmed)?.host?.trimmingCharacters(in: CharacterSet(charactersIn: "[]")).lowercased() == host
+        else { throw WebhookError.invalid }
         guard components.scheme?.lowercased() == "https" else { throw WebhookError.notHTTPS }
         guard components.user == nil, components.password == nil else { throw WebhookError.credentials }
         guard isPublic(host: host) else { throw WebhookError.privateHost(host) }
-        return url
+        return WebhookTarget(url: url, host: host)
     }
 
     public static func isPublic(host raw: String) -> Bool {
@@ -137,22 +177,27 @@ public enum MeetingWebhook {
         return lines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    public static func signature(body: Data, secret: String) -> String {
-        let code = HMAC<SHA256>.authenticationCode(for: body, using: SymmetricKey(data: Data(secret.utf8)))
+    public static func signature(body: Data, secret: String, timestamp: Int) -> String {
+        let message = Data("\(timestamp).".utf8) + body
+        let code = HMAC<SHA256>.authenticationCode(for: message, using: SymmetricKey(data: Data(secret.utf8)))
         return "sha256=" + code.map { String(format: "%02x", $0) }.joined()
     }
 
-    public static func request(for pending: PendingWebhook) -> Data? {
-        guard let components = URLComponents(url: pending.url, resolvingAgainstBaseURL: false), let host = components.host else { return nil }
+    public static func request(for pending: PendingWebhook, secret: String?, timestamp: Int) -> Data? {
+        if pending.signed, secret == nil { return nil }
+        guard let components = URLComponents(url: pending.url, resolvingAgainstBaseURL: false) else { return nil }
         var target = components.percentEncodedPath.isEmpty ? "/" : components.percentEncodedPath
         if let query = components.percentEncodedQuery { target += "?" + query }
         let port = components.port.map { $0 == 443 ? "" : ":\($0)" } ?? ""
-        let authority = (host.contains(":") ? "[\(host)]" : host) + port
+        let authority = (pending.host.contains(":") ? "[\(pending.host)]" : pending.host) + port
         var lines = [
             "POST \(target) HTTP/1.1", "Host: \(authority)", "Content-Type: application/json", "Content-Length: \(pending.body.count)",
             "User-Agent: Wisp", "Connection: close",
         ]
-        if let signature = pending.signature { lines.append("X-Wisp-Signature: \(signature)") }
+        if pending.signed, let secret {
+            lines.append("X-Wisp-Timestamp: \(timestamp)")
+            lines.append("X-Wisp-Signature: \(signature(body: pending.body, secret: secret, timestamp: timestamp))")
+        }
         guard lines.allSatisfy({ $0.unicodeScalars.allSatisfy { $0.value >= 0x20 && $0.value != 0x7F } }), !target.contains(" ") else { return nil }
         return Data((lines.joined(separator: "\r\n") + "\r\n\r\n").utf8) + pending.body
     }

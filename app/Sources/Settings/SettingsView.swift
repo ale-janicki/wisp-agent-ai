@@ -266,7 +266,7 @@ struct SettingsView: View {
                 Divider().overlay(Theme.stroke)
                 ToggleRow(
                     title: "Assinar o envio",
-                    detail: "Manda o cabeçalho X-Wisp-Signature: sha256=… (HMAC-SHA256 do corpo) com um segredo só seu, guardado no Keychain.",
+                    detail: "Manda X-Wisp-Timestamp e X-Wisp-Signature: sha256=… (HMAC-SHA256 de data.corpo) com um segredo só seu, guardado no Keychain. Quem recebe deve recusar datas com mais de 5 min.",
                     isOn: current.webhookSigns
                 ) { on in
                     if on { _ = WebhookKeychain.ensureSecret() }

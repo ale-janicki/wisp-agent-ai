@@ -10,6 +10,7 @@ enum WebhookSendError: Error, LocalizedError {
     case badRequest
     case badReply
     case timedOut
+    case unconfirmed
 
     var errorDescription: String? {
         switch self {
@@ -19,6 +20,7 @@ enum WebhookSendError: Error, LocalizedError {
         case .badRequest: "não consegui montar o pedido."
         case .badReply: "o servidor não respondeu como HTTP."
         case .timedOut: "o servidor não respondeu a tempo."
+        case .unconfirmed: "o servidor não confirmou depois de receber o envio; ele pode ter chegado e não tentei de novo."
         }
     }
 }
@@ -32,25 +34,26 @@ enum MeetingWebhookSender {
         guard !addresses.isEmpty, addresses.allSatisfy({ MeetingWebhook.isPublic(host: $0) }) else {
             throw WebhookSendError.resolvesPrivately(host)
         }
-        guard let request = MeetingWebhook.request(for: pending) else { throw WebhookSendError.badRequest }
+        let secret = pending.signed ? WebhookKeychain.load(.secret) : nil
+        let timestamp = Int(Date().timeIntervalSince1970)
+        guard let request = MeetingWebhook.request(for: pending, secret: secret, timestamp: timestamp) else { throw WebhookSendError.badRequest }
         let port = UInt16(pending.url.port ?? 443)
-        var failure: any Error = WebhookSendError.timedOut
-        for address in addresses {
+        try await WebhookFailover.run(addresses: addresses) { address in
+            let post = PinnedPost(host: host, address: address, port: port, request: request, timeout: timeout)
             do {
-                let code = try await PinnedPost(host: host, address: address, port: port, request: request, timeout: timeout).run()
-                if (300..<400).contains(code) { throw WebhookSendError.redirected }
-                guard (200..<300).contains(code) else { throw WebhookSendError.rejected(code) }
-                return
+                let code = try await post.run()
+                if (300..<400).contains(code) { return .failedAfterSend(WebhookSendError.redirected) }
+                guard (200..<300).contains(code) else { return .failedAfterSend(WebhookSendError.rejected(code)) }
+                return .delivered
             } catch let error as WebhookSendError {
                 switch error {
-                case .rejected, .redirected, .badReply: throw error
-                default: failure = error
+                case .badReply: return .failedAfterSend(error)
+                default: return post.requestHandedOver ? .failedAfterSend(WebhookSendError.unconfirmed) : .failedBeforeSend(error)
                 }
             } catch {
-                failure = error
+                return post.requestHandedOver ? .failedAfterSend(WebhookSendError.unconfirmed) : .failedBeforeSend(error)
             }
         }
-        throw failure
     }
 
     private static func resolved(_ host: String) -> [String] {
@@ -84,6 +87,7 @@ private final class PinnedPost: @unchecked Sendable {
     private let queue = DispatchQueue(label: "ai.wisp.webhook")
     private let lock = NSLock()
     private var finished = false
+    private var handedOver = false
     private var reply = Data()
     private var connection: NWConnection?
     private var continuation: CheckedContinuation<Int, any Error>?
@@ -95,6 +99,8 @@ private final class PinnedPost: @unchecked Sendable {
         self.request = request
         self.timeout = timeout
     }
+
+    var requestHandedOver: Bool { lock.withLock { handedOver } }
 
     func run() async throws -> Int {
         try await withCheckedThrowingContinuation { continuation in
@@ -143,7 +149,9 @@ private final class PinnedPost: @unchecked Sendable {
     private func send() {
         guard let link = lock.withLock({ connection }) else { return }
         link.send(content: request, completion: .contentProcessed { [weak self] error in
-            if let error { self?.finish(.failure(error)) } else { self?.receive() }
+            if let error { self?.finish(.failure(error)); return }
+            self?.lock.withLock { self?.handedOver = true }
+            self?.receive()
         })
     }
 

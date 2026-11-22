@@ -418,10 +418,22 @@ struct WebhookCard: View {
                     .foregroundStyle(Theme.textPrimary)
                     .lineLimit(6)
                     .fixedSize(horizontal: false, vertical: true)
-                Text("\(offer.pending.sizeText) em JSON: título, data, duração, resumo, pontos principais, ações e as métricas em números. Não vai: a transcrição, os marcadores, a checklist nem o texto das métricas.\(offer.pending.signature == nil ? "" : " Assinado com HMAC-SHA256.") Nada é enviado sem o seu clique.")
+                Text("\(offer.pending.sizeText) em JSON: título, data, duração, resumo, pontos principais, ações e as métricas em números. Não vai: a transcrição, os marcadores, a checklist nem o texto das métricas. O resumo e os pontos são gerados pelo modelo e podem citar trechos da fala.\(offer.pending.signed ? " Assinado com HMAC-SHA256 sobre a data e o corpo." : "") Nada é enviado sem o seu clique.")
                     .font(Theme.Font.caption)
                     .foregroundStyle(Theme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
+                DisclosureGroup("Ver o JSON completo que será enviado") {
+                    ScrollView {
+                        Text(offer.pending.bodyText)
+                            .font(Theme.Font.tool)
+                            .foregroundStyle(Theme.textPrimary)
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .frame(maxHeight: 220)
+                }
+                .font(Theme.Font.caption)
+                .foregroundStyle(Theme.textSecondary)
                 Text(offer.pending.maskedURL)
                     .font(Theme.Font.tool)
                     .foregroundStyle(Theme.textTertiary)
