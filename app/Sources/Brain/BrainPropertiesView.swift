@@ -28,17 +28,11 @@ struct BrainPropertiesView: View {
                     Spacer(minLength: 0)
                     let missing = Self.suggestions.filter { key in !properties.contains { $0.key == key } }
                     if !missing.isEmpty {
-                        Menu {
+                        IconMenu(systemImage: "plus", help: "Adicionar propriedade", compact: true) {
                             ForEach(missing, id: \.self) { key in
                                 Button(key) { model.setProperty(key, to: key == "aliases" || key == "tags" ? .list([]) : .text("")) }
                             }
-                        } label: {
-                            Image(systemName: "plus").font(.system(size: 10, weight: .bold))
                         }
-                        .menuStyle(.borderlessButton)
-                        .menuIndicator(.hidden)
-                        .fixedSize()
-                        .help("Adicionar propriedade")
                     }
                 }
                 if open {
@@ -118,7 +112,7 @@ struct BrainSidePanelView: View {
             HStack(spacing: 2) {
                 ForEach(BrainSidePanel.allCases, id: \.self) { panel in
                     Button(panel.title) { model.sidePanel = panel }
-                        .buttonStyle(CompactCapsuleStyle(accent: model.sidePanel == panel))
+                        .buttonStyle(CapsuleButtonStyle(kind: (model.sidePanel == panel) ? .accent : .ghost, size: .compact))
                 }
             }
             .padding(3)

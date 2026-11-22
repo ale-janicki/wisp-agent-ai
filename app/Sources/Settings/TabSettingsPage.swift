@@ -19,7 +19,7 @@ struct TabSettingsButton: View {
     var body: some View {
         if TabSettings.hasSettings(tab.rawValue) {
             Button { open(tab) } label: { Image(systemName: "gearshape") }
-                .buttonStyle(CircleButtonStyle(size: 24))
+                .buttonStyle(CircleButtonStyle(size: Theme.Control.compactHeight))
                 .help("Ajustes de \(tab.title)")
         }
     }

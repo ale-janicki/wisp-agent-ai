@@ -342,7 +342,7 @@ private struct PlaylistDetail: View {
         VStack(alignment: .leading, spacing: Theme.Space.s) {
             HStack(spacing: Theme.Space.m) {
                 Button { spotify.closePlaylist() } label: { Image(systemName: "chevron.left") }
-                    .buttonStyle(CircleButtonStyle(size: 26))
+                    .buttonStyle(CircleButtonStyle(size: Theme.Control.compactHeight))
                     .help("Voltar às playlists")
                 RemoteArtwork(url: playlist.images.best(forPixels: 80), size: 40, placeholder: "music.note.list")
                 VStack(alignment: .leading, spacing: 1) {

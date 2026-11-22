@@ -70,7 +70,7 @@ struct LiveSessionView: View {
                         .lineLimit(1)
                         .fixedSize()
                 }
-                .buttonStyle(CompactCapsuleStyle(accent: false))
+                .buttonStyle(CapsuleButtonStyle(kind: .ghost))
                 .help("Marca este ponto da conversa. Atalho global: \(MeetingCopilotModel.bookmarkShortcut)")
             }
         }
@@ -347,7 +347,7 @@ private struct BrainCard: View {
                             .pointerStyle(.link)
                             Spacer(minLength: 0)
                             Button("Abrir") { copilot.openHit(hit) }
-                                .buttonStyle(CompactCapsuleStyle(accent: false))
+                                .buttonStyle(CapsuleButtonStyle(kind: .ghost))
                         }
                         if expanded.contains(hit.id), !hit.snippet.isEmpty {
                             Text(hit.snippet)
@@ -374,16 +374,23 @@ struct PrepCard: View {
         VStack(alignment: .leading, spacing: Theme.Space.s) {
             CardTitle(text: "Preparar a reunião", icon: "list.bullet.clipboard")
             HStack(spacing: Theme.Space.s) {
-                Picker("Evento", selection: $copilot.selectedEventID) {
-                    Text("Sem evento da agenda").tag(String?.none)
+                CapsuleMenu(title: eventTitle, help: "Evento da agenda") {
+                    Button {
+                        copilot.selectedEventID = nil
+                    } label: {
+                        Self.eventLabel("Sem evento da agenda", chosen: copilot.selectedEventID == nil)
+                    }
                     ForEach(copilot.events) { event in
-                        Text("\(Self.time(event.start)) \(event.title)").tag(Optional(event.id))
+                        Button {
+                            copilot.selectedEventID = event.id
+                        } label: {
+                            Self.eventLabel("\(Self.time(event.start)) \(event.title)", chosen: copilot.selectedEventID == event.id)
+                        }
                     }
                 }
-                .labelsHidden()
                 .frame(maxWidth: 260)
                 Button("Atualizar") { copilot.loadEvents() }
-                    .buttonStyle(CompactCapsuleStyle(accent: false))
+                    .buttonStyle(CapsuleButtonStyle(kind: .ghost))
             }
             TextField("", text: $copilot.prepText, prompt: Text("ou descreva a reunião").foregroundStyle(Theme.textTertiary), axis: .vertical)
                 .textFieldStyle(.plain)
@@ -421,6 +428,22 @@ struct PrepCard: View {
         .padding(Theme.Space.m)
         .background(Theme.surfaceHi.opacity(0.6), in: RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous))
         .onAppear { copilot.loadEvents() }
+    }
+
+    private var eventTitle: String {
+        guard let id = copilot.selectedEventID, let event = copilot.events.first(where: { $0.id == id }) else {
+            return "Sem evento da agenda"
+        }
+        return "\(Self.time(event.start)) \(event.title)"
+    }
+
+    @ViewBuilder
+    private static func eventLabel(_ text: String, chosen: Bool) -> some View {
+        if chosen {
+            Label(text, systemImage: "checkmark")
+        } else {
+            Text(text)
+        }
     }
 
     private static func time(_ start: String) -> String {

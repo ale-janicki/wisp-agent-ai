@@ -141,7 +141,7 @@ struct EventDetailView: View {
             Text(event == nil ? "Novo evento" : "Evento").font(Theme.Font.caption).foregroundStyle(Theme.textTertiary)
             Spacer()
             Button { model.closeDetail() } label: { Image(systemName: "xmark") }
-                .buttonStyle(CircleButtonStyle(size: 22))
+                .buttonStyle(CircleButtonStyle(size: Theme.Control.compactHeight))
                 .help("Fechar")
         }
     }
@@ -188,17 +188,13 @@ struct EventDetailView: View {
             if !form.allDay {
                 HStack {
                     Image(systemName: "globe").font(.system(size: 11)).foregroundStyle(Theme.textTertiary)
-                    Menu {
+                    CapsuleMenu(title: form.timeZoneID.isEmpty ? "Fuso do Mac (\(TimeZoneKit.offsetLabel(model.zone, at: form.start)))" : TimeZoneKit.label(zone, at: form.start), help: "Fuso horário") {
                         Button("Fuso do Mac (\(TimeZoneKit.label(model.zone, at: form.start)))") { form.timeZoneID = "" }
                         Divider()
                         ForEach(zoneChoices, id: \.self) { id in
                             if let tz = TimeZone(identifier: id) { Button(TimeZoneKit.label(tz, at: form.start)) { form.timeZoneID = id } }
                         }
-                    } label: {
-                        Text(form.timeZoneID.isEmpty ? "Fuso do Mac (\(TimeZoneKit.offsetLabel(model.zone, at: form.start)))" : TimeZoneKit.label(zone, at: form.start))
-                            .font(Theme.Font.caption)
                     }
-                    .menuStyle(.borderlessButton)
                     .disabled(readOnly)
                 }
             }
