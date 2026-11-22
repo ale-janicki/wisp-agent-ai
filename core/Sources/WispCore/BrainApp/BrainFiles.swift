@@ -130,7 +130,7 @@ public struct BrainFiles: Sendable {
     nonisolated(unsafe) static var lastStaging = ""
 
     static func replace(_ data: Data, at destination: URL, root: URL, label: String) throws {
-        var failure = "sem pasta para o arquivo temporário"
+        var failures: [String] = []
         for staging in stagingFolders(for: destination, root: root) {
             let temporary = staging.folder.appendingPathComponent(staging.name)
             defer { if staging.disposable { try? FileManager.default.removeItem(at: staging.folder) } else { try? FileManager.default.removeItem(at: temporary) } }
@@ -142,10 +142,10 @@ public struct BrainFiles: Sendable {
                 syncFolder(destination.deletingLastPathComponent())
                 return
             } catch {
-                failure = error.localizedDescription
+                failures.append("\(staging.kind): \(error.localizedDescription)")
             }
         }
-        throw BrainFilesError.failed("não consegui salvar \(label): \(failure)")
+        throw BrainFilesError.failed("não consegui salvar \(label): \(failures.isEmpty ? "sem pasta para o arquivo temporário" : failures.joined(separator: "; "))")
     }
 
     private struct Staging {
@@ -184,8 +184,10 @@ public struct BrainFiles: Sendable {
         let base = URL(fileURLWithPath: BrainScanner.canonical(MemorySearch.resolvedRoot(root)), isDirectory: true)
         var removed = 0
         func sweep(_ url: URL) {
-            guard let modified = (try? FileManager.default.attributesOfItem(atPath: url.path))?[.modificationDate] as? Date,
-                  now.timeIntervalSince(modified) > age else { return }
+            var info = stat()
+            guard lstat(url.path, &info) == 0, info.st_mode & S_IFMT == S_IFREG else { return }
+            let changed = Date(timeIntervalSince1970: TimeInterval(info.st_ctimespec.tv_sec) + TimeInterval(info.st_ctimespec.tv_nsec) / 1_000_000_000)
+            guard now.timeIntervalSince(changed) > age else { return }
             if (try? FileManager.default.removeItem(at: url)) != nil { removed += 1 }
         }
         let gitTemps = base.appendingPathComponent(".git/wisp-tmp", isDirectory: true)
@@ -214,6 +216,9 @@ public struct BrainFiles: Sendable {
             throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno), userInfo: [NSLocalizedDescriptionKey: "fsync falhou"])
         }
         try copyAttributes(from: source, to: temporary)
+        guard futimens(handle.fileDescriptor, nil) == 0 else {
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno), userInfo: [NSLocalizedDescriptionKey: "não consegui atualizar a data de modificação"])
+        }
     }
 
     static func copyAttributes(from source: URL, to destination: URL) throws {

@@ -160,20 +160,49 @@ final class BrainFallbackInjectionTests: XCTestCase {
         XCTAssertEqual(try vault.text("index.md"), "moved across volumes")
     }
 
-    func testStaleTempsAreSweptOnlyWhenOlderThanAMinute() throws {
+    func testStaleTempsAreSweptByChangeTimeAndOnlyRegularFiles() throws {
         let vault = try BrainVaultFixture()
         try FileManager.default.createDirectory(at: vault.root.appendingPathComponent(".git/wisp-tmp"), withIntermediateDirectories: true)
-        let now = Date()
-        let old = now.addingTimeInterval(-300)
-        for (path, date) in [("recipes/.wisp-tmp-old", old), ("recipes/.wisp-tmp-new", now), (".git/wisp-tmp/note-old", old), (".git/wisp-tmp/note-new", now), ("recipes/keep.md", old)] {
+        try FileManager.default.createDirectory(at: vault.root.appendingPathComponent("recipes/.wisp-tmp-dir"), withIntermediateDirectories: true)
+        try Data("inside".utf8).write(to: vault.root.appendingPathComponent("recipes/.wisp-tmp-dir/keep"))
+        for path in ["recipes/.wisp-tmp-old", ".git/wisp-tmp/note-old", "recipes/keep.md"] {
             try Data("x".utf8).write(to: vault.root.appendingPathComponent(path))
-            try FileManager.default.setAttributes([.modificationDate: date], ofItemAtPath: vault.root.appendingPathComponent(path).path)
         }
-        XCTAssertEqual(BrainFiles.removeStaleTemps(root: vault.path, now: now), 2)
-        XCTAssertFalse(vault.exists("recipes/.wisp-tmp-old") || FileManager.default.fileExists(atPath: vault.root.appendingPathComponent(".git/wisp-tmp/note-old").path))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: vault.root.appendingPathComponent("recipes/.wisp-tmp-new").path))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: vault.root.appendingPathComponent(".git/wisp-tmp/note-new").path))
-        XCTAssertTrue(vault.exists("recipes/keep.md"))
+        Thread.sleep(forTimeInterval: 1.3)
+        for path in ["recipes/.wisp-tmp-new", ".git/wisp-tmp/note-new"] {
+            try Data("x".utf8).write(to: vault.root.appendingPathComponent(path))
+        }
+        let ancient = Date(timeIntervalSince1970: 1_000_000_000)
+        try FileManager.default.setAttributes([.modificationDate: ancient], ofItemAtPath: vault.root.appendingPathComponent("recipes/.wisp-tmp-new").path)
+        XCTAssertEqual(BrainFiles.removeStaleTemps(root: vault.path, olderThan: 1), 2)
+        let present = { (path: String) in FileManager.default.fileExists(atPath: vault.root.appendingPathComponent(path).path) }
+        XCTAssertFalse(present("recipes/.wisp-tmp-old") || present(".git/wisp-tmp/note-old"))
+        XCTAssertTrue(present("recipes/.wisp-tmp-new"), "a fresh temp with an old mtime must survive")
+        XCTAssertTrue(present(".git/wisp-tmp/note-new") && present("recipes/keep.md"))
+        XCTAssertTrue(present("recipes/.wisp-tmp-dir/keep"), "a directory with that name is never removed")
+        XCTAssertEqual(BrainFiles.removeStaleTemps(root: vault.path, olderThan: 1, now: Date().addingTimeInterval(600)), 2)
+        XCTAssertTrue(present("recipes/.wisp-tmp-dir/keep"))
+    }
+
+    func testASavedNoteGetsTheTimeOfTheSaveNotTheOldOne() throws {
+        let vault = try BrainVaultFixture()
+        let path = vault.root.appendingPathComponent("recipes/bread.md").path
+        try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: 1_600_000_000)], ofItemAtPath: path)
+        try BrainFiles(root: vault.path).write("edited", to: "recipes/bread.md")
+        let modified = try XCTUnwrap(try FileManager.default.attributesOfItem(atPath: path)[.modificationDate] as? Date)
+        XCTAssertLessThan(abs(modified.timeIntervalSinceNow), 10)
+    }
+
+    func testEveryStagingErrorIsReported() throws {
+        let vault = try BrainVaultFixture()
+        BrainFiles.failSystemStaging = true
+        let blocked = vault.root.appendingPathComponent("recipes")
+        try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: blocked.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: blocked.path) }
+        try? FileManager.default.removeItem(at: vault.root.appendingPathComponent(".git"))
+        XCTAssertThrowsError(try BrainFiles(root: vault.path).write("x", to: "recipes/new.md")) { error in
+            XCTAssertTrue(error.localizedDescription.contains("sibling:"))
+        }
     }
 }
 
