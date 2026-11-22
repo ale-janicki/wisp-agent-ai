@@ -8,6 +8,7 @@ import sys
 import time
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import parse_qsl, urlsplit
 
 from wisp.paths import WispPaths
 from wisp.runner import Runner, RunResult, SubprocessRunner
@@ -57,6 +58,21 @@ def _osascript(runner: Runner, *linhas: str, args: tuple[str, ...] = ()) -> str:
     return r.stdout.strip()
 
 
+MAILTO_PARAMS = {"cc", "bcc", "body", "to", "from", "reply-to", "in-reply-to", "attach", "attachment"}
+
+
+def mailto_refusal(alvo: str) -> str | None:
+    if not alvo.lower().startswith("mailto:"):
+        return None
+    query = urlsplit(alvo).query
+    used = {k.lower() for k, _ in parse_qsl(query, keep_blank_values=True)}
+    bad = sorted(used & MAILTO_PARAMS)
+    if bad or "&" in alvo.split("?", 1)[0]:
+        return ("Não abro um mailto: com " + ", ".join(bad or ["parâmetros escondidos"]) + ": ele prepara uma mensagem com destinatários ou texto que o "
+                "usuário não vê. Abra só mailto:endereco (ou com subject) e escreva o resto na janela.")
+    return None
+
+
 def so_mostrar(p: Path) -> bool:
     ext = p.suffix.lower().lstrip(".")
     if p.is_dir() or not ext or ext in REVELAR or ext not in ABRIR:
@@ -76,14 +92,23 @@ def _app_instalado(nome: str) -> Path | None:
     return None
 
 
-def abrir(runner: Runner, alvo: str) -> str:
+def abrir(runner: Runner, alvo: str, com: str | None = None) -> str:
     caminho = Path(os.path.expanduser(alvo))
     mostrar = False
     if URL.match(alvo):
+        recusa = mailto_refusal(alvo)
+        if recusa:
+            raise Falha(recusa)
         argv = ["open", alvo]
     elif caminho.exists():
         mostrar = so_mostrar(caminho)
-        argv = ["open", "-R", str(caminho)] if mostrar else ["open", str(caminho)]
+        leitor = _app_instalado(com) if com else None
+        if com and leitor is None:
+            raise Falha(f"Não achei o aplicativo {com} para abrir {alvo}.")
+        if mostrar:
+            argv = ["open", "-R", str(caminho)]
+        else:
+            argv = ["open", *(["-a", str(leitor)] if leitor else []), str(caminho)]
     elif (app := _app_instalado(alvo)) is not None:
         argv = ["open", "-a", str(app)]
     else:
@@ -112,12 +137,12 @@ def notificar(runner: Runner, texto: str) -> str:
     return "Mostrei a notificação."
 
 
-def print_tela(runner: Runner, paths: WispPaths, janela: bool, agora: datetime | None = None) -> str:
+def print_tela(runner: Runner, paths: WispPaths, janela: bool, agora: datetime | None = None, janela_id: int | None = None) -> str:
     pasta = paths.state / "capturas"
     pasta.mkdir(parents=True, exist_ok=True)
     _limpar_capturas(pasta)
     alvo = pasta / f"captura-{(agora or datetime.now()).strftime('%Y%m%d-%H%M%S')}.png"
-    argv = ["screencapture", "-x", "-o", *(["-w"] if janela else []), str(alvo)]
+    argv = ["screencapture", "-x", "-o", *(["-w"] if janela else []), *(["-l", str(janela_id)] if janela_id is not None else []), str(alvo)]
     r: RunResult = runner.run(argv, timeout=CAPTURA_JANELA_S if janela else CAPTURA_S)
     if r.timed_out:
         raise Falha("A captura demorou demais e foi cancelada.")
@@ -168,14 +193,26 @@ def nao_perturbe(paths: WispPaths) -> str:
     return "O Não perturbe está ligado." if ligado else "O Não perturbe está desligado."
 
 
+def _control(a: argparse.Namespace) -> str:
+    from wisp.mac_control import Ctx, call, cli_args
+
+    return call(Ctx(SubprocessRunner(), WispPaths.current()), a.tool, cli_args(a))
+
+
 def _cmd(a: argparse.Namespace) -> str:
     runner = SubprocessRunner()
+    if getattr(a, "tool", None):
+        return _control(a)
     if a.mac_cmd == "abrir":
-        return abrir(runner, a.alvo)
+        return abrir(runner, a.alvo, a.com)
     if a.mac_cmd == "volume":
         return volume(runner, a.valor)
     if a.mac_cmd == "notificar":
         return notificar(runner, a.texto)
+    if a.mac_cmd == "print" and a.app:
+        from wisp.mac_control import Ctx, tela
+
+        return tela(Ctx(runner, WispPaths.current()), a.app)
     if a.mac_cmd == "print":
         return print_tela(runner, WispPaths.current(), a.janela)
     if a.mac_cmd == "bateria":
@@ -186,12 +223,19 @@ def _cmd(a: argparse.Namespace) -> str:
 def add_parser(sub) -> argparse.ArgumentParser:
     mac = sub.add_parser("mac", help="everyday Mac actions")
     cmds = mac.add_subparsers(dest="mac_cmd", required=True)
-    cmds.add_parser("abrir").add_argument("alvo")
+    abrir_cmd = cmds.add_parser("abrir")
+    abrir_cmd.add_argument("alvo")
+    abrir_cmd.add_argument("--com")
     cmds.add_parser("volume").add_argument("valor")
     cmds.add_parser("notificar").add_argument("texto")
-    cmds.add_parser("print").add_argument("--janela", action="store_true")
+    print_cmd = cmds.add_parser("print")
+    print_cmd.add_argument("--janela", action="store_true")
+    print_cmd.add_argument("--app")
     cmds.add_parser("bateria")
     cmds.add_parser("nao-perturbe")
+    from wisp.mac_control import add_commands
+
+    add_commands(cmds)
     return mac
 
 

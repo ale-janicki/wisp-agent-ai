@@ -290,15 +290,19 @@ def test_unsafe_wisp_folder_makes_codex_not_ready_and_the_turn_runs_on_claude(tm
 def test_every_codex_launch_carries_the_whole_email_server_as_overrides_before_resume(tmp_path):
     contract = json.loads((CONTRACT / "codex-mcp-overrides.json").read_text("utf-8"))
     assert codex_runner.mcp_overrides(contract["wisp_bin"]) == contract["overrides"]
+    assert codex_runner.mcp_overrides(contract["wisp_bin"], allow_changes=False) == contract["overrides_read_only"]
     root = tmp_path / "work"
     root.mkdir()
     for session in (None, THREAD):
-        for mode in ("default", "auto", "bypassPermissions"):
+        for mode in ("default", "manual", "auto", "bypassPermissions", "qualquer"):
             cmd = codex_runner.command(root=root, mode=mode, extra_prompt="", session=session, wisp_bin=contract["wisp_bin"])
-            for override in contract["overrides"]:
+            wanted = contract["overrides"] if mode in ("auto", "bypassPermissions") else contract["overrides_read_only"]
+            for override in wanted:
                 assert cmd[cmd.index(override) - 1] == "-c"
+            tools = [c for c in cmd if c.startswith("mcp_servers.wisp-mac.enabled_tools=")]
+            assert len(tools) == 1 and ("mac_send" in tools[0]) == (mode in ("auto", "bypassPermissions"))
             if session:
-                assert cmd.index(contract["overrides"][-1]) < cmd.index("resume")
+                assert cmd.index(wanted[-1]) < cmd.index("resume")
 
 
 def test_the_fake_binary_receives_the_overrides_on_a_real_turn(tmp_path, monkeypatch):

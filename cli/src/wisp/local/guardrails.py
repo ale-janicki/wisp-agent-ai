@@ -1,15 +1,18 @@
 import json
 import tomllib
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
+
+from wisp.mac_control import ALWAYS_ASK as MAC_ALWAYS_ASK, READ_ONLY as MAC_READ_ONLY, TOOLS as MAC_TOOLS
 
 FILE = "guardrails.toml"
 TIERS = ("pequeno", "medio", "grande")
 TIER_LABELS = {"pequeno": "Pequeno", "medio": "Médio", "grande": "Grande"}
-ALWAYS_IRREVERSIBLE = frozenset({"email_send", "run_shell"})
-READ_ONLY = frozenset({"read_file", "list_files", "email_list", "email_read", "email_search", "brain_search", "brain_read", "brain_links"})
+ALWAYS_IRREVERSIBLE = frozenset({"email_send", "run_shell"}) | MAC_ALWAYS_ASK
+READ_ONLY = frozenset({"read_file", "list_files", "email_list", "email_read", "email_search", "brain_search", "brain_read", "brain_links"}) | MAC_READ_ONLY
 DEFAULT_REPEAT_LIMIT = 3
-TIER_KEYS = {"max_steps", "tools", "approve"}
+TIER_KEYS = {"max_steps", "tools", "approve", "remove"}
+SHIPPED = Path(__file__).parents[1] / "wisp_folder" / "guardrails.toml"
 TOP_KEYS = set(TIERS) | {"irreversible", "loop"}
 
 MODES = ("default", "auto", "bypassPermissions")
@@ -25,6 +28,7 @@ class Tier:
     max_steps: int
     tools: frozenset[str]
     approve: frozenset[str]
+    removed: frozenset[str] = frozenset()
 
     @property
     def label(self) -> str:
@@ -56,7 +60,7 @@ def _tier(name: str, raw: object) -> Tier:
         raise _fail(f"falta a seção [{name}]")
     unknown = sorted(set(raw) - TIER_KEYS)
     if unknown:
-        raise _fail(f"[{name}] tem a chave desconhecida {unknown[0]!r}; as chaves são max_steps, tools e approve")
+        raise _fail(f"[{name}] tem a chave desconhecida {unknown[0]!r}; as chaves são max_steps, tools, approve e remove")
     steps = raw.get("max_steps")
     if isinstance(steps, bool) or not isinstance(steps, int) or steps < 0:
         raise _fail(f"[{name}] max_steps deve ser um número inteiro maior ou igual a 0, onde 0 é sem limite (achei {json.dumps(steps)})")
@@ -64,7 +68,10 @@ def _tier(name: str, raw: object) -> Tier:
     approve = _names(name, "approve", raw.get("approve", []))
     if not approve <= tools:
         raise _fail(f"[{name}] approve lista {sorted(approve - tools)[0]!r}, que não está em tools")
-    return Tier(name, steps, tools, approve)
+    removed = _names(name, "remove", raw.get("remove", []))
+    if not removed <= set(MAC_TOOLS):
+        raise _fail(f"[{name}] remove lista {sorted(removed - set(MAC_TOOLS))[0]!r}, que não é uma ferramenta do Mac; remove só tira ferramentas mac_ dos padrões do Wisp")
+    return Tier(name, steps, tools, approve, removed)
 
 
 def parse(text: str) -> Guardrails:
@@ -97,7 +104,18 @@ def load(folder: Path) -> Guardrails:
         raise _fail(f"não achei o arquivo em {path}; rode `wisp setup folder` para recriá-lo") from None
     except (OSError, UnicodeDecodeError) as e:
         raise _fail(f"não consegui ler {path} ({type(e).__name__})") from None
-    return parse(text)
+    return with_mac_defaults(parse(text))
+
+
+def shipped_mac_defaults() -> dict[str, frozenset[str]]:
+    shipped = parse(SHIPPED.read_text("utf-8"))
+    return {name: frozenset(t for t in shipped.tier(name).tools if t in MAC_TOOLS) for name in TIERS}
+
+
+def with_mac_defaults(rails: Guardrails) -> Guardrails:
+    defaults = shipped_mac_defaults()
+    tiers = {name: replace(tier, tools=(tier.tools | defaults[name]) - tier.removed) for name, tier in rails.tiers.items()}
+    return replace(rails, tiers=tiers)
 
 
 def needs_card(rails: Guardrails, tier: Tier, mode: str, tool: str) -> bool:

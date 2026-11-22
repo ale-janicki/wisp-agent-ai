@@ -45,6 +45,17 @@ import Testing
         #expect(try request("mcp__wisp-email__email_list").canPersist, "only the asked tool loses Sempre permitir")
     }
 
+    @Test func theCardTextEscapesBidiZeroWidthAndControlCharactersLikeThePythonHosts() throws {
+        #expect(PermissionRequest.escaped("a\u{202E}b\u{200B}c\u{200D}d\u{FEFF}e\u{2066}f\u{1B}g\u{0}h") == "a\\u{202e}b\\u{200b}c\\u{200d}d\\u{feff}e\\u{2066}f\\u{001b}g\\u{0000}h")
+        #expect(PermissionRequest.escaped("linha 1\n\tlinha 2 ação 日本") == "linha 1\n\tlinha 2 ação 日本")
+        let request = try #require(PermissionRequest(requestId: "r", request: [
+            "subtype": "can_use_tool", "tool_name": "mcp__wisp-mac__mac_send",
+            "input": ["app": "Mail", "to": ["ana\u{202E}@x.com"], "subject": "", "body": "oi\u{200B}"],
+        ]))
+        #expect(!request.detail.contains("\u{202E}") && !request.detail.contains("\u{200B}") && !request.summary.contains("\u{202E}"))
+        #expect(request.detail.contains("\\u{202e}") && request.detail.contains("\\u{200b}"))
+    }
+
     @Test func initReportsTheMode() throws {
         #expect(try fixtureEvents().contains(.permissionMode("default")))
     }

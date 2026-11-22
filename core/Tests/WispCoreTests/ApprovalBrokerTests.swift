@@ -419,14 +419,36 @@ final class ApprovalBrokerTests: XCTestCase {
     func testTheHashMatchesTheContractVectorAndAMissingCcIsEmpty() throws {
         let ticket = try XCTUnwrap(contract()["ticket"] as? [String: Any])
         let expected = try XCTUnwrap(ticket["sha256"] as? String)
-        XCTAssertEqual(ApprovalBroker.fingerprint(try ticketMail()), expected)
-        XCTAssertEqual(ApprovalBroker.fingerprint(try XCTUnwrap(ticket["same_without_cc"] as? [String: Any])), expected)
+        XCTAssertEqual(ApprovalBroker.fingerprint(tool: "email_send", input: try ticketMail()), expected)
+        XCTAssertEqual(ApprovalBroker.fingerprint(tool: "email_send", input: try XCTUnwrap(ticket["same_without_cc"] as? [String: Any])), expected)
         var bad = try ticketMail()
         bad["to"] = "ana@exemplo.com"
-        XCTAssertNil(ApprovalBroker.fingerprint(bad))
+        XCTAssertNil(ApprovalBroker.fingerprint(tool: "email_send", input: bad))
         bad = try ticketMail()
         bad["subject"] = 1
-        XCTAssertNil(ApprovalBroker.fingerprint(bad))
+        XCTAssertNil(ApprovalBroker.fingerprint(tool: "email_send", input: bad))
+    }
+
+    func testTheHashCoversTheToolNameAndTheAppAsTheContractVectorSays() throws {
+        let vector = try XCTUnwrap(contract()["ticket_mac"] as? [String: Any])
+        let input = try XCTUnwrap(vector["input"] as? [String: Any])
+        XCTAssertEqual(ApprovalBroker.fingerprint(tool: "mac_send", input: input), vector["sha256"] as? String)
+        var other = input
+        other["app"] = "Mail"
+        XCTAssertEqual(ApprovalBroker.fingerprint(tool: "mac_send", input: other), vector["other_app_sha256"] as? String)
+        XCTAssertEqual(ApprovalBroker.fingerprint(tool: "email_send", input: input), vector["other_tool_sha256"] as? String)
+        XCTAssertNotEqual(vector["sha256"] as? String, vector["other_tool_sha256"] as? String)
+    }
+
+    func testATicketForOneToolOrAppIsRefusedForAnother() throws {
+        let broker = try ticketBroker()
+        defer { broker.stop() }
+        let vector = try XCTUnwrap(contract()["ticket_mac"] as? [String: Any])
+        let input = try XCTUnwrap(vector["input"] as? [String: Any])
+        XCTAssertTrue(broker.authorize(inputJSON: try json(input), toolName: "mcp__wisp-mac__mac_send"))
+        XCTAssertFalse(broker.authorize(inputJSON: try json(input), toolName: "mcp__wisp-other__x"))
+        XCTAssertEqual(try answer(broker, input), ["decision": "deny", "message": ApprovalBroker.noTicket], "a mac_send ticket does not open email_send")
+        XCTAssertEqual(try answer(broker, input.merging(["app": "Mail"]) { $1 }), ["decision": "deny", "message": ApprovalBroker.noTicket])
     }
 
     func testAClaudeTicketIsConsumedOnceAndTheSecondSendIsRefused() throws {

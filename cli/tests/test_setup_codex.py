@@ -254,7 +254,26 @@ def test_the_merged_config_always_parses_with_the_server_defined_once(fake_home)
     (home / "config.toml").write_text('[mcp_servers.other]\ncommand = "x"\n')
     sync_codex(_paths(fake_home), _cfg(fake_home), dry_run=False)
     servers = tomllib.loads((home / "config.toml").read_text())["mcp_servers"]
-    assert set(servers) == {"other", "wisp-email", "wisp-brain"}
+    assert set(servers) == {"other", "wisp-email", "wisp-brain", "wisp-mac"}
+
+
+def test_a_foreign_wisp_mac_server_is_left_alone_and_the_email_server_still_syncs(fake_home):
+    home = _codex(fake_home)
+    mine = '[mcp_servers.wisp-mac]\ncommand = "other"\n'
+    (home / "config.toml").write_text(mine)
+    result = sync_codex(_paths(fake_home), _cfg(fake_home), dry_run=False)
+    servers = tomllib.loads((home / "config.toml").read_text())["mcp_servers"]
+    assert servers["wisp-mac"] == {"command": "other"} and servers["wisp-email"]["args"] == ["mcp", "email"]
+    assert any(d.command == "controle do mac" for d in result.details)
+
+
+def test_a_project_config_that_redefines_the_mac_server_blocks_codex(fake_home):
+    from wisp.setup.codex import project_config_problem
+
+    root = fake_home / "work" / "proj"
+    (root / ".codex").mkdir(parents=True)
+    (root / ".codex/config.toml").write_text('[mcp_servers.wisp-mac]\ncommand = "x"\n')
+    assert "define o servidor wisp-mac" in project_config_problem(root, fake_home)
 
 
 def _block_text(**swap):
@@ -324,16 +343,17 @@ def test_overrides_match_the_contract_and_describe_the_same_server_as_the_block(
     from wisp.setup.codex import mcp_overrides
     overrides = mcp_overrides(contract["wisp_bin"])
     assert overrides == contract["overrides"]
-    for name, args in (("wisp-email", ["mcp", "email"]), ("wisp-brain", ["mcp", "brain"])):
+    assert mcp_overrides(contract["wisp_bin"], allow_changes=False) == contract["overrides_read_only"]
+    rendered_all = tomllib.loads(render_config_block(contract["wisp_bin"]))["mcp_servers"]
+    for name, args in (("wisp-email", ["mcp", "email"]), ("wisp-brain", ["mcp", "brain"]), ("wisp-mac", ["mcp", "mac"])):
         built = {}
-        for line in overrides:
+        for line in contract["overrides_read_only"]:
             key, raw = line.split("=", 1)
             if key.startswith(f"mcp_servers.{name}."):
                 built[key.rsplit(".", 1)[1]] = tomllib.loads(f"_x_ = {raw}")["_x_"]
-        rendered = tomllib.loads(render_config_block(contract["wisp_bin"]))["mcp_servers"][name]
-        assert built == {**rendered, "enabled": True} and built["args"] == args
+        assert built == {**rendered_all[name], "enabled": True} and built["args"] == args
         assert "env" not in built and built["default_tools_approval_mode"] == "approve"
-    assert overrides[-1].endswith("enabled=true") and "wisp-brain" in overrides[-1]
+    assert overrides[-1].endswith("enabled=true") and "wisp-mac" in overrides[-1]
 
 
 def _project(tmp_path, home):
@@ -423,6 +443,22 @@ def test_the_check_command_lists_the_servers_the_user_owns_outside_the_wisp_bloc
 def test_overrides_skip_a_brain_server_the_user_owns_but_always_keep_the_email_gate():
     from wisp.setup.codex import mcp_overrides
 
-    owned = mcp_overrides("/w", frozenset({"wisp-brain", "wisp-email"}))
+    owned = mcp_overrides("/w", frozenset({"wisp-brain", "wisp-email", "wisp-mac"}))
     assert owned and all(line.startswith("mcp_servers.wisp-email.") for line in owned)
     assert any(line.startswith("mcp_servers.wisp-brain.") for line in mcp_overrides("/w"))
+
+
+def test_the_mac_server_registers_only_read_only_tools_unless_the_mode_allows_changes():
+    from wisp.mac_control import READ_ONLY, TOOLS
+    from wisp.setup.codex import mcp_overrides
+
+    def tools(lines):
+        raw = next(l for l in lines if l.startswith("mcp_servers.wisp-mac.enabled_tools=")).split("=", 1)[1]
+        return set(tomllib.loads(f"_x_ = {raw}")["_x_"])
+
+    assert tools(mcp_overrides("/w")) == set(TOOLS) and "mac_send" in tools(mcp_overrides("/w"))
+    assert tools(mcp_overrides("/w", allow_changes=False)) == set(READ_ONLY)
+    assert not any("mac_send" in l or "mac_ui_click" in l for l in mcp_overrides("/w", allow_changes=False))
+    block = tomllib.loads(render_config_block("/w"))["mcp_servers"]["wisp-mac"]
+    assert set(block["enabled_tools"]) == set(READ_ONLY)
+    assert "enabled_tools" not in tomllib.loads(render_config_block("/w"))["mcp_servers"]["wisp-email"]

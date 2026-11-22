@@ -42,7 +42,8 @@
       "Bash($WISP_BIN agenda permissao --pedir:*)",
       "Bash(wisp agenda permissao --pedir:*)",
       "Bash(\"$WISP_AGENDA_BIN\" permissao --pedir:*)",
-      "mcp__wisp-email__email_send"
+      "mcp__wisp-email__email_send",
+      "mcp__wisp-mac__mac_send"
     ],
     "deny": [
       "Bash(rm -rf /*)",
@@ -52,7 +53,20 @@
       "Bash(sudo *)",
       "Read(~/.config/wisp/secrets/**)",
       "Bash(cat *wisp/secrets*)",
-      "Bash(grep *wisp/secrets*)"
+      "Bash(grep *wisp/secrets*)",
+      "Write(~/Library/Preferences/ai.wisp.app.plist)",
+      "Edit(~/Library/Preferences/ai.wisp.app.plist)",
+      "Write(~/Library/Application Support/Wisp/**)",
+      "Edit(~/Library/Application Support/Wisp/**)",
+      "Write(~/.config/wisp/**)",
+      "Edit(~/.config/wisp/**)",
+      "Write(~/.local/state/wisp/mac-callers/**)",
+      "Edit(~/.local/state/wisp/mac-callers/**)",
+      "Bash(*defaults*ai.wisp.app*)",
+      "Bash(*Preferences/ai.wisp.app*)",
+      "Bash(*ai.wisp.app.plist*)",
+      "Bash(plutil*ai.wisp.app*)",
+      "Bash(*PlistBuddy*ai.wisp.app*)"
     ]
   },
   "hooks": {

@@ -147,13 +147,13 @@ def _read_line(conn: socket.socket, deadline: float) -> bytes:
     return data.split(b"\n", 1)[0]
 
 
-def ask_broker(path: str | None, request: dict, wait: float = WAIT_SECONDS) -> None:
+def ask_broker(path: str | None, request: dict, wait: float = WAIT_SECONDS, tool: str = TOOL) -> None:
     """Returns only when the host answered an explicit allow; every other outcome raises Refused."""
     if not path:
         raise Refused(NO_CHANNEL)
     _trusted(path)
     deadline = time.monotonic() + wait
-    line = json.dumps({"op": OP_REQUEST, "tool": TOOL, "input": request}, ensure_ascii=False).encode() + b"\n"
+    line = json.dumps({"op": OP_REQUEST, "tool": tool, "input": request}, ensure_ascii=False).encode() + b"\n"
     try:
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as conn:
             conn.settimeout(wait)
@@ -178,6 +178,6 @@ def ask_broker(path: str | None, request: dict, wait: float = WAIT_SECONDS) -> N
     raise Refused(BAD_REPLY)
 
 
-def gate_from_env(environ: Mapping[str, str]) -> Gate:
+def gate_from_env(environ: Mapping[str, str], tool: str = TOOL) -> Gate:
     path = environ.get(SOCKET_ENV)
-    return lambda request: ask_broker(path, request)
+    return lambda request: ask_broker(path, request, tool=tool)

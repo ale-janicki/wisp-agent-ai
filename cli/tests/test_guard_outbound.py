@@ -329,3 +329,127 @@ def test_a_python_package_main_is_read_and_a_harmless_module_passes(paths, tmp_p
 def test_inline_code_still_reads_no_file(paths, tmp_path, command):
     (tmp_path / "runme").write_text(SERVER_SCRIPT)
     assert _decide(paths, command + " runme", cwd=tmp_path) is None
+
+
+HELPER_CALLS = [
+    '"/Applications/Wisp.app/Contents/Helpers/wisp-mac" clicar --titulo Enviar --app Mail',
+    "~/Applications/Wisp.app/Contents/Helpers/wisp-mac clicar --regex send",
+    '"$WISP_MAC_BIN" tecla cmd+return',
+    '${WISP_MAC_BIN} digitar "oi"',
+    "WISP_MAC_BIN=/x/wisp-mac; $WISP_MAC_BIN menu 'Mensagem > Enviar'",
+    "wisp-mac --app Mail clicar --titulo Send",
+    "wisp-mac foco",
+    "wisp-mac selftest",
+    "cat > /tmp/a.sh <<'EOS'\n/x/wisp-mac clicar --titulo Enviar\nEOS\nbash /tmp/a.sh",
+    "cd /Applications/Wisp.app/Contents/Helpers && ./wisp-mac clicar --titulo Enviar",
+    "cd ~/Applications/Wisp.app/Contents/Helpers/ ; ./anything tecla return",
+    "pushd /Applications/Wisp.app/Contents/Helpers && ./w arvore",
+    "/Applications/Wisp.app/Contents/Hel*/wisp-mac clicar",
+    "/Applications/Wisp.app/Contents/Helpers/wisp-m?c clicar",
+    "/Applications/Wisp.app/Contents/*/wisp-mac clicar",
+    "H=/Applications/Wisp.app/Contents; $H/Helpers/wisp-mac clicar",
+    "A=/Applications/Wisp.app/Contents/Helpers; $A/wisp-mac clicar",
+    "A=/Applications/Wisp.app/Contents/Helpers; ${A}/wisp-mac clicar",
+    "P=/Applications/Wisp.app/Contents/Helpers/wisp-mac; $P clicar",
+    "$A$B clicar --titulo Send",
+    "$HOME/Applications/Wisp.app/Contents/Helpers/wisp-mac tecla return",
+    "bash -c '/Applications/Wisp.app/Contents/Helpers/wisp-mac tecla return'",
+    "env FOO=1 /Applications/Wisp.app/Contents/Helpers/wisp-mac clicar",
+    "sudo /x/wisp-mac clicar",
+    "ls && /x/wisp-mac clicar",
+    '/x/Hel"pers/wisp-m"ac clicar',
+]
+
+HELPER_ALLOWED = [
+    "wisp mac clicar --titulo OK",
+    "wisp mac arvore",
+    '"$WISP_BIN" mac arvore',
+    '"$WISP_BIN" topic enviar --thread=1 /tmp/x',
+    '"$WISP_AGENDA_BIN" permissao',
+    "cd ~/repos/pessoal/wisp-mac && git log --oneline | grep menu",
+    "ls ~/repos/pessoal/wisp-mac/app/MacControl",
+    "ls /Applications/Wisp.app/Contents/Helpers/wisp-mac",
+    "codesign -dvv /Applications/Wisp.app/Contents/Helpers/wisp-mac",
+    "ls /tmp/*.log",
+]
+
+
+@pytest.mark.parametrize("command", HELPER_CALLS)
+def test_calling_the_mac_helper_in_any_form_is_blocked(paths, command):
+    assert "wisp-mac helper" in (_decide(paths, command) or "")
+
+
+@pytest.mark.parametrize("command", HELPER_ALLOWED)
+def test_ordinary_commands_and_wisp_mac_are_allowed(paths, command):
+    assert _decide(paths, command) is None
+
+
+def test_the_mac_mcp_server_cannot_be_started_by_hand(paths):
+    assert "starting the email server" in (_decide(paths, "wisp mcp mac") or "")
+
+
+UI_INLINE = [
+    '''osascript -e 'tell application "System Events" to keystroke return' ''',
+    '''osascript -e 'tell application "System Events" to key code 36' ''',
+    '''osascript -e 'tell application "System Events" to click button "Send" of window 1' ''',
+    '''osascript -e 'tell application "System Events"' -e 'keystroke "d" using {command down, shift down}' -e 'end tell' ''',
+    '''osascript -l JavaScript -e 'ObjC.import("CoreGraphics"); $.CGEventPost(0, 0)' ''',
+    '''osascript -l JavaScript -e "ObjC.import('Cocoa')"''',
+    '''osascript -l JavaScript -e 'Application("System Events").keyCode(36)' ''',
+    '''/usr/bin/osascript -e 'TELL APPLICATION "SYSTEM EVENTS" TO CLICK BUTTON 1' ''',
+    '''env osascript -e 'tell application "System Events" to keystroke "x"' ''',
+    '''bash -c "osascript -e 'tell application \\"System Events\\" to keystroke return'"''',
+    "osascript <<EOF\ntell application \"System Events\"\nkey code 36\nend tell\nEOF",
+]
+UI_SPLIT = '''osascript -e 'tell application "Sys"&"tem Events" to click button 1' '''
+
+
+@pytest.mark.parametrize("command", UI_INLINE)
+def test_osascript_driving_system_events_or_cgevent_inline_is_blocked(paths, command):
+    assert "driving the screen" in (_decide(paths, command) or "")
+
+
+def test_the_ui_detection_is_best_effort_and_a_split_application_name_gets_through(paths):
+    assert _decide(paths, UI_SPLIT) is None
+
+
+UI_SCRIPT_TEXT = 'tell application "System Events"\nkeystroke return\nend tell\n'
+JXA_TEXT = 'ObjC.import("CoreGraphics");\n$.CGEventCreateKeyboardEvent(null, 36, true);\n'
+
+
+@pytest.mark.parametrize("make", [
+    lambda f: f"osascript {f}",
+    lambda f: f"osascript < {f}",
+    lambda f: f"cat {f} | osascript",
+    lambda f: f"cat {f} | osascript -",
+    lambda f: f"osascript -l JavaScript {f}",
+    lambda f: f"cd /tmp && osascript {f}",
+    lambda f: f"env osascript {f}",
+])
+@pytest.mark.parametrize("name,text", [("a.applescript", UI_SCRIPT_TEXT), ("b.scpt", JXA_TEXT), ("c.js", JXA_TEXT)])
+def test_osascript_reading_a_ui_script_from_a_file_or_stdin_is_blocked(paths, home, make, name, text):
+    (home / name).write_text(text)
+    assert "driving the screen" in (_decide(paths, make(str(home / name))) or "")
+
+
+@pytest.mark.parametrize("command", [
+    "grep -rn 'System Events' docs",
+    "echo osascript System Events keystroke",
+    "git log --grep 'CGEvent'",
+    '''osascript -e 'tell application "Finder" to get name of home' ''',
+    '''osascript -e 'display dialog "oi"' ''',
+])
+def test_the_ui_detection_needs_osascript_in_command_position(paths, command):
+    assert _decide(paths, command) is None
+
+
+def test_a_harmless_script_file_is_allowed(paths, home):
+    (home / "ok.applescript").write_text('tell application "Finder" to get name of home\n')
+    assert _decide(paths, f"osascript {home / 'ok.applescript'}") is None
+    assert _decide(paths, f"cat {home / 'ok.applescript'} | osascript") is None
+
+
+def test_the_script_checker_of_the_mac_tools_can_skip_the_ui_rule(paths):
+    payload = {"tool_name": "Bash", "tool_input": {"command": '''osascript -e 'tell application "System Events" to keystroke "a"' '''}, "cwd": str(paths.home)}
+    assert hook_guard_outbound(payload, paths) is not None
+    assert hook_guard_outbound(payload, paths, ui_scripts=False) is None

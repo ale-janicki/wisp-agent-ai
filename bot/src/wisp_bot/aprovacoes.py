@@ -2,7 +2,7 @@
 proprio Claude Code), o bot posta um cartao com Permitir / Negar e devolve a resposta do dono. O modelo nao
 consegue responder esse canal: so quem escreve no stdin do processo, que e o bot."""
 from __future__ import annotations
-import asyncio, html, json, logging, uuid
+import asyncio, html, json, logging, unicodedata, uuid
 
 log = logging.getLogger("wisp-bot.aprovacoes")
 
@@ -11,6 +11,7 @@ LIMITE_RESUMO = 300
 VALIDADE_S = 600        # sem resposta em 600 s, nega
 PREFIXO = "aprov"
 EMAIL = "mcp__wisp-email__email_send"
+MAC_SEND = "mcp__wisp-mac__mac_send"
 
 NEGADO_NO_TELEGRAM = ("O usuário negou esta ação no Telegram. Não tente de novo do mesmo jeito; "
                       "siga sem ela ou pergunte o que fazer.")
@@ -45,7 +46,29 @@ def motor_de(req: dict) -> str:
     return "Codex" if req.get("engine") == "codex" else "Claude"
 
 
+LETRAS_INVISIVEIS = frozenset({0x115F, 0x1160, 0x3164, 0xFFA0, 0x2800, 0x17B4, 0x17B5, 0x180B, 0x180C, 0x180D, 0x180E, 0x034F})
+
+
+def _oculto(ch: str) -> bool:
+    return unicodedata.category(ch).startswith("C") or unicodedata.category(ch) in ("Zl", "Zp") or ord(ch) in LETRAS_INVISIVEIS
+
+
+def escapar(texto: str) -> str:
+    saida = []
+    for ch in texto:
+        if ch in "\n\t" or not _oculto(ch):
+            saida.append(ch)
+        else:
+            saida.append(f"\\u{{{ord(ch):04x}}}")
+    return "".join(saida)
+
+
 def descrever(req: dict) -> dict:
+    pedido = _descrever(req)
+    return {**pedido, "summary": escapar(str(pedido["summary"])), "detail": escapar(str(pedido["detail"]))}
+
+
+def _descrever(req: dict) -> dict:
     """O `request` de um can_use_tool vira {summary, detail}: o que o dono le antes de permitir."""
     ferramenta = str(req.get("tool_name") or "uma ferramenta")
     motor = motor_de(req)
@@ -55,6 +78,8 @@ def descrever(req: dict) -> dict:
     corpo = json.dumps(entrada, ensure_ascii=False, indent=2, sort_keys=True)
     if motor == "Codex" and ferramenta == EMAIL:
         return {"summary": "O Codex quer enviar um e-mail", "detail": corpo}
+    if motor == "Codex" and ferramenta == MAC_SEND:
+        return {"summary": "O Codex quer enviar uma mensagem pelo app", "detail": corpo}
     return {"summary": f"O {motor} quer usar {ferramenta}", "detail": corpo}
 
 
