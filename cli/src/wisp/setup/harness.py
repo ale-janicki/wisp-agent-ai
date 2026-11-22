@@ -54,7 +54,7 @@ def _values(cfg: WispConfig) -> dict[str, str]:
     return {
         "PERSONA_NAME": cfg.persona,
         "USER_NAME": cfg.user_name or FALLBACK_USER,
-        "BRAIN_DIR": cfg.brain or "",
+        "BRAIN_DIR": str(Path(cfg.brain).expanduser()) if cfg.brain else "",
         "LANGUAGE": cfg.language,
         "WISP_DIR": str(wisp_root(cfg)),
     }
@@ -148,7 +148,7 @@ def _failed(summary: str, **data: str) -> StepReport:
 
 
 def setup_harness(runner: Runner, paths: WispPaths, cfg: WispConfig, *, dry_run: bool, force_merge: bool = False) -> StepReport:
-    if not cfg.brain or not Path(cfg.brain).is_dir():
+    if not cfg.brain or not Path(cfg.brain).expanduser().is_dir():
         return _failed("falta criar o cérebro antes", step="brain")
     claude_dir = paths.home / ".claude"
     if _managed_elsewhere(claude_dir):
