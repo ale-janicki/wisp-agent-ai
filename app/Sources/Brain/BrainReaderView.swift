@@ -22,7 +22,7 @@ struct BrainReaderView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .scrollIndicators(.hidden)
-            .environment(\.openURL, OpenURLAction { url in BrainLinks.handle(url, source: tab.path, model: model) })
+            .environment(\.openURL, OpenURLAction { url in BrainLinkRouter.handle(url, source: tab.path, model: model) })
             .onChange(of: tab.jumpSeq) { _, _ in
                 guard let line = tab.jumpLine else { return }
                 let target = tab.render.nodes.last { $0.line <= line }?.line ?? line
@@ -39,7 +39,7 @@ struct BrainReaderView: View {
 }
 
 @MainActor
-enum BrainLinks {
+enum BrainLinkRouter {
     static func handle(_ url: URL, source: String, model: BrainModel) -> OpenURLAction.Result {
         guard let action = BrainLinkScheme.action(for: url) else {
             switch BrainLinkPolicy.decide(url) {
