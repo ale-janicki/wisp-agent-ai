@@ -167,11 +167,11 @@ def test_only_messaging_apps_get_the_send_block(app, blocked):
 
 def test_clicking_in_a_messaging_app_asks_the_helper_to_block_send_buttons_and_the_refusal_points_to_mac_send(paths, helper):
     base = ["clicar", "--titulo", "Enviar", "--indice", "0", "--app", "Mail"]
-    script = {**focus(helper, app="Mail"), (helper, *base, "--bloquear", mac_control.SEND_PATTERN): RunResult([], 5, "", 'recusei: "Enviar" envia uma mensagem; use a ferramenta mac_send')}
+    script = {**focus(helper, app="Mail"), (helper, *base, "--bloquear", mac_control.SEND_PATTERN, "--estrito"): RunResult([], 5, "", 'recusei: "Enviar" envia uma mensagem; use a ferramenta mac_send')}
     c, runner = ctx(paths, helper, script)
     with pytest.raises(Falha, match="mac_send"):
         call(c, "mac_ui_click", {"titulo": "Enviar", "app": "Mail"})
-    assert helper_calls(runner, helper)[-1] == [*base, "--bloquear", mac_control.SEND_PATTERN]
+    assert helper_calls(runner, helper)[-1] == [*base, "--bloquear", mac_control.SEND_PATTERN, "--estrito"]
 
 
 
@@ -180,10 +180,10 @@ def test_a_click_by_point_is_judged_by_the_app_that_owns_the_element_not_the_fro
     owner = json.dumps({"papel": "AXImage", "app": "WhatsApp", "ancestrais": []})
     script = {**focus(helper, app="TextEdit"), (helper, "clicar", "--ponto", "10,20", "--resolver"): RunResult([], 0, owner, ""),
               (helper, "foco", "--app", "WhatsApp"): RunResult([], 0, json.dumps({"app": "WhatsApp", "papel": "AXTextField"}), ""),
-              (helper, "clicar", "--ponto", "10,20", "--bloquear", mac_control.SEND_PATTERN): RunResult([], 0, "{}", "")}
+              (helper, "clicar", "--ponto", "10,20", "--bloquear", mac_control.SEND_PATTERN, "--estrito"): RunResult([], 0, "{}", "")}
     c, runner = ctx(paths, helper, script)
     call(c, "mac_ui_click", {"ponto": "10,20"})
-    assert helper_calls(runner, helper)[-1] == ["clicar", "--ponto", "10,20", "--bloquear", mac_control.SEND_PATTERN]
+    assert helper_calls(runner, helper)[-1] == ["clicar", "--ponto", "10,20", "--bloquear", mac_control.SEND_PATTERN, "--estrito"]
 
 
 def test_a_point_click_on_a_normal_app_has_no_block(paths, helper):
@@ -211,12 +211,6 @@ def test_keys_that_send_are_refused_in_messaging_apps_without_touching_the_helpe
 
 
 
-def test_the_send_menu_item_is_refused_in_a_messaging_app_only(paths, helper):
-    c, runner = ctx(paths, helper, {**focus(helper, app="Mail"), (helper, "menu"): OK})
-    with pytest.raises(Falha, match="mac_send"):
-        call(c, "mac_ui_menu", {"caminho": "Mensagem > Enviar"})
-    call(c, "mac_ui_menu", {"caminho": "Arquivo > Imprimir"})
-    assert helper_calls(runner, helper)[-1] == ["menu", "Arquivo > Imprimir"]
 
 
 def test_scroll_and_apps_build_their_helper_arguments(paths, helper):
@@ -539,8 +533,7 @@ def with_settings(script, **values):
     return {**script, ("defaults", "export", "ai.wisp.app", "-"): settings_plist(**values)}
 
 
-SAFE = ["Finder", "Preview", "System Settings", "Music", "Spotify", "Calculator", "Calendar", "Notes", "TextEdit", "Pages", "Numbers",
-        "Keynote", "Xcode", "Terminal", "iTerm2"]
+SAFE = ["Finder", "Preview", "System Settings", "Music", "Spotify", "Calculator", "Calendar", "Notes", "TextEdit", "Pages", "Numbers", "Keynote"]
 
 
 @pytest.mark.parametrize("app", SAFE)
@@ -557,7 +550,7 @@ def test_return_newlines_and_send_labels_pass_without_a_card_only_in_the_safe_ap
 @pytest.mark.parametrize("app", ["Slack", "Mail", "Safari", "Google Chrome", "Firefox", "Arc", "Pages Pro", "Notion", "Linear", "Cursor", "Discord"])
 def test_every_other_app_needs_the_card_for_return_newlines_and_send_labels(paths, helper, app):
     script = {(helper, "foco"): info(app, documento="https://exemplo.com"), (helper, "tecla"): OK, (helper, "digitar"): OK,
-              (helper, "clicar", "--titulo", "Submit", "--indice", "0", "--app", app, "--bloquear", mac_control.SEND_PATTERN): RunResult([], 5, "", "recusei: mac_send")}
+              (helper, "clicar", "--titulo", "Submit", "--indice", "0", "--app", app, "--bloquear", mac_control.SEND_PATTERN, "--estrito"): RunResult([], 5, "", "recusei: mac_send")}
     c, runner = ctx(paths, helper, script)
     for name, args in (("mac_ui_key", {"tecla": "return"}), ("mac_ui_key", {"tecla": "cmd+enter"}), ("mac_ui_type", {"texto": "a\nb"}),
                        ("mac_ui_click", {"titulo": "Submit", "app": app}), ("mac_ui_menu", {"caminho": "Mensagem > Enviar"})):
@@ -595,7 +588,7 @@ def test_an_unreadable_or_malformed_setting_means_no_extra_safe_apps(paths, help
 def test_a_point_click_in_a_non_safe_app_is_blocked_and_in_a_safe_app_is_not(paths, helper):
     owner = json.dumps({"papel": "AXImage", "app": "Slack"})
     script = {(helper, "clicar", "--ponto", "1,2", "--resolver"): RunResult([], 0, owner, ""), (helper, "foco"): info("Slack"),
-              (helper, "clicar", "--ponto", "1,2", "--bloquear", mac_control.SEND_PATTERN): RunResult([], 0, "{}", "")}
+              (helper, "clicar", "--ponto", "1,2", "--bloquear", mac_control.SEND_PATTERN, "--estrito"): RunResult([], 0, "{}", "")}
     c, runner = ctx(paths, helper, script)
     call(c, "mac_ui_click", {"ponto": "1,2"})
     assert "--bloquear" in helper_calls(runner, helper)[-1]
@@ -604,23 +597,17 @@ def test_a_point_click_in_a_non_safe_app_is_blocked_and_in_a_safe_app_is_not(pat
 BODY = "Oi \"Ana\", chego às 18h.\nBeijo"
 
 
-def window(helper, app="Messages", corpo=BODY, destinatarios=("Ana Souza",), assunto="", janela="Ana Souza", documento=""):
-    data = {"app": app, "corpo": corpo, "destinatarios": list(destinatarios), "assunto": assunto, "janela": janela, "documento": documento}
+def window(helper, app="Messages", corpo=BODY, destinatarios=("Ana Souza",), assunto="", janela="Ana Souza", documento="", cc=(), bcc=()):
+    data = {"app": app, "corpo": corpo, "destinatarios": list(destinatarios), "cc": list(cc), "bcc": list(bcc), "assunto": assunto,
+            "janela": janela, "documento": documento}
     return {(helper, "composicao"): RunResult([], 0, json.dumps(data, ensure_ascii=False), ""),
-            (helper, "foco"): info(app, documento=documento), (helper, "clicar"): RunResult([], 0, "{}", "")}
+            (helper, "foco"): info(app, documento=documento), (helper, "enviar-janela"): RunResult([], 0, "{}", "")}
 
 
 def send_args(**over):
     return {"app": "Messages", "to": ["Ana Souza"], "subject": "", "body": BODY, **over}
 
 
-def test_mac_send_builds_the_card_from_the_compose_window_and_clicks_send_after_the_allow(paths, helper):
-    asked = []
-    c, runner = ctx(paths, helper, window(helper), gate=asked.append)
-    assert call(c, "mac_send", send_args()) == "enviado"
-    assert asked == [{"app": "Messages", "to": ["Ana Souza"], "cc": [], "subject": "", "body": BODY}]
-    assert helper_calls(runner, helper)[-1] == ["clicar", "--app", "Messages", "--regex", mac_control.SEND_PATTERN, "--papel", "AXButton"]
-    assert sum(1 for x in helper_calls(runner, helper) if x[0] == "composicao") == 2, "the window is read again after the approval"
 
 
 def test_a_body_with_quotes_and_a_long_text_still_matches_exactly(paths, helper):
@@ -641,13 +628,6 @@ def test_a_body_that_is_only_contained_in_the_window_is_not_enough(paths, helper
     assert asked == []
 
 
-def test_a_text_floating_elsewhere_in_the_tree_cannot_stand_in_for_the_composer(paths, helper):
-    asked = []
-    script = {**window(helper, corpo=""), ("never",): OK}
-    c, runner = ctx(paths, helper, script, gate=asked.append)
-    with pytest.raises(Falha, match="Não achei texto"):
-        call(c, "mac_send", send_args())
-    assert asked == [] and all(x[0] != "arvore" for x in helper_calls(runner, helper))
 
 
 @pytest.mark.parametrize("to", [["Beto"], ["Ana Souza", "Beto"], [], ["ana souza"], ["Ana"]])
@@ -656,7 +636,7 @@ def test_recipients_must_equal_the_to_field_of_the_window(paths, helper, to):
     c, runner = ctx(paths, helper, window(helper), gate=asked.append)
     with pytest.raises(Falha):
         call(c, "mac_send", send_args(to=to))
-    assert asked == [] and all(x[0] != "clicar" for x in helper_calls(runner, helper))
+    assert asked == [] and all(x[0] != "enviar-janela" for x in helper_calls(runner, helper))
 
 
 def test_an_empty_recipient_field_in_an_email_app_refuses_instead_of_guessing(paths, helper):
@@ -678,28 +658,6 @@ def test_the_subject_must_equal_the_subject_field(paths, helper):
     assert call(c, "mac_send", send_args(app="Mail", to=["a@x.com"], subject="Reunião")) == "enviado"
 
 
-@pytest.mark.parametrize("change", ["corpo", "destinatarios", "assunto"])
-def test_a_window_that_changes_after_the_approval_is_not_sent(paths, helper, change):
-    first = window(helper, app="Mail", assunto="A", destinatarios=("a@x.com",))
-    later = {"corpo": BODY + " (editado)", "destinatarios": ["a@x.com", "b@x.com"], "assunto": "B"}
-    calls = {"n": 0}
-
-    def runner_run(argv, **kw):
-        if argv[:2] == [helper, "composicao"]:
-            calls["n"] += 1
-            data = json.loads(first[(helper, "composicao")].stdout)
-            if calls["n"] > 1:
-                data[change] = later[change]
-            return RunResult(list(argv), 0, json.dumps(data), "")
-        seen.append(list(argv))
-        return first.get((argv[0], *argv[1:2]), first.get((argv[0],), RunResult([], 0, "{}", "")))
-
-    seen = []
-    c = Ctx(FakeRunner(), paths, test_helper=Path(helper), gate=lambda r: None)
-    c.runner.run = runner_run
-    with pytest.raises(Falha, match="janela mudou"):
-        call(c, "mac_send", send_args(app="Mail", to=["a@x.com"], subject="A"))
-    assert not any(x[1:2] == ["clicar"] for x in seen)
 
 
 def test_a_denied_send_clicks_nothing_and_no_channel_means_no_send(paths, helper):
@@ -712,7 +670,7 @@ def test_a_denied_send_clicks_nothing_and_no_channel_means_no_send(paths, helper
     c, runner = ctx(paths, helper, window(helper), gate=None)
     with pytest.raises(Falha, match="aprovação"):
         call(c, "mac_send", send_args())
-    assert all(x[0] != "clicar" for x in helper_calls(runner, helper))
+    assert all(x[0] != "enviar-janela" for x in helper_calls(runner, helper))
 
 
 def test_mac_send_in_a_webmail_tab_reads_the_composer_and_the_card_shows_the_page_values(paths, helper):
@@ -901,14 +859,6 @@ def test_read_only_tools_are_exactly_the_ones_that_change_nothing():
         assert set(tool.required) <= set(tool.properties) and tool.name.startswith("mac_")
 
 
-def test_the_helper_receives_the_per_process_nonce_in_its_environment_only(paths, helper):
-    seen = []
-    c = Ctx(FakeRunner(), paths, test_helper=Path(helper))
-    c.runner.run = lambda argv, **kw: (seen.append(kw.get("env")), RunResult(list(argv), 0, "{}", ""))[1]
-    c.helper_run("apps")
-    assert seen[0][mac_control.CALLER_ENV] == c.nonce and len(c.nonce) == 32 and int(c.nonce, 16) >= 0
-    assert Ctx(FakeRunner(), paths).nonce != c.nonce
-    assert mac_control.CALLER_ENV not in os.environ
 
 
 def test_the_log_is_private_and_the_script_the_tree_and_the_screenshot_are_never_stored(paths, helper):
@@ -947,7 +897,7 @@ def test_mac_send_and_shortcut_inputs_are_redacted_in_the_log(paths, helper):
 
 
 TRUSTED_DENY = ["Write(~/Library/Preferences/ai.wisp.app.plist)", "Edit(~/Library/Preferences/ai.wisp.app.plist)", "Write(~/.config/wisp/**)",
-                "Edit(~/.config/wisp/**)", "Bash(defaults write ai.wisp.app*)", "Bash(defaults delete ai.wisp.app*)"]
+                "Edit(~/.config/wisp/**)", "Write(~/.local/state/wisp/mac-callers/**)", "Edit(~/.local/state/wisp/mac-callers/**)", "Bash(*defaults*ai.wisp.app*)", "Bash(*Preferences/ai.wisp.app*)", "Bash(*ai.wisp.app.plist*)"]
 
 
 def test_the_agent_is_denied_write_edit_and_defaults_on_every_path_the_cli_trusts():
@@ -959,3 +909,184 @@ def test_the_agent_is_denied_write_edit_and_defaults_on_every_path_the_cli_trust
     for source in (harness, shipped, claude_runner.DENY_RULES, claude_runner.guard_settings("/w")["permissions"]["deny"]):
         for rule in TRUSTED_DENY:
             assert rule in source, rule
+
+
+def test_mac_send_builds_the_card_from_the_window_and_the_helper_presses_send_in_the_same_process(paths, helper):
+    asked = []
+    c, runner = ctx(paths, helper, window(helper), gate=asked.append)
+    assert call(c, "mac_send", send_args()) == "enviado"
+    assert asked == [{"app": "Messages", "to": ["Ana Souza"], "cc": [], "subject": "", "body": BODY}]
+    last = helper_calls(runner, helper)[-1]
+    assert last[:5] == ["enviar-janela", "--app", "Messages", "--regex", mac_control.SEND_PATTERN] and last[5] == "--esperado"
+    assert json.loads(last[6]) == {"corpo": BODY, "destinatarios": ["Ana Souza"], "cc": [], "assunto": ""}
+    assert all(x[0] != "clicar" for x in helper_calls(runner, helper)), "no separate click process after the last read"
+    assert sum(1 for x in helper_calls(runner, helper) if x[0] == "composicao") == 1
+
+
+@pytest.mark.parametrize("stderr", ["recusei: a janela da mensagem mudou depois da aprovação (corpo, destinatários, cópias ou assunto) ou há cópia oculta",
+                                    "recusei: não achei exatamente um botão de enviar dentro da janela da mensagem"])
+def test_when_the_helper_refuses_inside_its_own_process_nothing_is_reported_as_sent(paths, helper, stderr):
+    script = {**window(helper), (helper, "enviar-janela"): RunResult([], 6, "", stderr)}
+    c, _ = ctx(paths, helper, script, gate=lambda r: None)
+    with pytest.raises(Falha, match="Recusei"):
+        call(c, "mac_send", send_args())
+
+
+def test_the_cc_must_equal_the_request_and_a_bcc_refuses(paths, helper):
+    asked = []
+    c, runner = ctx(paths, helper, window(helper, app="Mail", destinatarios=("ana@x.com",), cc=("carla@x.com",)), gate=asked.append)
+    with pytest.raises(Falha, match="Cc"):
+        call(c, "mac_send", send_args(app="Mail", to=["ana@x.com"]))
+    with pytest.raises(Falha, match="Cc"):
+        call(c, "mac_send", send_args(app="Mail", to=["ana@x.com"], cc=["outra@x.com"]))
+    assert call(c, "mac_send", send_args(app="Mail", to=["ana@x.com"], cc=["carla@x.com"])) == "enviado"
+    assert asked == [{"app": "Mail", "to": ["ana@x.com"], "cc": ["carla@x.com"], "subject": "", "body": BODY}]
+    c, runner = ctx(paths, helper, window(helper, app="Mail", destinatarios=("ana@x.com",), bcc=("evil@y.com",)), gate=asked.append)
+    with pytest.raises(Falha, match="Bcc"):
+        call(c, "mac_send", send_args(app="Mail", to=["ana@x.com"]))
+    assert len(asked) == 1
+
+
+def test_a_body_that_cannot_be_identified_refuses(paths, helper):
+    asked = []
+    c, runner = ctx(paths, helper, window(helper, corpo=""), gate=asked.append)
+    with pytest.raises(Falha, match="identificar o campo do corpo"):
+        call(c, "mac_send", send_args())
+    assert asked == [] and all(x[0] != "enviar-janela" for x in helper_calls(runner, helper))
+
+
+@pytest.mark.parametrize("app", ["Terminal", "iTerm2", "iTerm", "Xcode", "Warp", "Ghostty", "kitty", "Alacritty", "Visual Studio Code", "Code", "Cursor",
+                                 "Script Editor", "Script Debugger", "WezTerm", "PyCharm", "Automator"])
+def test_apps_that_run_commands_or_code_are_not_safe_and_cannot_be_added(paths, helper, app):
+    c, _ = ctx(paths, helper, with_settings({}, macSafeApps=[app, app.lower()]))
+    assert not mac_control.safe_app(c, app)
+    script = {(helper, "foco"): info(app), (helper, "digitar"): OK, (helper, "tecla"): OK}
+    c, runner = ctx(paths, helper, with_settings(script, macSafeApps=[app]))
+    with pytest.raises(Falha, match="mac_send"):
+        call(c, "mac_ui_type", {"texto": "rm -rf ~/x\n"})
+    with pytest.raises(Falha, match="mac_send"):
+        call(c, "mac_ui_key", {"tecla": "return"})
+    assert all(x[0] not in ("digitar", "tecla") for x in helper_calls(runner, helper))
+
+
+def test_the_default_safe_list_no_longer_has_any_command_or_code_runner():
+    assert not [a for a in mac_control.DEFAULT_SAFE_APPS if mac_control.NEVER_SAFE.search(a)]
+    assert {"terminal", "iterm", "iterm2", "xcode"}.isdisjoint(mac_control.DEFAULT_SAFE_APPS)
+
+
+@pytest.mark.parametrize("title", ["发送", "送信", "Отправить", "Invia", "Wyślij", "Verstuur", "Répondre", "Skicka", "Senden", "Envoyer", "发送邮件",
+                                   "send_button", "SendButton", "sendButton", "btn-send", "composer.send"])
+def test_more_languages_and_camel_or_snake_identifiers_count_as_send(title):
+    assert mac_control.send_title(title)
+
+
+@pytest.mark.parametrize("title", ["Sender", "resend", "Sentinel", "backButton", "Cancelar", "Imprimir"])
+def test_lookalikes_are_not_send(title):
+    assert not mac_control.send_title(title)
+
+
+def test_buttons_are_asked_with_the_strict_flag_outside_the_safe_apps_and_not_inside(paths, helper):
+    plain = {(helper, "foco"): info("Slack"), (helper, "clicar"): RunResult([], 0, "{}", "")}
+    c, runner = ctx(paths, helper, plain)
+    call(c, "mac_ui_click", {"titulo": "Continuar", "app": "Slack"})
+    assert helper_calls(runner, helper)[-1][-3:] == ["--bloquear", mac_control.SEND_PATTERN, "--estrito"]
+    c, runner = ctx(paths, helper, {**plain, (helper, "foco"): info("Finder")})
+    call(c, "mac_ui_click", {"titulo": "Continuar", "app": "Finder"})
+    assert "--estrito" not in helper_calls(runner, helper)[-1]
+
+
+def test_space_on_a_focused_button_needs_the_card_outside_the_safe_apps(paths, helper):
+    c, runner = ctx(paths, helper, {(helper, "foco"): info("Slack", papel="AXButton"), (helper, "tecla"): OK})
+    with pytest.raises(Falha, match="mac_send"):
+        call(c, "mac_ui_key", {"tecla": "space"})
+    call(c, "mac_ui_key", {"tecla": "cmd+t"})
+    c, runner = ctx(paths, helper, {(helper, "foco"): info("Slack", papel="AXTextField"), (helper, "tecla"): OK})
+    call(c, "mac_ui_key", {"tecla": "space"})
+    c, runner = ctx(paths, helper, {(helper, "foco"): info("Finder", papel="AXButton"), (helper, "tecla"): OK})
+    call(c, "mac_ui_key", {"tecla": "space"})
+
+
+def test_every_menu_outside_the_safe_apps_needs_the_card_and_inside_them_the_helper_blocks_send_titles(paths, helper):
+    c, runner = ctx(paths, helper, {(helper, "foco"): info("Mail"), (helper, "menu"): OK})
+    for path in ("Mensagem > Enviar", "Mensagem > Sen", "Arquivo > Imprimir"):
+        with pytest.raises(Falha, match="mac_send"):
+            call(c, "mac_ui_menu", {"caminho": path})
+    assert all(x[0] != "menu" for x in helper_calls(runner, helper))
+    c, runner = ctx(paths, helper, {(helper, "foco"): info("Finder"), (helper, "menu"): OK})
+    call(c, "mac_ui_menu", {"caminho": "Arquivo > Sen"})
+    assert helper_calls(runner, helper)[-1] == ["menu", "Arquivo > Sen", "--bloquear", mac_control.SEND_PATTERN]
+
+
+def test_a_menu_through_the_card_resolves_the_real_title_exactly_first(paths, helper):
+    asked = []
+    real = RunResult([], 0, json.dumps({"menu": "Mensagem > Enviar", "titulo": "Enviar"}), "")
+    script = {(helper, "foco"): info("Mail"), (helper, "menu", "Mensagem > Enviar", "--exato", "--resolver"): real, (helper, "menu"): OK,
+              (helper, "menu", "Mensagem > Sen", "--exato", "--resolver"): RunResult([], 1, "", "não achei o item de menu")}
+    args = {"app": "Mail", "to": ["Mensagem > Enviar"], "subject": "menu", "body": "Mensagem > Enviar", "acao": "menu"}
+    c, runner = ctx(paths, helper, script, gate=asked.append)
+    assert call(c, "mac_send", args) == "feito"
+    assert asked and helper_calls(runner, helper)[-1] == ["menu", "Mensagem > Enviar", "--exato", "--app", "Mail"]
+    asked.clear()
+    with pytest.raises(Falha):
+        call(c, "mac_send", {**args, "to": ["Mensagem > Sen"], "body": "Mensagem > Sen"})
+    assert asked == []
+
+
+@pytest.mark.parametrize("url", [
+    "mailto:ana@x.com?bcc=evil@y.com", "mailto:ana@x.com?cc=a@b.c", "mailto:ana@x.com?BCC=evil@y.com", "mailto:ana@x.com?subject=oi&body=texto",
+    "mailto:ana@x.com?to=evil@y.com", "mailto:ana@x.com?Body=x", "mailto:ana@x.com&bcc=evil@y.com",
+])
+def test_mac_open_refuses_a_mailto_that_hides_recipients_or_text(paths, helper, url):
+    c, runner = ctx(paths, helper, {("open",): OK})
+    with pytest.raises(Falha, match="mailto"):
+        call(c, "mac_open", {"alvo": url})
+    assert runner.calls == []
+
+
+@pytest.mark.parametrize("url", ["mailto:ana@x.com", "mailto:ana@x.com?subject=Oi", "https://exemplo.com/?cc=1&bcc=2"])
+def test_a_plain_mailto_and_an_ordinary_url_still_open(paths, helper, url):
+    c, runner = ctx(paths, helper, {("open",): OK})
+    call(c, "mac_open", {"alvo": url})
+    assert runner.calls == [["open", url]]
+
+
+def test_the_helper_gets_the_nonce_on_stdin_and_the_server_wrote_a_private_file_for_it(paths, helper):
+    seen = []
+    c = Ctx(FakeRunner(), paths, test_helper=Path(helper))
+    c.runner.run = lambda argv, **kw: (seen.append(kw), RunResult(list(argv), 0, "{}", ""))[1]
+    c.helper_run("apps")
+    assert seen[0]["stdin"] == (c.nonce + "\n").encode() and len(c.nonce) == 32 and int(c.nonce, 16) >= 0
+    assert not (seen[0].get("env") or {}).get("WISP_MAC_CALLER")
+    marker = paths.state / mac_control.CALLERS_DIR / c.nonce
+    assert marker.is_file() and oct(marker.stat().st_mode & 0o777) == "0o600" and oct(marker.parent.stat().st_mode & 0o777) == "0o700"
+    other = Ctx(FakeRunner(), paths, test_helper=Path(helper))
+    assert other.nonce != c.nonce and not (marker.parent / other.nonce).exists()
+    c.helper_run("apps")
+    assert len(list(marker.parent.iterdir())) == 1
+
+
+def test_stale_caller_files_are_removed_when_a_new_server_registers(paths, helper):
+    folder = paths.state / mac_control.CALLERS_DIR
+    folder.mkdir(parents=True, exist_ok=True)
+    old = folder / ("a" * 32)
+    old.write_text("1")
+    os.utime(old, (1, 1))
+    c, _ = ctx(paths, helper, {(helper,): RunResult([], 0, "{}", "")})
+    c.helper_run("apps")
+    assert not old.exists() and (folder / c.nonce).exists()
+
+
+NASTY = "ana‮@x.com​‍﻿⁦\x1b[2J\x00 fim"
+
+
+def test_the_telegram_card_escapes_bidi_zero_width_and_control_characters_like_escape_controls():
+    from wisp_bot import aprovacoes
+
+    assert aprovacoes.escapar(NASTY) == mac_control.escape_controls(NASTY)
+    for tool, engine in (("mcp__wisp-mac__mac_send", "codex"), ("mcp__wisp-mac__mac_send", None), ("Bash", None)):
+        req = {"tool_name": tool, "input": {"command": NASTY, "to": [NASTY], "body": NASTY, "subject": ""}, **({"engine": engine} if engine else {})}
+        card = aprovacoes.descrever(req)
+        for text in (card["summary"], card["detail"]):
+            assert not any(ch in text for ch in "‮​‍﻿⁦\x1b\x00"), (tool, text)
+        assert "\\u{202e}" in card["detail"] and "\\u{200b}" in card["detail"]
+    assert aprovacoes.escapar("linha 1\n\tação 日本 ✓") == "linha 1\n\tação 日本 ✓"

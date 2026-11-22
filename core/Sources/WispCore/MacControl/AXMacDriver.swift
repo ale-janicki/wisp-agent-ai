@@ -247,7 +247,7 @@ public final class AXMacDriver: MacDriver {
         event.post(tap: .cghidEventTap)
     }
 
-    public func menuItem(path: [String], app: String?, press: Bool) throws -> MacElement {
+    public func menuItem(path: [String], app: String?, press: Bool, exact: Bool, block: String?, expect: String?) throws -> MacElement {
         let target = try application(app)
         let appElement = AXUIElementCreateApplication(target.processIdentifier)
         AXUIElementSetMessagingTimeout(appElement, Self.messagingTimeout)
@@ -258,15 +258,20 @@ public final class AXMacDriver: MacDriver {
             if let menu = items.first(where: { string($0, "AXRole") == "AXMenu" }) { items = children(menu) }
             let wanted = MacMatch.fold(name)
             let titled = items.map { ($0, MacMatch.fold(string($0, "AXTitle"))) }
-            guard let match = titled.first(where: { $0.1 == wanted })?.0 ?? titled.first(where: { !wanted.isEmpty && $0.1.contains(wanted) })?.0 else {
-                throw MacError("não achei o item de menu \"\(name)\"")
-            }
+            let exactMatch = titled.first(where: { $0.1 == wanted })?.0
+            let partial = exact ? nil : titled.first(where: { !wanted.isEmpty && $0.1.contains(wanted) })?.0
+            guard let match = exactMatch ?? partial else { throw MacError("não achei o item de menu \"\(name)\"") }
             current = match
         }
-        if press, AXUIElementPerformAction(current, "AXPress" as CFString) != .success {
-            throw MacError("não consegui acionar esse item de menu (talvez esteja desabilitado)")
+        let resolved = describe(current, depth: 0)
+        if press {
+            if let expect, resolved.title != expect { throw MacError("o item de menu mudou; tente de novo") }
+            if MacSafety.blocks(resolved, pattern: block) { throw MacError(MacRefusal.sendButton(resolved.label), exitCode: MacError.blocked) }
+            if AXUIElementPerformAction(current, "AXPress" as CFString) != .success {
+                throw MacError("não consegui acionar esse item de menu (talvez esteja desabilitado)")
+            }
         }
-        return describe(current, depth: 0)
+        return resolved
     }
 
     public func apps() -> [MacApp] {

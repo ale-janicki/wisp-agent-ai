@@ -2,7 +2,7 @@
 proprio Claude Code), o bot posta um cartao com Permitir / Negar e devolve a resposta do dono. O modelo nao
 consegue responder esse canal: so quem escreve no stdin do processo, que e o bot."""
 from __future__ import annotations
-import asyncio, html, json, logging, uuid
+import asyncio, html, json, logging, unicodedata, uuid
 
 log = logging.getLogger("wisp-bot.aprovacoes")
 
@@ -46,7 +46,22 @@ def motor_de(req: dict) -> str:
     return "Codex" if req.get("engine") == "codex" else "Claude"
 
 
+def escapar(texto: str) -> str:
+    saida = []
+    for ch in texto:
+        if ch in "\n\t" or not unicodedata.category(ch).startswith("C"):
+            saida.append(ch)
+        else:
+            saida.append(f"\\u{{{ord(ch):04x}}}")
+    return "".join(saida)
+
+
 def descrever(req: dict) -> dict:
+    pedido = _descrever(req)
+    return {**pedido, "summary": escapar(str(pedido["summary"])), "detail": escapar(str(pedido["detail"]))}
+
+
+def _descrever(req: dict) -> dict:
     """O `request` de um can_use_tool vira {summary, detail}: o que o dono le antes de permitir."""
     ferramenta = str(req.get("tool_name") or "uma ferramenta")
     motor = motor_de(req)

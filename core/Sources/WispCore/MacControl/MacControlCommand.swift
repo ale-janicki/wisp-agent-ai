@@ -10,11 +10,12 @@ public enum MacCommand: Equatable, Sendable {
     case tree(app: String?, max: Int, depth: Int, full: Bool)
     case focus(app: String?)
     case compose(app: String?)
-    case click(MacSelector, app: String?, block: String?, resolveOnly: Bool)
+    case click(MacSelector, app: String?, block: String?, strict: Bool, resolveOnly: Bool)
     case type(text: String, app: String?)
     case key(MacKeyCombo, app: String?)
     case scroll(dx: Int, dy: Int, app: String?)
-    case menu(path: [String], app: String?, resolveOnly: Bool)
+    case menu(path: [String], app: String?, block: String?, exact: Bool, resolveOnly: Bool)
+    case sendCompose(app: String?, pattern: String, expected: String)
     case apps
     case windows(app: String?)
     case activate(app: String)
@@ -24,9 +25,9 @@ public enum MacCommand: Equatable, Sendable {
 
     static let valueOptions: Set<String> = [
         "--app", "--max", "--profundidade", "--titulo", "--regex", "--papel", "--indice", "--ponto", "--bloquear", "--dx", "--dy",
-        "--direcao", "--quantidade",
+        "--direcao", "--quantidade", "--esperado",
     ]
-    static let flagOptions: Set<String> = ["--pedir", "--completo", "--resolver"]
+    static let flagOptions: Set<String> = ["--pedir", "--completo", "--resolver", "--estrito", "--exato"]
 
     public static func parse(_ arguments: [String]) throws -> MacCommand {
         guard let name = arguments.first else { throw MacError(MacCommand.usageText, exitCode: MacError.usage) }
@@ -79,7 +80,7 @@ public enum MacCommand: Equatable, Sendable {
                 selector = .query(title: options["--titulo"], regex: options["--regex"], role: options["--papel"],
                                   index: max(try number("--indice", 0), 0))
             }
-            return .click(selector, app: app, block: options["--bloquear"], resolveOnly: flags.contains("--resolver"))
+            return .click(selector, app: app, block: options["--bloquear"], strict: flags.contains("--estrito"), resolveOnly: flags.contains("--resolver"))
         case "digitar": return .type(text: try one("o texto"), app: app)
         case "tecla": return .key(try MacKeyCombo.parse(try one("a tecla, como cmd+shift+4")), app: app)
         case "rolar":
@@ -96,7 +97,14 @@ public enum MacCommand: Equatable, Sendable {
             }
             guard dx != 0 || dy != 0 else { throw MacError("rolar: informe --direcao ou --dx/--dy", exitCode: MacError.usage) }
             return .scroll(dx: min(max(dx, -200), 200), dy: min(max(dy, -200), 200), app: app)
-        case "menu": return .menu(path: try MacMenuPath.parse(try one("o caminho do menu")), app: app, resolveOnly: flags.contains("--resolver"))
+        case "menu":
+            return .menu(path: try MacMenuPath.parse(try one("o caminho do menu")), app: app, block: options["--bloquear"],
+                         exact: flags.contains("--exato"), resolveOnly: flags.contains("--resolver"))
+        case "enviar-janela":
+            guard let pattern = options["--regex"], let expected = options["--esperado"] else {
+                throw MacError("enviar-janela: informe --regex e --esperado", exitCode: MacError.usage)
+            }
+            return .sendCompose(app: app, pattern: pattern, expected: expected)
         case "apps": return .apps
         case "janelas": return .windows(app: app)
         case "ativar": return .activate(app: try required(app, name))
@@ -114,8 +122,8 @@ public enum MacCommand: Equatable, Sendable {
 
     public static let usageText = """
     wisp-mac <comando>: permissao [--pedir] | arvore [--app N] [--max N] [--profundidade N] [--completo] | foco [--app N] | composicao [--app N] | \
-    clicar (--titulo T | --regex R | --papel P | --ponto x,y) [--indice N] [--app N] [--bloquear R] [--resolver] | digitar <texto> [--app N] | \
+    clicar (--titulo T | --regex R | --papel P | --ponto x,y) [--indice N] [--app N] [--bloquear R] [--estrito] [--resolver] | digitar <texto> [--app N] | \
     tecla <cmd+shift+4> [--app N] | rolar (--direcao cima|baixo|esquerda|direita [--quantidade N] | --dx N --dy N) | \
-    menu "A > B" [--app N] [--resolver] | apps | janelas [--app N] | ativar|esconder|sair --app N | selftest
+    menu "A > B" [--app N] [--bloquear R] [--exato] [--resolver] | enviar-janela --regex R --esperado JSON [--app N] | apps | janelas [--app N] | ativar|esconder|sair --app N | selftest
     """
 }
