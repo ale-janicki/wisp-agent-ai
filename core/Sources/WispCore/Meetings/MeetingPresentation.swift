@@ -128,7 +128,7 @@ public struct RecordControl: Equatable, Sendable {
     public var isEnabled: Bool
     public var isRecording: Bool
 
-    public init(phase: Phase, elapsed: TimeInterval, canRecord: Bool) {
+    public init(phase: Phase, elapsed: TimeInterval, canRecord: Bool, savingProgress: Double? = nil) {
         switch phase {
         case .idle:
             title = "Gravar"
@@ -140,7 +140,7 @@ public struct RecordControl: Equatable, Sendable {
             title = "Parar"
             isEnabled = true
         case .finishing:
-            title = "Salvando…"
+            title = savingProgress.map { "Salvando \(Int(min(1, max(0, $0)) * 100))%" } ?? "Salvando…"
             isEnabled = false
         }
         isRecording = phase == .recording

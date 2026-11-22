@@ -156,8 +156,9 @@ public final class MeetingRecorder: @unchecked Sendable {
     }
 
     @discardableResult
-    public func stop() throws -> RecordingResult {
-        try writer.sync { try stopOnWriter() }
+    public func stop(progress: @escaping @Sendable (Double) -> Void = { _ in }) throws -> RecordingResult {
+        let ended = try writer.sync { try stopOnWriter() }
+        return finalize(ended, progress: progress)
     }
 
     /// Stops capture and closes the raw file but leaves the meta as `.recording`, so the next launch's
@@ -243,7 +244,7 @@ public final class MeetingRecorder: @unchecked Sendable {
         return folder
     }
 
-    private func stopOnWriter() throws -> RecordingResult {
+    private func stopOnWriter() throws -> Session {
         guard let ending = session else { throw MeetingRecorderError.notRecording }
         ending.timer?.cancel()
         ending.timer = nil
@@ -255,13 +256,17 @@ public final class MeetingRecorder: @unchecked Sendable {
         } catch {
             ending.failure = ending.failure ?? MeetingRecorderError.sink(error.localizedDescription).localizedDescription
         }
+        return ending
+    }
+
+    private func finalize(_ ending: Session, progress: @escaping @Sendable (Double) -> Void) -> RecordingResult {
         let duration = Double(ending.framesWritten) / Double(CaptureFormat.sampleRate)
         let raw = RecordingFolder.rawAudioURL(in: ending.folder)
         let encoded = RecordingFolder.audioURL(in: ending.folder)
         var audio = raw
         if ending.failure == nil || ending.framesWritten > 0 {
             do {
-                _ = try converter.convert(from: raw, to: encoded)
+                _ = try converter.convert(from: raw, to: encoded, progress: progress)
                 try? FileManager.default.removeItem(at: raw)
                 audio = encoded
             } catch {

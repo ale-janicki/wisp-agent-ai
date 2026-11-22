@@ -56,6 +56,13 @@ public final class StereoFileSink: AudioFileSink, @unchecked Sendable {
 
 public protocol AudioFileConverter: Sendable {
     func convert(from source: URL, to destination: URL) throws -> Double
+    func convert(from source: URL, to destination: URL, progress: @Sendable (Double) -> Void) throws -> Double
+}
+
+public extension AudioFileConverter {
+    func convert(from source: URL, to destination: URL, progress: @Sendable (Double) -> Void) throws -> Double {
+        try convert(from: source, to: destination)
+    }
 }
 
 public struct M4AFileConverter: AudioFileConverter {
@@ -64,6 +71,10 @@ public struct M4AFileConverter: AudioFileConverter {
     public init() {}
 
     public func convert(from source: URL, to destination: URL) throws -> Double {
+        try convert(from: source, to: destination, progress: { _ in })
+    }
+
+    public func convert(from source: URL, to destination: URL, progress: @Sendable (Double) -> Void) throws -> Double {
         let input = try AVAudioFile(forReading: source)
         let format = input.processingFormat
         guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: Self.chunkFrames) else {
@@ -71,6 +82,7 @@ public struct M4AFileConverter: AudioFileConverter {
         }
         let sink = try StereoFileSink(url: destination, container: .m4a)
         var total = 0
+        var reported = -1
         do {
             while input.framePosition < input.length {
                 try input.read(into: buffer, frameCount: Self.chunkFrames)
@@ -84,8 +96,17 @@ public struct M4AFileConverter: AudioFileConverter {
                 }
                 try sink.write(frames)
                 total += count
+                let percent = Int(Double(input.framePosition) * 100 / Double(max(1, input.length)))
+                if percent != reported {
+                    reported = percent
+                    progress(Double(percent) / 100)
+                }
             }
             try sink.finish()
+            let written = try AVAudioFile(forReading: destination)
+            guard Double(written.length) >= Double(total) * 0.98 else {
+                throw MeetingRecorderError.sink("o arquivo convertido ficou mais curto que a gravação")
+            }
         } catch {
             try? sink.finish()
             try? FileManager.default.removeItem(at: destination)

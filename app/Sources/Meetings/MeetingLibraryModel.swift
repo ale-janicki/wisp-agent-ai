@@ -120,6 +120,29 @@ final class MeetingLibraryModel: ObservableObject {
         }
     }
 
+    func improveTranscript(_ entry: MeetingEntry) {
+        guard working[entry.id] == nil, speech.isReady, !isRecording() else { return }
+        let folder = entry.folder
+        let id = entry.id
+        working[id] = .transcribing(0)
+        let publish: @Sendable (MeetingStage) -> Void = { [weak self] stage in
+            Task { @MainActor in self?.working[id] = stage }
+        }
+        noteTasks[id] = Task(priority: .utility) { [weak self] in
+            do {
+                try await self?.makePipeline()?.improveTranscript(folder: folder, stage: publish)
+            } catch is CancellationError {
+                self?.notice = "Transcrição cancelada."
+            } catch {
+                self?.notice = "Não consegui melhorar a transcrição: \(error.localizedDescription)"
+            }
+            self?.working[id] = nil
+            self?.noteTasks[id] = nil
+            await self?.speech.releaseFinal()
+            self?.reload()
+        }
+    }
+
     func openNote(_ entry: MeetingEntry) {
         guard entry.hasNote else { return }
         NSWorkspace.shared.open(entry.noteURL)
@@ -239,7 +262,7 @@ final class MeetingLibraryModel: ObservableObject {
         guard working[id] == nil, !queue.contains(folder), !deferred.contains(id) else { return }
         queue.append(folder)
         working[id] = .transcribing(0)
-        if runner == nil { runner = Task { [weak self] in await self?.drain() } }
+        if runner == nil { runner = Task(priority: .utility) { [weak self] in await self?.drain() } }
     }
 
     private func drain() async {
