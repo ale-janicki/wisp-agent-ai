@@ -160,7 +160,7 @@ def topicos_do_bot() -> list[dict]:
 def _conversa_legada(session_id: str) -> str:
     if not sessao.valido(session_id):
         return ""
-    return conversa.legado(session_id, transcript.Transcripts(cfg().wisp_dir / "conversas"), app_index())
+    return conversa.legado(session_id, transcript.Transcripts(cfg().wisp_dir / "conversas", indice=app_index()), app_index())
 
 
 def esperar(op: str, timeout: float, **args) -> dict:
@@ -310,7 +310,7 @@ def cmd_unir(a) -> int:
     if not indice.is_file():
         return erro(f"não achei o índice de conversas do app: {indice}")
     wisp_dir = cfg().wisp_dir
-    transcritos = transcript.Transcripts(wisp_dir / "conversas")
+    transcritos = transcript.Transcripts(wisp_dir / "conversas", indice=indice)
     try:
         records = json.loads(indice.read_text("utf-8"))
         topicos_ = json.loads(store.STORE.read_text("utf-8")) if store.STORE.exists() else {}
@@ -352,7 +352,7 @@ def cmd_unir(a) -> int:
 def add_parser(sub) -> argparse.ArgumentParser:
     topic = sub.add_parser("topic", help="topics of the Telegram bot")
     cmds = topic.add_subparsers(dest="topic_cmd", required=True)
-    pai = argparse.ArgumentParser(add_help=False)
+    pai = argparse.ArgumentParser(add_help=False, allow_abbrev=False)
     pai.add_argument("--sem-pull", action="store_true", help="do not pull the brain before reading the notes")
     for nome, f in (("listar", cmd_listar), ("status", cmd_status)):
         p = cmds.add_parser(nome, parents=[pai])
@@ -378,7 +378,8 @@ def add_parser(sub) -> argparse.ArgumentParser:
     p.add_argument("--json", action="store_true", help="accepted; the output is always JSON")
     p.add_argument("arquivos", nargs="+", metavar="FILE")
     p.set_defaults(f=cmd_enviar)
-    p = cmds.add_parser("unir", help="rejoin conversations split by a session id change (plan only without --aplicar)")
+    p = cmds.add_parser("unir", allow_abbrev=False,
+                        help="rejoin conversations split by a session id change (plan only without --aplicar)")
     p.add_argument("--aplicar", action="store_true")
     p.add_argument("--forcar", action="store_true", help="skip the app and bot running checks")
     p.set_defaults(f=cmd_unir)

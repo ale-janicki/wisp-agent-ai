@@ -26,6 +26,7 @@ class Grupo:
     mantidos: list[dict] = field(default_factory=list)
     motivos: list[str] = field(default_factory=list)
     recusado: bool = False
+    orfaos: list[str] = field(default_factory=list)
 
     @property
     def topico(self) -> str | None:
@@ -69,6 +70,37 @@ def _pendente(record: dict, transcripts: Transcripts) -> bool:
         return False
     return any(e.get("kind") == "session" and e.get("session") == sid and e.get("reason") == "pending-import"
                for e in read_entries(transcripts.path(stem)))
+
+
+def _linhas(path: Path) -> tuple[set[str], set[str]]:
+    sessoes, corpo = set(), set()
+    for e in read_entries(path):
+        if e.get("kind") == "session":
+            if isinstance(e.get("session"), str):
+                sessoes.add(e["session"])
+        else:
+            corpo.add(encode(e))
+    return sessoes, corpo
+
+
+def _orfaos(records: list[dict], topicos: dict[str, dict], transcripts: Transcripts) -> dict[str, list[str]]:
+    vivos = {_id(r) for r in records}
+    convs = {str(t.get("conversation") or "") for t in topicos.values()}
+    try:
+        arquivos = {p.stem: p for p in transcripts.folder.glob("*.jsonl")}
+    except OSError:
+        return {}
+    dados = {stem: _linhas(p) for stem, p in arquivos.items()}
+    saida: dict[str, list[str]] = {}
+    for stem in sorted(arquivos):
+        if stem.lower() in vivos or stem in convs:
+            continue
+        sessoes, corpo = dados[stem]
+        for dono in sorted(vivos & arquivos.keys()):
+            if sessoes & dados[dono][0] and corpo <= dados[dono][1]:
+                saida.setdefault(dono, []).append(stem)
+                break
+    return saida
 
 
 def plano(records: list[dict], topicos: dict[str, dict], transcripts: Transcripts) -> list[Grupo]:
@@ -149,6 +181,14 @@ def plano(records: list[dict], topicos: dict[str, dict], transcripts: Transcript
         mantidos = [r for r in perdedores if r.get("sessionId") in nao_importaveis]
         saida.append(Grupo(vencedor, perdedores, tops, sessoes, arquivos, importar, conversa,
                            nao_importaveis, mantidos, motivo.get(_raiz(pai, nos[0]), [])))
+    for dono, orfaos in _orfaos(records, topicos, transcripts).items():
+        existente = next((g for g in saida if g.conversa == dono and not g.recusado), None)
+        if existente is not None:
+            existente.orfaos = orfaos
+            continue
+        registro = next(r for r in records if _id(r) == dono)
+        saida.append(Grupo(registro, [], [], [], [], [], dono, [], [], ["arquivo órfão de uma junção interrompida"],
+                           False, orfaos))
     return saida
 
 
@@ -226,6 +266,8 @@ def descrever(grupos: list[Grupo], topicos: dict[str, dict], transcripts: Transc
         for sid in g.nao_importaveis:
             linhas.append(f"  sessão {sid[:8]} não importável: o arquivo do Claude não está neste Mac "
                           "(pode ter rodado em outra máquina); ela fica ligada à conversa e entra quando o arquivo aparecer")
+        for orfao in g.orfaos:
+            linhas.append(f"  apaga o arquivo órfão {orfao}.jsonl (já contido em {g.conversa}.jsonl)")
         linhas.append(f"  por quê: {'; '.join(dict.fromkeys(g.motivos)) or '-'}")
     return linhas
 
@@ -245,7 +287,7 @@ def assinatura(grupos: list[Grupo], transcripts: Transcripts) -> list:
         except OSError:
             return -1
     return sorted([g.conversa, sorted(_id(r) for r in g.perdedores), list(g.topicos), list(g.sessoes),
-                   [[a, tamanho(a)] for a in g.arquivos], list(g.importar), list(g.nao_importaveis), g.recusado]
+                   [[a, tamanho(a)] for a in g.arquivos], list(g.importar), list(g.nao_importaveis), g.recusado, list(g.orfaos)]
                   for g in grupos)
 
 
@@ -291,7 +333,7 @@ def _aplicar(grupos: list[Grupo], records: list[dict], topicos: dict, indice: Pa
             topicos[k]["conversation"] = g.conversa
             vivo["sessionId"] = topicos[k].get("session_id") or vivo.get("sessionId")
             topicos[k].setdefault("meta", {}).setdefault("espelhado_ate", stamp())
-        apagar += [a for a in g.arquivos if a != g.conversa]
+        apagar += [a for a in g.arquivos if a != g.conversa] + list(g.orfaos)
         log_linhas.append(f"{g.conversa}: {len(g.perdedores)} conversa(s) juntada(s), {len(entradas)} linhas no arquivo, "
                           f"tópico {', '.join(g.topicos) or '-'}")
     novos = [r for r in records if str(r.get("id") or "").lower() not in remover]

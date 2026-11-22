@@ -119,7 +119,7 @@ def test_turns_made_while_telegram_was_down_are_posted_in_order_marked_as_from_t
     ])
     sent, enviar = sender()
     assert asyncio.run(conversa.alcancar(store, transcripts, KEY, enviar)) == 2
-    assert sent == [conversa.CABECALHO, "💻 primeira", "resposta 1", "💻 segunda", "resposta 2"]
+    assert sent == [conversa.CABECALHO, "💻 primeira\n\nresposta 1", "💻 segunda\n\nresposta 2"]
     assert store.get(KEY).meta[conversa.CURSOR] == "2026-11-21T10:30:09.000Z"
     again, enviar2 = sender()
     assert asyncio.run(conversa.alcancar(store, transcripts, KEY, enviar2)) == 0 and again == []
@@ -134,7 +134,7 @@ def test_a_live_single_turn_is_posted_whole_without_the_offline_header(env):
     ])
     sent, enviar = sender()
     asyncio.run(conversa.alcancar(store, transcripts, KEY, enviar, agora=1795000000.0 - 10 * 86400 + 0))
-    assert sent[0] == "💻 oi" and sent[1] == long and conversa.CABECALHO not in sent
+    assert len(sent) == 1 and sent[0] == "💻 oi\n\n" + long and conversa.CABECALHO not in sent
 
 
 def test_a_long_backlog_is_compacted_and_a_failed_send_resumes_without_repeating(env):
@@ -149,19 +149,20 @@ def test_a_long_backlog_is_compacted_and_a_failed_send_resumes_without_repeating
 
     async def flaky(texto):
         calls["n"] += 1
-        if calls["n"] == 9:
+        if calls["n"] == 6:
             raise OSError("telegram fora")
         sent.append(texto)
     with pytest.raises(OSError):
         asyncio.run(conversa.alcancar(store, transcripts, KEY, flaky))
     assert sent[0] == conversa.CABECALHO and "3 trocas" in sent[1]
-    assert all(len(t) <= conversa.RESUMO_CHARS + 20 for t in sent if t.startswith("resposta"))
+    assert all(len(t) <= conversa.RESUMO_CHARS + conversa.USER_CHARS + 50 for t in sent)
     cursor = store.get(KEY).meta[conversa.CURSOR]
     assert cursor == "2026-11-21T11:05:30.000Z"
     rest, enviar = sender()
     assert asyncio.run(conversa.alcancar(store, transcripts, KEY, enviar, agora=0)) == 2
-    assert [t for t in rest if t.startswith("💻")] == ["💻 pergunta 6", "💻 pergunta 7"]
+    assert [t.split("\n")[0] for t in rest if t.startswith("💻")] == ["💻 pergunta 6", "💻 pergunta 7"]
     assert not any("pergunta 5" in t for t in rest)
+    assert conversa.CABECALHO not in rest
 
 
 def test_without_a_cursor_the_first_look_marks_now_and_replays_nothing(env):
@@ -282,7 +283,7 @@ def test_a_postar_request_with_a_conversation_posts_the_pending_turns_not_the_ra
     res = asyncio.run(_bot._ctl_postar(object(), {"thread": "0", "user": "agora", "reply": "resposta agora",
                                                   "conversation": conversation}))
     assert res["ok"] is True
-    assert sent == [conversa.CABECALHO, "💻 offline", "resposta offline", "💻 agora", "resposta agora"]
+    assert sent == [conversa.CABECALHO, "💻 offline\n\nresposta offline", "💻 agora\n\nresposta agora"]
 
 
 def test_sharing_a_conversation_keys_the_topic_on_the_apps_id(env, monkeypatch, tmp_path):
@@ -362,7 +363,7 @@ def test_the_apply_holds_the_store_lock_so_a_bot_flush_waits(env, monkeypatch):
     assert store_mod.file_lock
 
 
-def test_a_failed_reply_send_keeps_the_cursor_before_the_turn_and_the_retry_sends_both_lines(env):
+def test_the_user_line_and_the_reply_go_as_one_message_so_a_failure_resends_nothing_twice(env):
     store, transcripts, conversation = seeded_topic(env)
     seed(transcripts, conversation, [
         entry("2026-11-21T10:05:00.000Z", "user", "pergunta"),
@@ -372,17 +373,71 @@ def test_a_failed_reply_send_keeps_the_cursor_before_the_turn_and_the_retry_send
     falhou = []
 
     async def flaky(texto):
-        if texto == "resposta" and not falhou:
+        if not falhou:
             falhou.append(1)
             raise OSError("fora")
         sent.append(texto)
     with pytest.raises(OSError):
         asyncio.run(conversa.alcancar(store, transcripts, KEY, flaky, agora=1795000000.0))
+    assert sent == []
     assert store.get(KEY).meta[conversa.CURSOR] == "2026-11-21T10:00:00.000Z"
     again, enviar = sender()
     asyncio.run(conversa.alcancar(store, transcripts, KEY, enviar, agora=1795000000.0))
-    assert again == ["💻 pergunta", "resposta"]
+    assert again == ["💻 pergunta\n\nresposta"]
     assert store.get(KEY).meta[conversa.CURSOR] == "2026-11-21T10:05:09.000Z"
+
+
+def test_a_failed_exchange_in_a_backlog_does_not_resend_the_header_on_retry(env):
+    store, transcripts, conversation = seeded_topic(env)
+    seed(transcripts, conversation, [
+        entry("2026-11-21T10:05:00.000Z", "user", "um"), entry("2026-11-21T10:05:09.000Z", "assistant", "r1"),
+        entry("2026-11-21T10:06:00.000Z", "user", "dois"), entry("2026-11-21T10:06:09.000Z", "assistant", "r2"),
+    ])
+    sent = []
+    chamadas = {"n": 0}
+
+    async def flaky(texto):
+        chamadas["n"] += 1
+        if chamadas["n"] == 3:
+            raise OSError("fora")
+        sent.append(texto)
+    with pytest.raises(OSError):
+        asyncio.run(conversa.alcancar(store, transcripts, KEY, flaky, agora=1795000000.0))
+    assert sent == [conversa.CABECALHO, "💻 um\n\nr1"]
+    again, enviar = sender()
+    asyncio.run(conversa.alcancar(store, transcripts, KEY, enviar, agora=1795000000.0))
+    assert again == ["💻 dois\n\nr2"]
+    assert not store.get(KEY).meta.get(conversa.CABECALHO_ENVIADO)
+
+
+def test_a_message_over_the_limit_is_split_and_a_retry_resumes_at_the_failed_part(env):
+    store, transcripts, conversation = seeded_topic(env)
+    linhas = "\n".join(f"linha {n} " + "z" * 90 for n in range(120))
+    seed(transcripts, conversation, [
+        entry("2026-11-21T10:05:00.000Z", "user", "longo"), entry("2026-11-21T10:05:09.000Z", "assistant", linhas),
+    ])
+    sent = []
+    chamadas = {"n": 0}
+
+    async def flaky(texto):
+        chamadas["n"] += 1
+        if chamadas["n"] == 2:
+            raise OSError("fora")
+        sent.append(texto)
+    with pytest.raises(OSError):
+        asyncio.run(conversa.alcancar(store, transcripts, KEY, flaky, agora=1795000000.0))
+    assert len(sent) == 1 and sent[0].startswith("💻 longo")
+    assert store.get(KEY).meta[conversa.PARTE] == {"at": "2026-11-21T10:05:09.000Z", "n": 1}
+    assert store.get(KEY).meta[conversa.CURSOR] == "2026-11-21T10:00:00.000Z"
+    resto, enviar = sender()
+    asyncio.run(conversa.alcancar(store, transcripts, KEY, enviar, agora=1795000000.0))
+    assert resto and not resto[0].startswith("💻 longo")
+    juntas = "\n".join(sent + resto)
+    assert all(len(p) <= 4100 for p in sent + resto)
+    assert all(f"linha {n} " in juntas for n in range(120))
+    assert juntas.count("linha 0 ") == 1
+    assert store.get(KEY).meta[conversa.CURSOR] == "2026-11-21T10:05:09.000Z"
+    assert not store.get(KEY).meta.get(conversa.PARTE)
 
 
 def test_a_user_line_without_its_reply_waits_and_a_failed_turn_is_skipped(env):
@@ -395,13 +450,13 @@ def test_a_user_line_without_its_reply_waits_and_a_failed_turn_is_skipped(env):
     ])
     sent, enviar = sender()
     assert asyncio.run(conversa.alcancar(store, transcripts, KEY, enviar, agora=1795000000.0)) == 1
-    assert sent == ["💻 ok", "resposta ok"]
+    assert sent == ["💻 ok\n\nresposta ok"]
     assert store.get(KEY).meta[conversa.CURSOR] == "2026-11-21T10:06:09.000Z"
     seed(transcripts, conversation, transcripts.conversation_entries(conversation)
          + [entry("2026-11-21T10:07:09.000Z", "assistant", "pronto")])
     more, enviar2 = sender()
     asyncio.run(conversa.alcancar(store, transcripts, KEY, enviar2, agora=1795000000.0))
-    assert more == ["💻 ainda respondendo", "pronto"]
+    assert more == ["💻 ainda respondendo\n\npronto"]
 
 
 def postar_env(env, monkeypatch):
@@ -433,7 +488,7 @@ def test_a_mirror_the_catch_up_already_posted_is_not_posted_twice(env, monkeypat
           "turn_at": "2026-11-21T10:05:09.000Z"}
     asyncio.run(_bot._ctl_postar(object(), op))
     asyncio.run(_bot._ctl_postar(object(), op))
-    assert sent.count("💻 oi") == 1 and sent.count("resposta") == 1
+    assert len([m for m in sent if m.endswith("resposta")]) == 1
 
 
 def test_a_repeated_reply_text_is_still_posted_when_its_own_turn_is_not_in_the_transcript(env, monkeypatch):
@@ -677,3 +732,70 @@ def test_the_unir_apply_and_force_flags_always_ask_in_every_shipped_settings():
     assert all(r in fixture["permissions"]["ask"] for r in rules)
     swift = (root / "core/Sources/WispCore/Agent/EngineGuards.swift").read_text()
     assert all(r in swift for r in rules)
+
+
+def test_abbreviated_unir_flags_are_rejected_by_argparse(capsys):
+    from wisp.cli import main
+    for flag in ("--apl", "--aplic", "--for"):
+        with pytest.raises(SystemExit) as saida:
+            main(["topic", "unir", flag])
+        assert saida.value.code == 2
+    assert "unrecognized arguments" in capsys.readouterr().err
+
+
+def shared_file_data(env):
+    _, _, tmp = env
+    a, b = "aaaaaaaa-0000-4000-8000-000000000001", "bbbbbbbb-0000-4000-8000-000000000002"
+    transcripts = Transcripts(tmp / "conversas", indice=tmp / "idx.json")
+    seed(transcripts, a, [
+        {"v": 1, "at": "2026-11-18T10:00:00.000Z", "kind": "session", "session": "s-one", "engine": "claude", "reason": "new"},
+        entry("2026-11-18T10:00:01.000Z", "user", "um"),
+        {"v": 1, "at": "2026-11-18T11:00:00.000Z", "kind": "session", "session": "s-two", "engine": "claude", "reason": "rebuilt"},
+    ])
+    records = [
+        {"id": a.upper(), "sessionId": "s-one", "title": "x", "updatedAt": "2026-11-18T10:00:01.000Z"},
+        {"id": b.upper(), "sessionId": "s-two", "title": "x", "updatedAt": "2026-11-18T11:00:09.000Z"},
+    ]
+    (tmp / "idx.json").write_text(json.dumps(records))
+    (tmp / "topics.json").write_text("{}")
+    return transcripts, records, a, b, tmp
+
+
+def test_a_crash_before_the_unlink_converges_on_the_next_plan_and_find_prefers_the_indexed_winner(env, monkeypatch):
+    import pathlib
+    transcripts, records, a, b, tmp = shared_file_data(env)
+    grupos = unir.plano(records, {}, transcripts)
+    real = pathlib.Path.unlink
+
+    def boom(self, *args, **kwargs):
+        if self.name == f"{a}.jsonl":
+            raise OSError("crash")
+        return real(self, *args, **kwargs)
+    monkeypatch.setattr(pathlib.Path, "unlink", boom)
+    with pytest.raises(OSError):
+        unir.aplicar(grupos, tmp / "idx.json", tmp / "topics.json", transcripts, tmp, agora=1795300000)
+    monkeypatch.setattr(pathlib.Path, "unlink", real)
+    assert transcripts.path(a).exists() and transcripts.path(b).exists()
+    left = json.loads((tmp / "idx.json").read_text())
+    assert [r["id"] for r in left] == [b.upper()]
+    fresh = Transcripts(tmp / "conversas", indice=tmp / "idx.json")
+    assert fresh.find("s-one") == b and fresh.find("s-two") == b
+    assert Transcripts(tmp / "conversas").find("s-one") == a
+    replan = unir.plano(left, {}, fresh)
+    assert [g.orfaos for g in replan] == [[a]]
+    assert "órfão" in "\n".join(unir.descrever(replan, {}, fresh))
+    unir.aplicar(replan, tmp / "idx.json", tmp / "topics.json", fresh, tmp, agora=1795300001)
+    assert not fresh.path(a).exists() and fresh.path(b).exists()
+    assert unir.plano(left, {}, Transcripts(tmp / "conversas", indice=tmp / "idx.json")) == []
+
+
+def test_an_orphan_with_content_the_winner_does_not_hold_is_never_listed_for_deletion(env, monkeypatch):
+    transcripts, records, a, b, tmp = shared_file_data(env)
+    unir.aplicar(unir.plano(records, {}, transcripts), tmp / "idx.json", tmp / "topics.json", transcripts, tmp,
+                 agora=1795300000)
+    seed(transcripts, a, [
+        {"v": 1, "at": "2026-11-18T10:00:00.000Z", "kind": "session", "session": "s-one", "engine": "claude", "reason": "new"},
+        entry("2026-11-18T12:00:00.000Z", "user", "so existe aqui"),
+    ])
+    left = json.loads((tmp / "idx.json").read_text())
+    assert unir.plano(left, {}, Transcripts(tmp / "conversas", indice=tmp / "idx.json")) == []
