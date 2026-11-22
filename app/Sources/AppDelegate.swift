@@ -8,6 +8,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let runtime = RuntimeInstaller()
     private var brainColher: BrainColherService?
 
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard !QuitFlush.shared.isEmpty else { return .terminateNow }
+        Task { @MainActor in
+            await QuitFlush.shared.flushAll(timeout: .seconds(3))
+            NSApp.reply(toApplicationShouldTerminate: true)
+        }
+        return .terminateLater
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
         runtime.cancel()
         brainColher?.stop()

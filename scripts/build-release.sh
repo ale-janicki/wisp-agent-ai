@@ -23,6 +23,8 @@ dmgbuild_version="2.0.0"
 
 [ -x "$root/app/Resources/runtime/bin/uv" ] || "$root/scripts/fetch-uv.sh"
 
+"$root/scripts/build-excalidraw.sh"
+
 (cd "$root/app" && xcodegen generate)
 
 rm -rf "$build"
