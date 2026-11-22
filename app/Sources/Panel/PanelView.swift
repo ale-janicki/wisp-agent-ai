@@ -130,6 +130,7 @@ struct PanelView: View {
         case .tasks: TasksTab(profile: model.profile)
         case .reminders: RemindersTab(profile: model.profile)
         case .agenda: AgendaTab(profile: model.profile)
+        case .meetings: MeetingsTab(model: controller.meetings)
         case .memory: MemoryTab(profile: model.profile)
         case .routines: RoutinesTab(profile: model.profile)
         case .music:

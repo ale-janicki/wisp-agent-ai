@@ -27,6 +27,7 @@ from wisp.guard_outbound import hook_guard_outbound
 from wisp.hooks import hook_boot, hook_brain_commit, hook_guard_secrets, hook_guard_telegram
 from wisp.paths import WispPaths
 from wisp.recall import hook_recall
+from wisp.reuniao import add_parser as add_reuniao_parser, run as run_reuniao
 from wisp.report import StepReport
 from wisp.runner import SubprocessRunner
 from wisp.setup.brain import setup_brain
@@ -441,6 +442,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_mac_parser(sub)
     add_agenda_parser(sub)
     add_local_parser(sub)
+    add_reuniao_parser(sub)
     hook = sub.add_parser("hook")
     hook.add_argument("which", choices=["boot", "recall", "aprendizados", "brain-commit", "guard-secrets", "guard-telegram", "guard-destructive", "guard-lessons", "guard-outbound", "guard-brain-scope", "guard-agenda"])
     return parser
@@ -503,5 +505,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return run_agenda(args)
     if args.command == "local":
         return run_local(args)
+    if args.command == "reuniao":
+        return run_reuniao(args, _load_config_or_default()[0])
     print(f"wisp {args.command}: not implemented yet", file=sys.stderr)
     return 1

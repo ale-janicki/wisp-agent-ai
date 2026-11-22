@@ -14,13 +14,47 @@ public struct CommandOutput: Sendable, Equatable {
     }
 }
 
+public final class CommandCancellation: @unchecked Sendable {
+    private let lock = NSLock()
+    private var pid: pid_t?
+    private var cancelled = false
+
+    public init() {}
+
+    public var isCancelled: Bool { lock.withLock { cancelled } }
+
+    public func cancel() {
+        let target = lock.withLock { () -> pid_t? in
+            cancelled = true
+            return pid
+        }
+        if let target { Darwin.kill(-target, SIGTERM) }
+    }
+
+    public func kill() {
+        let target = lock.withLock { () -> pid_t? in
+            cancelled = true
+            return pid
+        }
+        if let target { Darwin.kill(-target, SIGKILL) }
+    }
+
+    func register(_ child: pid_t) {
+        let already = lock.withLock { () -> Bool in
+            pid = child
+            return cancelled
+        }
+        if already { Darwin.kill(-child, SIGTERM) }
+    }
+}
+
 /// Runs one program and keeps what it printed, whatever its exit code: `wisp ... --json` prints its report on a failure too.
 public enum CommandRunner {
     /// Only a launch failure is an error; a non-zero exit or a timeout is a `CommandOutput`.
     /// `environment` nil inherits this process's. A timeout kills the whole process group (status -1).
     public static func run(
         executable: URL, arguments: [String], stdin: Data? = nil, environment: [String: String]? = nil,
-        timeout: TimeInterval
+        timeout: TimeInterval, cancellation: CommandCancellation? = nil
     ) -> Result<CommandOutput, BlockCommandError> {
         let out = Pipe()
         let err = Pipe()
@@ -39,12 +73,17 @@ public enum CommandRunner {
         try? err.fileHandleForWriting.close()
         try? input?.fileHandleForReading.close()
         if let stdin, let input { ProcessCore.feed(stdin, to: input) }
+        cancellation?.register(pid)
         let output = PipeDrain(out)
         let errors = PipeDrain(err)
 
         let deadline = Date().addingTimeInterval(timeout)
         var status: Int32 = 0
         while waitpid(pid, &status, WNOHANG) == 0 {
+            if cancellation?.isCancelled == true {
+                ProcessCore.terminateGroup(pid)
+                return .success(CommandOutput(status: -2, stdout: output.wait(), stderr: errors.wait(), timedOut: false))
+            }
             if Date() > deadline {
                 ProcessCore.terminateGroup(pid)
                 return .success(CommandOutput(status: -1, stdout: output.wait(), stderr: errors.wait(), timedOut: true))
