@@ -19,6 +19,7 @@ Entries are in descending chronological order (newest first).
 - Local engine: today's date no longer goes after the user's words as `[Hoje é AAAA-MM-DD.]`, which the model echoed ("Hoje é 2026-11-22. Como posso ajudar…"); it is a `<contexto>` metadata line the system prompt tells the model never to mention.
 - Local engine: the history sent to the model has a per-size budget (about 2,500 / 5,000 / 10,000 tokens), cut in whole exchanges down to 60% so the prompt cache keeps working, and long replies from Claude or Codex in a resumed conversation are shortened to about 600 tokens, so a long conversation no longer re-reads ~8k tokens on every turn.
 - Local engine: a tool result can no longer pose as app metadata: `<contexto` and `</contexto` in tool output are neutralized before the model sees it.
+- The conversation no longer blocks with "Falta o Claude Code" on a fresh install that picked IA local: the pending-setup gate follows the active engine (Claude and Codex ask to connect in Ajustes > Modelo, with a button that opens it; IA local only waits for its own component, a model to be chosen in Ajustes > Modelo, or a running download, "O <modelo> ainda está baixando (N%)") and is re-evaluated when the engine changes and on "Verificar de novo".
 
 ## [0.4.3] - 2026-11-22
 
