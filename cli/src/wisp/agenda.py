@@ -11,6 +11,7 @@ from pathlib import Path
 HELPER = "wisp-agenda"
 HELPER_IN_APP = Path("Contents/Helpers") / HELPER
 ENV_OVERRIDE = "WISP_AGENDA_BIN"
+SYSTEM_APPLICATIONS = Path("/Applications")
 SO_NO_MAC = "a agenda nativa só existe no Mac"
 ESSE_NAO_EXISTE = "{var} aponta para {path}, que não existe ou não pode ser executado; atualize o Wisp ou desfaça essa variável"
 INTERROMPIDO = "o ajudante da agenda foi interrompido pelo sistema (sinal {signal}); tente de novo"
@@ -19,7 +20,7 @@ NAO_ACHEI = "não achei o ajudante da agenda (wisp-agenda) dentro do Wisp.app; a
 
 def candidates(env: Mapping[str, str], home: Path) -> list[Path]:
     found = [Path(env[ENV_OVERRIDE])] if env.get(ENV_OVERRIDE) else []
-    return found + [root / "Wisp.app" / HELPER_IN_APP for root in (Path("/Applications"), home / "Applications")]
+    return found + [root / "Wisp.app" / HELPER_IN_APP for root in (SYSTEM_APPLICATIONS, home / "Applications")]
 
 
 def find_helper(env: Mapping[str, str], home: Path) -> Path | None:

@@ -128,7 +128,7 @@ public actor CodexSession: EngineSession {
     private let environmentOverrides: [String: String]
     private let approvalDirectory: URL
     private let wispBinary: String?
-    private let preflight: (@Sendable (String) -> String?)?
+    private let preflight: (@Sendable (String) -> CodexPreflight)?
     private let continuation: AsyncStream<SessionEvent>.Continuation
     private let current = CurrentTurn()
     private var broker: ApprovalBroker?
@@ -144,7 +144,7 @@ public actor CodexSession: EngineSession {
         executable: URL, cwd: URL, resume: String?, permission: PermissionChoice?, addDirs: [String] = [],
         instructions: String = "", model: String = "", environmentOverrides: [String: String] = [:],
         approvalDirectory: URL = FileManager.default.temporaryDirectory, wispBinary: String? = nil,
-        preflight: (@Sendable (String) -> String?)? = nil
+        preflight: (@Sendable (String) -> CodexPreflight)? = nil
     ) {
         self.wispBinary = wispBinary
         self.preflight = preflight
@@ -225,19 +225,22 @@ public actor CodexSession: EngineSession {
             continuation.yield(.exited(code: -1, stderrTail: Self.noWispBinary))
             return
         }
+        var owned: Set<String> = []
         if let preflight {
             let workspace = cwd.path
-            if let problem = await Task.detached(operation: { preflight(workspace) }).value {
+            let verdict = await Task.detached(operation: { preflight(workspace) }).value
+            if let problem = verdict.problem {
                 continuation.yield(.exited(code: -1, stderrTail: problem))
                 return
             }
+            owned = verdict.ownedByUser
         }
         let collector = TurnCollector(continuation: continuation, resumed: threadId != nil, model: model)
         let process = Process()
         process.executableURL = executable
         process.arguments = CodexCommand.arguments(
             workspace: cwd.path, permission: permission, addDirs: addDirs, instructions: instructions,
-            wispBinary: wispBinary, resume: threadId)
+            wispBinary: wispBinary, resume: threadId, ownedByUser: owned)
         process.currentDirectoryURL = cwd
         process.environment = childEnvironment()
         let stdin = Pipe(), stdout = Pipe(), stderr = Pipe()

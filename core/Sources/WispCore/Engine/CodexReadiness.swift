@@ -1,5 +1,15 @@
 import Foundation
 
+public struct CodexPreflight: Equatable, Sendable {
+    public var problem: String?
+    public var ownedByUser: Set<String>
+
+    public init(problem: String? = nil, ownedByUser: Set<String> = []) {
+        self.problem = problem
+        self.ownedByUser = ownedByUser
+    }
+}
+
 public struct CodexReadiness: Equatable, Sendable {
     public var installed: Bool
     public var loggedIn: Bool
@@ -38,16 +48,21 @@ public struct CodexReadiness: Equatable, Sendable {
 
     public static let projectUnchecked = "não consegui conferir as configurações do Codex desta pasta"
 
-    public static func projectProblem(wispBinary: String?, environment: [String: String], workspace: String) -> String? {
-        guard let wispBinary, !wispBinary.isEmpty else { return projectUnchecked }
+    public static func preflight(wispBinary: String?, environment: [String: String], workspace: String) -> CodexPreflight {
+        guard let wispBinary, !wispBinary.isEmpty else { return CodexPreflight(problem: projectUnchecked) }
         let result = CommandRunner.run(
             executable: URL(fileURLWithPath: wispBinary), arguments: ["codex", "check", "--workspace", workspace],
             environment: environment, timeout: 15)
         guard case .success(let output) = result, !output.timedOut,
               let verdict = (try? JSONSerialization.jsonObject(with: output.stdout)) as? [String: Any],
-              verdict["ready"] is Bool else { return projectUnchecked }
-        guard let project = verdict["project"] as? String, !project.isEmpty else { return nil }
-        return project
+              verdict["ready"] is Bool else { return CodexPreflight(problem: projectUnchecked) }
+        let owned = (verdict["owned"] as? [String]) ?? []
+        let project = verdict["project"] as? String
+        return CodexPreflight(problem: project?.isEmpty == false ? project : nil, ownedByUser: Set(owned))
+    }
+
+    public static func projectProblem(wispBinary: String?, environment: [String: String], workspace: String) -> String? {
+        preflight(wispBinary: wispBinary, environment: environment, workspace: workspace).problem
     }
 
     public static func check(

@@ -67,8 +67,9 @@ public enum CodexCommand {
     }
 
     public static let emailServer = "wisp-email"
+    public static let brainServer = "wisp-brain"
 
-    public static func mcpOverrides(wispBinary: String) -> [String] {
+    public static func mcpOverrides(wispBinary: String, ownedByUser: Set<String> = []) -> [String] {
         let fields: [(String, String)] = [
             ("command", tomlString(wispBinary)),
             ("args", #"["mcp", "email"]"#),
@@ -78,7 +79,17 @@ public enum CodexCommand {
             ("tool_timeout_sec", "660"),
             ("enabled", "true"),
         ]
-        return fields.map { "mcp_servers.\(emailServer).\($0.0)=\($0.1)" }
+        let brain: [(String, String)] = [
+            ("command", tomlString(wispBinary)),
+            ("args", #"["mcp", "brain"]"#),
+            ("env_vars", #"["WISP_CONFIG", "XDG_CONFIG_HOME", "XDG_STATE_HOME"]"#),
+            ("default_tools_approval_mode", #""approve""#),
+            ("startup_timeout_sec", "30"),
+            ("tool_timeout_sec", "60"),
+            ("enabled", "true"),
+        ]
+        let ours = fields.map { "mcp_servers.\(emailServer).\($0.0)=\($0.1)" }
+        return ownedByUser.contains(brainServer) ? ours : ours + brain.map { "mcp_servers.\(brainServer).\($0.0)=\($0.1)" }
     }
 
     public static func environment(
@@ -99,12 +110,12 @@ public enum CodexCommand {
 
     public static func arguments(
         workspace: String, permission: PermissionChoice?, addDirs: [String] = [], instructions: String = "",
-        wispBinary: String, resume: String? = nil
+        wispBinary: String, resume: String? = nil, ownedByUser: Set<String> = []
     ) -> [String] {
         var args = ["exec", "--json", "--skip-git-repo-check", "-C", workspace] + sandboxArguments(permission)
         for directory in addDirs { args += ["--add-dir", directory] }
         if !instructions.isEmpty { args += ["-c", "developer_instructions=\(tomlString(instructions))"] }
-        for override in mcpOverrides(wispBinary: wispBinary) { args += ["-c", override] }
+        for override in mcpOverrides(wispBinary: wispBinary, ownedByUser: ownedByUser) { args += ["-c", override] }
         if let resume { args += ["resume", resume] }
         return args + ["-"]
     }
