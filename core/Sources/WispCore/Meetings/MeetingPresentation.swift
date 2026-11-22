@@ -224,3 +224,13 @@ public enum MeetingPermissions {
         return "O macOS vai pedir permissão para \(pending.joined(separator: " e ")) na primeira gravação."
     }
 }
+
+public struct MeetingBrainButton: Equatable, Sendable {
+    public var label: String
+    public var opensNote: Bool
+
+    public static func make(brainNote: String?, exists: Bool) -> MeetingBrainButton {
+        if let brainNote, !brainNote.isEmpty, exists { return MeetingBrainButton(label: "Abrir no brain", opensNote: true) }
+        return MeetingBrainButton(label: "Salvar no brain", opensNote: false)
+    }
+}

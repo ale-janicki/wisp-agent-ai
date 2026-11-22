@@ -125,6 +125,7 @@ public struct MeetingSettings: Codable, Equatable, Sendable {
     public var webhookEnabled = false
     public var webhookSigns = false
     public var limitMinutes = defaultLimitMinutes
+    public var autoSummary = true
 
     public init() {}
 
@@ -133,11 +134,12 @@ public struct MeetingSettings: Codable, Equatable, Sendable {
         webhookEnabled = (try? container.decodeIfPresent(Bool.self, forKey: .webhookEnabled)) ?? false
         webhookSigns = (try? container.decodeIfPresent(Bool.self, forKey: .webhookSigns)) ?? false
         limitMinutes = (try? container.decodeIfPresent(Int.self, forKey: .limitMinutes)) ?? Self.defaultLimitMinutes
+        autoSummary = (try? container.decodeIfPresent(Bool.self, forKey: .autoSummary)) ?? true
     }
 
     public var limitSeconds: Double { Double(min(max(limitMinutes, 15), 720) * 60) }
 
-    private enum CodingKeys: String, CodingKey { case webhookEnabled, webhookSigns, limitMinutes }
+    private enum CodingKeys: String, CodingKey { case webhookEnabled, webhookSigns, limitMinutes, autoSummary }
 }
 
 public struct WispSettings: Codable, Equatable, Sendable {

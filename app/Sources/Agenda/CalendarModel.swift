@@ -355,6 +355,17 @@ final class CalendarModel {
         MeetingsCoordinator.shared.update(events: usable, calendars: calendars)
     }
 
+    func meetingContext(at start: Date) async -> MeetingEventContext? {
+        access = backend.eventsAccess()
+        guard access == .granted else { return nil }
+        let found = (try? await backend.events(from: start.addingTimeInterval(-86_400), to: start.addingTimeInterval(86_400))) ?? []
+        let visible = visibleCalendarIDs
+        let usable = found.filter { visible.contains($0.calendarID) || calendars.isEmpty }
+        let window = start.addingTimeInterval(MeetingEventMatcher.lookahead)
+        guard let event = MeetingEventMatcher.pick(events: usable, from: start, to: window) else { return nil }
+        return MeetingEventContext(event: event, calendarTitle: calendarInfo(event.calendarID)?.title, links: links)
+    }
+
     func select(_ event: CalEvent) {
         selection = event.uid
         detail = .event(event)

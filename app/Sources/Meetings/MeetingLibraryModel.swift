@@ -137,24 +137,35 @@ final class MeetingLibraryModel: ObservableObject {
         notice = entry.hasNote ? "Nota copiada." : "Transcrição copiada."
     }
 
-    func saveToBrain(_ entry: MeetingEntry) {
-        guard entry.hasNote else { return }
-        let brain = PathsModel.shared.url(.brain)
-        let title = MeetingRowModel(entry: entry, working: false).title
-        let note = entry.noteURL
+    func brainButton(_ entry: MeetingEntry) -> MeetingBrainButton {
+        let path = entry.meta.brainNote
+        return MeetingBrainButton.make(brainNote: path, exists: path.map { FileManager.default.fileExists(atPath: $0) } ?? false)
+    }
+
+    func brainAction(_ entry: MeetingEntry) {
+        if brainButton(entry).opensNote, let path = entry.meta.brainNote {
+            NSWorkspace.shared.open(URL(fileURLWithPath: path))
+        } else {
+            syncToBrain(entry)
+        }
+    }
+
+    private func syncToBrain(_ entry: MeetingEntry) {
+        guard entry.hasTranscript || entry.hasNote else { return }
         let folder = entry.folder
-        let started = entry.meta.startedAt
+        let layout = RuntimeLayout(bundle: Bundle.main.bundleURL, home: FileManager.default.homeDirectoryForCurrentUser)
+        let writer = WispBrainWriter(layout: layout, brain: PathsModel.shared.url(.brain).path, recreate: true)
         Task { [weak self] in
-            let outcome = await Task.detached { () -> Result<URL, any Error> in
-                Result {
-                    let saved = try MeetingBrainExport.save(note: note, title: title, startedAt: started, brain: brain)
-                    _ = try RecordingFolder.update(in: folder) { $0.brainNote = saved.path }
-                    return saved
+            do {
+                let saved = try await writer.syncNote(folder: folder)
+                _ = try? RecordingFolder.update(in: folder) {
+                    $0.brainNote = saved.path
+                    $0.brainError = nil
                 }
-            }.value
-            switch outcome {
-            case .success(let saved): self?.notice = "Salvo no brain: meetings/\(saved.lastPathComponent)"
-            case .failure(let error): self?.notice = "Não consegui salvar no brain: \(error.localizedDescription)"
+                self?.notice = "Salvo no brain: meetings/\(saved.lastPathComponent)"
+            } catch {
+                _ = try? RecordingFolder.update(in: folder) { $0.brainError = error.localizedDescription }
+                self?.notice = "Não consegui salvar no brain: \(error.localizedDescription)"
             }
             self?.reload()
         }
@@ -277,7 +288,10 @@ final class MeetingLibraryModel: ObservableObject {
         let recording = isRecording
         let gate = MeetingPauseGate(recognizer: recognizer, isRecording: { await recording() })
         let pause: @Sendable () async throws -> Void = { try await gate.wait() }
-        return MeetingPipeline(transcriber: MeetingTranscriber(recognizer: recognizer, pause: pause), notes: WispNoteWriter(layout: layout))
+        return MeetingPipeline(
+            transcriber: MeetingTranscriber(recognizer: recognizer, pause: pause), notes: WispNoteWriter(layout: layout),
+            brain: WispBrainWriter(layout: layout, brain: PathsModel.shared.url(.brain).path)
+        )
     }
 
     private func loadDetail() {

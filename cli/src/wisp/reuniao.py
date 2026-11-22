@@ -254,8 +254,8 @@ def write_private(path: Path, text: str) -> None:
         raise
 
 
-def acquire_lock(folder: Path) -> int:
-    fd = os.open(folder / LOCK_NAME, os.O_RDWR | os.O_CREAT, 0o600)
+def acquire_lock(folder: Path, name: str = LOCK_NAME) -> int:
+    fd = os.open(folder / name, os.O_RDWR | os.O_CREAT, 0o600)
     try:
         fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except BlockingIOError:
@@ -394,6 +394,10 @@ def add_parser(sub) -> argparse.ArgumentParser:
     cmds = reuniao.add_subparsers(dest="reuniao_cmd", required=True)
     nota = cmds.add_parser("nota", help="write nota.md for a transcribed meeting folder")
     nota.add_argument("pasta")
+    brain = cmds.add_parser("brain", help="write or update this meeting's note in the brain")
+    brain.add_argument("pasta")
+    brain.add_argument("--brain", dest="brain_dir", default=None)
+    brain.add_argument("--recriar", action="store_true")
     cmds.add_parser("assist", help="1 to 3 short suggestions from the live transcript (JSON on stdin)")
     cmds.add_parser("prep", help="prep checklist and probing questions for a meeting (JSON on stdin)")
     return reuniao
@@ -408,7 +412,14 @@ def run(args: argparse.Namespace, cfg: WispConfig, runner: Runner | None = None)
     try:
         if not folder.is_dir():
             raise Falha("a pasta da reunião não existe")
-        report = make_note(cfg, runner or SubprocessRunner(), folder)
+        if args.reuniao_cmd == "brain":
+            from wisp import reuniao_brain
+            from wisp.paths import WispPaths
+
+            brain = Path(args.brain_dir).expanduser() if args.brain_dir else None
+            report = reuniao_brain.make_brain_note(cfg, WispPaths.current(), folder, brain, recreate=args.recriar)
+        else:
+            report = make_note(cfg, runner or SubprocessRunner(), folder)
     except Falha as problem:
         print(json.dumps({"erro": str(problem), "ocupado": isinstance(problem, Ocupado)}, ensure_ascii=False), file=sys.stderr)
         return 3 if isinstance(problem, Ocupado) else 1
