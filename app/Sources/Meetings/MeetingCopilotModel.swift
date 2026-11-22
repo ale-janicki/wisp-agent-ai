@@ -206,7 +206,7 @@ final class MeetingCopilotModel: ObservableObject {
         guard isLive else { return }
         switch limitClock.tick(at: Self.clock()) {
         case .warning(let remaining)?:
-            limitNotice = "A gravação para sozinha em \(Int((remaining / 60).rounded())) min (limite de tempo ativo)."
+            limitNotice = "A gravação para sozinha em \(Int((remaining / 60).rounded())) min (limite de tempo corrido desde o início)."
         case .reached?:
             onLimit?()
             return

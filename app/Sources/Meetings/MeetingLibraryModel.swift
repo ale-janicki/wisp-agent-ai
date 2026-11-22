@@ -202,18 +202,14 @@ final class MeetingLibraryModel: ObservableObject {
             Result {
                 let meta = try RecordingFolder.read(in: folder)
                 guard meta.noteState == .generated, meta.webhookSentAt == nil else { return nil }
-                let url = try MeetingWebhook.validate(WebhookKeychain.load(.url) ?? "")
+                let target = try MeetingWebhook.validate(WebhookKeychain.load(.url) ?? "")
                 let note = try String(contentsOf: RecordingFolder.noteURL(in: folder), encoding: .utf8)
                 let title = meta.title ?? MeetingRowModel.defaultTitle(meta.startedAt)
                 let content = try MeetingWebhook.content(
                     title: title, startedAt: meta.startedAt, durationSeconds: meta.durationSeconds ?? 0, note: note, metrics: meta.metrics
                 )
-                var signature: String?
-                if settings.webhookSigns {
-                    guard let secret = WebhookKeychain.load(.secret) else { throw WebhookError.invalid }
-                    signature = MeetingWebhook.signature(body: content.body, secret: secret)
-                }
-                return WebhookOffer(id: id, title: title, pending: PendingWebhook(url: url, body: content.body, preview: content.preview, signature: signature))
+                if settings.webhookSigns, WebhookKeychain.load(.secret) == nil { throw WebhookError.invalid }
+                return WebhookOffer(id: id, title: title, pending: PendingWebhook(target: target, body: content.body, preview: content.preview, signed: settings.webhookSigns))
             }
         }.value
         switch prepared {

@@ -401,8 +401,9 @@ final class RecordingLimitTests: XCTestCase {
 final class MeetingWebhookTests: XCTestCase {
     func testOnlyPublicHttpsUrlsPass() throws {
         XCTAssertEqual(try MeetingWebhook.validate(" https://hooks.example.com/in/abc?x=1 ").host, "hooks.example.com")
+        XCTAssertEqual(try MeetingWebhook.validate("HTTPS://OK.Example.COM/x").host, "ok.example.com")
         XCTAssertEqual(try MeetingWebhook.validate("HTTPS://8.8.8.8/hook").host, "8.8.8.8")
-        XCTAssertEqual(try MeetingWebhook.validate("https://[2606:4700::1111]/hook").host?.contains("2606"), true)
+        XCTAssertEqual(try MeetingWebhook.validate("https://[2606:4700::1111]/hook").host, "2606:4700::1111")
         XCTAssertThrowsError(try MeetingWebhook.validate("")) { XCTAssertEqual($0 as? WebhookError, .invalid) }
         XCTAssertThrowsError(try MeetingWebhook.validate("not a url")) { XCTAssertEqual($0 as? WebhookError, .invalid) }
         XCTAssertThrowsError(try MeetingWebhook.validate("http://hooks.example.com/x")) { XCTAssertEqual($0 as? WebhookError, .notHTTPS) }
@@ -527,23 +528,88 @@ final class MeetingWebhookTests: XCTestCase {
         XCTAssertTrue(cut.preview.hasPrefix(String(repeating: "a", count: MeetingWebhook.previewLimit) + "…"))
     }
 
-    func testSignatureIsHMACSHA256AsAHexHeaderValue() {
-        let value = MeetingWebhook.signature(body: Data("what do ya want for nothing?".utf8), secret: "Jefe")
-        XCTAssertEqual(value, "sha256=5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843")
+    private func target(_ text: String) throws -> WebhookTarget { try MeetingWebhook.validate(text) }
+
+    func testSignatureCoversTheTimestampAndTheBody() {
+        let body = Data(#"{"a":1}"#.utf8)
+        let value = MeetingWebhook.signature(body: body, secret: "segredo-de-teste", timestamp: 1_800_000_000)
+        XCTAssertEqual(value, "sha256=2b80e72efea87356c6d92f310ced91f2512b2c974c9695a76e50fe5ba1e2abdb")
+        XCTAssertNotEqual(value, MeetingWebhook.signature(body: body, secret: "segredo-de-teste", timestamp: 1_800_000_001))
+        XCTAssertNotEqual(value, MeetingWebhook.signature(body: Data(#"{"a":2}"#.utf8), secret: "segredo-de-teste", timestamp: 1_800_000_000))
     }
 
-    func testRequestCarriesTheSignatureAndNeverInjectsHeaders() throws {
-        var pending = PendingWebhook(url: URL(string: "https://hooks.example.com:8443/in/abc?x=1")!, body: Data("{}".utf8), signature: "sha256=ab")
-        let text = String(decoding: try XCTUnwrap(MeetingWebhook.request(for: pending)), as: UTF8.self)
+    func testRequestCarriesTimestampAndSignatureAndNeverInjectsHeaders() throws {
+        let pending = PendingWebhook(target: try target("https://hooks.example.com:8443/in/abc?x=1"), body: Data("{}".utf8), signed: true)
+        let text = String(decoding: try XCTUnwrap(MeetingWebhook.request(for: pending, secret: "s", timestamp: 1_800_000_000)), as: UTF8.self)
         XCTAssertTrue(text.hasPrefix("POST /in/abc?x=1 HTTP/1.1\r\nHost: hooks.example.com:8443\r\n"))
-        XCTAssertTrue(text.contains("Content-Length: 2\r\n") && text.contains("X-Wisp-Signature: sha256=ab\r\n"))
+        XCTAssertTrue(text.contains("Content-Length: 2\r\n") && text.contains("X-Wisp-Timestamp: 1800000000\r\n"))
+        XCTAssertTrue(text.contains("X-Wisp-Signature: " + MeetingWebhook.signature(body: Data("{}".utf8), secret: "s", timestamp: 1_800_000_000) + "\r\n"))
         XCTAssertTrue(text.hasSuffix("\r\n\r\n{}"))
-        pending.signature = nil
-        XCTAssertFalse(String(decoding: try XCTUnwrap(MeetingWebhook.request(for: pending)), as: UTF8.self).contains("X-Wisp-Signature"))
-        pending.signature = "x\r\nEvil: 1"
-        XCTAssertNil(MeetingWebhook.request(for: pending))
-        let bare = PendingWebhook(url: URL(string: "https://hooks.example.com")!, body: Data())
-        XCTAssertTrue(String(decoding: try XCTUnwrap(MeetingWebhook.request(for: bare)), as: UTF8.self).hasPrefix("POST / HTTP/1.1\r\nHost: hooks.example.com\r\n"))
+        XCTAssertNil(MeetingWebhook.request(for: pending, secret: nil, timestamp: 1))
+        let plain = PendingWebhook(target: pending.target, body: Data("{}".utf8))
+        let unsigned = String(decoding: try XCTUnwrap(MeetingWebhook.request(for: plain, secret: nil, timestamp: 1)), as: UTF8.self)
+        XCTAssertFalse(unsigned.contains("X-Wisp-"))
+        let bare = PendingWebhook(target: try target("https://hooks.example.com"), body: Data())
+        XCTAssertTrue(String(decoding: try XCTUnwrap(MeetingWebhook.request(for: bare, secret: nil, timestamp: 1)), as: UTF8.self).hasPrefix("POST / HTTP/1.1\r\nHost: hooks.example.com\r\n"))
+    }
+
+    func testTheHostHeaderUsesTheValidatedHostEvenForIPv6() throws {
+        let pending = PendingWebhook(target: try target("https://[2606:4700::1111]:8443/x"), body: Data())
+        let text = String(decoding: try XCTUnwrap(MeetingWebhook.request(for: pending, secret: nil, timestamp: 1)), as: UTF8.self)
+        XCTAssertTrue(text.contains("Host: [2606:4700::1111]:8443\r\n"))
+    }
+
+    func testAmbiguousHostsAreRefusedBecauseParsersCouldDisagree() {
+        let refused = [
+            "https://ok.example.com\\@evil.example.net/x", "https://ok.example.com\\evil.example.net/x", "https://ok%2Eexample.com/x",
+            "https://ok.example.com%2Fevil.example.net/x", "https://exämple.com/x", "https://ok.example.com./x",
+            "https://ok.example.com@evil.example.net/x", "https://ok.example.com:evil@evil.example.net/x", "https://ok.example.com /x",
+            "https://ok.example.com\t/x", "https://ok.example.com/x\u{7F}",
+        ]
+        for text in refused { XCTAssertThrowsError(try MeetingWebhook.validate(text), text) }
+    }
+
+    func testFailoverStopsOnceTheRequestWasHandedOver() async throws {
+        struct Boom: Error {}
+        final class Tried: @unchecked Sendable {
+            private let lock = NSLock()
+            private var list: [String] = []
+            func add(_ value: String) { lock.withLock { list.append(value) } }
+            var all: [String] { lock.withLock { list } }
+        }
+        let before = Tried()
+        try await WebhookFailover.run(addresses: ["a", "b", "c"]) { address in
+            before.add(address)
+            return address == "b" ? .delivered : .failedBeforeSend(Boom())
+        }
+        XCTAssertEqual(before.all, ["a", "b"])
+        let after = Tried()
+        do {
+            try await WebhookFailover.run(addresses: ["a", "b"]) { address in
+                after.add(address)
+                return .failedAfterSend(Boom())
+            }
+            XCTFail("should throw")
+        } catch is Boom {}
+        XCTAssertEqual(after.all, ["a"])
+        do {
+            try await WebhookFailover.run(addresses: ["a", "b"]) { _ in .failedBeforeSend(Boom()) }
+            XCTFail("should throw")
+        } catch is Boom {}
+        do {
+            try await WebhookFailover.run(addresses: []) { _ in .delivered }
+            XCTFail("should throw")
+        } catch {}
+    }
+
+    func testTheCardCanShowTheExactJSONThatWillBeSent() throws {
+        let content = try MeetingWebhook.content(title: "T", startedAt: Date(), durationSeconds: 60, note: Self.noteWithExtras, metrics: nil)
+        let pending = PendingWebhook(target: try target("https://hooks.example.com/in"), body: content.body, preview: content.preview)
+        XCTAssertTrue(pending.bodyText.contains("Você: propôs fechar."))
+        XCTAssertTrue(pending.bodyText.contains("Enviar"))
+        XCTAssertEqual(try JSONSerialization.jsonObject(with: Data(pending.bodyText.utf8)) as? NSDictionary,
+                       try JSONSerialization.jsonObject(with: content.body) as? NSDictionary)
+        XCTAssertTrue(pending.bodyText.contains("\n"))
     }
 
     func testStatusCodeComesFromTheFirstLineOnly() {
@@ -563,12 +629,12 @@ final class MeetingWebhookTests: XCTestCase {
     }
 
     func testPendingCardShowsHostAndSize() {
-        let pending = PendingWebhook(url: URL(string: "https://hooks.example.com/in/secret-token?k=v")!, body: Data(count: 2048))
+        let pending = PendingWebhook(target: try! MeetingWebhook.validate("https://hooks.example.com/in/secret-token?k=v"), body: Data(count: 2048))
         XCTAssertEqual(pending.host, "hooks.example.com")
         XCTAssertEqual(pending.maskedURL, "https://hooks.example.com/•••")
-        XCTAssertEqual(PendingWebhook(url: URL(string: "https://hooks.example.com:8443/")!, body: Data()).maskedURL, "https://hooks.example.com:8443")
+        XCTAssertEqual(PendingWebhook(target: try! MeetingWebhook.validate("https://hooks.example.com:8443/"), body: Data()).maskedURL, "https://hooks.example.com:8443")
         XCTAssertEqual(pending.sizeText, "2.0 KB")
-        XCTAssertEqual(PendingWebhook(url: pending.url, body: Data(count: 90)).sizeText, "90 B")
+        XCTAssertEqual(PendingWebhook(target: pending.target, body: Data(count: 90)).sizeText, "90 B")
     }
 
     private actor Sent {
@@ -580,7 +646,7 @@ final class MeetingWebhookTests: XCTestCase {
     func testNothingIsSentUntilTheUserApprovesAndThenExactlyOnce() async throws {
         let sent = Sent()
         var approval = WebhookApproval()
-        let pending = PendingWebhook(url: URL(string: "https://hooks.example.com/in")!, body: Data("{}".utf8))
+        let pending = PendingWebhook(target: try! MeetingWebhook.validate("https://hooks.example.com/in"), body: Data("{}".utf8))
         approval.offer(pending, for: "m1")
         let before = await sent.bodies.count
         XCTAssertEqual(before, 0)
