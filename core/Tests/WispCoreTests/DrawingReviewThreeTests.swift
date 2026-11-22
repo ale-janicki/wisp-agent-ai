@@ -93,6 +93,13 @@ final class DrawingReviewThreeTests: XCTestCase {
         XCTAssertTrue(written.contains("Hello ^AAAA1111\n\nnotes\n\nWorld ^BBBB2222\n\n"))
     }
 
+    func testADeadChunkWithABlankLineKeepsTheEarlierParagraphAsStray() throws {
+        let original = sample(region: "Hello ^AAAA1111\n\nline1\n\nline2 ^DEAD0000\n\n", ids: [("AAAA1111", "Hello")])
+        let written = head(try ExcalidrawFile.parse(original, container: .markdown).serialized())
+        XCTAssertTrue(written.contains("Hello ^AAAA1111\n\nline1\n\n"))
+        XCTAssertFalse(written.contains("line2"))
+    }
+
     @MainActor
     func testAClosingModelStaysInTheQuitRegistryUntilItIsFinished() async {
         let registry = QuitFlush()
