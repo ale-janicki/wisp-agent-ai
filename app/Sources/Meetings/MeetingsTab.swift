@@ -498,9 +498,6 @@ private struct MeetingDetailView: View {
             Button { library.select(nil) } label: { Image(systemName: "chevron.left") }
                 .buttonStyle(CircleButtonStyle())
                 .help("Voltar às reuniões")
-            Button { navCover.set(!navCover.isCovered) } label: { Image(systemName: "sidebar.left") }
-                .buttonStyle(CircleButtonStyle())
-                .help(navCover.isCovered ? "Mostrar menu" : "Esconder menu")
             Spacer(minLength: Theme.Space.s)
             primaryButton
             moreMenu
