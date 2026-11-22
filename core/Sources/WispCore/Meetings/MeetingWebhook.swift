@@ -57,10 +57,12 @@ public struct PendingWebhook: Equatable, Sendable {
         body.count < 1024 ? "\(body.count) B" : String(format: "%.1f KB", Double(body.count) / 1024)
     }
 
-    public var bodyText: String {
+    public var bodyText: String { String(decoding: body, as: UTF8.self) }
+
+    public var formattedBodyText: String {
         guard let object = try? JSONSerialization.jsonObject(with: body),
               let data = try? JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
-        else { return String(decoding: body, as: UTF8.self) }
+        else { return bodyText }
         return String(decoding: data, as: UTF8.self)
     }
 }

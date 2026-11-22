@@ -694,7 +694,7 @@ private struct WebhookURLField: View {
                 .frame(height: 26)
                 .background(Theme.surfaceHi, in: Capsule())
                 .onChange(of: draft) { _, text in WebhookKeychain.save(text.trimmingCharacters(in: .whitespacesAndNewlines), for: .url) }
-            Text(problem ?? "Só https e só endereços públicos: localhost, IPs privados e redes locais são recusados.")
+            Text(problem ?? "Só https e só endereços públicos: localhost, IPs privados e redes locais são recusados. Qualquer porta é aceita; o que protege é o envio ir só para um IP público.")
                 .font(Theme.Font.caption)
                 .foregroundStyle(problem == nil ? Theme.textSecondary : Theme.error)
                 .fixedSize(horizontal: false, vertical: true)
