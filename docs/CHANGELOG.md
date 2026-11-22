@@ -12,13 +12,23 @@ Entries are in descending chronological order (newest first).
 ### Changed
 
 - Brain: the tab opens on the graph, the home and graph icons became one "Grafo | Lista" selector, and the magnifier is gone: a single "Buscar nota" field filters the graph or searches the notes in the list, and ⇧⌘F focuses it.
-- Reuniões: lighter live transcription and a lighter stop. Silent stretches and windows with nothing new spoken no longer run the model, partial updates come every 2.75 s instead of 1.5 s, "Salvando…" shows the conversion percentage and runs at background priority, and recordings over 10 minutes keep the live transcript instead of re-transcribing the whole hour (the new "Melhorar transcrição" menu item runs the full pass on demand).
-- Reuniões: one button standard (primary, secondary, icon, all 32 pt tall), the source and event pickers look like buttons, the detail header keeps back and sidebar together on the left, and "Gravação salva" no longer shows the folder name and can be dismissed.
 - Conversa and Reuniões: the panel icon that brought the menu back is a back arrow ("Voltar ao menu"); in Reuniões it was next to a back arrow that already did the same, so it is gone.
 
 ### Fixed
 
 - Closing a topic (Telegram `/encerrar` or "encerrado", the app's close button, `wisp topic encerrar`) now closes its conversation on the Mac too: it leaves "Local" and "Telegram" and lands in a collapsed "Encerradas (N)" group at the bottom of the sidebar, history kept, read-only, with a "Reabrir" button that brings it back to "Local". Topics closed before this release are marked on the bot's first start when their note says "encerrado" and no live topic uses their session.
+
+## [0.4.4] - 2026-11-22
+
+- Version 0.4.4 (build 11).
+
+### Changed
+
+- Reuniões: lighter live transcription and a lighter stop. Silent stretches and windows with nothing new spoken no longer run the model, partial updates come every 2.75 s instead of 1.5 s, "Salvando…" shows the conversion percentage and runs at background priority, and recordings over 10 minutes keep the live transcript instead of re-transcribing the whole hour (the new "Melhorar transcrição" menu item runs the full pass on demand).
+- Reuniões: one button standard (primary, secondary, icon, all 32 pt tall), the source and event pickers look like buttons, the detail header keeps back and sidebar together on the left, and "Gravação salva" no longer shows the folder name and can be dismissed.
+
+### Fixed
+
 - Reuniões: with IA local as the engine, meeting notes (overview, key points, actions, summary) and the Copiloto no longer go to Claude: they use the local model, and when it is not ready the note is skipped with "a IA local não está pronta: <motivo>" instead of sending the transcript to the hosted engine.
 - Local engine: Settings no longer wakes the model server. Turning "Pensar antes de responder" off (or any status check) used to start the MLX server and load 4.7 GB on a 16 GB Mac while the engine was Claude; `wisp local ready` now only checks that the runtime, the active model and its files are there, and the server starts on the first real request. The server also unloads after 10 idle minutes (was 15), removes its key file on exit, and `wisp local use` with another model stops the old server.
 - Local engine: today's date no longer goes after the user's words as `[Hoje é AAAA-MM-DD.]`, which the model echoed ("Hoje é 2026-11-22. Como posso ajudar…"); it is a `<contexto>` metadata line the system prompt tells the model never to mention.
