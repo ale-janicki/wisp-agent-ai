@@ -18,8 +18,18 @@ struct PermissionModePicker: View {
         (.bypass, "Sem pedir (perigoso)", "O Codex roda sem perguntar, mas só escreve na pasta de trabalho (nunca na pasta pessoal inteira) e sem rede."),
     ]
 
+    private static let localOptions: [(PermissionChoice, String, String)] = [
+        (.ask, "Pedir minha aprovação", "A IA local pergunta aqui no Wisp antes de gravar um arquivo ou usar uma ferramenta que mude algo."),
+        (.auto, "Automático", "A IA local só pergunta o que é irreversível (enviar e-mail, rodar comando) e o que o nível do modelo exige."),
+        (.bypass, "Sem pedir (perigoso)", "Igual ao Automático: enviar e-mail e rodar comando continuam pedindo, sempre."),
+    ]
+
     private var options: [(PermissionChoice, String, String)] {
-        EngineModel.shared.active == .codex ? Self.codexOptions : Self.claudeOptions
+        switch EngineModel.shared.active {
+        case .codex: Self.codexOptions
+        case .local: Self.localOptions
+        case .claude: Self.claudeOptions
+        }
     }
 
     var body: some View {
@@ -34,7 +44,9 @@ struct PermissionModePicker: View {
                 .fixedSize(horizontal: false, vertical: true)
             if confirmingBypass {
                 VStack(alignment: .leading, spacing: Theme.Space.s) {
-                    Text(EngineModel.shared.active == .codex
+                    Text(EngineModel.shared.active == .local
+                         ? "Sem pedir, a IA local grava arquivos sem perguntar. Enviar e-mail e rodar comando continuam pedindo sempre."
+                         : EngineModel.shared.active == .codex
                          ? "Sem pedir, o Codex age sem perguntar dentro da pasta de trabalho. As travas do Wisp (hooks) não existem no Codex: o que protege é o sandbox do sistema."
                          : "Sem pedir, o Claude age sem perguntar nada. Só as regras de bloqueio do Claude e os hooks continuam valendo.")
                         .font(Theme.Font.caption)

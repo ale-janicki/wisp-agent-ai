@@ -33,6 +33,9 @@ struct ProfileStepView: View {
             labeled("Permissões do Claude") {
                 PermissionModePicker()
             }
+            labeled("IA local (opcional)") {
+                LocalAIOffer()
+            }
         }
     }
 

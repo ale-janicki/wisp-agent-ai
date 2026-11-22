@@ -13,12 +13,12 @@ SHIPPED_MODELOS = (guardrails.__file__ and __import__("pathlib").Path(guardrails
 
 def test_the_catalog_has_sourced_sizes_and_valid_tiers():
     catalog = catalogs.load()
-    assert "ollama.com/library/qwen3" in catalog.source
+    assert "huggingface.co/api/models" in catalog.source
     assert len({m.tag for m in catalog.models}) == len(catalog.models) >= 4
     for m in catalog.models:
         assert m.tier in guardrails.TIERS and m.size_bytes > 0 and m.context_tokens >= 4096
-        assert m.memory_bytes == m.size_bytes + m.memory_overhead_bytes and m.limitations and m.library_url.startswith("https://ollama.com/library/")
-    assert catalog.find("qwen3:8b").size_bytes == 5_200_000_000 and catalog.disk_margin_bytes > 0
+        assert m.memory_bytes == m.size_bytes + m.memory_overhead_bytes and m.limitations and m.library_url == f"https://huggingface.co/{m.repo}" and m.repo.startswith("mlx-community/Qwen3-")
+    assert catalog.find("qwen3:8b").size_bytes == 4_623_782_544 and catalog.disk_margin_bytes > 0
 
 
 def test_an_unknown_tier_in_the_catalog_is_refused(tmp_path):
@@ -87,5 +87,16 @@ def test_a_broken_modelos_file_is_refused_and_not_overwritten(fake_home):
 
 def test_the_catalog_fixture_the_app_decodes_is_what_the_cli_prints():
     fixture = json.loads((Path(__file__).parent / "fixtures/contract/local-catalog.json").read_text())
-    expected = {**catalogs.to_json(catalogs.load()), "ollama": {"installed": False, "running": False}, "installed": [], "active": ""}
+    expected = {**catalogs.to_json(catalogs.load()), "backend": {"kind": "mlx", "available": False, "running": False, "url": ""}, "pensar": False, "installed": [], "active": ""}
     assert fixture == expected
+
+
+def test_every_model_is_pinned_to_a_revision_with_a_hash_for_each_file():
+    import re
+
+    for m in catalogs.load().models:
+        assert re.fullmatch(r"[0-9a-f]{40}", m.revision) and m.files
+        assert m.size_bytes == sum(f["size"] for f in m.files)
+        for f in m.files:
+            assert (len(f.get("sha256", "")) == 64) != (len(f.get("git_sha1", "")) == 40)
+            assert (not f["path"].endswith(".safetensors") or "sha256" in f) and not f["path"].startswith("/") and ".." not in f["path"]

@@ -20,9 +20,10 @@ from . import topicos
 from . import tg_html
 from . import hosting, saude, vigilia, polling, session_lock, compartilhar, colheita
 from . import hosting, saude, vigilia, polling, session_lock, compartilhar
-from . import aprovacoes, codex_runner, conversa
+from . import aprovacoes, codex_runner, conversa, local_runner
 from .transcript import ID as ID_CONVERSA, REBUILT_NOTE, Transcripts, prime, stamp as transcript_stamp, switched_note
 from . import engine as engines
+from . import modelo
 from .config import CURRENT as _CFG, ConfigError, _expand, config_path, load_bot_config
 from .hosting import HOST
 
@@ -295,6 +296,7 @@ PROPRIOS = [("novo", "abre um tópico: /novo nome [repo] [instrução]"),
             ("fim", "encerra este tópico"), ("status", "sessões vivas"),
             ("reset", "zera a sessão deste tópico"), ("clear", "o mesmo que /reset"),
             ("cwd", "mostra/troca o diretório"),
+            ("modelo", "mostra ou troca o motor: /modelo claude|codex|local"),
             ("puxar", "traz uma conversa do app pra cá"),
             ("chatid", "ids do chat e do tópico")]
 
@@ -354,7 +356,7 @@ def comando_claude(msg: str) -> str:
     return f"/{nome} {resto}".strip()
 
 
-MENU = ["diagnose", "status", "reset", "cwd", "puxar", "fim"]
+MENU = ["diagnose", "status", "reset", "cwd", "modelo", "puxar", "fim"]
 
 
 def menu_comandos() -> list[tuple[str, str]]:
@@ -645,6 +647,15 @@ async def codex_com_memoria(topic, engine, prompt: str, msg: str, avisar, **run_
     return res, topic
 
 
+async def local_com_memoria(topic, engine, prompt: str, msg: str, avisar, trocou: bool, **run_args):
+    transcripts.user(topic.session_id, msg, "telegram")
+    if trocou:
+        await avisar()
+    conversa = transcripts.find(topic.session_id) or topic.session_id
+    res = await engine.run(prompt, session_id=conversa, started=True, **run_args)
+    return res, topic
+
+
 def codex_ou_claude(eng, fallback: str | None, cwd: str):
     if eng.name != "codex":
         return eng, fallback
@@ -657,6 +668,8 @@ def codex_ou_claude(eng, fallback: str | None, cwd: str):
 def session_for(engine_name: str, topic) -> str:
     if engine_name == "codex":
         return transcripts.engine_session(topic.session_id, "codex") or ""
+    if engine_name == "local":
+        return transcripts.find(topic.session_id) or topic.session_id
     return topic.session_id
 
 
@@ -751,6 +764,9 @@ async def _turno(bot, chat, thread_id: int | None, key: str, msg: str, contexto:
                 res, topic = await claude_com_memoria(
                     key, topic, prompt, msg, existe, avisar_retomada, held.move, switched=trocou and existe,
                     on_permission=pedir_permissao(bot, chat.id, thread_id), **comum)
+            elif eng.name == "local":
+                res, topic = await local_com_memoria(topic, eng, prompt, msg, avisar_retomada, trocou,
+                                                     on_permission=pedir_permissao(bot, chat.id, thread_id), **comum)
             else:
                 res, topic = await codex_com_memoria(topic, eng, prompt, msg, avisar_retomada,
                                                      on_permission=pedir_permissao(bot, chat.id, thread_id), **comum)
@@ -763,12 +779,15 @@ async def _turno(bot, chat, thread_id: int | None, key: str, msg: str, contexto:
                     res = await claude_run("Continue de onde parou." if existe else prompt,
                                            session_id=topic.session_id, started=existe,
                                            on_permission=pedir_permissao(bot, chat.id, thread_id), **comum)
+                elif eng.name == "local":
+                    res = await eng.run(prompt, session_id=session_for("local", topic), started=True,
+                                        on_permission=pedir_permissao(bot, chat.id, thread_id), **comum)
                 else:
                     sessao_codex = session_for("codex", topic)
                     res = await eng.run("Continue de onde parou." if sessao_codex else prompt,
                                         session_id=sessao_codex, started=bool(sessao_codex),
                                         on_permission=pedir_permissao(bot, chat.id, thread_id), **comum)
-            if res.ok and exige and topicos.onde_esta_hash(key) == base:
+            if res.ok and exige and eng.name != "local" and topicos.onde_esta_hash(key) == base:
                 log.warning("Onde está nao atualizado em %s: forcando", key)
                 f = await (claude_run if eng.name == "claude" else eng.run)(
                     FORCA_ONDE_ESTA.format(nota=nota_abs), session_id=session_for(eng.name, topic),
@@ -1104,6 +1123,23 @@ async def cmd_cwd(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     store.set_cwd(key, novo)
     topicos.set_cwd(key, novo)
     await reply(update, f"cwd deste tópico agora é <code>{html.escape(novo)}</code>", thread_id)
+
+
+async def cmd_modelo(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    if not authorized(update):
+        return
+    _, thread_id = topic_key(update)
+    if ctx.args:
+        pedido = ctx.args[0].lower()
+        ok, texto = await modelo.set_engine(pedido)
+        if ok and pedido == "local":
+            pronto, falta = await local_runner.readiness()
+            if not pronto:
+                texto += (f"\n<i>a IA local ainda não está pronta ({html.escape(falta or 'sem detalhe')}); "
+                          "até lá as respostas vêm do Claude. Ajustes &gt; Modelo, no app, resolve.</i>")
+        await reply(update, html.escape(texto) if not ok else texto, thread_id)
+        return
+    await reply(update, await modelo.summary(), thread_id)
 
 
 def resolve_dir(arg: str) -> str | None:
@@ -1822,6 +1858,7 @@ def main() -> int:
     app.add_handler(CommandHandler("reset", _contado(cmd_reset)))
     app.add_handler(CommandHandler("clear", _contado(cmd_reset)))
     app.add_handler(CommandHandler("cwd", _contado(cmd_cwd)))
+    app.add_handler(CommandHandler("modelo", _contado(cmd_modelo)))
     app.add_handler(CommandHandler("puxar", _contado(cmd_puxar)))
     app.add_handler(CallbackQueryHandler(_contado(on_puxar_botao), pattern=r"^puxar:"))
     app.add_handler(CallbackQueryHandler(on_aprovacao, pattern=r"^aprov:"))

@@ -346,8 +346,14 @@ final class ConversationRuntime {
             guard gen == generation else { throw CancellationError() }
             let profile = host.profile
             let configured = profile.agent.claudePath
+            let localBinary = kind == .local ? codexWispBinary() : nil
+            if kind == .local, localBinary == nil { throw GuardsUnavailable(reason: "não achei o comando do Wisp, que roda a IA local") }
             let executable = try await Task.detached {
-                kind == .codex ? try CodexLocator.resolve(configured: nil) : try ClaudeLocator.resolve(configured: configured)
+                switch kind {
+                case .codex: try CodexLocator.resolve(configured: nil)
+                case .local: URL(fileURLWithPath: localBinary ?? "")
+                case .claude: try ClaudeLocator.resolve(configured: configured)
+                }
             }.value
             guard gen == generation else { throw CancellationError() }
             PermissionModel.shared.refresh()
@@ -364,6 +370,11 @@ final class ConversationRuntime {
                     resume: resume, claudePermissionMode: mode, instructions: context.prompt,
                     claudeSettingsPath: try guardSettingsPath(), disallowedTools: context.disallowedTools,
                     environment: context.environment)
+            case .local:
+                let store = transcript()
+                launch = EngineLaunch(
+                    kind: .local, executable: executable, cwd: WispFolder.directory(), resume: nil, claudePermissionMode: mode,
+                    environment: localEnvironment(context.environment), conversation: conversationKey(store))
             case .codex:
                 let wispDir = WispFolder.directory().path
                 PathsModel.shared.refresh()
@@ -414,6 +425,7 @@ final class ConversationRuntime {
             codexSession: store.engineSession(conversation: key, engine: "codex"), lost: forgetEngineSession)
         forgetEngineSession = false
         engineLinkReason = plan.linkReason
+        if plan.switched, !plan.prime, kind == .local { appendSystem(ConversationTranscript.switchedNote(to: kind)) }
         guard plan.prime else { return plan.resume }
         if primeContext == nil { primeContext = store.context(conversation: key) }
         if plan.switched, primeContext != nil { appendSystem(ConversationTranscript.switchedNote(to: kind)) }
@@ -435,7 +447,27 @@ final class ConversationRuntime {
             layout: RuntimeLayout(bundle: Bundle.main.bundleURL, home: FileManager.default.homeDirectoryForCurrentUser))
     }
 
+    private func localEnvironment(_ extra: [String: String]) -> [String: String] {
+        let layout = RuntimeLayout(bundle: Bundle.main.bundleURL, home: FileManager.default.homeDirectoryForCurrentUser)
+        var environment = ProcessInfo.processInfo.environment.filter { !$0.key.hasPrefix("UV_") && $0.key != "PYTHONPATH" }
+        environment["WISP_RESOURCES"] = layout.src.path
+        for (key, value) in extra { environment[key] = value }
+        return environment
+    }
+
+    private func desiredLocalEngine() async -> EngineKind {
+        let wisp = codexWispBinary()
+        let environment = localEnvironment(agentContext().environment)
+        let readiness = await Task.detached { LocalReadiness.check(wispBinary: wisp, environment: environment) }.value
+        guard readiness.ready else {
+            if engineNote == nil, sessionKind != .claude { engineNote = readiness.note() }
+            return .claude
+        }
+        return .local
+    }
+
     private func desiredEngine() async -> EngineKind {
+        if EngineChoice.active() == .local { return await desiredLocalEngine() }
         guard EngineChoice.active() == .codex else { return .claude }
         let wisp = codexWispBinary()
         let environment = agentContext().environment

@@ -22,6 +22,10 @@ class ModelEntry:
     speed: str
     limitations: str
     library_url: str
+    tools_reliable: bool = True
+    repo: str = ""
+    revision: str = ""
+    files: tuple = ()
 
     @property
     def memory_bytes(self) -> int:
@@ -59,7 +63,7 @@ class Catalog:
 
 def load(path: Path = CATALOG_FILE) -> Catalog:
     raw = json.loads(path.read_text("utf-8"))
-    models = tuple(ModelEntry(**m) for m in raw["models"])
+    models = tuple(ModelEntry(**{**m, "files": tuple(m.get("files", ()))}) for m in raw["models"])
     for model in models:
         if model.tier not in TIERS:
             raise ValueError(f"catalog: {model.tag} has the unknown tier {model.tier!r}")
@@ -70,5 +74,8 @@ def to_json(catalog: Catalog) -> dict:
     return {
         "source": catalog.source,
         "disk_margin_bytes": catalog.disk_margin_bytes,
-        "models": [{**m.__dict__, "memory_bytes": m.memory_bytes} for m in catalog.models],
+        "models": [
+            {**{k: v for k, v in m.__dict__.items() if k not in ("files", "revision")}, "memory_bytes": m.memory_bytes}
+            for m in catalog.models
+        ],
     }
