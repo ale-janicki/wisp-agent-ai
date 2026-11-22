@@ -32,6 +32,20 @@ public enum SignalLevel {
 
     public static func rms(_ samples: [Float]) -> Float { rms(samples[...]) }
 
+    public static func hasSpeech(_ samples: ArraySlice<Float>, threshold: Float, frame: Int = 320, minimumFrames: Int = 3) -> Bool {
+        var active = 0
+        var index = samples.startIndex
+        while index < samples.endIndex {
+            let end = min(index + frame, samples.endIndex)
+            if rms(samples[index..<end]) >= threshold {
+                active += 1
+                if active >= minimumFrames { return true }
+            }
+            index = end
+        }
+        return false
+    }
+
     public static func normalized(rms: Float, floorDecibels: Float = -60) -> Float {
         guard rms > 0 else { return 0 }
         let decibels = 20 * log10(rms)
@@ -59,7 +73,7 @@ public struct ChannelStreamerConfig: Equatable, Sendable {
     public var minimumFlushSeconds: Double
 
     public init(
-        windowSeconds: Double = 5, overlapSeconds: Double = 1, partialIntervalSeconds: Double = 1.5,
+        windowSeconds: Double = 5, overlapSeconds: Double = 1, partialIntervalSeconds: Double = 2.75,
         emitsPartials: Bool = true, silenceRMS: Float = 0.003, minimumFlushSeconds: Double = 0.6
     ) {
         self.windowSeconds = windowSeconds
@@ -81,6 +95,7 @@ public struct ChannelStreamer: Sendable {
     private var bufferStart = 0
     private var windowStart = 0
     private var lastPartialEnd = 0
+    private var lastPartialSample = 0
     private var total = 0
 
     public init(channel: AudioChannel, config: ChannelStreamerConfig = .live) {
@@ -103,10 +118,14 @@ public struct ChannelStreamer: Sendable {
             if let job = job(.final, from: windowStart, to: end) { jobs.append(job) }
             windowStart += strideSamples
             lastPartialEnd = windowStart
+            lastPartialSample = max(lastPartialSample, end)
         }
         if config.emitsPartials, total - lastPartialEnd >= partialSamples, total - windowStart >= partialSamples {
             lastPartialEnd = total
-            if let job = job(.partial, from: windowStart, to: total) { jobs.append(job) }
+            if hasNewSpeech(since: max(lastPartialSample, windowStart)), let job = job(.partial, from: windowStart, to: total) {
+                jobs.append(job)
+            }
+            lastPartialSample = total
         }
         trim()
         return jobs
@@ -116,6 +135,7 @@ public struct ChannelStreamer: Sendable {
         defer {
             windowStart = total
             lastPartialEnd = total
+            lastPartialSample = total
             trim()
         }
         let remaining = total - windowStart
@@ -129,9 +149,16 @@ public struct ChannelStreamer: Sendable {
         total += samples
         windowStart = total
         lastPartialEnd = total
+        lastPartialSample = total
         bufferStart = total
         buffer = []
         return jobs
+    }
+
+    private func hasNewSpeech(since start: Int) -> Bool {
+        let lower = max(start, bufferStart) - bufferStart
+        guard lower < buffer.count else { return false }
+        return SignalLevel.hasSpeech(buffer[lower..<buffer.count], threshold: config.silenceRMS)
     }
 
     private func job(_ kind: StreamJob.Kind, from start: Int, to end: Int) -> StreamJob? {

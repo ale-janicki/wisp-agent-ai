@@ -118,6 +118,8 @@ public final class LiveTranscriber: @unchecked Sendable {
         }, channel: channel)
     }
 
+    public var hasFailed: Bool { lock.withLock { failureReported } }
+
     public func skipGap(seconds: Double, channel: AudioChannel) {
         let jobs = lock.withLock { () -> [StreamJob] in
             decimators[channel] = Decimator48To16()
