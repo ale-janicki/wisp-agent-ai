@@ -28,11 +28,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        signal(SIGTERM, SIG_IGN)
+        TerminationSignal.routeToHandler()
         let source = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
         source.setEventHandler {
-            MainActor.assumeIsolated { BrainModel.shared.flushForQuit() }
-            exit(0)
+            DispatchQueue.global().asyncAfter(deadline: .now() + 5) { exit(0) }
+            NSApp.terminate(nil)
         }
         source.resume()
         terminationSignal = source

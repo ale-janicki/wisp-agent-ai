@@ -165,6 +165,7 @@ final class BrainModel {
         activeID = nil
         bookmarks = BrainBookmarks.load(from: bookmarksURL, root: resolved)
         expanded = Set(UserDefaults.standard.stringArray(forKey: "brain.expanded.\(resolved)") ?? [])
+        Task.detached(priority: .utility) { BrainFiles.removeStaleTemps(root: resolved) }
         scan(restoring: true)
         watcher = BrainWatcher(root: resolved) { [weak self] in
             Task { @MainActor in self?.scheduleRescan() }

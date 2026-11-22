@@ -117,15 +117,114 @@ final class BrainFallbackTests: XCTestCase {
     func testStagingFallsBackToGitFolderThenToAHiddenSiblingNamedWispTmp() throws {
         let vault = try BrainVaultFixture()
         let destination = vault.root.appendingPathComponent("recipes/bread.md")
-        var options = try BrainFiles.stagingFoldersForTesting(destination, root: vault.root)
+        var options = BrainFiles.stagingFoldersForTesting(destination, root: vault.root)
         XCTAssertTrue(options.last?.hasPrefix(".wisp-tmp-") == true)
         XCTAssertFalse(options.contains { $0.hasPrefix("note-") })
         try FileManager.default.createDirectory(at: vault.root.appendingPathComponent(".git"), withIntermediateDirectories: true)
-        options = try BrainFiles.stagingFoldersForTesting(destination, root: vault.root)
+        options = BrainFiles.stagingFoldersForTesting(destination, root: vault.root)
         XCTAssertTrue(options.contains { $0.hasPrefix("note-") })
         try BrainFiles(root: vault.path).write("after", to: "recipes/bread.md")
         let leftovers = try FileManager.default.contentsOfDirectory(atPath: vault.root.appendingPathComponent(".git/wisp-tmp").path)
         XCTAssertTrue(leftovers.isEmpty)
         XCTAssertEqual(try vault.text("recipes/bread.md"), "after")
+    }
+}
+
+final class BrainFallbackInjectionTests: XCTestCase {
+    override func tearDown() {
+        BrainFiles.failSystemStaging = false
+        BrainFiles.exdevFromSystemStaging = false
+        super.tearDown()
+    }
+
+    func testFailingSystemFolderFallsBackToGitThenToTheSibling() throws {
+        let vault = try BrainVaultFixture()
+        let files = BrainFiles(root: vault.path)
+        BrainFiles.failSystemStaging = true
+        try files.write("one", to: "recipes/bread.md")
+        XCTAssertEqual(BrainFiles.lastStaging, "sibling")
+        try FileManager.default.createDirectory(at: vault.root.appendingPathComponent(".git"), withIntermediateDirectories: true)
+        try files.write("two", to: "recipes/bread.md")
+        XCTAssertEqual(BrainFiles.lastStaging, "git")
+        XCTAssertEqual(try vault.text("recipes/bread.md"), "two")
+        XCTAssertTrue(try FileManager.default.contentsOfDirectory(atPath: vault.root.appendingPathComponent(".git/wisp-tmp").path).isEmpty)
+        XCTAssertFalse(try FileManager.default.contentsOfDirectory(atPath: vault.root.appendingPathComponent("recipes").path).contains { $0.hasPrefix(".wisp-tmp-") })
+    }
+
+    func testExdevOnTheSystemFolderRenameFallsBackAndTheNoteIsWritten() throws {
+        let vault = try BrainVaultFixture()
+        try FileManager.default.createDirectory(at: vault.root.appendingPathComponent(".git"), withIntermediateDirectories: true)
+        BrainFiles.exdevFromSystemStaging = true
+        try BrainFiles(root: vault.path).write("moved across volumes", to: "index.md")
+        XCTAssertEqual(BrainFiles.lastStaging, "git")
+        XCTAssertEqual(try vault.text("index.md"), "moved across volumes")
+    }
+
+    func testStaleTempsAreSweptOnlyWhenOlderThanAMinute() throws {
+        let vault = try BrainVaultFixture()
+        try FileManager.default.createDirectory(at: vault.root.appendingPathComponent(".git/wisp-tmp"), withIntermediateDirectories: true)
+        let now = Date()
+        let old = now.addingTimeInterval(-300)
+        for (path, date) in [("recipes/.wisp-tmp-old", old), ("recipes/.wisp-tmp-new", now), (".git/wisp-tmp/note-old", old), (".git/wisp-tmp/note-new", now), ("recipes/keep.md", old)] {
+            try Data("x".utf8).write(to: vault.root.appendingPathComponent(path))
+            try FileManager.default.setAttributes([.modificationDate: date], ofItemAtPath: vault.root.appendingPathComponent(path).path)
+        }
+        XCTAssertEqual(BrainFiles.removeStaleTemps(root: vault.path, now: now), 2)
+        XCTAssertFalse(vault.exists("recipes/.wisp-tmp-old") || FileManager.default.fileExists(atPath: vault.root.appendingPathComponent(".git/wisp-tmp/note-old").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: vault.root.appendingPathComponent("recipes/.wisp-tmp-new").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: vault.root.appendingPathComponent(".git/wisp-tmp/note-new").path))
+        XCTAssertTrue(vault.exists("recipes/keep.md"))
+    }
+}
+
+final class TerminationSignalTests: XCTestCase {
+    private var previous = sigaction()
+
+    override func setUp() {
+        super.setUp()
+        sigaction(SIGTERM, nil, &previous)
+        TerminationSignal.routeToHandler()
+    }
+
+    override func tearDown() {
+        sigaction(SIGTERM, &previous, nil)
+        super.tearDown()
+    }
+
+    func testFoundationProcessChildrenStillDieOnTerminate() throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", "sleep 5"]
+        try process.run()
+        let start = Date()
+        process.terminate()
+        process.waitUntilExit()
+        XCTAssertLessThan(Date().timeIntervalSince(start), 2)
+        XCTAssertEqual(process.terminationReason, .uncaughtSignal)
+    }
+
+    private func diesOfSigterm(_ pid: pid_t) -> Bool {
+        kill(-pid, SIGTERM)
+        var status: Int32 = 0
+        for _ in 0..<100 {
+            if waitpid(pid, &status, WNOHANG) == pid { return status & 0x7f == SIGTERM }
+            Thread.sleep(forTimeInterval: 0.02)
+        }
+        kill(-pid, SIGKILL)
+        waitpid(pid, &status, 0)
+        return false
+    }
+
+    func testSpawnedChildrenDieOfSigtermNotOfTheFallbackKill() throws {
+        let pipe = Pipe()
+        let pid = try ProcessCore.spawn("/bin/sh", arguments: ["-c", "sleep 5"], environment: [:], stdout: pipe.fileHandleForWriting.fileDescriptor, stderr: pipe.fileHandleForWriting.fileDescriptor)
+        XCTAssertTrue(diesOfSigterm(pid))
+    }
+
+    func testIgnoredTermInTheParentDoesNotLeakIntoSpawnedChildren() throws {
+        signal(SIGTERM, SIG_IGN)
+        let pipe = Pipe()
+        let pid = try ProcessCore.spawn("/bin/sh", arguments: ["-c", "sleep 5"], environment: [:], stdout: pipe.fileHandleForWriting.fileDescriptor, stderr: pipe.fileHandleForWriting.fileDescriptor)
+        XCTAssertTrue(diesOfSigterm(pid))
     }
 }

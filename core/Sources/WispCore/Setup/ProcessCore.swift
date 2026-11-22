@@ -22,7 +22,11 @@ enum ProcessCore {
         posix_spawnattr_init(&attributes)
         defer { posix_spawnattr_destroy(&attributes) }
         posix_spawnattr_setpgroup(&attributes, 0)
-        posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_SETPGROUP | POSIX_SPAWN_CLOEXEC_DEFAULT))
+        var defaults = sigset_t()
+        sigemptyset(&defaults)
+        sigaddset(&defaults, SIGTERM)
+        posix_spawnattr_setsigdefault(&attributes, &defaults)
+        posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_SETPGROUP | POSIX_SPAWN_CLOEXEC_DEFAULT | POSIX_SPAWN_SETSIGDEF))
 
         let argv = ([executable] + arguments).map { strdup($0) } + [nil]
         let envp = environment.map { strdup("\($0.key)=\($0.value)") } + [nil]
