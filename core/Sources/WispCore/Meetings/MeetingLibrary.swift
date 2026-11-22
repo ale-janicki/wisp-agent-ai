@@ -39,7 +39,7 @@ public enum MeetingLibrary {
     public static func needsProcessing(_ entry: MeetingEntry) -> Bool {
         switch entry.meta.status {
         case .transcribing, .interrupted: true
-        case .transcribed: entry.hasTranscript && !entry.hasNote && entry.meta.failure == nil
+        case .transcribed: entry.hasTranscript && !entry.hasNote && entry.meta.failure == nil && entry.meta.summaryDeferred != true
         case .recording, .noted, .failed: false
         }
     }

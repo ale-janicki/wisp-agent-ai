@@ -217,6 +217,7 @@ private struct MeetingMainCard: View {
 
 private struct RecorderPanel: View {
     @ObservedObject var model: MeetingRecordingModel
+    private let settings = AppSettings.shared
 
     var body: some View {
         let control = model.control
@@ -258,6 +259,14 @@ private struct RecorderPanel: View {
                 SourcePicker(selection: $model.sources)
                     .disabled(model.phase != .idle)
                     .opacity(model.phase == .idle ? 1 : 0.6)
+                Toggle("Gerar resumo logo após a chamada", isOn: Binding(
+                    get: { settings.settings.meetings.autoSummary },
+                    set: { on in settings.setMeetings { $0.autoSummary = on } }
+                ))
+                .toggleStyle(.checkbox)
+                .font(Theme.Font.caption)
+                .foregroundStyle(Theme.textSecondary)
+                .help("Desligado: a nota entra no brain só com os participantes e o link da transcrição; o resumo vem pelo botão Gerar resumo.")
             }
 
             Spacer(minLength: Theme.Space.m)
@@ -446,6 +455,9 @@ private struct MeetingDetailView: View {
             if let failure = entry.meta.failure {
                 InlineError(text: failure)
             }
+            if let brainError = entry.meta.brainError {
+                InlineError(text: "Não gravei a nota no brain: \(brainError)")
+            }
             actions
             pagePicker
             pageContent
@@ -458,14 +470,14 @@ private struct MeetingDetailView: View {
                 .disabled(!entry.hasNote)
             Button("Copiar") { library.copy(entry) }
                 .disabled(entry.hasNote ? false : !entry.hasTranscript)
-            Button(entry.meta.brainNote == nil ? "Salvar no brain" : "Salvar de novo no brain") { library.saveToBrain(entry) }
-                .disabled(!entry.hasNote)
+            Button(library.brainButton(entry).label) { library.brainAction(entry) }
+                .disabled(!entry.hasNote && !entry.hasTranscript)
             if entry.meta.status == .failed {
                 Button("Tentar de novo") { library.retry(entry) }
             } else if library.stage(of: entry.id) == .writingNote {
                 Button("Cancelar nota") { library.cancelNote(entry.id) }
             } else if entry.hasTranscript, library.stage(of: entry.id) == nil {
-                Button(entry.hasNote ? "Gerar nota de novo" : "Gerar nota") { library.regenerateNote(entry) }
+                Button(entry.hasNote ? "Gerar nota de novo" : "Gerar resumo") { library.regenerateNote(entry) }
             }
             Button("Mostrar no Finder") { library.reveal(entry) }
             Spacer(minLength: 0)

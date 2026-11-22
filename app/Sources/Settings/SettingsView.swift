@@ -329,6 +329,12 @@ struct MeetingsSettingsGroup: View {
             }
             Divider().overlay(Theme.stroke)
             ToggleRow(
+                title: "Gerar resumo logo após a chamada",
+                detail: "Ligado: quando a gravação termina, o Wisp transcreve, gera o resumo e grava a nota da reunião na pasta meetings do brain, com os participantes da agenda e links para o que já existe no brain. Desligado: a nota entra no brain só com os participantes e o link da transcrição, e a reunião terminada mostra o botão Gerar resumo para preencher a mesma nota depois.",
+                isOn: current.autoSummary
+            ) { on in settings.setMeetings { $0.autoSummary = on } }
+            Divider().overlay(Theme.stroke)
+            ToggleRow(
                 title: "Webhook ao terminar",
                 detail: "Quando a nota ficar pronta, o Wisp mostra um cartão com o destino e o tamanho e só envia quando você clicar em Permitir. Vai o título, a data, a duração, o resumo, os pontos principais, as ações e as métricas em números. Não vai a transcrição, os marcadores, a checklist nem o texto das métricas. O endereço fica no Keychain.",
                 isOn: current.webhookEnabled
