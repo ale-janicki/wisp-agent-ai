@@ -7,9 +7,6 @@ options:
 packages:
   WispCore:
     path: ../core
-  SwiftTerm:
-    url: https://github.com/migueldeicaza/SwiftTerm
-    exactVersion: 1.99.3
   Sparkle:
     url: https://github.com/sparkle-project/Sparkle
     exactVersion: 2.10.1
@@ -87,8 +84,6 @@ targets:
     dependencies:
       - package: WispCore
         product: WispCore
-      - package: SwiftTerm
-        product: SwiftTerm
       - package: Sparkle
         product: Sparkle
       - package: FluidAudio

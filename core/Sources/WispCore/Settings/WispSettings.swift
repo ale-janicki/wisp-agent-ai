@@ -165,6 +165,7 @@ public struct WispSettings: Codable, Equatable, Sendable {
     public var recordingsPath: String?
     public var agenda = AgendaPreferences()
     public var meetings = MeetingSettings()
+    public var brainShowsGraph = true
     var graphWasInvalid = false
 
     public init(theme: String = ThemePreset.lime.id, custom: CustomTheme? = nil, dashboardOrder: [String] = DashboardTileID.defaultOrder) {
@@ -173,7 +174,7 @@ public struct WispSettings: Codable, Equatable, Sendable {
         self.dashboardOrder = DashboardTileID.normalized(dashboardOrder)
     }
 
-    private enum CodingKeys: String, CodingKey { case theme, custom, dashboardOrder, telegramOrder, clipboardCapture, spotifyClientID, graph, notices, openAtLogin, loginItemRegistered, permissionMode, settingsSection, recordingsPath, agenda, meetings }
+    private enum CodingKeys: String, CodingKey { case theme, custom, dashboardOrder, telegramOrder, clipboardCapture, spotifyClientID, graph, notices, openAtLogin, loginItemRegistered, permissionMode, settingsSection, recordingsPath, agenda, meetings, brainShowsGraph }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -191,6 +192,7 @@ public struct WispSettings: Codable, Equatable, Sendable {
         recordingsPath = try? container.decodeIfPresent(String.self, forKey: .recordingsPath)
         agenda = (try? container.decodeIfPresent(AgendaPreferences.self, forKey: .agenda)) ?? AgendaPreferences()
         meetings = (try? container.decodeIfPresent(MeetingSettings.self, forKey: .meetings)) ?? MeetingSettings()
+        brainShowsGraph = (try? container.decodeIfPresent(Bool.self, forKey: .brainShowsGraph)) ?? true
         do {
             graph = try container.decodeIfPresent(GraphControls.self, forKey: .graph) ?? GraphControls()
         } catch {

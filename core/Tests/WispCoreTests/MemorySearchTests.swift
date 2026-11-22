@@ -111,4 +111,10 @@ final class MemorySearchTests: XCTestCase {
         let none = try XCTUnwrap(MemorySearch.command(template: template, query: "não existe", root: root))
         XCTAssertEqual(try BlockCommand.run(none, path: "/usr/bin:/bin").get(), Data())
     }
+
+    func testRelativePathOnlyInsideTheRoot() {
+        XCTAssertEqual(MemorySearch.relativePath(ofFile: "/tmp/wisp-root/a/tarefas.md", inRoot: "/tmp/wisp-root/"), "a/tarefas.md")
+        XCTAssertNil(MemorySearch.relativePath(ofFile: "/tmp/wisp-root-other/tarefas.md", inRoot: "/tmp/wisp-root"))
+        XCTAssertNil(MemorySearch.relativePath(ofFile: "/tmp/wisp-root", inRoot: "/tmp/wisp-root"))
+    }
 }

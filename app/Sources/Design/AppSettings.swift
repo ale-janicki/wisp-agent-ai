@@ -65,6 +65,7 @@ final class AppSettings {
             let section = settings.settingsSection
             let agenda = settings.agenda
             let meetings = settings.meetings
+            let brainShowsGraph = settings.brainShowsGraph
             settings = .default
             settings.dashboardOrder = order
             settings.telegramOrder = topicOrder
@@ -77,6 +78,7 @@ final class AppSettings {
             settings.settingsSection = section
             settings.agenda = agenda
             settings.meetings = meetings
+            settings.brainShowsGraph = brainShowsGraph
         }
     }
 
@@ -130,6 +132,10 @@ final class AppSettings {
 
     func setAgenda(_ change: (inout AgendaPreferences) -> Void) {
         update { change(&$0.agenda) }
+    }
+
+    func setBrainShowsGraph(_ on: Bool) {
+        update { $0.brainShowsGraph = on }
     }
 
     func setSettingsSection(_ id: String) {
