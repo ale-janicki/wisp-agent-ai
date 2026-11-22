@@ -33,12 +33,12 @@ for d in "${dirs[@]}"; do
   name="$(basename "$d")"
   mkdir -p "$stage/$name"
   rsync -a \
-    --exclude='build/' --exclude='dist/' --exclude='.venv/' --exclude='.git/' --exclude='DerivedData/' \
+    --exclude='build/' --exclude='dist/' --exclude='node_modules/' --exclude='.venv/' --exclude='.git/' --exclude='DerivedData/' \
     --exclude='.claude/' --exclude='.build/' --exclude='.swiftpm/' --exclude='__pycache__/' --exclude='.pytest_cache/' \
     "$d/" "$stage/$name/" 2>/dev/null || { echo "leak-check: cannot read $d" >&2; status=1; }
 done
-# app/Resources/runtime and the patterns files are excluded by their position inside the repo
-rm -rf "$stage/app/Resources/runtime" "$stage/scripts/leak-patterns.txt" "$stage/scripts/leak-patterns.local.txt"
+# app/Resources/runtime, the generated app/Resources/Excalidraw bundle (third-party code, built from the committed lockfile) and the patterns files are excluded by their position inside the repo
+rm -rf "$stage/app/Resources/runtime" "$stage/app/Resources/Excalidraw" "$stage/scripts/leak-patterns.txt" "$stage/scripts/leak-patterns.local.txt"
 
 # Invented home folders used by test fixtures and docs are not personal data: neutralise them in the staged copy only.
 fixture_homes='/Users/(test|ana|bob|rita|u|x|Maria Silva)([^A-Za-z0-9_]|$)'

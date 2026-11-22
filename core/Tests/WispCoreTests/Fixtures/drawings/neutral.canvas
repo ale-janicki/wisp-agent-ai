@@ -1,0 +1,12 @@
+{
+	"nodes":[
+		{"id":"n1","type":"text","text":"# Título\nTexto **exemplo**","x":0,"y":0,"width":260,"height":120,"color":"4"},
+		{"id":"n2","type":"file","file":"notas/nota-exemplo.md","subpath":"#Seção","x":360,"y":0,"width":260,"height":120},
+		{"id":"n3","type":"link","url":"https://example.com","x":0,"y":220,"width":260,"height":100},
+		{"id":"n4","type":"group","label":"Grupo","x":-40,"y":-40,"width":700,"height":200,"customFutureKey":{"a":1}}
+	],
+	"edges":[
+		{"id":"e1","fromNode":"n1","fromSide":"right","toNode":"n2","toSide":"left","label":"liga"},
+		{"id":"e2","fromNode":"n1","fromSide":"bottom","toNode":"n3","toSide":"top","toEnd":"none","fromEnd":"arrow"}
+	]
+}
