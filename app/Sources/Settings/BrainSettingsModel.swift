@@ -31,6 +31,40 @@ final class BrainSettingsModel {
         profileIsLink = (try? FileManager.default.destinationOfSymbolicLink(atPath: ConversationViewModel.profileURL.path)) != nil
     }
 
+    private(set) var creating = false
+
+    var brainMissing: Bool {
+        guard let folder, !folder.isEmpty else { return true }
+        var isDirectory: ObjCBool = false
+        return !(FileManager.default.fileExists(atPath: (folder as NSString).expandingTildeInPath, isDirectory: &isDirectory) && isDirectory.boolValue)
+    }
+
+    func createBrain() {
+        guard !creating else { return }
+        creating = true
+        error = nil
+        Task {
+            let problem = await runBrainSetup()
+            creating = false
+            error = problem
+            refresh()
+            (NSApp.delegate as? AppDelegate)?.reloadProfile()
+        }
+    }
+
+    private func runBrainSetup() async -> String? {
+        for arguments in [["setup", "brain", "--json"], ["setup", "profile", "--json"]] {
+            guard case .success(let output) = await runWisp(arguments, timeout: 120), !output.timedOut,
+                  let report = try? JSONDecoder().decode(SetupReport.self, from: output.stdout) else {
+                return "Não consegui rodar o comando do Wisp."
+            }
+            if report.status == .failed || report.status == .needsUser {
+                return report.data["step"] == "system" ? SetupPlan.brainDeferredNote : report.summary.prefix(1).uppercased() + report.summary.dropFirst()
+            }
+        }
+        return nil
+    }
+
     var displayFolder: String {
         guard let folder, !folder.isEmpty else { return "Nenhuma pasta escolhida" }
         return (folder as NSString).abbreviatingWithTildeInPath
