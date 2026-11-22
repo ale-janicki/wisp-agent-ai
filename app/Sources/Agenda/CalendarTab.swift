@@ -103,16 +103,16 @@ struct CalendarTab: View {
     private var toolbar: some View {
         HStack(spacing: Theme.Space.s) {
             Button { model.toggleSidebar() } label: { Image(systemName: "sidebar.left") }
-                .buttonStyle(CircleButtonStyle(kind: model.sidebarOpen ? .accent : .plain, size: 26))
+                .buttonStyle(CircleButtonStyle(kind: model.sidebarOpen ? .accent : .plain, size: Theme.Control.compactHeight))
                 .help("Calendários, lembretes e fusos")
             Button("Hoje") { model.goToday() }
-                .buttonStyle(CompactCapsuleStyle(accent: false))
+                .buttonStyle(CapsuleButtonStyle(kind: .ghost, size: .compact))
                 .help("Hoje (T)")
             Button { model.step(-1) } label: { Image(systemName: "chevron.left") }
-                .buttonStyle(CircleButtonStyle(size: 26))
+                .buttonStyle(CircleButtonStyle(size: Theme.Control.compactHeight))
                 .help("Anterior (K)")
             Button { model.step(1) } label: { Image(systemName: "chevron.right") }
-                .buttonStyle(CircleButtonStyle(size: 26))
+                .buttonStyle(CircleButtonStyle(size: Theme.Control.compactHeight))
                 .help("Próximo (J)")
             if model.searchOpen {
                 SearchField(text: $model.searchQuery, placeholder: "Buscar título, local ou notas")
@@ -122,7 +122,7 @@ struct CalendarTab: View {
                     model.searchQuery = ""
                     gridFocus = true
                 }
-                .buttonStyle(CompactCapsuleStyle(accent: false))
+                .buttonStyle(CapsuleButtonStyle(kind: .ghost, size: .compact))
             } else {
                 Text(model.title)
                     .font(Theme.Font.title)
@@ -133,18 +133,18 @@ struct CalendarTab: View {
             Spacer(minLength: Theme.Space.xs)
             if let next = model.upcoming, MeetingLinks.detect(next.event) != nil {
                 Button { model.join(next.event) } label: { Label("Entrar", systemImage: "video.fill").font(Theme.Font.caption) }
-                    .buttonStyle(CompactCapsuleStyle(accent: true))
+                    .buttonStyle(CapsuleButtonStyle(kind: .accent, size: .compact))
                     .help("Entrar em \(next.event.title) (⌘J)")
             }
             Button { model.searchOpen.toggle(); if model.searchOpen { model.loadForSearch() } } label: { Image(systemName: "magnifyingglass") }
-                .buttonStyle(CircleButtonStyle(kind: model.searchOpen ? .accent : .plain, size: 26))
+                .buttonStyle(CircleButtonStyle(kind: model.searchOpen ? .accent : .plain, size: Theme.Control.compactHeight))
                 .help("Buscar (/)")
             modePicker
             Button { model.availabilityOn.toggle() } label: { Image(systemName: "clock.badge.checkmark") }
-                .buttonStyle(CircleButtonStyle(kind: model.availabilityOn ? .accent : .plain, size: 26))
+                .buttonStyle(CircleButtonStyle(kind: model.availabilityOn ? .accent : .plain, size: Theme.Control.compactHeight))
                 .help("Disponibilidade")
             Button { model.quickOpen.toggle() } label: { Image(systemName: "plus") }
-                .buttonStyle(CircleButtonStyle(kind: .accent, size: 26))
+                .buttonStyle(CircleButtonStyle(kind: .accent, size: Theme.Control.compactHeight))
                 .help("Novo evento (N)")
             TabSettingsButton(tab: .agenda)
         }
@@ -188,7 +188,7 @@ private struct QuickBar: View {
                     .focused($focused)
                     .onSubmit { model.commitQuick() }
                 Button("Criar") { model.commitQuick() }
-                    .buttonStyle(CompactCapsuleStyle(accent: true))
+                    .buttonStyle(CapsuleButtonStyle(kind: .accent, size: .compact))
                     .disabled(model.quickText.trimmingCharacters(in: .whitespaces).isEmpty)
             }
             .padding(.horizontal, Theme.Space.m)
@@ -225,7 +225,7 @@ private struct AvailabilityBar: View {
                     .foregroundStyle(Theme.textTertiary)
                     .lineLimit(1)
                 Spacer()
-                Button { model.availabilityOn = false } label: { Image(systemName: "xmark") }.buttonStyle(CircleButtonStyle(size: 22))
+                Button { model.availabilityOn = false } label: { Image(systemName: "xmark") }.buttonStyle(CircleButtonStyle(size: Theme.Control.compactHeight))
             }
             ScrollView {
                 Text(model.availabilityText)
@@ -236,8 +236,8 @@ private struct AvailabilityBar: View {
             }
             .frame(height: 70)
             HStack(spacing: Theme.Space.s) {
-                Button("Gerar do expediente") { model.generateAvailability() }.buttonStyle(CompactCapsuleStyle(accent: false))
-                Button("Limpar") { model.availabilitySlots = [] }.buttonStyle(CompactCapsuleStyle(accent: false))
+                Button("Gerar do expediente") { model.generateAvailability() }.buttonStyle(CapsuleButtonStyle(kind: .ghost, size: .compact))
+                Button("Limpar") { model.availabilitySlots = [] }.buttonStyle(CapsuleButtonStyle(kind: .ghost, size: .compact))
                 Picker("", selection: Binding(get: { model.prefs.availabilityLanguage }, set: { value in AppSettings.shared.setAgenda { $0.availabilityLanguage = value } })) {
                     Text("pt-BR").tag(AvailabilityLanguage.pt)
                     Text("English").tag(AvailabilityLanguage.en)
@@ -248,7 +248,7 @@ private struct AvailabilityBar: View {
                 hoursControls
                 Spacer()
                 Button("Copiar texto") { model.copyAvailability() }
-                    .buttonStyle(CompactCapsuleStyle(accent: true))
+                    .buttonStyle(CapsuleButtonStyle(kind: .accent, size: .compact))
                     .disabled(model.availabilitySlots.isEmpty)
             }
         }
@@ -317,7 +317,7 @@ private struct ScopeSheet: View {
                         .frame(width: 200)
                 }
                 Button("Cancelar") { model.pendingScope = nil; model.invalidate() }
-                    .buttonStyle(CompactCapsuleStyle(accent: false))
+                    .buttonStyle(CapsuleButtonStyle(kind: .ghost, size: .compact))
             }
             .padding(Theme.Space.l)
             .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous))
@@ -347,7 +347,7 @@ private struct DeleteSheet: View {
                     .buttonStyle(CapsuleButtonStyle(kind: .error))
                     .frame(width: 200)
                 Button("Cancelar") { model.pendingDelete = nil }
-                    .buttonStyle(CompactCapsuleStyle(accent: false))
+                    .buttonStyle(CapsuleButtonStyle(kind: .ghost, size: .compact))
             }
             .padding(Theme.Space.l)
             .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous))
@@ -367,8 +367,8 @@ private struct GoogleHint: View {
                 .foregroundStyle(Theme.textSecondary)
                 .lineLimit(2)
             Spacer(minLength: 0)
-            Button("Abrir Contas de Internet") { model.openInternetAccounts() }.buttonStyle(CompactCapsuleStyle(accent: true))
-            Button("Dispensar") { model.dismissGoogleHint() }.buttonStyle(CompactCapsuleStyle(accent: false))
+            Button("Abrir Contas de Internet") { model.openInternetAccounts() }.buttonStyle(CapsuleButtonStyle(kind: .accent, size: .compact))
+            Button("Dispensar") { model.dismissGoogleHint() }.buttonStyle(CapsuleButtonStyle(kind: .ghost, size: .compact))
         }
         .padding(.horizontal, Theme.Space.m)
         .padding(.vertical, 6)

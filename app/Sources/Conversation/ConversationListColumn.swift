@@ -294,9 +294,9 @@ private struct TopicRow: View {
                         confirming = false
                         close()
                     }
-                    .buttonStyle(CompactCapsuleStyle(accent: true))
+                    .buttonStyle(CapsuleButtonStyle(kind: .accent, size: .compact))
                     Button("Cancelar") { confirming = false }
-                        .buttonStyle(CompactCapsuleStyle(accent: false))
+                        .buttonStyle(CapsuleButtonStyle(kind: .ghost, size: .compact))
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -340,7 +340,7 @@ private struct TopicRow: View {
                     } label: {
                         Image(systemName: "trash")
                     }
-                    .buttonStyle(CircleButtonStyle(size: 24))
+                    .buttonStyle(CircleButtonStyle(size: Theme.Control.compactHeight))
                     .pointerStyle(.default)
                     .padding(.trailing, 6)
                     .help("Encerrar o tópico no Telegram")
@@ -445,7 +445,7 @@ struct ConversationRow: View {
                 Button(action: delete) {
                     Image(systemName: "trash")
                 }
-                .buttonStyle(CircleButtonStyle(size: 24))
+                .buttonStyle(CircleButtonStyle(size: Theme.Control.compactHeight))
                 .padding(.trailing, 6)
                 .help("Apagar conversa")
             }

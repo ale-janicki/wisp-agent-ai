@@ -259,7 +259,7 @@ private struct ScheduleRow: View {
             Spacer(minLength: 0)
             if MeetingLinks.detect(event) != nil {
                 Button { model.join(event) } label: { Image(systemName: "video.fill") }
-                    .buttonStyle(CircleButtonStyle(kind: .plain, size: 26))
+                    .buttonStyle(CircleButtonStyle(kind: .plain, size: Theme.Control.compactHeight))
                     .help("Entrar")
             }
         }

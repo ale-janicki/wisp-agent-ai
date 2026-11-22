@@ -45,7 +45,7 @@ private struct CanvasSurface: View {
                     Button("Ajustar") { model.fit() }
                     Button("+") { model.zoom(by: 1.25) }
                 }
-                .buttonStyle(CompactCapsuleStyle(accent: false))
+                .buttonStyle(CapsuleButtonStyle(kind: .ghost, size: .compact))
             }
             if let notice = model.readOnlyNotice { InlineError(text: notice) }
             if model.editing { editBar }
@@ -130,7 +130,7 @@ private struct CanvasSurface: View {
                 Button("Apagar") { model.deleteSelection() }
                     .disabled(model.selection == nil)
             }
-            .buttonStyle(CompactCapsuleStyle(accent: false))
+            .buttonStyle(CapsuleButtonStyle(kind: .ghost, size: .compact))
             Spacer(minLength: 0)
         }
     }

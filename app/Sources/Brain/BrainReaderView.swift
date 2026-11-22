@@ -386,7 +386,7 @@ struct BrainEmbedView: View {
             Button { NSWorkspace.shared.open(url) } label: {
                 Label(embed.name, systemImage: "paperclip").font(Theme.Font.bodyMedium)
             }
-            .buttonStyle(CompactCapsuleStyle(accent: false))
+            .buttonStyle(CapsuleButtonStyle(kind: .ghost, size: .compact))
         } else {
             missing
         }

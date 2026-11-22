@@ -129,7 +129,7 @@ private struct RoutineRow: View {
             Spacer(minLength: Theme.Space.s)
             if !row.job.logs.isEmpty {
                 Button("Log", action: showLog)
-                    .buttonStyle(CompactCapsuleStyle(accent: false))
+                    .buttonStyle(CapsuleButtonStyle(kind: .ghost, size: .compact))
             }
             if canToggle, let status {
                 ConfirmAction(
@@ -184,12 +184,12 @@ private struct LogPane: View {
         VStack(alignment: .leading, spacing: Theme.Space.s) {
             HStack(spacing: Theme.Space.s) {
                 Button(action: close) { Image(systemName: "chevron.left") }
-                    .buttonStyle(CircleButtonStyle(size: 24))
+                    .buttonStyle(CircleButtonStyle(size: Theme.Control.compactHeight))
                     .help("Voltar às rotinas")
                 if job.logs.count > 1 {
                     ForEach(job.logs.indices, id: \.self) { i in
                         Button((job.logs[i] as NSString).lastPathComponent) { index = i }
-                            .buttonStyle(CompactCapsuleStyle(accent: i == index))
+                            .buttonStyle(CapsuleButtonStyle(kind: (i == index) ? .accent : .ghost, size: .compact))
                     }
                 }
                 Text(path)
@@ -200,7 +200,7 @@ private struct LogPane: View {
                     .textSelection(.enabled)
                 Spacer(minLength: 0)
                 Button { load(path) } label: { Image(systemName: "arrow.clockwise") }
-                    .buttonStyle(CircleButtonStyle(size: 24))
+                    .buttonStyle(CircleButtonStyle(size: Theme.Control.compactHeight))
                     .help("Ler de novo")
             }
             content

@@ -63,6 +63,11 @@ enum Theme {
         static let xl: CGFloat = 20
     }
 
+    enum Control {
+        static let height: CGFloat = 32
+        static let compactHeight: CGFloat = 24
+    }
+
     enum Layout {
         static let sidebarWidth: CGFloat = 200
         static let panelPadding: CGFloat = 16
@@ -141,29 +146,30 @@ struct CircleButtonStyle: ButtonStyle {
     enum Kind { case plain, filled, accent }
 
     var kind: Kind = .plain
-    var size: CGFloat = 32
+    var size: CGFloat = Theme.Control.height
 
     func makeBody(configuration: Configuration) -> some View {
-        CircleButtonBody(configuration: configuration, kind: kind, size: size)
+        configuration.label
+            .circleChrome(kind: kind, size: size, pressed: configuration.isPressed)
     }
 }
 
-private struct CircleButtonBody: View {
-    let configuration: ButtonStyleConfiguration
+private struct CircleChrome: ViewModifier {
     let kind: CircleButtonStyle.Kind
     let size: CGFloat
+    let pressed: Bool
     @Environment(\.isEnabled) private var isEnabled
     @State private var hovering = false
 
-    var body: some View {
-        configuration.label
+    func body(content: Content) -> some View {
+        content
             .font(.system(size: size * 0.4, weight: .semibold))
             .foregroundStyle(foreground)
             .frame(width: size, height: size)
             .background(Circle().fill(fill))
             .contentShape(Circle())
-            .scaleEffect(configuration.isPressed ? 0.94 : 1)
-            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+            .scaleEffect(pressed ? 0.94 : 1)
+            .animation(.easeOut(duration: 0.12), value: pressed)
             .onHover { hovering = $0 }
             .pointerStyle(isEnabled ? .link : nil)
     }
@@ -182,6 +188,30 @@ private struct CircleButtonBody: View {
         case .filled: hovering ? Theme.textPrimary : .white
         case .accent: isEnabled ? (hovering ? Theme.accentText : Theme.accent) : Theme.accentFill
         }
+    }
+}
+
+extension View {
+    fileprivate func circleChrome(kind: CircleButtonStyle.Kind, size: CGFloat, pressed: Bool) -> some View {
+        modifier(CircleChrome(kind: kind, size: size, pressed: pressed))
+    }
+}
+
+struct IconMenu<Items: View>: View {
+    let systemImage: String
+    let help: String
+    var compact = false
+    @ViewBuilder let items: () -> Items
+
+    var body: some View {
+        Menu(content: items) {
+            Image(systemName: systemImage)
+                .circleChrome(kind: .plain, size: compact ? Theme.Control.compactHeight : Theme.Control.height, pressed: false)
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help(help)
     }
 }
 
@@ -231,28 +261,33 @@ private struct RowButtonBody: View {
 struct CapsuleButtonStyle: ButtonStyle {
     enum Kind { case accent, error, ghost }
 
+    enum Size { case regular, compact }
+
     var kind: Kind = .accent
+    var size: Size = .regular
 
     func makeBody(configuration: Configuration) -> some View {
-        CapsuleButtonBody(configuration: configuration, kind: kind)
+        configuration.label
+            .capsuleChrome(kind: kind, size: size, pressed: configuration.isPressed)
     }
 }
 
-private struct CapsuleButtonBody: View {
-    let configuration: ButtonStyleConfiguration
+private struct CapsuleChrome: ViewModifier {
     let kind: CapsuleButtonStyle.Kind
+    let size: CapsuleButtonStyle.Size
+    let pressed: Bool
     @Environment(\.isEnabled) private var isEnabled
     @State private var hovering = false
 
-    var body: some View {
-        configuration.label
-            .font(Theme.Font.bodyMedium)
+    func body(content: Content) -> some View {
+        content
+            .font(size == .compact ? Theme.Font.caption : Theme.Font.bodyMedium)
             .foregroundStyle(foreground)
-            .padding(.horizontal, Theme.Space.l)
-            .frame(height: 30)
+            .padding(.horizontal, size == .compact ? Theme.Space.m : Theme.Space.l)
+            .frame(height: size == .compact ? Theme.Control.compactHeight : Theme.Control.height)
             .background(Capsule().fill(fill))
             .contentShape(Capsule())
-            .opacity(configuration.isPressed ? 0.85 : 1)
+            .opacity(pressed ? 0.85 : 1)
             .onHover { hovering = $0 }
             .pointerStyle(isEnabled ? .link : nil)
     }
@@ -270,5 +305,34 @@ private struct CapsuleButtonBody: View {
         case .error: Theme.error.opacity(hovering ? 0.9 : 0.75)
         case .ghost: hovering && isEnabled ? Theme.surfaceHi : Theme.surfaceHi.opacity(0.6)
         }
+    }
+}
+
+extension View {
+    fileprivate func capsuleChrome(kind: CapsuleButtonStyle.Kind, size: CapsuleButtonStyle.Size, pressed: Bool) -> some View {
+        modifier(CapsuleChrome(kind: kind, size: size, pressed: pressed))
+    }
+}
+
+struct CapsuleMenu<Items: View>: View {
+    let title: String
+    let help: String
+    var size: CapsuleButtonStyle.Size = .regular
+    @ViewBuilder let items: () -> Items
+
+    var body: some View {
+        Menu(content: items) {
+            HStack(spacing: Theme.Space.xs) {
+                Text(title).lineLimit(1)
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 9, weight: .bold))
+            }
+            .fixedSize()
+            .capsuleChrome(kind: .ghost, size: size, pressed: false)
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help(help)
     }
 }
