@@ -127,7 +127,7 @@ public struct BrainRenderModel: Sendable, Equatable {
 public enum BrainSections {
     public static func extract(_ text: String, heading: String) -> String? {
         let wanted = BrainText.fold(heading.split(separator: "#").last.map(String.init) ?? heading).trimmingCharacters(in: .whitespaces)
-        let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
+        let lines = BrainText.lines(text).map { Substring(BrainText.withoutCarriageReturn($0)) }
         var start: Int?
         var level = 0
         var fence: Substring?

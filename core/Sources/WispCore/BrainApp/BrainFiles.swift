@@ -81,10 +81,25 @@ public struct BrainFiles: Sendable {
         return (String(decoding: raw, as: UTF8.self), nil)
     }
 
+    public enum Presence: Sendable, Equatable {
+        case text(String)
+        case absent
+        case unreadable
+    }
+
+    public func presence(_ rel: String) -> Presence {
+        guard let location = try? url(rel) else { return .unreadable }
+        var info = stat()
+        if lstat(location.path, &info) != 0 { return errno == ENOENT || errno == ENOTDIR ? .absent : .unreadable }
+        guard let raw = try? Data(contentsOf: location), let text = Self.strictText(raw) else { return .unreadable }
+        return .text(text)
+    }
+
     public func writeProblem(_ rel: String) -> String? {
         guard let location = try? url(rel) else { return "\(rel) está fora do brain; aberta só para leitura" }
         if FileManager.default.fileExists(atPath: location.path) {
             guard let target = try? resolvedTarget(location) else { return "\(rel) é um link simbólico para fora do brain; aberta só para leitura" }
+            if isHardLinked(rel) { return "\(rel) tem mais de um link físico; aberta só para leitura para não separar as cópias" }
             guard let raw = try? Data(contentsOf: target), Self.strictText(raw) != nil else {
                 return "\(rel) não é texto UTF-8 válido (ou tem bytes nulos); aberta só para leitura e nunca será gravada"
             }
@@ -111,20 +126,56 @@ public struct BrainFiles: Sendable {
     }
 
     static func replace(_ data: Data, at destination: URL, label: String) throws {
-        let temporary = destination.deletingLastPathComponent().appendingPathComponent(".\(UUID().uuidString.prefix(8)).wisp-tmp")
+        let staging: URL
         do {
-            try data.write(to: temporary)
-            copyAttributes(from: destination, to: temporary)
+            staging = try FileManager.default.url(for: .itemReplacementDirectory, in: .userDomainMask, appropriateFor: destination, create: true)
+        } catch {
+            throw BrainFilesError.failed("não consegui preparar o salvamento de \(label): \(error.localizedDescription)")
+        }
+        defer { try? FileManager.default.removeItem(at: staging) }
+        let temporary = staging.appendingPathComponent("note")
+        do {
+            try stage(data, at: temporary, attributesFrom: destination)
             try rename(temporary, destination)
         } catch {
-            try? FileManager.default.removeItem(at: temporary)
             throw BrainFilesError.failed("não consegui salvar \(label): \(error.localizedDescription)")
         }
     }
 
-    static func copyAttributes(from source: URL, to destination: URL) {
-        guard FileManager.default.fileExists(atPath: source.path) else { return }
-        copyfile(source.path, destination.path, nil, copyfile_flags_t(COPYFILE_STAT | COPYFILE_XATTR))
+    static func stage(_ data: Data, at temporary: URL, attributesFrom source: URL) throws {
+        try data.write(to: temporary)
+        let handle = try FileHandle(forWritingTo: temporary)
+        defer { try? handle.close() }
+        guard fcntl(handle.fileDescriptor, F_FULLFSYNC) == 0 || (try? handle.synchronize()) != nil else {
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno), userInfo: [NSLocalizedDescriptionKey: "fsync falhou"])
+        }
+        try copyAttributes(from: source, to: temporary)
+    }
+
+    static func copyAttributes(from source: URL, to destination: URL) throws {
+        var info = stat()
+        guard stat(source.path, &info) == 0 else { return }
+        guard copyfile(source.path, destination.path, nil, copyfile_flags_t(COPYFILE_STAT | COPYFILE_XATTR)) == 0 else {
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno), userInfo: [NSLocalizedDescriptionKey: "não consegui copiar permissões e atributos"])
+        }
+        var attributes = attrlist()
+        attributes.bitmapcount = u_short(ATTR_BIT_MAP_COUNT)
+        attributes.commonattr = attrgroup_t(ATTR_CMN_CRTIME)
+        var born = info.st_birthtimespec
+        setattrlist(destination.path, &attributes, &born, MemoryLayout<timespec>.size, 0)
+    }
+
+    public func sameFile(_ a: String, _ b: String) -> Bool {
+        guard let first = try? url(a), let second = try? url(b) else { return false }
+        var one = stat(), two = stat()
+        guard stat(first.path, &one) == 0, stat(second.path, &two) == 0 else { return false }
+        return one.st_dev == two.st_dev && one.st_ino == two.st_ino
+    }
+
+    public func isHardLinked(_ rel: String) -> Bool {
+        guard let location = try? url(rel) else { return false }
+        var info = stat()
+        return stat(location.path, &info) == 0 && info.st_mode & S_IFMT == S_IFREG && info.st_nlink > 1
     }
 
     public func createNote(_ rel: String, text: String = "") throws {
@@ -155,7 +206,7 @@ public struct BrainFiles: Sendable {
         try validateNew(to)
         let source = try url(from), destination = try url(to)
         guard exists(from) else { throw BrainFilesError.missing(from) }
-        if exists(to), from.lowercased() != to.lowercased() { throw BrainFilesError.exists(to) }
+        if exists(to), !sameFile(from, to) { throw BrainFilesError.exists(to) }
         try makeParent(of: to)
         do { try Self.rename(source, destination) } catch {
             throw BrainFilesError.failed("não consegui mover \(from): \(error.localizedDescription)")

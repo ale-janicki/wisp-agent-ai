@@ -152,12 +152,12 @@ final class BrainSafetyTests: XCTestCase {
         XCTAssertFalse(BrainMerge.hasMarkers("plain\n======="))
     }
 
-    func testOnlyHttpHttpsAndMailtoOpenWithoutAsking() throws {
+    func testOnlyHttpHttpsAndMailtoOpenFileIsRevealedAndTheRestRefused() throws {
         XCTAssertEqual(BrainLinkPolicy.decide(try XCTUnwrap(URL(string: "https://a.example"))), .open)
         XCTAssertEqual(BrainLinkPolicy.decide(try XCTUnwrap(URL(string: "HTTP://a.example"))), .open)
         XCTAssertEqual(BrainLinkPolicy.decide(try XCTUnwrap(URL(string: "mailto:a@b.example"))), .open)
-        XCTAssertEqual(BrainLinkPolicy.decide(try XCTUnwrap(URL(string: "file:///etc/hosts"))), .ask)
-        XCTAssertEqual(BrainLinkPolicy.decide(try XCTUnwrap(URL(string: "someapp://run?x=1"))), .ask)
+        XCTAssertEqual(BrainLinkPolicy.decide(try XCTUnwrap(URL(string: "file:///etc/hosts"))), .reveal)
+        XCTAssertEqual(BrainLinkPolicy.decide(try XCTUnwrap(URL(string: "someapp://run?x=1"))), .refuse)
         XCTAssertEqual(BrainLinkPolicy.decide(try XCTUnwrap(URL(string: "javascript:alert(1)"))), .refuse)
         XCTAssertEqual(BrainLinkPolicy.decide(try XCTUnwrap(URL(string: "relative/path"))), .refuse)
     }

@@ -18,6 +18,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        BrainModel.shared.flushForQuit()
         runtime.cancel()
         brainColher?.stop()
         shell?.meetings.stopForQuit()

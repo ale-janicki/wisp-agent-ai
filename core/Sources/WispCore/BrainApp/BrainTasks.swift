@@ -6,11 +6,11 @@ public enum BrainTasks {
     public static func normalized(_ line: String) -> String {
         var text = Substring(line)
         while let first = text.first, first == " " || first == "\t" || first == ">" { text = text.dropFirst() }
-        return text.trimmingCharacters(in: .whitespaces)
+        return text.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     public static func toggle(in text: String, line: Int, expected: String? = nil) -> String? {
-        var lines = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        var lines = BrainText.lines(text)
         guard lines.indices.contains(line) else { return nil }
         let current = lines[line]
         if let expected, normalized(current) != normalized(expected) { return nil }

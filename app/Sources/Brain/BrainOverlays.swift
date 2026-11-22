@@ -181,13 +181,6 @@ struct BrainPromptOverlay: View {
                         .font(Theme.Font.body)
                         .foregroundStyle(Theme.textSecondary)
                     buttons(confirm: "Mover para o Lixo") { model.trash(path) }
-                case .link(let url):
-                    Text("Abrir este link?").font(Theme.Font.title).foregroundStyle(Theme.textPrimary)
-                    Text(url.absoluteString).font(Theme.Font.tool).foregroundStyle(Theme.textSecondary).textSelection(.enabled).lineLimit(4)
-                    buttons(confirm: "Abrir") {
-                        model.prompt = nil
-                        NSWorkspace.shared.open(url)
-                    }
                 case .move(let plan):
                     Text("Atualizar os links").font(Theme.Font.title).foregroundStyle(Theme.textPrimary)
                     Text("Mover “\(plan.from)” para “\(plan.to)” muda \(plan.linkCount) \(plan.linkCount == 1 ? "link" : "links") em \(plan.fileCount) \(plan.fileCount == 1 ? "nota" : "notas"). Tudo é aplicado de uma vez ou nada muda.")

@@ -8,6 +8,7 @@ struct BrainEditorView: NSViewRepresentable {
     let revision: Int
     let jumpLine: Int?
     let jumpSeq: Int
+    let locked: Bool
     var model: BrainModel
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
@@ -46,6 +47,7 @@ struct BrainEditorView: NSViewRepresentable {
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         let coordinator = context.coordinator
         coordinator.parent = self
+        coordinator.view?.isEditable = !locked
         coordinator.replace(text: text, revision: revision)
         if coordinator.lastJump != jumpSeq {
             coordinator.lastJump = jumpSeq

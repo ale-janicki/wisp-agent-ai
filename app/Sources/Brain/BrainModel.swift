@@ -9,6 +9,7 @@ struct BrainConflict: Equatable {
 
     var kind: Kind
     var disk: String
+    var mine: String
     var merged: String
     var hasMarkers: Bool
 }
@@ -63,7 +64,6 @@ enum BrainPrompt: Identifiable {
     case missing(name: String, source: String)
     case delete(path: String, isFolder: Bool)
     case move(BrainMovePlan)
-    case link(URL)
 
     var id: String {
         switch self {
@@ -73,7 +73,6 @@ enum BrainPrompt: Identifiable {
         case .missing(let name, let source): "missing|\(name)|\(source)"
         case .delete(let path, _): "delete|\(path)"
         case .move(let plan): "move|\(plan.from)|\(plan.to)"
-        case .link(let url): "link|\(url.absoluteString)"
         }
     }
 }
@@ -134,7 +133,7 @@ final class BrainModel {
 
     @ObservationIgnored private var treeIndex = BrainTree.Index(entries: [])
     @ObservationIgnored private var watcher: BrainWatcher?
-    @ObservationIgnored private var saveTask: Task<Void, Never>?
+    @ObservationIgnored private var saveTasks: [UUID: Task<Void, Never>] = [:]
     @ObservationIgnored private var rescanTask: Task<Void, Never>?
     @ObservationIgnored private var searchTask: Task<Void, Never>?
     @ObservationIgnored private var backlinkTask: Task<Void, Never>?
@@ -250,7 +249,7 @@ final class BrainModel {
         message = nil
         let kind = BrainFileKind.of(path)
         if kind == .other, let url = try? files.url(path) {
-            NSWorkspace.shared.open(url)
+            NSWorkspace.shared.activateFileViewerSelecting([url])
             return
         }
         flushActive()
@@ -289,6 +288,8 @@ final class BrainModel {
 
     func close(_ id: UUID) {
         guard let index = tabs.firstIndex(where: { $0.id == id }) else { return }
+        saveTasks[id]?.cancel()
+        saveTasks[id] = nil
         save(id)
         if let tab = tabs.first(where: { $0.id == id }), tab.dirty, tab.readOnly == nil {
             guard BrainRecovery.save(tab.text, named: tab.path, in: recoveryFolder) != nil else {
@@ -418,7 +419,7 @@ final class BrainModel {
 
 
     func edit(_ id: UUID, text: String) {
-        guard tabs.first(where: { $0.id == id })?.readOnly == nil else { return }
+        guard let tab = tabs.first(where: { $0.id == id }), tab.readOnly == nil, tab.conflict == nil else { return }
         update(id) {
             $0.text = text
             $0.gen += 1
@@ -450,10 +451,11 @@ final class BrainModel {
     }
 
     private func scheduleSave(_ id: UUID) {
-        saveTask?.cancel()
-        saveTask = Task { [weak self] in
+        saveTasks[id]?.cancel()
+        saveTasks[id] = Task { [weak self] in
             try? await Task.sleep(for: Self.autosaveDelay)
             guard !Task.isCancelled else { return }
+            self?.saveTasks[id] = nil
             self?.save(id)
         }
     }
@@ -463,8 +465,16 @@ final class BrainModel {
     }
 
     func flush() {
-        saveTask?.cancel()
+        for task in saveTasks.values { task.cancel() }
+        saveTasks = [:]
         for tab in tabs { save(tab.id) }
+    }
+
+    func flushForQuit() {
+        flush()
+        for tab in tabs where tab.kind == .note && tab.dirty && tab.readOnly == nil {
+            _ = BrainRecovery.save(tab.text, named: tab.path, in: recoveryFolder)
+        }
     }
 
     @discardableResult
@@ -527,22 +537,43 @@ final class BrainModel {
     }
 
 
+    private func readDisk(_ files: BrainFiles, _ path: String) async -> BrainFiles.Presence {
+        var state = await Task.detached(priority: .utility) { files.presence(path) }.value
+        var attempts = 0
+        while state == .absent, attempts < 2 {
+            try? await Task.sleep(for: .milliseconds(300))
+            state = await Task.detached(priority: .utility) { files.presence(path) }.value
+            attempts += 1
+        }
+        return state
+    }
+
     private func checkOpenNotes() async {
         guard let files else { return }
         for tab in tabs where tab.kind == .note && !tab.loading && tab.readOnly == nil {
             let path = tab.path
             let snapshot = (text: tab.text, base: tab.base, gen: tab.gen)
-            let disk = await Task.detached(priority: .utility) { try? files.readStrict(path) }.value
+            let state = await readDisk(files, path)
             guard let current = tabs.first(where: { $0.id == tab.id }), current.path == path, current.conflict == nil,
                   current.gen == snapshot.gen, current.text == snapshot.text, current.base == snapshot.base else { continue }
-            guard let disk else {
+            let disk: String
+            switch state {
+            case .unreadable:
+                message = "Não consegui ler \(path) agora; mantive o que está na tela."
+                continue
+            case .absent:
                 if current.dirty {
-                    update(tab.id) { $0.conflict = BrainConflict(kind: .deleted, disk: "", merged: $0.text, hasMarkers: false) }
+                    if BrainRecovery.save(current.text, named: path, in: recoveryFolder) == nil {
+                        message = "A nota \(path) sumiu do disco e não consegui guardar uma cópia; o texto continua na tela."
+                    }
+                    update(tab.id) { $0.conflict = BrainConflict(kind: .deleted, disk: "", mine: $0.text, merged: $0.text, hasMarkers: false) }
                 } else {
                     close(tab.id)
                     message = "A nota \(path) foi removida ou movida fora do Wisp."
                 }
                 continue
+            case .text(let text):
+                disk = text
             }
             switch BrainMerge.merge(base: current.base, mine: current.text, theirs: disk) {
             case .unchanged:
@@ -561,9 +592,9 @@ final class BrainModel {
                 }
                 reparse(tab.id)
             case .merged(let text):
-                update(tab.id) { $0.conflict = BrainConflict(kind: .changed, disk: disk, merged: text, hasMarkers: false) }
+                update(tab.id) { $0.conflict = BrainConflict(kind: .changed, disk: disk, mine: $0.text, merged: text, hasMarkers: false) }
             case .conflict(let text):
-                update(tab.id) { $0.conflict = BrainConflict(kind: .changed, disk: disk, merged: text, hasMarkers: true) }
+                update(tab.id) { $0.conflict = BrainConflict(kind: .changed, disk: disk, mine: $0.text, merged: text, hasMarkers: true) }
             }
         }
     }
@@ -603,8 +634,14 @@ final class BrainModel {
             }
             reparse(tab.id)
         case .merge:
+            if tab.text != conflict.mine, !keepCopy(tab.text, of: tab.path) { return }
+            let merged: String
+            switch BrainMerge.merge(base: tab.base, mine: tab.text, theirs: conflict.disk) {
+            case .merged(let text), .conflict(let text), .reload(let text): merged = text
+            case .unchanged: merged = tab.text
+            }
             update(tab.id) {
-                $0.text = conflict.merged
+                $0.text = merged
                 $0.base = conflict.disk
                 $0.conflict = nil
                 $0.allowMarkers = false

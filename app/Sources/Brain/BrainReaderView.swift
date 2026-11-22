@@ -44,7 +44,8 @@ enum BrainLinks {
         guard let action = BrainLinkScheme.action(for: url) else {
             switch BrainLinkPolicy.decide(url) {
             case .open: NSWorkspace.shared.open(url)
-            case .ask: model.prompt = .link(url)
+            case .reveal:
+                if url.isFileURL { NSWorkspace.shared.activateFileViewerSelecting([url]) }
             case .refuse: model.message = "Não abro links \(url.scheme ?? "sem esquema"): por segurança."
             }
             return .handled

@@ -27,10 +27,18 @@ public enum BrainText {
         folder.isEmpty ? name : folder + "/" + name
     }
 
+    public static func lines(_ text: String) -> [String] {
+        text.unicodeScalars.split(omittingEmptySubsequences: false) { $0 == "\n" }.map { String(String.UnicodeScalarView($0)) }
+    }
+
+    static func withoutCarriageReturn(_ line: String) -> String {
+        line.hasSuffix("\r") ? String(line.dropLast()) : line
+    }
+
     static func trimmed(_ bytes: ArraySlice<UInt8>) -> ArraySlice<UInt8> {
         var lower = bytes.startIndex, upper = bytes.endIndex
-        while lower < upper, bytes[lower] == 0x20 || bytes[lower] == 0x09 { lower += 1 }
-        while upper > lower, bytes[upper - 1] == 0x20 || bytes[upper - 1] == 0x09 { upper -= 1 }
+        while lower < upper, bytes[lower] == 0x20 || bytes[lower] == 0x09 || bytes[lower] == 0x0D { lower += 1 }
+        while upper > lower, bytes[upper - 1] == 0x20 || bytes[upper - 1] == 0x09 || bytes[upper - 1] == 0x0D { upper -= 1 }
         return bytes[lower..<upper]
     }
 }

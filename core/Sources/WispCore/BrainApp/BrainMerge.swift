@@ -12,8 +12,8 @@ public enum BrainMerge {
     public static let divider = "======="
     public static let theirsMarker = ">>>>>>> no disco"
     public static func hasMarkers(_ text: String) -> Bool {
-        let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
-        return lines.contains { $0 == Substring(mineMarker) } && lines.contains { $0 == Substring(theirsMarker) }
+        let lines = BrainText.lines(text).map(BrainText.withoutCarriageReturn)
+        return lines.contains(mineMarker) && lines.contains(theirsMarker)
     }
 
     static let cellLimit = 4_000_000
@@ -53,7 +53,7 @@ public enum BrainMerge {
     }
 
     private static func lines(_ text: String) -> [String] {
-        text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        BrainText.lines(text)
     }
 
     static func matches(_ a: [String], _ b: [String]) -> [Int?] {

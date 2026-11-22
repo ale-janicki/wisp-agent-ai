@@ -118,7 +118,7 @@ struct BrainTab: View {
             switch tab.kind {
             case .note:
                 if tab.editing {
-                    BrainEditorView(id: tab.id, text: tab.text, revision: tab.revision, jumpLine: tab.jumpLine, jumpSeq: tab.jumpSeq, model: model)
+                    BrainEditorView(id: tab.id, text: tab.text, revision: tab.revision, jumpLine: tab.jumpLine, jumpSeq: tab.jumpSeq, locked: tab.conflict != nil, model: model)
                         .id(tab.id)
                 } else {
                     BrainReaderView(tab: tab, model: model)
