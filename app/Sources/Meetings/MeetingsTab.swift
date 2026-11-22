@@ -35,7 +35,7 @@ private struct MeetingListCard: View {
     @ObservedObject var library: MeetingLibraryModel
 
     var body: some View {
-        TabCard(title: "Reuniões", icon: "waveform", trailing: library.entries.isEmpty ? nil : "\(library.entries.count)") {
+        TabCard(title: "Reuniões", icon: "waveform", trailing: library.entries.isEmpty ? nil : "\(library.entries.count)", settingsTab: .meetings) {
             VStack(alignment: .leading, spacing: Theme.Space.xs) {
                 if model.phase != .idle {
                     liveRow

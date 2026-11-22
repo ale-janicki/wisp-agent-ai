@@ -116,10 +116,10 @@ struct SettingsView: View {
             IntegrationsPane(media: media)
         case .general:
             general
-            meetings
-            brain
-            agenda
-            macControl
+            MeetingsSettingsGroup()
+            BrainSettingsGroup()
+            AgendaSettingsGroup()
+            MacControlSettingsGroup()
             updates
         case .about:
             about
@@ -234,164 +234,6 @@ struct SettingsView: View {
         }
     }
 
-    private var meetings: some View {
-        let current = settings.settings.meetings
-        return SettingsGroup(
-            title: "Reuniões",
-            caption: "O áudio e a transcrição ficam no seu Mac. O webhook é opcional e só envia depois do seu clique."
-        ) {
-            SettingsRow(
-                title: "Limite de gravação",
-                detail: "Para sozinho depois desse tempo corrido desde o início, com um aviso 5 min antes. Só pausas explícitas ficam de fora; o Mac dormindo conta."
-            ) {
-                Picker("Limite de gravação", selection: Binding(
-                    get: { current.limitMinutes },
-                    set: { value in settings.setMeetings { $0.limitMinutes = value } }
-                )) {
-                    ForEach(MeetingSettings.limitChoices, id: \.self) { minutes in
-                        Text(Self.limitLabel(minutes)).tag(minutes)
-                    }
-                }
-                .labelsHidden()
-                .frame(width: 110)
-            }
-            Divider().overlay(Theme.stroke)
-            ToggleRow(
-                title: "Webhook ao terminar",
-                detail: "Quando a nota ficar pronta, o Wisp mostra um cartão com o destino e o tamanho e só envia quando você clicar em Permitir. Vai o título, a data, a duração, o resumo, os pontos principais, as ações e as métricas em números. Não vai a transcrição, os marcadores, a checklist nem o texto das métricas. O endereço fica no Keychain.",
-                isOn: current.webhookEnabled
-            ) { on in settings.setMeetings { $0.webhookEnabled = on } }
-            if current.webhookEnabled {
-                WebhookURLField()
-                Divider().overlay(Theme.stroke)
-                ToggleRow(
-                    title: "Assinar o envio",
-                    detail: "Manda X-Wisp-Timestamp e X-Wisp-Signature: sha256=… (HMAC-SHA256 de data.corpo) com um segredo só seu, guardado no Keychain. Quem recebe deve recusar datas com mais de 5 min.",
-                    isOn: current.webhookSigns
-                ) { on in
-                    if on { _ = WebhookKeychain.ensureSecret() }
-                    settings.setMeetings { $0.webhookSigns = on }
-                } accessory: {
-                    if current.webhookSigns {
-                        Button("Copiar segredo") {
-                            guard let secret = WebhookKeychain.load(.secret) else { return }
-                            NSPasteboard.general.clearContents()
-                            NSPasteboard.general.setString(secret, forType: .string)
-                        }
-                        .buttonStyle(CapsuleButtonStyle(kind: .ghost))
-                    }
-                }
-            }
-        }
-    }
-
-    private static func limitLabel(_ minutes: Int) -> String {
-        minutes % 60 == 0 ? "\(minutes / 60) h" : "\(minutes) min"
-    }
-
-    private var brain: some View {
-        let model = BrainSettingsModel.shared
-        return SettingsGroup(title: "Brain") {
-            SettingsRow(
-                title: "Pasta do brain",
-                detail: model.profileIsLink ? "\(model.displayFolder)\nO perfil é gerenciado fora do Wisp: ajuste o caminho da memória nele." : model.displayFolder
-            ) {
-                Button("Alterar…") { model.chooseFolder() }
-                    .buttonStyle(CapsuleButtonStyle(kind: .ghost))
-            }
-            Divider().overlay(Theme.stroke)
-            ToggleRow(
-                title: "Aprender com as conversas",
-                detail: "Depois de 30 min sem mensagens, o Wisp guarda no brain o que a conversa teve de importante. Usa o seu plano.",
-                isOn: model.learns
-            ) { model.setLearns($0) }
-            Divider().overlay(Theme.stroke)
-            lessons(model)
-            if let error = model.error {
-                Text(error)
-                    .font(Theme.Font.caption)
-                    .foregroundStyle(Theme.error)
-            }
-        }
-        .onAppear { model.refresh() }
-    }
-
-    @ViewBuilder
-    private func lessons(_ model: BrainSettingsModel) -> some View {
-        SettingsRow(
-            title: "O que o Wisp aprendeu",
-            detail: model.lessons.isEmpty
-                ? "Quando você corrigir o Wisp ou disser como prefere as coisas, ele guarda aqui e passa a seguir em toda conversa."
-                : "Preferências que o Wisp segue em toda conversa. Remover faz ele esquecer."
-        ) { EmptyView() }
-        ForEach(model.pendingLessons) { lesson in
-            Divider().overlay(Theme.stroke)
-            SettingsRow(
-                title: lesson.rule,
-                detail: "Quer aprender, esperando você confirmar" + (lesson.date.map { " · \($0)" } ?? "")
-            ) {
-                Button("Confirmar") { model.confirm(lesson) }
-                    .buttonStyle(CapsuleButtonStyle(kind: .ghost))
-                Button("Descartar") { model.discard(lesson) }
-                    .buttonStyle(CapsuleButtonStyle(kind: .ghost))
-            }
-        }
-        ForEach(model.lessons) { lesson in
-            Divider().overlay(Theme.stroke)
-            SettingsRow(
-                title: lesson.rule,
-                detail: [lesson.learnedAlone ? "aprendido sozinho" : lesson.origin, lesson.date].compactMap { $0 }.joined(separator: " · ")
-            ) {
-                Button("Remover") { model.forget(lesson) }
-                    .buttonStyle(CapsuleButtonStyle(kind: .ghost))
-            }
-        }
-    }
-
-    private var agenda: some View {
-        let access = AgendaAccessModel.shared
-        return SettingsGroup(title: "Agenda") {
-            SettingsRow(title: "Agenda: permitir acesso", detail: access.sentence) {
-                if access.state != .granted {
-                    Button(access.state == .denied ? "Abrir Ajustes do Sistema" : "Permitir") {
-                        if access.state == .denied {
-                            NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Calendars")!)
-                        } else {
-                            access.ask()
-                        }
-                    }
-                    .buttonStyle(CapsuleButtonStyle(kind: .ghost))
-                    .disabled(access.busy)
-                }
-            }
-            Divider().overlay(Theme.stroke)
-            ToggleRow(
-                title: "Ocultar títulos nas notificações e na barra de menu",
-                detail: "Mostra \"Reunião\" no lugar do título do evento.",
-                isOn: AppSettings.shared.settings.agenda.hideTitlesInAlerts
-            ) { on in AppSettings.shared.setAgenda { $0.hideTitlesInAlerts = on } }
-        }
-        .onAppear { access.refresh() }
-    }
-
-    private var macControl: some View {
-        let access = MacControlAccessModel.shared
-        return SettingsGroup(title: "Controle do Mac") {
-            SettingsRow(title: "Controle do Mac: permitir", detail: access.sentence) {
-                if !access.granted {
-                    Button(access.buttonTitle) { access.ask() }
-                        .buttonStyle(CapsuleButtonStyle(kind: .ghost))
-                        .disabled(access.busy)
-                }
-            }
-            Divider().overlay(Theme.stroke)
-            SettingsRow(title: access.accessibilityLine, detail: "Ler a janela, clicar, digitar e apertar teclas em qualquer app.") { EmptyView() }
-            Divider().overlay(Theme.stroke)
-            SettingsRow(title: access.automationLine, detail: "Abrir e controlar apps, como Música, Safari e Mail, por script.") { EmptyView() }
-        }
-        .onAppear { access.refresh() }
-    }
-
     private func loginSentence(_ login: LoginItemModel) -> String {
         if let error = login.error { return error }
         guard login.installed else { return "Disponível quando o Wisp estiver em Aplicativos." }
@@ -458,6 +300,174 @@ struct SettingsView: View {
                 .buttonStyle(CapsuleButtonStyle(kind: .ghost))
             }
         }
+    }
+}
+
+struct MeetingsSettingsGroup: View {
+    private let settings = AppSettings.shared
+
+    var body: some View {
+        let current = settings.settings.meetings
+        return SettingsGroup(
+            title: "Reuniões",
+            caption: "O áudio e a transcrição ficam no seu Mac. O webhook é opcional e só envia depois do seu clique."
+        ) {
+            SettingsRow(
+                title: "Limite de gravação",
+                detail: "Para sozinho depois desse tempo corrido desde o início, com um aviso 5 min antes. Só pausas explícitas ficam de fora; o Mac dormindo conta."
+            ) {
+                Picker("Limite de gravação", selection: Binding(
+                    get: { current.limitMinutes },
+                    set: { value in settings.setMeetings { $0.limitMinutes = value } }
+                )) {
+                    ForEach(MeetingSettings.limitChoices, id: \.self) { minutes in
+                        Text(Self.limitLabel(minutes)).tag(minutes)
+                    }
+                }
+                .labelsHidden()
+                .frame(width: 110)
+            }
+            Divider().overlay(Theme.stroke)
+            ToggleRow(
+                title: "Webhook ao terminar",
+                detail: "Quando a nota ficar pronta, o Wisp mostra um cartão com o destino e o tamanho e só envia quando você clicar em Permitir. Vai o título, a data, a duração, o resumo, os pontos principais, as ações e as métricas em números. Não vai a transcrição, os marcadores, a checklist nem o texto das métricas. O endereço fica no Keychain.",
+                isOn: current.webhookEnabled
+            ) { on in settings.setMeetings { $0.webhookEnabled = on } }
+            if current.webhookEnabled {
+                WebhookURLField()
+                Divider().overlay(Theme.stroke)
+                ToggleRow(
+                    title: "Assinar o envio",
+                    detail: "Manda X-Wisp-Timestamp e X-Wisp-Signature: sha256=… (HMAC-SHA256 de data.corpo) com um segredo só seu, guardado no Keychain. Quem recebe deve recusar datas com mais de 5 min.",
+                    isOn: current.webhookSigns
+                ) { on in
+                    if on { _ = WebhookKeychain.ensureSecret() }
+                    settings.setMeetings { $0.webhookSigns = on }
+                } accessory: {
+                    if current.webhookSigns {
+                        Button("Copiar segredo") {
+                            guard let secret = WebhookKeychain.load(.secret) else { return }
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(secret, forType: .string)
+                        }
+                        .buttonStyle(CapsuleButtonStyle(kind: .ghost))
+                    }
+                }
+            }
+        }
+    }
+
+    private static func limitLabel(_ minutes: Int) -> String {
+        minutes % 60 == 0 ? "\(minutes / 60) h" : "\(minutes) min"
+    }
+}
+
+struct BrainSettingsGroup: View {
+    var body: some View {
+        let model = BrainSettingsModel.shared
+        return SettingsGroup(title: "Brain") {
+            SettingsRow(
+                title: "Pasta do brain",
+                detail: model.profileIsLink ? "\(model.displayFolder)\nO perfil é gerenciado fora do Wisp: ajuste o caminho da memória nele." : model.displayFolder
+            ) {
+                Button("Alterar…") { model.chooseFolder() }
+                    .buttonStyle(CapsuleButtonStyle(kind: .ghost))
+            }
+            Divider().overlay(Theme.stroke)
+            ToggleRow(
+                title: "Aprender com as conversas",
+                detail: "Depois de 30 min sem mensagens, o Wisp guarda no brain o que a conversa teve de importante. Usa o seu plano.",
+                isOn: model.learns
+            ) { model.setLearns($0) }
+            Divider().overlay(Theme.stroke)
+            lessons(model)
+            if let error = model.error {
+                Text(error)
+                    .font(Theme.Font.caption)
+                    .foregroundStyle(Theme.error)
+            }
+        }
+        .onAppear { model.refresh() }
+    }
+
+    @ViewBuilder
+    private func lessons(_ model: BrainSettingsModel) -> some View {
+        SettingsRow(
+            title: "O que o Wisp aprendeu",
+            detail: model.lessons.isEmpty
+                ? "Quando você corrigir o Wisp ou disser como prefere as coisas, ele guarda aqui e passa a seguir em toda conversa."
+                : "Preferências que o Wisp segue em toda conversa. Remover faz ele esquecer."
+        ) { EmptyView() }
+        ForEach(model.pendingLessons) { lesson in
+            Divider().overlay(Theme.stroke)
+            SettingsRow(
+                title: lesson.rule,
+                detail: "Quer aprender, esperando você confirmar" + (lesson.date.map { " · \($0)" } ?? "")
+            ) {
+                Button("Confirmar") { model.confirm(lesson) }
+                    .buttonStyle(CapsuleButtonStyle(kind: .ghost))
+                Button("Descartar") { model.discard(lesson) }
+                    .buttonStyle(CapsuleButtonStyle(kind: .ghost))
+            }
+        }
+        ForEach(model.lessons) { lesson in
+            Divider().overlay(Theme.stroke)
+            SettingsRow(
+                title: lesson.rule,
+                detail: [lesson.learnedAlone ? "aprendido sozinho" : lesson.origin, lesson.date].compactMap { $0 }.joined(separator: " · ")
+            ) {
+                Button("Remover") { model.forget(lesson) }
+                    .buttonStyle(CapsuleButtonStyle(kind: .ghost))
+            }
+        }
+    }
+}
+
+struct AgendaSettingsGroup: View {
+    var body: some View {
+        let access = AgendaAccessModel.shared
+        return SettingsGroup(title: "Agenda") {
+            SettingsRow(title: "Agenda: permitir acesso", detail: access.sentence) {
+                if access.state != .granted {
+                    Button(access.state == .denied ? "Abrir Ajustes do Sistema" : "Permitir") {
+                        if access.state == .denied {
+                            NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Calendars")!)
+                        } else {
+                            access.ask()
+                        }
+                    }
+                    .buttonStyle(CapsuleButtonStyle(kind: .ghost))
+                    .disabled(access.busy)
+                }
+            }
+            Divider().overlay(Theme.stroke)
+            ToggleRow(
+                title: "Ocultar títulos nas notificações e na barra de menu",
+                detail: "Mostra \"Reunião\" no lugar do título do evento.",
+                isOn: AppSettings.shared.settings.agenda.hideTitlesInAlerts
+            ) { on in AppSettings.shared.setAgenda { $0.hideTitlesInAlerts = on } }
+        }
+        .onAppear { access.refresh() }
+    }
+}
+
+struct MacControlSettingsGroup: View {
+    var body: some View {
+        let access = MacControlAccessModel.shared
+        return SettingsGroup(title: "Controle do Mac") {
+            SettingsRow(title: "Controle do Mac: permitir", detail: access.sentence) {
+                if !access.granted {
+                    Button(access.buttonTitle) { access.ask() }
+                        .buttonStyle(CapsuleButtonStyle(kind: .ghost))
+                        .disabled(access.busy)
+                }
+            }
+            Divider().overlay(Theme.stroke)
+            SettingsRow(title: access.accessibilityLine, detail: "Ler a janela, clicar, digitar e apertar teclas em qualquer app.") { EmptyView() }
+            Divider().overlay(Theme.stroke)
+            SettingsRow(title: access.automationLine, detail: "Abrir e controlar apps, como Música, Safari e Mail, por script.") { EmptyView() }
+        }
+        .onAppear { access.refresh() }
     }
 }
 

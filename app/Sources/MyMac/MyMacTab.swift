@@ -9,7 +9,11 @@ struct MyMacTab: View {
     var body: some View {
         ScrollView(.vertical) {
         VStack(alignment: .leading, spacing: gap) {
-            MachineHeader(machine: model.machine)
+            HStack(alignment: .top) {
+                MachineHeader(machine: model.machine)
+                Spacer(minLength: Theme.Space.s)
+                TabSettingsButton(tab: .myMac)
+            }
             HStack(spacing: gap) {
                 CPUTile(snapshot: model.snapshot, history: model.cpuHistory)
                 MemoryTile(snapshot: model.snapshot, history: model.memoryHistory)

@@ -9,6 +9,10 @@ Entries are in descending chronological order (newest first).
 
 ## [Unreleased]
 
+### Added
+
+- Each tab with settings (Conversa, Brain, Agenda, Reuniões, Música, My Mac) has a gear in its header that opens that tab's settings inside the tab, with "Voltar" and "Todos os ajustes"; Ajustes keeps everything.
+
 ### Changed
 
 - The "Memória" and "Brain" sidebar tabs are now one "Brain" tab: the recent notes list, the command search and the graph search moved into it (home view when no note is open, "Visão geral" button).

@@ -4,6 +4,7 @@ struct TabCard<Content: View>: View {
     let title: String
     let icon: String
     var trailing: String?
+    var settingsTab: PanelTab?
     @ViewBuilder var content: Content
 
     var body: some View {
@@ -24,6 +25,7 @@ struct TabCard<Content: View>: View {
                         .foregroundStyle(Theme.textTertiary)
                         .lineLimit(1)
                 }
+                if let settingsTab { TabSettingsButton(tab: settingsTab) }
             }
             .frame(height: 26)
             content
