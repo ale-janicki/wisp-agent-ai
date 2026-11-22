@@ -1,0 +1,185 @@
+{
+  "version": 1,
+  "placeholder": "{home}",
+  "cases": [
+    {
+      "name": "no config file",
+      "env": {},
+      "config": null,
+      "expect": {
+        "config_file": "{home}/.config/wisp/wisp.json",
+        "root": "{home}/Wisp",
+        "conversas": "{home}/Wisp/conversas",
+        "reunioes": "{home}/Wisp/reunioes",
+        "brain": "{home}/Wisp/brain",
+        "anexos": "{home}/Wisp/anexos",
+        "skills": "{home}/Wisp/skills",
+        "ferramentas": "{home}/Wisp/ferramentas",
+        "logs": "{home}/Wisp/logs",
+        "agente": "{home}/Wisp/agente.md",
+        "guardrails": "{home}/Wisp/guardrails.toml",
+        "modelos": "{home}/Wisp/modelos.toml",
+        "modelos_pasta": "{home}/Wisp/modelos"
+      }
+    },
+    {
+      "name": "empty wisp_dir falls back",
+      "env": {},
+      "config": {
+        "wisp_dir": ""
+      },
+      "expect": {
+        "config_file": "{home}/.config/wisp/wisp.json",
+        "root": "{home}/Wisp",
+        "conversas": "{home}/Wisp/conversas",
+        "reunioes": "{home}/Wisp/reunioes",
+        "brain": "{home}/Wisp/brain",
+        "anexos": "{home}/Wisp/anexos",
+        "skills": "{home}/Wisp/skills",
+        "ferramentas": "{home}/Wisp/ferramentas",
+        "logs": "{home}/Wisp/logs",
+        "agente": "{home}/Wisp/agente.md",
+        "guardrails": "{home}/Wisp/guardrails.toml",
+        "modelos": "{home}/Wisp/modelos.toml",
+        "modelos_pasta": "{home}/Wisp/modelos"
+      }
+    },
+    {
+      "name": "tilde wisp_dir with space and accent",
+      "env": {},
+      "config": {
+        "wisp_dir": "~/Documents/Meu Wisp ç"
+      },
+      "expect": {
+        "config_file": "{home}/.config/wisp/wisp.json",
+        "root": "{home}/Documents/Meu Wisp ç",
+        "conversas": "{home}/Documents/Meu Wisp ç/conversas",
+        "reunioes": "{home}/Documents/Meu Wisp ç/reunioes",
+        "brain": "{home}/Documents/Meu Wisp ç/brain",
+        "anexos": "{home}/Documents/Meu Wisp ç/anexos",
+        "skills": "{home}/Documents/Meu Wisp ç/skills",
+        "ferramentas": "{home}/Documents/Meu Wisp ç/ferramentas",
+        "logs": "{home}/Documents/Meu Wisp ç/logs",
+        "agente": "{home}/Documents/Meu Wisp ç/agente.md",
+        "guardrails": "{home}/Documents/Meu Wisp ç/guardrails.toml",
+        "modelos": "{home}/Documents/Meu Wisp ç/modelos.toml",
+        "modelos_pasta": "{home}/Documents/Meu Wisp ç/modelos"
+      }
+    },
+    {
+      "name": "absolute wisp_dir",
+      "env": {},
+      "config": {
+        "wisp_dir": "/Volumes/Disco/Wisp"
+      },
+      "expect": {
+        "config_file": "{home}/.config/wisp/wisp.json",
+        "root": "/Volumes/Disco/Wisp",
+        "conversas": "/Volumes/Disco/Wisp/conversas",
+        "reunioes": "/Volumes/Disco/Wisp/reunioes",
+        "brain": "/Volumes/Disco/Wisp/brain",
+        "anexos": "/Volumes/Disco/Wisp/anexos",
+        "skills": "/Volumes/Disco/Wisp/skills",
+        "ferramentas": "/Volumes/Disco/Wisp/ferramentas",
+        "logs": "/Volumes/Disco/Wisp/logs",
+        "agente": "/Volumes/Disco/Wisp/agente.md",
+        "guardrails": "/Volumes/Disco/Wisp/guardrails.toml",
+        "modelos": "/Volumes/Disco/Wisp/modelos.toml",
+        "modelos_pasta": "/Volumes/Disco/Wisp/modelos"
+      }
+    },
+    {
+      "name": "brain repointed",
+      "env": {},
+      "config": {
+        "brain": "~/vault"
+      },
+      "expect": {
+        "config_file": "{home}/.config/wisp/wisp.json",
+        "root": "{home}/Wisp",
+        "conversas": "{home}/Wisp/conversas",
+        "reunioes": "{home}/Wisp/reunioes",
+        "brain": "{home}/vault",
+        "anexos": "{home}/Wisp/anexos",
+        "skills": "{home}/Wisp/skills",
+        "ferramentas": "{home}/Wisp/ferramentas",
+        "logs": "{home}/Wisp/logs",
+        "agente": "{home}/Wisp/agente.md",
+        "guardrails": "{home}/Wisp/guardrails.toml",
+        "modelos": "{home}/Wisp/modelos.toml",
+        "modelos_pasta": "{home}/Wisp/modelos"
+      }
+    },
+    {
+      "name": "brain follows a moved Wisp folder",
+      "env": {},
+      "config": {
+        "wisp_dir": "~/Dados/Wisp"
+      },
+      "expect": {
+        "config_file": "{home}/.config/wisp/wisp.json",
+        "root": "{home}/Dados/Wisp",
+        "conversas": "{home}/Dados/Wisp/conversas",
+        "reunioes": "{home}/Dados/Wisp/reunioes",
+        "brain": "{home}/Dados/Wisp/brain",
+        "anexos": "{home}/Dados/Wisp/anexos",
+        "skills": "{home}/Dados/Wisp/skills",
+        "ferramentas": "{home}/Dados/Wisp/ferramentas",
+        "logs": "{home}/Dados/Wisp/logs",
+        "agente": "{home}/Dados/Wisp/agente.md",
+        "guardrails": "{home}/Dados/Wisp/guardrails.toml",
+        "modelos": "{home}/Dados/Wisp/modelos.toml",
+        "modelos_pasta": "{home}/Dados/Wisp/modelos"
+      }
+    },
+    {
+      "name": "XDG_CONFIG_HOME",
+      "env": {
+        "XDG_CONFIG_HOME": "{home}/xdg"
+      },
+      "config": {
+        "wisp_dir": "~/W"
+      },
+      "expect": {
+        "config_file": "{home}/xdg/wisp/wisp.json",
+        "root": "{home}/W",
+        "conversas": "{home}/W/conversas",
+        "reunioes": "{home}/W/reunioes",
+        "brain": "{home}/W/brain",
+        "anexos": "{home}/W/anexos",
+        "skills": "{home}/W/skills",
+        "ferramentas": "{home}/W/ferramentas",
+        "logs": "{home}/W/logs",
+        "agente": "{home}/W/agente.md",
+        "guardrails": "{home}/W/guardrails.toml",
+        "modelos": "{home}/W/modelos.toml",
+        "modelos_pasta": "{home}/W/modelos"
+      }
+    },
+    {
+      "name": "WISP_CONFIG wins",
+      "env": {
+        "WISP_CONFIG": "{home}/outro/wisp.json",
+        "XDG_CONFIG_HOME": "{home}/xdg"
+      },
+      "config": {
+        "brain": "/mnt/b"
+      },
+      "expect": {
+        "config_file": "{home}/outro/wisp.json",
+        "root": "{home}/Wisp",
+        "conversas": "{home}/Wisp/conversas",
+        "reunioes": "{home}/Wisp/reunioes",
+        "brain": "/mnt/b",
+        "anexos": "{home}/Wisp/anexos",
+        "skills": "{home}/Wisp/skills",
+        "ferramentas": "{home}/Wisp/ferramentas",
+        "logs": "{home}/Wisp/logs",
+        "agente": "{home}/Wisp/agente.md",
+        "guardrails": "{home}/Wisp/guardrails.toml",
+        "modelos": "{home}/Wisp/modelos.toml",
+        "modelos_pasta": "{home}/Wisp/modelos"
+      }
+    }
+  ]
+}

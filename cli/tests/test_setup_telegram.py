@@ -162,7 +162,7 @@ def test_discover_finds_forum_group_and_user(fake_home, tg):
     assert job["ProgramArguments"] == [str(paths.runtime / "venv/bin/wisp-bot")]
     assert job["EnvironmentVariables"]["WISP_CONFIG"] == str(paths.config / "wisp.json")
     assert job["EnvironmentVariables"]["PATH"] == f"{paths.bin}:/opt/homebrew/bin:/usr/bin:/bin"
-    assert job["StandardOutPath"] == str(paths.state / "bot/bot.log")
+    assert job["StandardOutPath"] == str(paths.home / "Wisp/logs/bot.log")
     assert job["KeepAlive"] is True
     assert any(c[:2] == ["launchctl", "bootstrap"] for c in runner.calls)
 
@@ -231,7 +231,7 @@ def test_profile_block_uses_absolute_wisp_shim(fake_home, tg):
     assert block["share"] == f"{shim} compartilhar --session={{session}} --cwd={{cwd}} --nome={{name}} --json"
     assert block["post"] == f"{shim} postar --json"
     assert not {"create", "send", "claim"} & block.keys()
-    assert block["attachments"] == str(paths_of(fake_home).state / "bot/anexos")
+    assert block["attachments"] == str(paths_of(fake_home).home / "Wisp/anexos")
 
 
 def test_profile_writer_keeps_other_keys(fake_home):

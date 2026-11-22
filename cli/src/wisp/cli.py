@@ -32,6 +32,7 @@ from wisp.report import StepReport
 from wisp.runner import SubprocessRunner
 from wisp.setup.brain import setup_brain
 from wisp.setup.codex import gate_problem, project_config_problem, sync_codex, user_owned_servers
+from wisp.migrate_folder import migrate_folder, migrate_meetings
 from wisp.setup.folder import UNREADABLE, seed_folder, setup_folder, wisp_root
 from wisp.setup.harness import setup_harness
 from wisp.setup.profile import setup_profile
@@ -89,6 +90,21 @@ def _setup_brain(args: argparse.Namespace) -> int:
 def _setup_folder(args: argparse.Namespace) -> int:
     path = Path(args.path) if args.path else None
     return _run_step("folder", lambda cfg: setup_folder(SubprocessRunner(), WispPaths.current(), cfg, path=path, dry_run=args.dry_run))
+
+
+def _folder_migrate(args: argparse.Namespace) -> int:
+    def run(cfg: WispConfig) -> StepReport:
+        if is_unreadable():
+            return StepReport("folder-migrate", "failed", UNREADABLE)
+        if not args.reunioes:
+            return migrate_folder(WispPaths.current(), cfg)
+
+        def progress(done: int, total: int, name: str) -> None:
+            print(json.dumps({"type": "progress", "done": done, "total": total, "item": name}, ensure_ascii=False), flush=True)
+
+        return migrate_meetings(WispPaths.current(), cfg, progress)
+
+    return _run_step("folder-migrate", run)
 
 
 def _harness_and_codex(cfg: WispConfig, dry_run: bool) -> StepReport:
@@ -408,6 +424,11 @@ def build_parser() -> argparse.ArgumentParser:
     sync = harness_steps.add_parser("sync")
     sync.add_argument("--dry-run", action="store_true")
     sync.add_argument("--json", action="store_true")
+    folder_group = sub.add_parser("folder")
+    folder_steps = folder_group.add_subparsers(dest="action", required=True)
+    migrate = folder_steps.add_parser("migrate")
+    migrate.add_argument("--reunioes", action="store_true")
+    migrate.add_argument("--json", action="store_true")
     config = sub.add_parser("config")
     config_steps = config.add_subparsers(dest="action", required=True)
     config_set = config_steps.add_parser("set")
@@ -456,6 +477,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _setup_brain(args)
     if args.command == "setup" and args.step == "folder":
         return _setup_folder(args)
+    if args.command == "folder" and args.action == "migrate":
+        return _folder_migrate(args)
     if args.command == "setup" and args.step == "harness":
         return _setup_harness(args)
     if args.command == "setup" and args.step == "system":

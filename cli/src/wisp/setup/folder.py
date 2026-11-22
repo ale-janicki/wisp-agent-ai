@@ -3,11 +3,12 @@ from pathlib import Path
 
 from wisp.config import WispConfig, is_unreadable, save_config
 from wisp.fsops import atomic_write, copy_file, ensure_dir
+from wisp.migrate_folder import migrate_folder
 from wisp.paths import WispPaths, resources_root
 from wisp.report import StepReport
 from wisp.runner import Runner
 
-DIRS = ("skills", "ferramentas", "conversas")
+DIRS = ("skills", "ferramentas", "conversas", "reunioes", "anexos", "logs")
 UNREADABLE = "não consegui ler o wisp.json; nada foi alterado"
 RELATIVE = "use um caminho completo (começando com / ou ~)"
 BLOCK = re.compile(r"<!-- wisp:begin -->\n(.*?)<!-- wisp:end -->", re.DOTALL)
@@ -78,6 +79,9 @@ def setup_folder(runner: Runner, paths: WispPaths, cfg: WispConfig, *, path: Pat
     cfg.wisp_dir = str(path) if path else cfg.wisp_dir
     save_config(cfg)
     data["created"] = ", ".join(missing)
+    moved = migrate_folder(paths, cfg)
+    if moved.status != "skipped":
+        data["migrated"] = moved.summary
     if not missing:
         return StepReport("folder", "skipped", "a pasta do Wisp já existe", data=data)
     return StepReport("folder", "done", "pasta do Wisp criada", data=data)

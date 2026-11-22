@@ -2,12 +2,12 @@ from pathlib import Path
 
 from wisp.config import WispConfig, save_config
 from wisp.fsops import copy_file, ensure_dir
+from wisp.layout import resolve_layout
 from wisp.paths import WispPaths, resources_root
 from wisp.report import Detail, StepReport
 from wisp.runner import Runner
 
 PROTECTED = ("Documents", "Desktop", "Downloads", "Library/Mobile Documents")
-DEFAULT_REL = "Wisp/brain"
 GIT_EMAIL = "wisp@localhost"
 
 
@@ -31,7 +31,7 @@ def _git(runner: Runner, target: Path, details: list[Detail], *args: str) -> str
 
 
 def setup_brain(runner: Runner, paths: WispPaths, cfg: WispConfig, *, path: Path | None, dry_run: bool) -> StepReport:
-    target = (path or paths.home / DEFAULT_REL).expanduser()
+    target = (path or resolve_layout({"wisp_dir": cfg.wisp_dir}, paths.home).brain).expanduser()
     if runner.run(["xcode-select", "-p"], timeout=10).exit != 0:
         return StepReport("brain", "failed", "faltam as Ferramentas de linha de comando", data={"step": "system"})
     data = {"path": str(target)}

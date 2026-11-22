@@ -53,12 +53,31 @@ final class RuntimeInstaller {
         case .current:
             log.info("runtime atual")
             phase = .ready(layout.wisp)
+            await migrateFolder(base: base)
         case .installed:
             log.info("runtime instalado")
             phase = .ready(layout.wisp)
+            await migrateFolder(base: base)
         case .failed(let failure):
             log.error("runtime install failed: \(failure, privacy: .public)")
             phase = .failed(failure)
+        }
+    }
+
+    private func migrateFolder(base: [String: String]) async {
+        let layout = layout
+        let environment = Self.runtimeEnvironment(layout, base: base)
+        let result: Result<CommandOutput, BlockCommandError> = await withCheckedContinuation { continuation in
+            Self.queue.async {
+                continuation.resume(returning: CommandRunner.run(
+                    executable: layout.wisp, arguments: ["folder", "migrate", "--json"], environment: environment, timeout: 120))
+            }
+        }
+        switch result {
+        case .failure(let error): log.error("folder migrate did not run: \(String(describing: error), privacy: .public)")
+        case .success(let output):
+            let summary = Self.shimSummary(output.stdout) ?? "sem resposta"
+            log.info("folder migrate: \(summary, privacy: .public)")
         }
     }
 
