@@ -197,7 +197,7 @@ def test_a_model_may_change_between_turns_and_the_tier_follows(folder):
         first, _ = run(engine, session)
         second, events = run(engine, session, model="qwen3:14b")
     assert (first.model, second.model) == ("qwen3:8b", "qwen3:14b") and events[0]["tier"] == "medio"
-    assert fake.chats()[1]["messages"][1]["content"] == "oi"
+    assert fake.chats()[1]["messages"][1]["content"] == "oi\n\n[Hoje é 2026-11-20.]"
 
 
 def test_resume_rebuilds_the_context_from_the_transcript_only(folder):
@@ -215,7 +215,7 @@ def test_resume_rebuilds_the_context_from_the_transcript_only(folder):
             {"role": "user", "content": "pergunta"}, {"role": "assistant", "content": "primeira"}]
         run(engine, resumed, "e agora")
     sent = [m["content"] for m in fake.chats()[0]["messages"][1:]]
-    assert sent == ["pergunta", "primeira", "e agora"]
+    assert sent == ["pergunta", "primeira", "e agora\n\n[Hoje é 2026-11-20.]"]
     with pytest.raises(EngineError):
         engine.resume("../x")
     with pytest.raises(EngineError, match="não achei"):
