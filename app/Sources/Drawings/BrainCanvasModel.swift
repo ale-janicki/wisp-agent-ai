@@ -41,6 +41,7 @@ final class BrainCanvasModel {
     @ObservationIgnored let onNotice: (String) -> Void
     private(set) var images: [String: NSImage] = [:]
     @ObservationIgnored private var imageTask: Task<Void, Never>?
+    @ObservationIgnored private var quitToken: UUID?
     @ObservationIgnored private var state = DrawingFileState()
     @ObservationIgnored private var autosave: Task<Void, Never>?
     @ObservationIgnored private var watcher: Task<Void, Never>?
@@ -59,6 +60,7 @@ final class BrainCanvasModel {
 
     func start() {
         load()
+        quitToken = QuitFlush.shared.register { [self] in flushForQuit() }
         watcher = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(1.5))
@@ -67,7 +69,20 @@ final class BrainCanvasModel {
         }
     }
 
+    func flushForQuit() {
+        guard state.dirty else { return }
+        autosave?.cancel()
+        let onDisk = try? Data(contentsOf: url)
+        if externalChangePending || (onDisk != nil && state.externalChange(diskData: onDisk) == .prompt) {
+            saveRecoveryCopy()
+        } else {
+            writeNow()
+        }
+    }
+
     func stop() {
+        if let quitToken { QuitFlush.shared.unregister(quitToken) }
+        quitToken = nil
         autosave?.cancel()
         watcher?.cancel()
         imageTask?.cancel()

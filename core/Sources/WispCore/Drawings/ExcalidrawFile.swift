@@ -77,6 +77,10 @@ public struct ExcalidrawFile: Equatable, Sendable {
     public var readOnlyNotice: String?
     var textPrefix = "\n"
     var textTail = ""
+    var closingMarker = true
+    var textBefore: [String: String] = [:]
+    var regionTextIDs: Set<String> = []
+    var trailerAnchorIDs: Set<String> = []
     var elementLinksExtra = ""
     var embeddedExtra = ""
     public static let lossyNotice = "Este arquivo tem texto que não é UTF-8 válido; o Wisp abre só para leitura para não alterá-lo."
@@ -210,7 +214,10 @@ public struct ExcalidrawFile: Equatable, Sendable {
         } else {
             header = preamble.hasSuffix("\n") ? preamble : preamble + "\n"
         }
-        if !commentedOut, region.hasSuffix("%%\n") { region.removeLast(3) }
+        var closingMarker = true
+        if !commentedOut {
+            if region.hasSuffix("%%\n") { region.removeLast(3) } else if dataRange != nil { closingMarker = false }
+        }
 
         let links = entries(inSection: elementLinksHeading, region: region, until: [embeddedFilesHeading])
         let embedded = entries(inSection: embeddedFilesHeading, region: region, until: [])
@@ -225,6 +232,7 @@ public struct ExcalidrawFile: Equatable, Sendable {
             trailer: rest,
             indent: detectIndent(sceneText)
         )
+        file.closingMarker = closingMarker
         file.elementLinksExtra = links.extra
         file.embeddedExtra = embedded.extra
         if parsedScene.lossy || invalidUTF16 { file.readOnlyNotice = lossyNotice }
@@ -242,11 +250,14 @@ public struct ExcalidrawFile: Equatable, Sendable {
 
     private mutating func readTextElements(region: String) {
         var liveIDs: Set<String> = []
+        var originals: [String: String] = [:]
         for element in elements where element["type"]?.stringValue == "text" {
             guard let id = element["id"]?.stringValue else { continue }
             liveIDs.insert(id)
             loadedTexts[id] = element["text"]?.stringValue ?? ""
+            originals[id] = element["originalText"]?.stringValue ?? element["text"]?.stringValue ?? ""
         }
+        trailerAnchorIDs = Self.anchorIDs(in: trailer, live: liveIDs)
         let knownHeadings = ["\(Self.elementLinksHeading)\n", "\(Self.embeddedFilesHeading)\n"]
         guard let headingRange = Self.lineRange(of: "\(Self.textElementsHeading)\n", in: region) else {
             var cut = region.endIndex
@@ -269,16 +280,38 @@ public struct ExcalidrawFile: Equatable, Sendable {
         var cursor = 0
         for match in anchor.matches(in: body, range: NSRange(location: 0, length: ns.length)) {
             let id = ns.substring(with: match.range(at: 1))
-            guard liveIDs.contains(id), match.range.location >= cursor else { continue }
-            rawTexts[id] = ns.substring(with: NSRange(location: cursor, length: match.range.location - cursor))
-            textOrder.append(id)
+            guard liveIDs.contains(id) || Self.looksLikePluginID(id), match.range.location >= cursor else { continue }
+            let chunk = ns.substring(with: NSRange(location: cursor, length: match.range.location - cursor))
+            regionTextIDs.insert(id)
+            if liveIDs.contains(id) {
+                let split = Self.splitStrayText(chunk, elementText: originals[id])
+                rawTexts[id] = split.raw
+                if !split.stray.isEmpty { textBefore[id] = split.stray }
+                textOrder.append(id)
+            }
             cursor = match.range.location + match.range.length
             while cursor < ns.length, ns.character(at: cursor) == 10 { cursor += 1 }
         }
-        let tail = ns.substring(from: cursor)
-        if let heading = Self.firstUnknownHeading(in: tail) {
-            textTail = String(tail[heading...])
+        textTail = ns.substring(from: cursor)
+    }
+
+    static func looksLikePluginID(_ id: String) -> Bool {
+        id.count == pluginIDLength && id.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber) }
+    }
+
+    static func splitStrayText(_ chunk: String, elementText: String?) -> (stray: String, raw: String) {
+        guard let elementText, chunk != elementText else { return ("", chunk) }
+        let wanted = elementText.components(separatedBy: "\n").count
+        guard chunk.components(separatedBy: "\n").count > wanted else { return ("", chunk) }
+        var search = chunk.startIndex
+        while let boundary = chunk.range(of: "\n\n", range: search..<chunk.endIndex) {
+            let suffix = String(chunk[boundary.upperBound...])
+            if suffix.components(separatedBy: "\n").count == wanted {
+                return (String(chunk[..<boundary.upperBound]), suffix)
+            }
+            search = chunk.index(after: boundary.lowerBound)
         }
+        return ("", chunk)
     }
 
     static func lineRange(of line: String, in text: String) -> Range<String.Index>? {
@@ -290,10 +323,15 @@ public struct ExcalidrawFile: Equatable, Sendable {
         return nil
     }
 
-    static func firstUnknownHeading(in text: String) -> String.Index? {
-        guard let regex = try? NSRegularExpression(pattern: "^#{1,6} \\S", options: .anchorsMatchLines),
-              let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) else { return nil }
-        return Range(match.range, in: text)?.lowerBound
+    static func anchorIDs(in text: String, live: Set<String>) -> Set<String> {
+        guard let regex = try? NSRegularExpression(pattern: "\\s\\^([^\\s^]+)(?=\\n|$)") else { return [] }
+        let ns = text as NSString
+        var ids: Set<String> = []
+        for match in regex.matches(in: text, range: NSRange(location: 0, length: ns.length)) {
+            let id = ns.substring(with: match.range(at: 1))
+            if live.contains(id) || looksLikePluginID(id) { ids.insert(id) }
+        }
+        return ids
     }
 
     private static func closingFenceAtEnd(_ text: String, from start: String.Index) -> Range<String.Index>? {
@@ -370,6 +408,19 @@ public struct ExcalidrawFile: Equatable, Sendable {
 
     public var textElements: [TextElement] { resolvedTexts().elements }
 
+    var emittedTextElements: [TextElement] {
+        var texts: [String: String] = [:]
+        for element in elements where element["type"]?.stringValue == "text" {
+            if let id = element["id"]?.stringValue, texts[id] == nil { texts[id] = element["text"]?.stringValue ?? "" }
+        }
+        return textElements.filter { element in
+            guard !trailerAnchorIDs.contains(element.id) else { return false }
+            if regionTextIDs.contains(element.id) { return true }
+            guard let loaded = loadedTexts[element.id] else { return true }
+            return loaded != texts[element.id]
+        }
+    }
+
     private func resolvedTexts() -> (elements: [TextElement], notices: [String]) {
         var live: [String: TextElement] = [:]
         var sceneOrder: [String] = []
@@ -445,7 +496,7 @@ public struct ExcalidrawFile: Equatable, Sendable {
         var out = header
         if !header.isEmpty, !header.hasSuffix("\n") { out += "\n" }
         out += "\(Self.dataHeading)\n\(textPrefix)\(Self.textElementsHeading)\n"
-        for element in textElements { out += "\(element.raw) ^\(element.id)\n\n" }
+        for element in emittedTextElements { out += "\(textBefore[element.id] ?? "")\(element.raw) ^\(element.id)\n\n" }
         out += textTail
         let links = effectiveElementLinks()
         if !links.isEmpty || !elementLinksExtra.isEmpty {
@@ -458,7 +509,7 @@ public struct ExcalidrawFile: Equatable, Sendable {
             for entry in embeddedFiles { out += "\(entry.before)\(entry.text)\n\n" }
             out += embeddedExtra
         }
-        if !commentedOut { out += "%%\n" }
+        if !commentedOut, closingMarker { out += "%%\n" }
         let sceneText = scene.serialized(indent: indent)
         out += "\(Self.drawingHeading)\n"
         switch encoding {

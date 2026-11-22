@@ -45,8 +45,10 @@ public enum AtomicFile {
         close(descriptor)
         if let failure { throw Failure.io(failure) }
 
-        if let expectingHash, let current = try? Data(contentsOf: target), DrawingFileState.hash(of: current) != expectingHash {
-            throw Failure.changedOnDisk
+        if let expectingHash {
+            guard let current = try? Data(contentsOf: target), DrawingFileState.hash(of: current) == expectingHash else {
+                throw Failure.changedOnDisk
+            }
         }
         guard rename(temporary.path, target.path) == 0 else { throw Failure.io(String(cString: strerror(errno))) }
         created = false
