@@ -120,8 +120,8 @@ struct SettingsView: View {
             BrainSettingsGroup()
             AgendaSettingsGroup()
             MacControlSettingsGroup()
-            updates
         case .about:
+            updates
             about
         }
     }
@@ -265,13 +265,6 @@ struct SettingsView: View {
 
     private var about: some View {
         SettingsGroup(title: "Wisp") {
-            SettingsRow(title: "Versão") {
-                Text(UpdateModel.shared.version)
-                    .font(Theme.Font.body)
-                    .foregroundStyle(Theme.textSecondary)
-                    .textSelection(.enabled)
-            }
-            Divider().overlay(Theme.stroke)
             SettingsRow(title: "Código", detail: "github.com/ale-janicki/wisp-agent-ai") {
                 Button("Abrir no GitHub") { NSWorkspace.shared.open(Self.repository) }
                     .buttonStyle(CapsuleButtonStyle(kind: .ghost))
