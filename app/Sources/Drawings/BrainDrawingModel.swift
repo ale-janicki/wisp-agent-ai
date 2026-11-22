@@ -36,6 +36,7 @@ final class BrainDrawingModel {
     @ObservationIgnored private var session = DrawingEditSession()
     @ObservationIgnored private var editedThisSession = false
     @ObservationIgnored private var closing = false
+    @ObservationIgnored private var quitToken: UUID?
     @ObservationIgnored private var loadGeneration = 0
     @ObservationIgnored private var file: ExcalidrawFile?
     @ObservationIgnored private var state = DrawingFileState()
@@ -63,6 +64,7 @@ final class BrainDrawingModel {
             return
         }
         host.loadPage()
+        quitToken = QuitFlush.shared.register { [self] in await flushForQuit() }
         watcher = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: Self.pollInterval)
@@ -76,14 +78,29 @@ final class BrainDrawingModel {
         closing = true
         autosave?.cancel()
         watcher?.cancel()
+        if let quitToken { QuitFlush.shared.unregister(quitToken) }
+        quitToken = nil
         if session.pageDirty, pageReady {
+            host.onEvent = { event in self.handle(event) }
             host.send(.requestSave)
-            Task { [weak self] in
-                try? await Task.sleep(for: .milliseconds(500))
-                self?.finishClosing()
+            Task {
+                await DrawingCloseWait.until(timeout: .seconds(3)) { !self.session.pageDirty || self.externalChangePending }
+                self.finishClosing()
             }
         } else {
             finishClosing()
+        }
+    }
+
+    func flushForQuit() async {
+        guard !closing else { return }
+        if session.pageDirty, pageReady {
+            host.send(.requestSave)
+            await DrawingCloseWait.until(timeout: .seconds(2)) { !self.session.pageDirty || self.externalChangePending }
+        }
+        if session.pendingScene != nil {
+            writePending()
+            if externalChangePending { saveRecoveryCopy() }
         }
     }
 

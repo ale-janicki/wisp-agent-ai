@@ -37,6 +37,7 @@ final class DrawingRealFilesTests: XCTestCase {
             XCTAssertEqual(parsed.trailer, reparsed.trailer)
             XCTAssertEqual(parsed.embeddedFiles, reparsed.embeddedFiles)
             XCTAssertEqual(parsed.encoding, reparsed.encoding)
+            XCTAssertEqual(rendered, original, "\(url.lastPathComponent): bytes differ")
             XCTAssertEqual(try JSONSerialization.jsonObject(with: Data(parsed.scene.serialized().utf8)) as? NSDictionary,
                            try JSONSerialization.jsonObject(with: Data(reparsed.scene.serialized(indent: "\t").utf8)) as? NSDictionary)
             try parsed.write(to: url)
