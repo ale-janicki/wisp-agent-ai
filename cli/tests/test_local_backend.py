@@ -429,3 +429,30 @@ def test_the_child_rebuilds_the_mlx_server_the_way_the_installed_mlx_lm_expects(
 def test_the_mlx_lm_version_the_child_was_checked_against_is_the_pinned_one():
     metadata = pytest.importorskip("importlib.metadata")
     assert metadata.version("mlx-lm") == "0.32.2"
+
+
+def _server_files(folder, pid, key):
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "server.json").write_text(json.dumps({"pid": pid}))
+    (folder / "server.key").write_text(key)
+
+
+def test_a_stopping_server_removes_its_own_files(tmp_path):
+    from wisp.local import proxy
+    _server_files(tmp_path, os.getpid(), "mine")
+    proxy.remove_own_files(tmp_path / "server.json", "mine")
+    assert not (tmp_path / "server.json").exists() and not (tmp_path / "server.key").exists()
+
+
+def test_a_stopping_server_never_deletes_the_files_of_a_newer_one(tmp_path):
+    from wisp.local import proxy
+    _server_files(tmp_path, os.getpid() + 1, "new")
+    proxy.remove_own_files(tmp_path / "server.json", "old")
+    assert (tmp_path / "server.json").exists() and (tmp_path / "server.key").read_text() == "new"
+
+
+def test_a_stopping_server_keeps_a_key_another_writer_replaced(tmp_path):
+    from wisp.local import proxy
+    _server_files(tmp_path, os.getpid(), "new")
+    proxy.remove_own_files(tmp_path / "server.json", "old")
+    assert (tmp_path / "server.key").read_text() == "new"

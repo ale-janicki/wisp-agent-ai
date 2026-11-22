@@ -20,6 +20,9 @@ Entries are in descending chronological order (newest first).
 ### Fixed
 
 - Closing a topic (Telegram `/encerrar` or "encerrado", the app's close button, `wisp topic encerrar`) now closes its conversation on the Mac too: it leaves "Local" and "Telegram" and lands in a collapsed "Encerradas (N)" group at the bottom of the sidebar, history kept, read-only, with a "Reabrir" button that brings it back to "Local". Topics closed before this release are marked on the bot's first start when their note says "encerrado" and no live topic uses their session.
+- Agent: the instructions (and the local engine's prompt) now send pendências to the tasks file the Tarefas tab reads (`blocks.tasks.file` of the profile) instead of always `<brain>/pendencias.md`.
+- Local AI: stopping a server no longer deletes the files of a newer server started in the meantime (model switch).
+- Reuniões: the index lock is no longer created inside the brain's `meetings` folder (it was being synced); it lives in the Wisp state folder.
 
 ## [0.4.4] - 2026-11-22
 

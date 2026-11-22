@@ -87,7 +87,7 @@ def test_ambiguous_attendee_stays_plain_text(tmp_path):
 def test_unknown_attendee_is_plain_and_no_stub_is_created(tmp_path):
     brain = brain_of(tmp_path)
     reuniao_brain.sync(recording(tmp_path), brain, [], UTC)
-    assert tree(brain) == ["meetings", "meetings/.wisp-index.lock", "meetings/2027-01-15-08h00m-alinhamento-do-roadmap.md"]
+    assert tree(brain) == ["meetings", "meetings/2027-01-15-08h00m-alinhamento-do-roadmap.md"]
     text = (brain / "meetings" / "2027-01-15-08h00m-alinhamento-do-roadmap.md").read_text("utf-8")
     assert "[[" not in text
 
@@ -434,3 +434,28 @@ def test_create_falls_back_when_hard_links_are_not_supported(tmp_path, monkeypat
     second = Path(reuniao_brain.sync(recording(tmp_path, name="rec2"), brain, [], UTC)["nota"])
     assert second.name == first.stem + "-2.md"
     assert sorted(p.name for p in (brain / "meetings").iterdir() if p.name.startswith(".wisp-brain")) == []
+
+
+def test_the_index_lock_lives_in_the_state_dir_not_in_the_brain_and_an_empty_old_one_is_removed(tmp_path, fake_home):
+    brain = brain_of(tmp_path)
+    meetings = brain / "meetings"
+    meetings.mkdir()
+    (meetings / reuniao_brain.VAULT_LOCK).write_bytes(b"")
+    with reuniao_brain.vault_lock(meetings):
+        locks = list((fake_home / ".local/state/wisp/locks").rglob(reuniao_brain.LOCK_FILE))
+        assert len(locks) == 1
+    assert tree(brain) == ["meetings"]
+    other = tmp_path / "other"
+    other.mkdir()
+    with reuniao_brain.vault_lock(other):
+        pass
+    assert len(list((fake_home / ".local/state/wisp/locks").rglob(reuniao_brain.LOCK_FILE))) == 2
+
+
+def test_a_non_empty_old_lock_file_is_left_alone(tmp_path):
+    meetings = brain_of(tmp_path) / "meetings"
+    meetings.mkdir()
+    (meetings / reuniao_brain.VAULT_LOCK).write_text("x")
+    with reuniao_brain.vault_lock(meetings):
+        pass
+    assert (meetings / reuniao_brain.VAULT_LOCK).exists()

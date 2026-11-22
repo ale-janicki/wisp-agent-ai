@@ -50,11 +50,24 @@ def _load_manifest(path: Path) -> InstalledManifest:
         return InstalledManifest()
 
 
+def _tasks_file(brain: str) -> str:
+    try:
+        profile = json.loads((WispPaths.current().config / "profile.json").read_text())
+        configured = profile["blocks"]["tasks"]["file"]
+    except (OSError, ValueError, KeyError, TypeError):
+        configured = None
+    if isinstance(configured, str) and configured.strip():
+        return str(Path(configured.strip()).expanduser())
+    return f"{brain}/pendencias.md" if brain else ""
+
+
 def _values(cfg: WispConfig) -> dict[str, str]:
+    brain = str(Path(cfg.brain).expanduser()) if cfg.brain else ""
     return {
         "PERSONA_NAME": cfg.persona,
         "USER_NAME": cfg.user_name or FALLBACK_USER,
-        "BRAIN_DIR": str(Path(cfg.brain).expanduser()) if cfg.brain else "",
+        "BRAIN_DIR": brain,
+        "TASKS_FILE": _tasks_file(brain),
         "LANGUAGE": cfg.language,
         "WISP_DIR": str(wisp_root(cfg)),
     }
