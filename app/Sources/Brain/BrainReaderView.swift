@@ -38,6 +38,17 @@ struct BrainReaderView: View {
     }
 }
 
+private struct BrainReadOnlyKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    var brainReadOnly: Bool {
+        get { self[BrainReadOnlyKey.self] }
+        set { self[BrainReadOnlyKey.self] = newValue }
+    }
+}
+
 @MainActor
 enum BrainLinkRouter {
     static func handle(_ url: URL, source: String, model: BrainModel) -> OpenURLAction.Result {
@@ -66,6 +77,7 @@ struct BrainBlockView: View {
     let source: String
     var model: BrainModel
     let depth: Int
+    @Environment(\.brainReadOnly) private var readOnly
 
     private func text(_ inline: [BrainInline], size: CGFloat = 13, bold: Bool = false) -> Text {
         var style = BrainInlineStyle()
@@ -114,7 +126,15 @@ struct BrainBlockView: View {
         case .rule:
             Divider().overlay(Theme.stroke)
         case .embed(let embed):
-            BrainEmbedView(embed: embed, source: source, model: model, depth: depth)
+            switch BrainReadOnlyPolicy.embedMode(readOnly: readOnly) {
+            case .render:
+                BrainEmbedView(embed: embed, source: source, model: model, depth: depth)
+            case .linkText:
+                Text(embed.name + (embed.heading.isEmpty ? "" : "#" + embed.heading))
+                    .font(Theme.Font.body)
+                    .foregroundStyle(Theme.accentText)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
         case .footnotes(let notes):
             VStack(alignment: .leading, spacing: 4) {
                 Divider().overlay(Theme.stroke)
@@ -150,10 +170,15 @@ private struct BrainListItemView: View {
     let source: String
     var model: BrainModel
     let depth: Int
+    @Environment(\.brainReadOnly) private var readOnly
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
-            if let task = item.task {
+            if let task = item.task, !BrainReadOnlyPolicy.tasksAreInteractive(readOnly: readOnly) {
+                Image(systemName: task == .done ? "checkmark.square.fill" : "square")
+                    .font(.system(size: 13))
+                    .foregroundStyle(task == .done ? Theme.accent : Theme.textSecondary)
+            } else if let task = item.task {
                 Button {
                     model.toggleTask(line: item.line, raw: item.raw)
                 } label: {
