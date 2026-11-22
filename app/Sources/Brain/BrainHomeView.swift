@@ -2,44 +2,32 @@ import SwiftUI
 import WispCore
 
 struct BrainHomeView: View {
-    let block: MemoryBlock?
+    var model: BrainModel
     var openNote: (String) -> Void
     var openDaily: () -> Void
-    @State private var query = Self.initialQuery
     private let memory = MemoryModel.shared
 
     #if DEBUG
     static var snapshotQuery = ""
     #endif
 
-    private static var initialQuery: String {
-        #if DEBUG
-        return snapshotQuery
-        #else
-        return ""
-        #endif
-    }
+    private var query: String { model.searchQuery.trimmingCharacters(in: .whitespacesAndNewlines) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Space.s) {
             HStack(spacing: Theme.Space.s) {
-                if block?.search != nil {
-                    SearchField(text: $query, placeholder: "Buscar nas notas")
-                } else {
-                    Spacer(minLength: 0)
-                }
+                Spacer(minLength: 0)
                 Button("Nota de hoje", action: openDaily).buttonStyle(CapsuleButtonStyle(kind: .accent, size: .compact))
             }
-            if query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            if query.isEmpty {
                 recents
             } else {
                 results
             }
         }
         .padding(.horizontal, Theme.Space.s)
-        .task(id: query) {
-            if let block { await memory.search(query, block: block) }
-        }
+        .onAppear { model.search(model.searchQuery) }
+        .onChange(of: model.searchQuery) { model.search(model.searchQuery) }
     }
 
     @ViewBuilder
@@ -66,31 +54,29 @@ struct BrainHomeView: View {
 
     @ViewBuilder
     private var results: some View {
-        switch memory.search {
-        case .idle, .searching:
+        if let message = model.searchError {
+            TabMessage(text: message)
+        } else if model.searching {
             SkeletonRows(count: 5)
-        case .loaded(let searched, let hits) where hits.isEmpty:
-            TabMessage(text: "Nenhuma nota com “\(searched)”")
-        case .loaded(_, let hits):
+        } else if model.searchHits.isEmpty {
+            TabMessage(text: "Nenhuma nota com “\(query)”")
+        } else {
             ScrollView {
                 VStack(alignment: .leading, spacing: 2) {
-                    SectionCaption(text: Self.count(hits.count))
-                    ForEach(hits) { hit in
-                        NoteRow(title: hit.title, folder: MemoryNote.folder(of: hit.path), snippet: hit.text) {
+                    SectionCaption(text: Self.count(model.searchHits.count))
+                    ForEach(model.searchHits) { hit in
+                        NoteRow(title: hit.title, folder: BrainText.parent(of: hit.path), snippet: hit.snippet) {
                             openNote(hit.path)
                         }
                     }
                 }
             }
             .scrollIndicators(.hidden)
-        case .failed(let message):
-            TabMessage(text: message)
         }
     }
 
     private static func count(_ n: Int) -> String {
-        if n >= MemorySearch.resultLimit { return "As primeiras \(n) notas" }
-        return n == 1 ? "1 nota" : "\(n) notas"
+        n == 1 ? "1 nota" : "\(n) notas"
     }
 }
 

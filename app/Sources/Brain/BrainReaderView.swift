@@ -65,8 +65,7 @@ enum BrainLinkRouter {
         case .note(let link, _):
             model.follow(link, from: source, newTab: NSEvent.modifierFlags.contains(.command))
         case .tag(let name):
-            model.searchQuery = "#" + name
-            model.showsSearch = true
+            model.searchTag(name)
         }
         return .handled
     }

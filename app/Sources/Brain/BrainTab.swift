@@ -6,21 +6,12 @@ struct BrainTab: View {
     var ask: (String, String) -> Bool
     private let model = BrainModel.shared
     @State private var asking = false
-    @State private var showsHome = false
-    @State private var graphQuery = Self.initialGraphQuery
+    @FocusState private var searchFocused: Bool
     private let memory = MemoryModel.shared
 
     #if DEBUG
     static var snapshotGraphQuery = ""
     #endif
-
-    private static var initialGraphQuery: String {
-        #if DEBUG
-        return snapshotGraphQuery
-        #else
-        return ""
-        #endif
-    }
 
     private var root: String? { profile.blocks?.memory?.root }
 
@@ -42,8 +33,13 @@ struct BrainTab: View {
                 model.load(root: root)
                 memory.refreshRecents(root: root)
             }
+            #if DEBUG
+            let snapshotQuery = Self.snapshotGraphQuery.isEmpty ? BrainHomeView.snapshotQuery : Self.snapshotGraphQuery
+            if !snapshotQuery.isEmpty { model.searchQuery = snapshotQuery }
+            #endif
         }
-        .onChange(of: model.activeID) { _, _ in showsHome = false }
+        .onChange(of: model.activeID) { _, _ in model.browsing = false }
+        .onChange(of: model.searchFocusTick) { searchFocused = true }
         .onDisappear {
             model.flush()
             model.closeOverlays()
@@ -84,28 +80,28 @@ struct BrainTab: View {
         }
     }
 
+    private var showsBrowse: Bool { model.browsing || model.active == nil }
+
     @ViewBuilder
     private var main: some View {
-        if model.showsGraph, let root {
+        if showsBrowse {
             VStack(alignment: .leading, spacing: Theme.Space.s) {
-                SearchField(text: $graphQuery, placeholder: "Buscar nota no grafo")
+                BrainSearchField(text: Bindable(model).searchQuery, focused: $searchFocused)
                     .padding(.horizontal, Theme.Space.s)
-                MemoryGraphView(root: root, query: graphQuery, recent: model.active?.path ?? recentPath) { path in
-                    model.showsGraph = false
-                    showsHome = false
-                    model.open(path)
+                if model.showsGraph, let root {
+                    MemoryGraphView(root: root, query: model.searchQuery, recent: model.active?.path ?? recentPath) { path in
+                        model.open(path)
+                    }
+                } else {
+                    BrainHomeView(model: model) { path in
+                        model.open(path)
+                    } openDaily: {
+                        model.openDaily()
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else if showsHome || model.active == nil {
-            BrainHomeView(block: profile.blocks?.memory) { path in
-                showsHome = false
-                model.open(path)
-            } openDaily: {
-                showsHome = false
-                model.openDaily()
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         } else if let tab = model.active {
             VStack(alignment: .leading, spacing: Theme.Space.s) {
                 Text(tab.title)
@@ -169,19 +165,14 @@ struct BrainTab: View {
             iconButton("chevron.left", help: "Voltar (⌘[)", enabled: model.active?.history.canGoBack == true) { model.goBack() }
             iconButton("chevron.right", help: "Avançar (⌘])", enabled: model.active?.history.canGoForward == true) { model.goForward() }
             Spacer(minLength: 0)
-            iconButton("house", help: "Visão geral: recentes e busca", on: showsHome || (model.active == nil && !model.showsGraph)) {
-                showsHome = model.showsGraph ? true : !showsHome
-                model.showsGraph = false
-            }
-            if let tab = model.active, tab.kind == .note, !model.showsGraph, !showsHome {
+            modePicker
+            if let tab = model.active, tab.kind == .note, !showsBrowse {
                 iconButton(tab.editing ? "book" : "pencil", help: tab.readOnly != nil ? "Somente leitura" : (tab.editing ? "Ler (⌘E)" : "Editar (⌘E)"), on: tab.editing, enabled: tab.readOnly == nil) { model.toggleEditing() }
                 iconButton(model.bookmarks.contains(tab.path) ? "star.fill" : "star", help: "Favoritar", on: model.bookmarks.contains(tab.path)) { model.toggleBookmark(tab.path) }
                 iconButton("sidebar.right", help: "Backlinks, links, tópicos e tags", on: model.sidePanel != nil) {
                     model.sidePanel = model.sidePanel == nil ? .backlinks : nil
                 }
             }
-            iconButton("magnifyingglass", help: "Buscar no texto (⇧⌘F)") { model.showsSearch = true }
-            iconButton("circle.hexagongrid", help: "Grafo", on: model.showsGraph) { model.showsGraph.toggle() }
             IconMenu(systemImage: "ellipsis", help: "Mais ações", compact: true) {
                 Button("Ir para nota… (⌘O)") { model.showsSwitcher = true }
                 Button("Nota de hoje (⇧⌘D)") { model.openDaily() }
@@ -203,6 +194,33 @@ struct BrainTab: View {
                     .disabled(model.active?.kind != .note)
             }
         }
+    }
+
+    private var modePicker: some View {
+        HStack(spacing: 4) {
+            modeButton("Grafo", graph: true)
+            modeButton("Lista", graph: false)
+        }
+    }
+
+    private func modeButton(_ title: String, graph: Bool) -> some View {
+        let chosen = showsBrowse && model.showsGraph == graph
+        return Button {
+            model.showsGraph = graph
+            model.browsing = true
+        } label: {
+            Text(title)
+                .font(Theme.Font.caption)
+                .foregroundStyle(chosen ? Theme.accentText : Theme.textSecondary)
+                .lineLimit(1)
+                .fixedSize()
+                .padding(.horizontal, 10)
+                .frame(height: Theme.Control.compactHeight)
+                .background(Capsule().fill(chosen ? Theme.accentFill : Theme.surface))
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .pointerStyle(.link)
     }
 
     private func iconButton(_ name: String, help: String, on: Bool = false, enabled: Bool = true, action: @escaping () -> Void) -> some View {
@@ -243,7 +261,6 @@ struct BrainTab: View {
     @ViewBuilder
     private var overlays: some View {
         if model.showsSwitcher { BrainSwitcherOverlay(model: model) }
-        if model.showsSearch { BrainSearchOverlay(model: model) }
         if let prompt = model.prompt { BrainPromptOverlay(model: model, prompt: prompt).id(prompt.id) }
         if asking, let tab = model.active {
             BrainAskOverlay(tab: tab, dismiss: { asking = false }) { question in
@@ -257,7 +274,7 @@ struct BrainTab: View {
         Group {
             Button("") { model.toggleEditing() }.keyboardShortcut("e", modifiers: .command)
             Button("") { model.showsSwitcher = true }.keyboardShortcut("o", modifiers: .command)
-            Button("") { model.showsSearch = true }.keyboardShortcut("f", modifiers: [.command, .shift])
+            Button("") { model.focusSearch() }.keyboardShortcut("f", modifiers: [.command, .shift])
             Button("") { model.goBack() }.keyboardShortcut("[", modifiers: .command)
             Button("") { model.goForward() }.keyboardShortcut("]", modifiers: .command)
             Button("") { model.openDaily() }.keyboardShortcut("d", modifiers: [.command, .shift])
@@ -266,6 +283,34 @@ struct BrainTab: View {
         .opacity(0)
         .frame(width: 0, height: 0)
         .accessibilityHidden(true)
+    }
+}
+
+private struct BrainSearchField: View {
+    @Binding var text: String
+    var focused: FocusState<Bool>.Binding
+
+    var body: some View {
+        HStack(spacing: Theme.Space.s) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(Theme.textTertiary)
+            TextField("", text: $text, prompt: Text("Buscar nota").foregroundStyle(Theme.textTertiary))
+                .textFieldStyle(.plain)
+                .font(Theme.Font.body)
+                .foregroundStyle(Theme.textPrimary)
+                .focused(focused)
+            if !text.isEmpty {
+                Button { text = "" } label: { Image(systemName: "xmark") }
+                    .buttonStyle(CircleButtonStyle(size: 20))
+                    .help("Limpar busca")
+            }
+        }
+        .padding(.leading, Theme.Space.m)
+        .padding(.trailing, 2)
+        .frame(height: Theme.Control.compactHeight)
+        .background(Capsule().fill(Theme.surfaceHi))
+        .overlay(Capsule().strokeBorder(Theme.stroke, lineWidth: 1))
     }
 }
 
