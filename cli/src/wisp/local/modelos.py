@@ -20,7 +20,7 @@ class LocalState:
     instalados: tuple[str, ...] = field(default_factory=tuple)
     backend: str = "mlx"
     url: str = ""
-    idle_minutes: int = 15
+    idle_minutes: int = 10
     pensar: bool = False
 
 
@@ -34,7 +34,7 @@ def read(folder: Path) -> LocalState:
         raise ModelosError(f"{FILE}: não consegui ler {path} ({type(e).__name__})") from None
     local = raw.get("local", {})
     ativo, instalados = local.get("ativo", ""), local.get("instalados", [])
-    backend, url, idle = local.get("backend", "mlx"), local.get("url", ""), local.get("idle_minutes", 15)
+    backend, url, idle = local.get("backend", "mlx"), local.get("url", ""), local.get("idle_minutes", 10)
     pensar = local.get("pensar", False)
     if not isinstance(ativo, str) or not isinstance(instalados, list) or not all(isinstance(t, str) for t in instalados):
         raise ModelosError(f'{FILE}: [local] precisa de ativo = "tag" e instalados = ["tag", ...]')
@@ -48,7 +48,7 @@ def read(folder: Path) -> LocalState:
 def _block(state: LocalState) -> str:
     listed = ", ".join(f'"{tag}"' for tag in state.instalados)
     extra = f'backend = "{state.backend}"\n' + (f'url = "{state.url}"\n' if state.url else "")
-    extra += f"idle_minutes = {state.idle_minutes}\n" if state.idle_minutes != 15 else ""
+    extra += f"idle_minutes = {state.idle_minutes}\n" if state.idle_minutes != 10 else ""
     extra += "pensar = true\n" if state.pensar else ""
     return f'[local]\nativo = "{state.ativo}"\ninstalados = [{listed}]\n{extra}'
 

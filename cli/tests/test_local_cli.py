@@ -200,3 +200,31 @@ def test_delete_stops_the_server_of_the_active_model_before_removing_its_folder(
     assert wisp_cli.main(["local", "delete", "qwen3:4b"]) == 0
     assert seen == [True] and not fetch.model_dir(folder, "qwen3:4b").exists()
     assert modelos.read(folder).ativo == "" and modelos.read(folder).instalados == ()
+
+
+def test_ready_and_status_never_start_the_server(folder, capsys, monkeypatch):
+    install_model(folder, "qwen3:4b")
+    modelos.write(folder, modelos.LocalState("qwen3:4b", ("qwen3:4b",)))
+    spawned = []
+    monkeypatch.setattr(backends.subprocess, "Popen", lambda *a, **k: spawned.append(a))
+    monkeypatch.setattr(arch, "host_is_apple_silicon", lambda: True)
+    monkeypatch.setattr(backends.importlib.util, "find_spec", lambda name: object())
+    assert wisp_cli.main(["local", "ready"]) == 0
+    assert lines(capsys)[-1] == {"type": "ready", "ready": True}
+    assert wisp_cli.main(["local", "catalog"]) == 0
+    assert wisp_cli.main(["local", "pensar", "off"]) == 0
+    assert spawned == []
+
+
+def test_a_model_change_stops_the_server_and_the_thinking_toggle_does_not(folder, capsys, monkeypatch):
+    for tag in ("qwen3:4b", "qwen3:8b"):
+        install_model(folder, tag)
+    modelos.write(folder, modelos.LocalState("qwen3:4b", ("qwen3:4b", "qwen3:8b")))
+    monkeypatch.setattr(arch, "host_is_apple_silicon", lambda: True)
+    stopped = []
+    monkeypatch.setattr(backends, "stop_server", lambda *a: stopped.append(1))
+    assert wisp_cli.main(["local", "pensar", "on"]) == 0
+    assert wisp_cli.main(["local", "use", "qwen3:4b"]) == 0
+    assert stopped == []
+    assert wisp_cli.main(["local", "use", "qwen3:8b"]) == 0
+    assert stopped == [1] and modelos.read(folder).ativo == "qwen3:8b"

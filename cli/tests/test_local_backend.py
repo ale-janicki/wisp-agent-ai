@@ -122,6 +122,16 @@ def test_the_mlx_backend_names_a_missing_runtime_a_missing_model_and_then_is_rea
     assert backend.model_id("qwen3:4b") == str(fetch.model_dir(tmp_path, "qwen3:4b"))
 
 
+def test_readiness_with_the_model_on_disk_says_ready_and_spawns_nothing(mlx, tmp_path, monkeypatch):
+    install(tmp_path)
+    spawned = []
+    backend = mlx()
+    with monkeypatch.context() as patch:
+        patch.setattr(subprocess, "Popen", lambda *a, **k: spawned.append(a))
+        assert backend.readiness("qwen3:4b") is None
+    assert spawned == [] and backends.read_server_info(backend.state_dir) is None and not backend.state_dir.exists()
+
+
 def test_a_half_downloaded_model_is_not_available(mlx, tmp_path):
     entry = catalogs.load().find("qwen3:4b")
     first = fetch.model_dir(tmp_path, "qwen3:4b") / entry.files[0]["path"]
@@ -267,6 +277,22 @@ def test_a_server_in_the_middle_of_an_answer_is_not_idle(mlx):
     assert not gate.idle()
     gate.touch(-1)
     time.sleep(0.05)
+    assert gate.idle()
+
+
+def test_the_idle_clock_is_injectable_and_a_request_resets_it():
+    from wisp.local import proxy as proxies
+
+    now = [100.0]
+    gate = proxies.Gate("m", "k", "/x", 600, clock=lambda: now[0])
+    now[0] += 600
+    assert not gate.idle()
+    now[0] += 1
+    assert gate.idle()
+    gate.touch(0)
+    now[0] += 599
+    assert not gate.idle()
+    now[0] += 2
     assert gate.idle()
 
 
