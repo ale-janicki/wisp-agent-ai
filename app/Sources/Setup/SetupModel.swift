@@ -11,11 +11,12 @@ final class SetupModel {
         case ready
         case running(String)
         case failed(String)
-        case done
+        case done([String])
     }
 
     private(set) var phase: Phase = .loading
     private(set) var offer: SetupOffer?
+    private(set) var notes: [String] = []
     private(set) var hardware = HardwareProfile.read()
     var engine: EngineKind = .local
     var modelTag: String?
@@ -56,13 +57,24 @@ final class SetupModel {
         let advice = status.map {
             LocalAdvisor.recommend(hardware: hardware, models: $0.models, diskMargin: $0.diskMarginBytes)
         }
-        let offer = SetupOffer.make(hardware: hardware, recommendation: advice, status: status, readiness: readiness)
+        let offer = SetupOffer.make(
+            hardware: hardware, recommendation: advice, status: status, readiness: readiness, current: currentChoice(status))
         self.offer = offer
         engine = offer.defaultEngine
         modelTag = offer.defaultModelTag
         phase = .ready
-        if homeOverride == nil { ModelPickerModel.shared.refresh() }
     }
+
+    private func currentChoice(_ status: LocalModelStatus?) -> SetupOffer.Current? {
+        guard existingInstall else { return nil }
+        let environment = homeOverride == nil ? ProcessInfo.processInfo.environment : [:]
+        let folder = WispFolder.directory(environment: environment, home: home)
+        let engine = EngineChoice.active(wispDir: folder)
+        let tag = status.flatMap { $0.active.isEmpty ? nil : $0.active }
+        return SetupOffer.Current(engine: engine, localTag: tag)
+    }
+
+    private var home: URL { homeOverride ?? FileManager.default.homeDirectoryForCurrentUser }
 
     private func readinessFromDoctor() async -> SetupReadiness? {
         let arguments = ["doctor", "--json", "--only", SetupReadiness.doctorChecks]
@@ -82,11 +94,17 @@ final class SetupModel {
     func begin() async -> Bool {
         guard let offer, !isRunning else { return false }
         phase = .running("Conferindo o seu Mac")
+        notes = []
         let readiness = await readinessFromDoctor() ?? offer.readiness
-        let current = SetupOffer(options: offer.options, readiness: readiness)
-        for action in SetupPlan.steps(engine: engine, modelTag: modelTag, offer: current) {
+        let current = SetupOffer(options: offer.options, readiness: readiness, current: offer.current)
+        let steps = SetupPlan.steps(engine: engine, modelTag: modelTag, offer: current)
+        if homeOverride == nil, steps.contains(where: \.isBackground) {
+            phase = .running("Lendo o catálogo de modelos")
+            await ModelPickerModel.shared.load()
+        }
+        for action in steps {
             if case .pullModel(let tag) = action {
-                startDownload(tag)
+                if let note = startDownload(tag) { notes.append(note) }
                 continue
             }
             phase = .running(Self.label(action))
@@ -96,8 +114,8 @@ final class SetupModel {
             }
         }
         finish()
-        phase = .done
-        return true
+        phase = .done(notes)
+        return notes.isEmpty
     }
 
     private static func label(_ action: SetupAction) -> String {
@@ -113,7 +131,7 @@ final class SetupModel {
         switch action {
         case .brain: await report(action, ["setup", "brain", "--json"], timeout: 120)
         case .harness: await report(action, ["setup", "harness", "--json"], timeout: 180)
-        case .profile: await report(action, ["setup", "profile", "--name", "Wisp", "--json"], timeout: 60)
+        case .profile: await report(action, ["setup", "profile", "--json"], timeout: 60)
         case .selectEngine(let kind): await report(action, ["config", "set", "engine", kind.rawValue, "--json"], timeout: 120)
         case .useModel(let tag): await plain(["local", "use", tag])
         case .pullModel: nil
@@ -130,6 +148,10 @@ final class SetupModel {
                 return "O Wisp não entendeu a resposta deste passo."
             }
             guard SetupPlan.succeeded(action, report: report) else { return Self.sentence(report.summary) }
+            if action == .brain, SetupPlan.brainDeferred(report) {
+                notes.append(SetupPlan.brainDeferredNote)
+                return nil
+            }
             record(action)
             return nil
         }
@@ -142,14 +164,18 @@ final class SetupModel {
         return nil
     }
 
-    private func startDownload(_ tag: String) {
-        guard homeOverride == nil else { return }
+    private func startDownload(_ tag: String) -> String? {
+        guard homeOverride == nil else { return nil }
         let picker = ModelPickerModel.shared
         guard let model = picker.status?.models.first(where: { $0.tag == tag }) else {
-            log.error("download not started: catalog not loaded for \(tag, privacy: .public)")
-            return
+            return "Não consegui ler o catálogo de modelos; baixe o modelo em Ajustes > Modelo."
         }
-        picker.install(model)
+        let activate = offer?.current?.localTag != nil
+        guard picker.install(model, activate: activate) else {
+            let reason = picker.error ?? "Não consegui começar o download."
+            return "\(reason) Escolha o modelo de novo em Ajustes > Modelo."
+        }
+        return "O download do \(model.name) continua em Ajustes > Modelo."
     }
 
     private func finish() {

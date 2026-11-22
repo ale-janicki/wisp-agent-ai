@@ -125,6 +125,26 @@ struct SetupBody: View {
     }
 
     @ViewBuilder private var footer: some View {
+        if case .done(let notes) = model.phase {
+            VStack(alignment: .leading, spacing: Theme.Space.s) {
+                ForEach(notes, id: \.self) { note in
+                    Text(note)
+                        .font(Theme.Font.body)
+                        .foregroundStyle(Theme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                HStack {
+                    Spacer(minLength: 0)
+                    Button("Abrir o Wisp", action: finish)
+                        .buttonStyle(CapsuleButtonStyle())
+                }
+            }
+        } else {
+            actions
+        }
+    }
+
+    private var actions: some View {
         HStack(spacing: Theme.Space.m) {
             switch model.phase {
             case .running(let label):

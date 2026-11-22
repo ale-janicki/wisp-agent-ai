@@ -17,6 +17,12 @@ Entries are in descending chronological order (newest first).
 ### Added
 
 - Meetings: the live recording screen keeps the transcript at a readable width (side panel sits below it when the tab is narrow), recorder controls sit in one row, the copilot and conversation cards are compact ("Ainda sem fala" instead of rows of zeros), and a finished meeting's note renders as Markdown (headings, lists, bold, links, wikilinks) like the Brain reader; "Copiar" still copies the raw Markdown.
+- Setup is one screen: a "Preparando o Wisp…" line while the runtime installs (with "Tentar de novo" on failure), "Este Mac" (chip, memory, free disk) and three engine cards side by side. IA local is selected by default with the model recommended for the Mac already picked in a dropdown (every catalog model with size and speed, "Recomendado", "Já baixado", "Apertado", and "não cabe" disabled); Claude and Codex are choices that show "Conectado" only when the CLI is already logged in, otherwise "Conecte depois em Ajustes > Modelo". "Começar" creates the brain (or keeps the configured one), installs the harness, selects the engine, saves the profile with defaults and starts the model download in the background, with errors inline and "Tentar de novo".
+- Ajustes > Modelo and the Conversa tab settings have a "Telegram" card ("Conectar Telegram": token, group search, disconnect); Ajustes > Geral has a "Perfil" card (Wisp name, your name, image).
+
+### Changed
+
+- Setup no longer has a step sidebar, a system-tools step, a Claude login, Telegram, Spotify or profile editing: Telegram and the profile moved to Ajustes, Spotify stays in the Música tab settings, and setup never downloads or installs the Claude CLI, Obsidian, the Command Line Tools or Homebrew.
 
 ## [0.4.2] - 2026-11-22
 
@@ -24,8 +30,6 @@ Entries are in descending chronological order (newest first).
 
 ### Added
 
-- Setup is one screen: a "Preparando o Wisp…" line while the runtime installs (with "Tentar de novo" on failure), "Este Mac" (chip, memory, free disk) and three engine cards side by side. IA local is selected by default with the model recommended for the Mac already picked in a dropdown (every catalog model with size and speed, "Recomendado", "Já baixado", "Apertado", and "não cabe" disabled); Claude and Codex are choices that show "Conectado" only when the CLI is already logged in, otherwise "Conecte depois em Ajustes > Modelo". "Começar" creates the brain (or keeps the configured one), installs the harness, selects the engine, saves the profile with defaults and starts the model download in the background, with errors inline and "Tentar de novo".
-- Ajustes > Modelo and the Conversa tab settings have a "Telegram" card ("Conectar Telegram": token, group search, disconnect); Ajustes > Geral has a "Perfil" card (Wisp name, your name, image).
 - Each tab with settings (Conversa, Brain, Agenda, Reuniões, Música, My Mac) has a gear in its header that opens that tab's settings inside the tab, with "Voltar" and "Todos os ajustes"; Ajustes keeps everything.
 - Meetings: the meeting note now goes into the brain by itself. When a recording starts and no event was picked, the Agenda is asked (only if Calendar access was already granted) for the event that overlaps the start, and its title, attendees, organizer, calendar, notes and call link are saved with the recording. When the meeting is processed, `wisp reuniao brain` writes `meetings/YYYY-MM-DD-HHhMMm-slug.md` (plus a line in `meetings/meetings-index.md` when that index exists) in the brain with the date, duration, attendees, calendar and recording path in the frontmatter, a "Participantes" line, the summary sections when they exist and a link to the transcript.
 - Meetings: attendees and the people, projects and clients named in the summary become `[[wikilinks]]` only when the brain index finds exactly one existing note by title, alias or file name; no match or more than one match stays plain text, and no note is ever created for a link.
@@ -36,7 +40,6 @@ Entries are in descending chronological order (newest first).
 
 ### Changed
 
-- Setup no longer has a step sidebar, a system-tools step, a Claude login, Telegram, Spotify or profile editing: Telegram and the profile moved to Ajustes, Spotify stays in the Música tab settings, and setup never downloads or installs the Claude CLI, Obsidian, the Command Line Tools or Homebrew.
 - The "Memória" and "Brain" sidebar tabs are now one "Brain" tab: the recent notes list, the command search and the graph search moved into it (home view when no note is open, "Visão geral" button).
 - Ajustes > Modelo list redesigned: one grouped card, one row per model (name, size, memory and speed on one line, at most two tags, one trailing button) and the long description behind "Detalhes". The recommendation card says "Usar Qwen3 8B (já baixado)" when the model is on disk.
 - Ajustes > Sobre now holds Atualizações (version, Verificar agora, automatic checks) at the top, instead of the end of Geral; the duplicate version row in Sobre is gone.

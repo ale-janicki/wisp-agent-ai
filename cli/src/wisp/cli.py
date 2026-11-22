@@ -428,7 +428,7 @@ def build_parser() -> argparse.ArgumentParser:
     telegram.add_argument("--dry-run", action="store_true")
     telegram.add_argument("--json", action="store_true")
     profile = steps.add_parser("profile")
-    profile.add_argument("--name", required=True)
+    profile.add_argument("--name")
     profile.add_argument("--user-name")
     profile.add_argument("--language", default="pt-BR")
     profile.add_argument("--avatar")

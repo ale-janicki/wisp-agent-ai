@@ -303,3 +303,21 @@ def test_persona_rename_reports_incomplete_agente(fake_home):
     (fake_home / "Wisp/agente.md").write_text("regra X\n")
     report = _run(fake_home, cfg, name="Bia")
     assert [d.output for d in report.details if d.command == "agente"] == ["o agente.md parece incompleto; usei as regras padrão"]
+
+
+def test_no_name_keeps_the_existing_persona_name(fake_home):
+    _run(fake_home, name="Ada")
+    report = _run(fake_home, name=None, user_name="Rita")
+    assert report.status in ("done", "skipped")
+    assert _profile(fake_home)["persona"]["name"] == "Ada"
+
+
+def test_no_name_on_a_fresh_profile_uses_wisp(fake_home):
+    report = _run(fake_home, name=None, cfg=_cfg(fake_home))
+    assert report.status == "done"
+    assert _profile(fake_home)["persona"]["name"] == "Wisp"
+
+
+def test_no_name_falls_back_to_the_configured_persona(fake_home):
+    _run(fake_home, name=None, cfg=_cfg(fake_home, persona="Lia"))
+    assert _profile(fake_home)["persona"]["name"] == "Lia"

@@ -1,4 +1,5 @@
 import filecmp
+import json
 import os
 import shutil
 import tempfile
@@ -15,6 +16,18 @@ from wisp.setup.profile_writer import render_persona
 
 AVATAR_MAX_BYTES = 5 * 1024 * 1024
 FORBIDDEN_IN_NAMES = ("<!--", "-->", "{{", "}}")
+
+
+DEFAULT_NAME = "Wisp"
+
+
+def _existing_name(profile: Path) -> str | None:
+    try:
+        persona = json.loads(profile.read_text()).get("persona")
+    except (OSError, ValueError, AttributeError):
+        return None
+    name = persona.get("name") if isinstance(persona, dict) else None
+    return name if isinstance(name, str) and name.strip() else None
 
 
 def _failed(summary: str) -> StepReport:
@@ -82,8 +95,10 @@ class _Capped:
 
 
 def setup_profile(
-    paths: WispPaths, cfg: WispConfig, *, name: str, user_name: str | None, language: str, avatar: Path | None, dry_run: bool
+    paths: WispPaths, cfg: WispConfig, *, name: str | None, user_name: str | None, language: str, avatar: Path | None, dry_run: bool
 ) -> StepReport:
+    if name is None:
+        name = _existing_name(paths.config / "profile.json") or cfg.persona or DEFAULT_NAME
     name, language = name.strip(), language.strip()
     user = (user_name or cfg.user_name or "").strip()
     if not name:

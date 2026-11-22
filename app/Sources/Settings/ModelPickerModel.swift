@@ -40,41 +40,54 @@ final class ModelPickerModel {
     }
 
     func refresh() {
+        Task { await load() }
+    }
+
+    func load() async {
         hardware = HardwareProfile.read()
         let executable = layout.wisp
         let environment = environment
-        Task {
-            let result = await Task.detached {
-                CommandRunner.run(executable: executable, arguments: ["local", "catalog"], environment: environment, timeout: 20)
-            }.value
-            if case .success(let output) = result, let parsed = LocalModelStatus.decode(output.stdout) {
-                status = parsed
-                recommendation = LocalAdvisor.recommend(hardware: hardware, models: parsed.models, diskMargin: parsed.diskMarginBytes)
-            } else if status == nil {
-                error = "Não consegui ler o catálogo de modelos."
-            }
+        let result = await Task.detached {
+            CommandRunner.run(executable: executable, arguments: ["local", "catalog"], environment: environment, timeout: 20)
+        }.value
+        if case .success(let output) = result, let parsed = LocalModelStatus.decode(output.stdout) {
+            status = parsed
+            recommendation = LocalAdvisor.recommend(hardware: hardware, models: parsed.models, diskMargin: parsed.diskMarginBytes)
+        } else if status == nil {
+            error = "Não consegui ler o catálogo de modelos."
         }
     }
 
-    func install(_ model: LocalModel) {
-        guard !busy, let status else { return }
+    @discardableResult
+    func install(_ model: LocalModel, activate: Bool = false) -> Bool {
+        guard let status else {
+            error = "Não consegui ler o catálogo de modelos."
+            return false
+        }
+        guard !busy else {
+            error = "Já há um download em andamento."
+            return false
+        }
         if let problem = LocalAISetup.preflight(
             model: model, hardware: hardware, diskMargin: status.diskMarginBytes, installed: status.installed.contains(model.tag)) {
             error = problem
-            return
+            return false
         }
         guard status.backend.available else {
             error = Self.runtimeNote
-            return
+            return false
         }
         error = nil
         let line = LineStream()
         stream = line
         job = .pulling(tag: model.tag, completed: 0, total: 0)
         Task {
-            if await run(line, ["local", "pull", model.tag], tag: model.tag) { _ = await simple(["local", "use", model.tag], only: status.active.isEmpty) }
+            if await run(line, ["local", "pull", model.tag], tag: model.tag) {
+                _ = await simple(["local", "use", model.tag], only: activate || status.active.isEmpty)
+            }
             finish()
         }
+        return true
     }
 
     func useLocalAI(_ model: LocalModel) {

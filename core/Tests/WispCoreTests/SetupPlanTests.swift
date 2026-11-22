@@ -149,6 +149,52 @@ import Testing
         #expect(SetupPlan.steps(engine: .local, modelTag: nil, offer: result).contains(.selectEngine(.claude)))
     }
 
+    private func rerun(_ current: SetupOffer.Current, installed: [String] = [], readiness: SetupReadiness = SetupReadiness(
+        brainReady: true, harnessReady: true, profileReady: true)) -> SetupOffer {
+        let status = status(installed: installed, active: current.localTag ?? "")
+        let hardware = hardware()
+        let advice = LocalAdvisor.recommend(hardware: hardware, models: status.models, diskMargin: status.diskMarginBytes)
+        return SetupOffer.make(hardware: hardware, recommendation: advice, status: status, readiness: readiness, current: current)
+    }
+
+    @Test func rerunPreselectsTheCurrentEngine() {
+        let claude = rerun(SetupOffer.Current(engine: .claude))
+        #expect(claude.defaultEngine == .claude)
+        #expect(claude.note == nil)
+        let local = rerun(SetupOffer.Current(engine: .local, localTag: "small"), installed: ["small"])
+        #expect(local.defaultEngine == .local)
+        #expect(local.defaultModelTag == "small")
+    }
+
+    @Test func rerunWithoutChangeHasNoEngineNorDownloadSteps() {
+        let claude = rerun(SetupOffer.Current(engine: .claude))
+        #expect(SetupPlan.steps(engine: .claude, modelTag: claude.defaultModelTag, offer: claude).isEmpty)
+        let local = rerun(SetupOffer.Current(engine: .local, localTag: "small"), installed: ["small"])
+        #expect(SetupPlan.steps(engine: .local, modelTag: "small", offer: local).isEmpty)
+    }
+
+    @Test func rerunSwitchingToLocalDownloadsTheChosenModel() {
+        let claude = rerun(SetupOffer.Current(engine: .claude))
+        #expect(SetupPlan.steps(engine: .local, modelTag: "qwen", offer: claude) == [.selectEngine(.local), .pullModel("qwen")])
+    }
+
+    @Test func rerunChangingTheLocalModelUsesTheDownloadedOne() {
+        let local = rerun(SetupOffer.Current(engine: .local, localTag: "small"), installed: ["small", "qwen"])
+        #expect(SetupPlan.steps(engine: .local, modelTag: "qwen", offer: local) == [.useModel("qwen"), .selectEngine(.local)])
+    }
+
+    @Test func rerunSwitchingAwayFromLocalOnlySelectsTheEngine() {
+        let local = rerun(SetupOffer.Current(engine: .local, localTag: "small"), installed: ["small"])
+        #expect(SetupPlan.steps(engine: .codex, modelTag: "small", offer: local) == [.selectEngine(.codex)])
+    }
+
+    @Test func brainWithoutTheCommandLineToolsIsDeferredAndNamed() {
+        let report = SetupReport(step: "brain", status: .failed, summary: "", data: ["step": "system"])
+        #expect(SetupPlan.brainDeferred(report))
+        #expect(!SetupPlan.brainDeferred(SetupReport(step: "brain", status: .failed, summary: "")))
+        #expect(SetupPlan.brainDeferredNote.contains("xcode-select --install"))
+    }
+
     @Test func stepOutcomes() {
         func report(_ status: SetupReport.Status, data: [String: String] = [:]) -> SetupReport {
             SetupReport(step: "x", status: status, summary: "", data: data)
