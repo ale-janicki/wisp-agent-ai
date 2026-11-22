@@ -33,6 +33,14 @@ Entries are in descending chronological order (newest first).
 - Ajustes > Geral lists the subfolders of the Wisp folder and what each holds, next to "Mostrar no Finder".
 - `wisp topic unir [--aplicar] [--forcar]`: rejoins conversations split by a session id change (records sharing a transcript by session links, records of a topic's session, and every record titled like the Geral) into one. Without `--aplicar` it only prints the plan. With it, it refuses while the app is open or the bot is reading (unless `--forcar`), copies `conversations.json`, `topics.json` and the transcripts it touches to `<wisp_dir>/backup-conversas/<time>/`, merges the transcripts in time order, imports the text of sessions that had no transcript from the Claude session files, writes `unir.log` there and sets the topic's `conversation`.
 
+- Agenda tab: a full calendar for the Calendar accounts already on the Mac (iCloud, Google, Exchange). Day, week (default), month and agenda (list) views with per-calendar colors, an hour grid with a current-time line, an all-day lane, overlapping events side by side, and infinite scrolling over time. Calendars and whole accounts can be shown or hidden (remembered). Keys: T today, J/K or arrows, D/W/M/A views, / search, N new event, Delete, Cmd+Z undo, Cmd+J join the next meeting.
+- Editing in the app without the agent's approval card (the agent's own edits still ask): create by dragging on the grid or by double click, move by dragging (also to another day), resize by the top or bottom edge with 15-minute snapping, a detail panel (title, time, all-day, time zone, calendar, location, link, notes, alerts, recurrence, guests as read-only), "só este / este e os próximos / todos" for recurring events, undo of the last changes, read-only calendars respected.
+- Quick create in Portuguese and English: "almoço amanhã 13h por 1h", "reunião sexta 10-11 no calendário acme", "lunch tomorrow at 1pm for 1 hour", relative times, `#calendar`, `@ place`.
+- Meetings: Meet, Zoom, Teams, Webex, Slack huddle and FaceTime links are found in the event URL, location or notes with an "Entrar" button; a notification a minute before (configurable) with an "Entrar" action; a menu bar item with the next meeting and a countdown; "Gravar e transcrever" starts the meeting recording named after the event and links the recording folder to it.
+- Time zones: extra time columns (several allowed) and a time zone picker per event. Availability mode: mark free slots on the grid or generate them from working hours and your events, and copy them as text in pt-BR or English. A public booking link is not part of it.
+- Brain: "Criar nota da reunião" writes `meetings/YYYY-MM-DD-HHhMMm-<title>.md` in the brain and puts `[[note]]` in the event notes; `[[note]]` links in events open in Obsidian. Search by title, location and notes; a side list of today's and late Reminders with check-off.
+- Access and sync: a card with one button when Calendar access is missing, a hint to add a Google account in System Settings > Internet Accounts, and live refresh when the Calendar database changes.
+
 ### Changed
 
 - Recall no longer stops at 3 notes. It hands the agent the strong head of the matches (notes whose title or aliases match the message, up to 8, stopping at a clear score drop) and, within the token budget, notes one wikilink away from them. Small talk injects nothing. The agent is told to call `brain_search`, `brain_read` and `brain_links` freely and to cite the notes it used as `[[wikilinks]]`. The brain-scope guard, once-per-session offering and fail-open behavior are unchanged.
@@ -54,6 +62,10 @@ Entries are in descending chronological order (newest first).
 ## [0.3.1] - 2026-11-21
 
 - Version 0.3.1 (build 6).
+
+### Fixed
+
+- Runtime install: `uv sync` can no longer hang the app. uv is killed only after 3 minutes without output or cache growth (a slow download is never cut off), runs with `UV_LOCK_TIMEOUT`, is retried once on a lock wait or a stall, and a failure names the last step reached with "Tentar de novo". Only uv's own lock messages count as a lock problem.
 
 ## [0.3.0] - 2026-11-21
 

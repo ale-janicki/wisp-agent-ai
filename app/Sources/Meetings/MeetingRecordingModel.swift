@@ -3,6 +3,12 @@ import Foundation
 import os
 import WispCore
 
+struct MeetingEventContext: Sendable {
+    let event: CalEvent
+    let calendarTitle: String?
+    let links: EventLinkStore
+}
+
 @MainActor
 final class MeetingRecordingModel: ObservableObject {
     enum Phase: Equatable { case idle, starting, recording, finishing }
@@ -40,6 +46,7 @@ final class MeetingRecordingModel: ObservableObject {
     private let bridge = LiveBridge()
     private var recordingSources: RecordingSources = .both
     private var systemWatch = SystemAudioWatch()
+    private var pendingLink: MeetingEventContext?
 
     var isRecording: Bool { phase == .recording }
     var isBusy: Bool { phase == .starting || phase == .finishing }
@@ -87,8 +94,9 @@ final class MeetingRecordingModel: ObservableObject {
         }
     }
 
-    func start() {
+    func start(linkedTo context: MeetingEventContext? = nil) {
         guard phase == .idle else { return }
+        pendingLink = context
         phase = .starting
         message = nil
         warnings = []
@@ -182,6 +190,12 @@ final class MeetingRecordingModel: ObservableObject {
         case .success(let folder):
             recorder = next
             lastFolder = folder
+            if let context = pendingLink {
+                if (try? context.links.recordRecording(event: context.event, calendarTitle: context.calendarTitle, folder: folder)) == nil {
+                    log.error("could not link recording to event")
+                }
+                pendingLink = nil
+            }
             startedAt = now
             phase = .recording
             library.select(nil)
@@ -190,6 +204,7 @@ final class MeetingRecordingModel: ObservableObject {
             watch()
         case .failure(let error):
             phase = .idle
+            pendingLink = nil
             message = error.localizedDescription
             refreshPermissions()
             log.error("recording refused: \(error.localizedDescription, privacy: .public)")
