@@ -373,3 +373,31 @@ def test_the_real_mlx_server_entry_points_the_child_relies_on_still_exist():
     mlx_server = pytest.importorskip("mlx_lm.server")
     assert callable(mlx_server.main) and callable(mlx_server._run_http_server) and mlx_server.APIHandler
     assert mlx_server._run_http_server.__defaults__[1] is mlx_server.APIHandler
+
+
+def test_the_child_rebuilds_the_mlx_server_the_way_the_installed_mlx_lm_expects():
+    import inspect
+
+    mlx_server = pytest.importorskip("mlx_lm.server")
+    run_http = inspect.signature(mlx_server._run_http_server)
+    assert list(run_http.parameters) == ["host", "port", "response_generator", "server_class", "handler_class"]
+    defaults = mlx_server._run_http_server.__defaults__
+    assert len(defaults) == 2 and defaults[1] is mlx_server.APIHandler
+    from http.server import ThreadingHTTPServer
+
+    assert defaults[0] is ThreadingHTTPServer
+    caller = inspect.getsource(mlx_server.run)
+    assert "_run_http_server(host, port, response_generator)" in caller
+    assert list(inspect.signature(mlx_server.run).parameters)[:3] == ["host", "port", "model_provider"]
+    entry = inspect.getsource(mlx_server.main)
+    assert "run(args.host, args.port, ModelProvider(args))" in entry
+    for option in ('"--model"', '"--host"', '"--port"'):
+        assert option in entry
+    source = inspect.getsource(mlx_server._run_http_server)
+    assert "server_class.address_family" in source and "server_class(" in source
+    assert mlx_server.__name__ == "mlx_lm.server"
+
+
+def test_the_mlx_lm_version_the_child_was_checked_against_is_the_pinned_one():
+    metadata = pytest.importorskip("importlib.metadata")
+    assert metadata.version("mlx-lm") == "0.32.2"

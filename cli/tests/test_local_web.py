@@ -11,6 +11,7 @@ from local_fakes import FakeLLM, call, reply
 
 from wisp.config import WispConfig
 from wisp.local import certs, guardrails
+from wisp.local.backend import Backend, OpenAIClient
 from wisp.local.engine import LocalEngine
 from wisp.local.guardrails import READ_ONLY, TIERS
 from wisp.local.tools import ToolFailure, builtins
@@ -151,16 +152,44 @@ def test_the_tools_report_a_web_failure_as_a_tool_failure():
 WISP_FOLDER = Path(guardrails.__file__).parents[1] / "wisp_folder"
 
 
-def test_the_shipped_file_gives_every_tier_the_web_and_brain_tools_and_a_tier_that_drops_them_keeps_them_dropped():
+def test_the_shipped_file_lists_the_default_tools_in_every_tier():
+    rails = guardrails.parse((WISP_FOLDER / "guardrails.toml").read_text())
+    for tier in TIERS:
+        assert guardrails.DEFAULT_TOOLS <= rails.tier(tier).tools
+        assert not any(guardrails.needs_card(rails, rails.tier(tier), "default", t) for t in guardrails.DEFAULT_TOOLS)
+
+
+def write_rails(folder, text):
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "guardrails.toml").write_text(text)
+    return guardrails.load(folder)
+
+
+def test_an_old_file_without_the_default_tools_still_gets_them_and_remove_takes_one_away(tmp_path):
+    shipped = (WISP_FOLDER / "guardrails.toml").read_text()
+    old = shipped.replace('"web_search", "web_fetch", "brain_search", "brain_read", "brain_links", ', "")
+    assert "web_fetch" not in old.split("[pequeno]")[1]
+    rails = write_rails(tmp_path / "a", old)
+    for tier in TIERS:
+        assert guardrails.DEFAULT_TOOLS <= rails.tier(tier).tools
+    assert not (guardrails.DEFAULT_TOOLS & guardrails.parse(old).tier("pequeno").tools)
+    removed = write_rails(tmp_path / "b", old.replace("[pequeno]\n", '[pequeno]\nremove = ["web_fetch", "brain_read"]\n'))
+    assert not ({"web_fetch", "brain_read"} & removed.tier("pequeno").tools) and {"web_search", "brain_search"} <= removed.tier("pequeno").tools
+    assert "web_fetch" in removed.tier("medio").tools
+
+
+def test_remove_in_the_shipped_list_also_wins_and_only_default_tools_can_be_removed(tmp_path):
+    shipped = (WISP_FOLDER / "guardrails.toml").read_text()
+    rails = write_rails(tmp_path / "a", shipped.replace("[grande]\n", '[grande]\nremove = ["web_search"]\n'))
+    assert "web_search" not in rails.tier("grande").tools and "web_search" in rails.tier("medio").tools
+    with pytest.raises(guardrails.GuardrailsError, match="remove lista 'read_file'"):
+        write_rails(tmp_path / "b", shipped.replace("[grande]\n", '[grande]\nremove = ["read_file"]\n'))
+
+
+def test_the_comment_in_the_shipped_file_says_what_the_code_does():
     text = (WISP_FOLDER / "guardrails.toml").read_text()
-    rails = guardrails.parse(text)
-    for tier in TIERS:
-        assert {"web_search", "web_fetch", "brain_search", "brain_read", "brain_links"} <= rails.tier(tier).tools
-        assert not any(guardrails.needs_card(rails, rails.tier(tier), "default", t) for t in ("brain_search", "brain_read", "brain_links"))
-        assert not guardrails.needs_card(rails, rails.tier(tier), "default", "web_search")
-    dropped = guardrails.parse(text.replace('"web_search", "web_fetch", ', ""))
-    for tier in TIERS:
-        assert not ({"web_search", "web_fetch"} & dropped.tier(tier).tools)
+    assert "Wisp adds web_search, web_fetch, brain_search, brain_read and brain_links to every size in code" in text
+    assert "remove" in text and "allowed at every size" not in text
 
 
 def test_the_connection_goes_to_the_address_that_was_checked_with_the_original_name_in_the_host_header(site):
@@ -455,3 +484,78 @@ def test_a_fetch_whose_url_is_a_list_or_a_dict_is_asked_about_and_fails_without_
             result = asyncio.run(engine.send(engine.start("c1", "qwen3:4b"), "oi", events.append))
         results = [b for e in events if e["type"] == "user" for b in e["message"]["content"]]
         assert result.text == "fim" and len(asked.calls) == 1 and results[0]["is_error"] and "falta url" in results[0]["content"]
+
+
+class FakeHost:
+    def __init__(self, names):
+        from wisp.local.tools import ToolSpec
+
+        self.specs = {n: ToolSpec(n, "x", {"type": "object", "properties": {}}) for n in names}
+        self.trusted_urls, self.read_private, self.authorize, self.ran = set(), False, None, []
+
+    async def call(self, name, arguments):
+        self.ran.append(name)
+        return "ok"
+
+
+def leak_engine(folder, approver):
+    return LocalEngine(folder, WispConfig(), WispPaths.current(), None or Backend(OpenAIClient("http://127.0.0.1:1")), servers=[], approver=approver)
+
+
+def run_calls(fake_home, mode, calls, outcome="allow"):
+    from wisp.local.guardrails import TurnGuard
+
+    folder = fake_home / "Wisp"
+    for sub in ("skills", "ferramentas", "conversas"):
+        (folder / sub).mkdir(parents=True, exist_ok=True)
+    for name in ("guardrails.toml", "modelos.toml"):
+        shutil.copy(WISP_FOLDER / name, folder / name)
+    asked = Asked(outcome)
+    engine = leak_engine(folder, asked)
+    rails = guardrails.load(folder)
+    guard = TurnGuard(rails.tier("grande"), rails.repeat_limit)
+    host = FakeHost(["read_file", "list_files", "web_search", "web_fetch", "brain_search", "brain_read", "brain_links", "email_list", "email_read"])
+    session = engine.start("c1", "qwen3:8b", mode)
+    results = []
+    for name, arguments in calls:
+        results.append(asyncio.run(engine._execute(session, rails, guard, host, name, arguments, [], "t")))
+    return asked, host, results
+
+
+@pytest.mark.parametrize("mode", ["default", "auto", "bypassPermissions"])
+def test_a_short_search_before_anything_private_was_read_needs_no_card(fake_home, mode):
+    asked, host, results = run_calls(fake_home, mode, [("web_search", {"query": "q" * 120}), ("web_search", {"query": "capital da França"})])
+    assert asked.calls == [] and host.ran == ["web_search", "web_search"] and not results[0][0]
+
+
+@pytest.mark.parametrize("mode", ["default", "auto", "bypassPermissions"])
+def test_a_long_query_asks_for_the_card_with_the_whole_query_in_every_mode(fake_home, mode):
+    query = "palavra " * 16
+    assert len(query) > 120
+    asked, host, results = run_calls(fake_home, mode, [("web_search", {"query": query})])
+    assert asked.calls == [("web_search", {"query": query})] and host.ran == ["web_search"]
+    asked, host, results = run_calls(fake_home, mode, [("web_search", {"query": query})], outcome="deny")
+    assert host.ran == [] and results[0][0] is True
+
+
+@pytest.mark.parametrize("reader,arguments", [
+    ("read_file", {"path": "x"}), ("brain_read", {"path_or_title": "nota"}), ("brain_search", {"query": "x"}), ("brain_links", {"note": "x"}),
+    ("email_list", {}), ("email_read", {"id": "1"}), ("web_fetch", {"url": "https://exemplo.test/"}),
+])
+@pytest.mark.parametrize("mode", ["default", "bypassPermissions"])
+def test_a_search_after_the_turn_read_something_private_asks_for_the_card(fake_home, mode, reader, arguments):
+    asked, host, _ = run_calls(fake_home, mode, [(reader, arguments), ("web_search", {"query": "curta"})])
+    searched = [c for c in asked.calls if c[0] == "web_search"]
+    assert searched == [("web_search", {"query": "curta"})] and host.ran[-1] == "web_search"
+
+
+def test_a_denied_search_after_a_read_sends_nothing_and_listing_files_taints_nothing(fake_home):
+    asked, host, results = run_calls(fake_home, "default", [("read_file", {"path": "x"}), ("web_search", {"query": "curta"})], outcome="deny")
+    assert host.ran == ["read_file"] and [c[0] for c in asked.calls] == ["web_search"] and results[-1][0] is True
+    asked, host, _ = run_calls(fake_home, "bypassPermissions", [("list_files", {}), ("web_search", {"query": "curta"})])
+    assert asked.calls == [] and host.ran == ["list_files", "web_search"]
+
+
+def test_a_search_with_a_query_that_is_not_text_asks_instead_of_crashing(fake_home):
+    asked, host, results = run_calls(fake_home, "auto", [("web_search", {"query": ["a"]})])
+    assert len(asked.calls) == 1
