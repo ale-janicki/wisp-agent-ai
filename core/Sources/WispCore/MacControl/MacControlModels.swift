@@ -103,20 +103,31 @@ public enum MacSafety {
 
     public static let freeRoles: Set<String> = ["AXTextField", "AXTextArea", "AXSearchField", "AXComboBox", "AXScrollArea", "AXScrollBar"]
 
+    static let browserWords: Set<String> = ["safari", "chrome", "firefox", "arc", "brave", "edge", "opera", "vivaldi", "orion"]
+
+    public static func isBrowser(app: String, bundle: String = "") -> Bool {
+        if CallAppCatalog.browsers.contains(where: { $0.bundleID == bundle }) { return true }
+        let words = app.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: nil)
+            .split { !$0.isLetter && !$0.isNumber }.map { $0.lowercased() }
+        return words.contains { browserWords.contains($0) }
+    }
+
     static func isTab(_ element: MacElement, ancestors: [MacElement]) -> Bool {
         element.role == "AXTab" || (element.role == "AXRadioButton" && ancestors.prefix(ancestorLimit).contains { $0.role == "AXTabGroup" })
     }
 
-    static func asksCard(_ element: MacElement, ancestors: [MacElement]) -> Bool {
+    static func asksCard(_ element: MacElement, ancestors: [MacElement], browser: Bool) -> Bool {
         if cardRoles.contains(element.role) { return true }
+        if browser, isTab(element, ancestors: ancestors) { return true }
         return element.pressable && !freeRoles.contains(element.role) && !isTab(element, ancestors: ancestors)
     }
 
-    public static func requiresCard(_ element: MacElement, ancestors: [MacElement], strict: Bool) -> Bool {
+    /// `browser`: a web page can expose role=tab / tablist, so tabs are exempt only in native apps.
+    public static func requiresCard(_ element: MacElement, ancestors: [MacElement], strict: Bool, browser: Bool = false) -> Bool {
         guard strict else { return false }
         let chain = Array(ancestors.prefix(ancestorLimit))
-        if asksCard(element, ancestors: chain) { return true }
-        return chain.indices.contains { asksCard(chain[$0], ancestors: Array(chain.dropFirst($0 + 1))) }
+        if asksCard(element, ancestors: chain, browser: browser) { return true }
+        return chain.indices.contains { asksCard(chain[$0], ancestors: Array(chain.dropFirst($0 + 1)), browser: browser) }
     }
 
     public static let ancestorLimit = 3
@@ -346,10 +357,16 @@ public enum MacCaller {
         return runtimePrefixes(home: home).contains { real.hasPrefix($0) }
     }
 
+    /// The account's home from the passwd database, not `$HOME` (a caller can change the environment).
+    public static func passwdHome(uid: uid_t = getuid()) -> String {
+        if let entry = getpwuid(uid), let dir = entry.pointee.pw_dir { return String(cString: dir) }
+        return NSHomeDirectoryForUser(NSUserName()) ?? "/var/empty"
+    }
+
     public static func isWispRuntime(_ pid: pid_t) -> Bool {
         var buffer = [CChar](repeating: 0, count: 4096)
         guard proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 else { return false }
-        return isWispRuntimePath(String(cString: buffer), home: FileManager.default.homeDirectoryForCurrentUser.path)
+        return isWispRuntimePath(String(cString: buffer), home: passwdHome())
     }
 
     public static func valid(nonce: String?, directory: URL, uid: uid_t = getuid(), fileManager: FileManager = .default,

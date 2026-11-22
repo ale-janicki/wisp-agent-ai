@@ -1213,7 +1213,8 @@ def test_the_shared_escape_vector_holds_for_the_cli_and_the_bot(case):
 
 
 CONTROL_TEXTS = ["ls\x0f", "ls\x04", "ls\x0b", "ls\x0c", "ls\x0e", "ls\x1b", "ls\n", "ls\r", "ls\x00", "ls\x01", "ls\x08", "ls\x7f",
-                 "ls\x85", "ls\u2028", "ls\u2029", "ls\u200b", "ls\u202e", "ls\u2066", "ls\ufeff", "ls\u200d", "ls\u00ad", "ls\x9b"]
+                 "ls\x85", "ls\u2028", "ls\u2029", "ls\u200b", "ls\u202e", "ls\u2066", "ls\ufeff", "ls\u200d", "ls\u00ad", "ls\x9b",
+                 "\u200dls", "a\u200d\u200db", "a\u200d\u202eb", "a\u202e\u200db", "a\u200d\u200bb", "a\u200d\nb", "a\n\u200db"]
 
 
 @pytest.mark.parametrize("text", CONTROL_TEXTS, ids=[repr(t) for t in CONTROL_TEXTS])
@@ -1225,7 +1226,7 @@ def test_typed_text_with_any_control_or_format_character_needs_the_card_outside_
     assert all(x[0] != "digitar" for x in helper_calls(runner, helper))
 
 
-@pytest.mark.parametrize("text", ["ls -la\tdir", "ação 日本 ✓ café", "linha única com espaço", "tab\tseparado"])
+@pytest.mark.parametrize("text", ["ls -la\tdir", "\U0001F469\u200d\U0001F4BB", "ok \U0001F468\u200d\U0001F469\u200d\U0001F467 fim", "a\u200db", "ação 日本 ✓ café", "linha única com espaço", "tab\tseparado"])
 def test_ordinary_text_and_tabs_still_type_outside_the_safe_apps(paths, helper, text):
     c, runner = ctx(paths, helper, {(helper, "foco"): info("Slack"), (helper, "digitar"): OK})
     call(c, "mac_ui_type", {"texto": text})

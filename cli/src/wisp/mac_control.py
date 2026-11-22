@@ -160,8 +160,19 @@ def send_title(text: str) -> bool:
     return bool(SEND_TITLE.search(text) or SEND_TITLE.search(normalize_label(text)))
 
 
+def _is_control(ch: str) -> bool:
+    return ch != "\t" and (unicodedata.category(ch) in ("Cc", "Cf", "Zl", "Zp") or ch == "\x85")
+
+
 def has_control_character(text: str) -> bool:
-    return any(ch != "\t" and (unicodedata.category(ch) in ("Cc", "Cf", "Zl", "Zp") or ch == "\x85") for ch in text)
+    for i, ch in enumerate(text):
+        if not _is_control(ch):
+            continue
+        joiner = ch == "\u200d" and 0 < i < len(text) - 1
+        if joiner and not _is_control(text[i - 1]) and not _is_control(text[i + 1]):
+            continue
+        return True
+    return False
 
 
 def key_is_safe(combo: str) -> bool:

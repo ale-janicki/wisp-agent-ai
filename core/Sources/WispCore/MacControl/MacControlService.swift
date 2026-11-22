@@ -211,7 +211,9 @@ public struct MacControlService {
         case .point(let x, let y):
             let found = driver.hit(x: x, y: y)
             if let found, MacSafety.blocks(found.element, ancestors: found.ancestors, pattern: block)
-                || MacSafety.requiresCard(found.element, ancestors: found.ancestors, strict: strict) { throw blocked(found.element) }
+                || MacSafety.requiresCard(found.element, ancestors: found.ancestors, strict: strict, browser: MacSafety.isBrowser(app: found.app)) {
+                throw blocked(found.element)
+            }
             if !resolveOnly { try driver.clickPoint(x: x, y: y) }
             guard let found else { return try json(["ponto": "\(x),\(y)"]) }
             var report = elementReport(found.element)
@@ -227,7 +229,8 @@ public struct MacControlService {
             }
             let target = elements[found[index]]
             let chain = MacSafety.ancestors(of: found[index], in: elements)
-            if MacSafety.blocks(target, ancestors: chain, pattern: block) || MacSafety.requiresCard(target, ancestors: chain, strict: strict) {
+            let browser = strict ? ((try? driver.focus(app: app)).map { MacSafety.isBrowser(app: $0.app, bundle: $0.bundle) } ?? true) : false
+            if MacSafety.blocks(target, ancestors: chain, pattern: block) || MacSafety.requiresCard(target, ancestors: chain, strict: strict, browser: browser) {
                 throw blocked(target)
             }
             if !resolveOnly { try driver.pressElement(app: app, max: max, depth: depth, at: found[index], expect: target, block: block) }
