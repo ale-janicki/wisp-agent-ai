@@ -20,15 +20,15 @@ repeat_limit = 3
 
 [pequeno]
 max_steps = 6
-tools = ["read_file", "list_files", "write_file", "web_search", "web_fetch", "email_list", "email_read", "email_search", "email_send", "mac_apps", "mac_windows", "mac_battery", "mac_wifi", "mac_screenshot", "mac_open", "mac_open_url", "mac_volume", "mac_media"]
+tools = ["read_file", "list_files", "write_file", "web_search", "web_fetch", "brain_search", "brain_read", "brain_links", "email_list", "email_read", "email_search", "email_send", "mac_apps", "mac_windows", "mac_battery", "mac_wifi", "mac_screenshot", "mac_open", "mac_open_url", "mac_volume", "mac_media"]
 approve = ["write_file"]
 
 [medio]
 max_steps = 12
-tools = ["read_file", "list_files", "write_file", "web_search", "web_fetch", "email_list", "email_read", "email_search", "email_send", "mac_apps", "mac_windows", "mac_battery", "mac_wifi", "mac_screenshot", "mac_open", "mac_open_url", "mac_volume", "mac_media", "mac_dnd_status", "mac_shortcuts_list", "mac_app", "mac_brightness", "mac_dark_mode", "mac_settings_pane", "mac_notify", "mac_shortcut", "mac_ui_tree", "mac_ui_click", "mac_ui_type", "mac_ui_key", "mac_ui_scroll", "mac_ui_menu"]
+tools = ["read_file", "list_files", "write_file", "web_search", "web_fetch", "brain_search", "brain_read", "brain_links", "email_list", "email_read", "email_search", "email_send", "mac_apps", "mac_windows", "mac_battery", "mac_wifi", "mac_screenshot", "mac_open", "mac_open_url", "mac_volume", "mac_media", "mac_dnd_status", "mac_shortcuts_list", "mac_app", "mac_brightness", "mac_dark_mode", "mac_settings_pane", "mac_notify", "mac_shortcut", "mac_ui_tree", "mac_ui_click", "mac_ui_type", "mac_ui_key", "mac_ui_scroll", "mac_ui_menu"]
 approve = []
 
 [grande]
 max_steps = 40
-tools = ["read_file", "list_files", "write_file", "web_search", "web_fetch", "run_shell", "email_list", "email_read", "email_search", "email_send", "mac_apps", "mac_windows", "mac_battery", "mac_wifi", "mac_screenshot", "mac_open", "mac_open_url", "mac_volume", "mac_media", "mac_dnd_status", "mac_shortcuts_list", "mac_app", "mac_brightness", "mac_dark_mode", "mac_settings_pane", "mac_notify", "mac_shortcut", "mac_ui_tree", "mac_ui_click", "mac_ui_type", "mac_ui_key", "mac_ui_scroll", "mac_ui_menu", "mac_script", "mac_send"]
+tools = ["read_file", "list_files", "write_file", "web_search", "web_fetch", "brain_search", "brain_read", "brain_links", "run_shell", "email_list", "email_read", "email_search", "email_send", "mac_apps", "mac_windows", "mac_battery", "mac_wifi", "mac_screenshot", "mac_open", "mac_open_url", "mac_volume", "mac_media", "mac_dnd_status", "mac_shortcuts_list", "mac_app", "mac_brightness", "mac_dark_mode", "mac_settings_pane", "mac_notify", "mac_shortcut", "mac_ui_tree", "mac_ui_click", "mac_ui_type", "mac_ui_key", "mac_ui_scroll", "mac_ui_menu", "mac_script", "mac_send"]
 approve = []

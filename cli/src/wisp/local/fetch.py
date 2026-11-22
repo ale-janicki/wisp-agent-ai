@@ -10,12 +10,12 @@ import urllib.request
 from collections.abc import Callable
 from pathlib import Path
 
+from wisp.layout import resolve_layout
 from wisp.local import certs, storage
 
 HF_URL = "https://huggingface.co"
 CHUNK = 1 << 20
 DISK_CHECK_INTERVAL = 1.0
-FOLDER = "modelos"
 
 
 class FetchError(Exception):
@@ -30,24 +30,28 @@ def _terminate(signum, frame):
     raise _Cancelled(1)
 
 
+def models_root(folder: Path) -> Path:
+    return resolve_layout({"wisp_dir": str(folder)}, Path.home()).modelos_dir
+
+
 def dirname(tag: str) -> str:
     return tag.replace(":", "-")
 
 
 def model_dir(folder: Path, tag: str) -> Path:
-    return folder / FOLDER / dirname(tag)
+    return models_root(folder) / dirname(tag)
 
 
 def partial_dir(folder: Path, tag: str) -> Path:
-    return folder / FOLDER / f".baixando-{dirname(tag)}"
+    return models_root(folder) / f".baixando-{dirname(tag)}"
 
 
 def lock_path(folder: Path, tag: str) -> Path:
-    return folder / FOLDER / f".baixando-{dirname(tag)}.lock"
+    return models_root(folder) / f".baixando-{dirname(tag)}.lock"
 
 
 def backup_dir(folder: Path, tag: str) -> Path:
-    return folder / FOLDER / f".anterior-{dirname(tag)}"
+    return models_root(folder) / f".anterior-{dirname(tag)}"
 
 
 def install_atomically(partial: Path, final: Path, backup: Path) -> None:
@@ -109,7 +113,7 @@ def download(folder: Path, entry, emit: Callable[[dict], None], *, margin: int, 
              free: Callable[[Path], int] | None = None) -> Path:
     free = free or storage.free_bytes
     base = (base or os.environ.get("WISP_HF_URL") or HF_URL).rstrip("/")
-    (folder / FOLDER).mkdir(parents=True, exist_ok=True)
+    models_root(folder).mkdir(parents=True, exist_ok=True)
     guard = os.open(lock_path(folder, entry.tag), os.O_RDWR | os.O_CREAT, 0o600)
     try:
         fcntl.flock(guard, fcntl.LOCK_EX | fcntl.LOCK_NB)

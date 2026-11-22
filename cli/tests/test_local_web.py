@@ -151,11 +151,12 @@ def test_the_tools_report_a_web_failure_as_a_tool_failure():
 WISP_FOLDER = Path(guardrails.__file__).parents[1] / "wisp_folder"
 
 
-def test_the_shipped_file_gives_every_tier_the_web_tools_and_a_tier_that_drops_them_keeps_them_dropped():
+def test_the_shipped_file_gives_every_tier_the_web_and_brain_tools_and_a_tier_that_drops_them_keeps_them_dropped():
     text = (WISP_FOLDER / "guardrails.toml").read_text()
     rails = guardrails.parse(text)
     for tier in TIERS:
-        assert {"web_search", "web_fetch"} <= rails.tier(tier).tools
+        assert {"web_search", "web_fetch", "brain_search", "brain_read", "brain_links"} <= rails.tier(tier).tools
+        assert not any(guardrails.needs_card(rails, rails.tier(tier), "default", t) for t in ("brain_search", "brain_read", "brain_links"))
         assert not guardrails.needs_card(rails, rails.tier(tier), "default", "web_search")
     dropped = guardrails.parse(text.replace('"web_search", "web_fetch", ', ""))
     for tier in TIERS:
