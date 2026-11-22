@@ -7,6 +7,11 @@ from wisp import agenda
 from wisp.cli import main
 
 
+@pytest.fixture(autouse=True)
+def no_installed_app(tmp_path, monkeypatch):
+    monkeypatch.setattr(agenda, "SYSTEM_APPLICATIONS", tmp_path / "system-applications")
+
+
 def make_helper(path: Path, script: str = "#!/bin/sh\nexit 0\n") -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(script)

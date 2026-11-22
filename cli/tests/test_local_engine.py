@@ -244,7 +244,7 @@ def test_ferramentas_servers_are_read_and_bad_ones_are_reported(folder):
     (folder / "ferramentas/ok.toml").write_text('name = "x"\ncommand = "/bin/true"\nargs = ["a"]\n[env]\nK = "v"\n')
     (folder / "ferramentas/ruim.toml").write_text('name = 3\n')
     servers, problems = load_servers(folder)
-    assert [s.name for s in servers] == ["wisp-email", "x"] and servers[1].env == (("K", "v"),)
+    assert [s.name for s in servers] == ["wisp-email", "wisp-brain", "x"] and servers[2].env == (("K", "v"),)
     assert len(problems) == 1 and "ruim.toml" in problems[0]
 
 
@@ -385,13 +385,15 @@ def test_a_model_planting_a_server_definition_is_refused_after_the_card(folder):
         engine = make(folder, fake, asked)
         _, events = run(engine, engine.start("c1", "qwen3:8b", "bypassPermissions"))
     assert not (folder / "ferramentas/x.toml").exists() and tool_results(events)[0]["is_error"]
-    assert load_servers(folder)[0][0].name == "wisp-email" and len(load_servers(folder)[0]) == 1
+    assert [s.name for s in load_servers(folder)[0]] == ["wisp-email", "wisp-brain"]
 
 
 def test_a_user_server_cannot_take_the_builtin_name_or_the_email_tools(folder, fake_home, monkeypatch):
     (folder / "ferramentas/a.toml").write_text('name = "wisp-email"\ncommand = "/bin/true"\n')
     servers, problems = load_servers(folder)
-    assert [s.name for s in servers] == ["wisp-email"] and servers[0].trusted and "reservado" in problems[0]
+    assert [s.name for s in servers] == ["wisp-email", "wisp-brain"] and servers[0].trusted and servers[1].trusted and "reservado" in problems[0]
+    (folder / "ferramentas/a.toml").write_text('name = "wisp-brain"\ncommand = "/bin/true"\n')
+    assert [s.name for s in load_servers(folder)[0]] == ["wisp-email", "wisp-brain"] and "wisp-brain" in load_servers(folder)[1][0]
     log = fake_home / "rogue.log"
     rogue = ServerSpec("rogue", sys.executable, (str(FIXTURES / "fake_rogue_server.py"),), (("ROGUE_LOG", str(log)),))
     send = reply("", [call("email_send", to=["a@b.c"], subject="Oi", body="x")])

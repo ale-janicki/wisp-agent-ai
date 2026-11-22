@@ -30,9 +30,12 @@ from wisp.setup.folder import seed_folder, wisp_root
 MANIFEST_NAME = "harness-installed.json"
 FALLBACK_USER = "the user"
 MCP_NAME = "wisp-email"
+BRAIN_MCP_NAME = "wisp-brain"
 MCP_ALLOW = [f"mcp__{MCP_NAME}__email_{name}" for name in ("list", "read", "search")]   # never email_send: it has an ask rule
+BRAIN_MCP_ALLOW = [f"mcp__{BRAIN_MCP_NAME}__brain_{name}" for name in ("search", "read", "links")]
 INCOMPLETE = "o agente.md parece incompleto; usei as regras padrão"
 FOREIGN = "já existe outro servidor chamado wisp-email no Claude; o Wisp não mexeu nele"
+BRAIN_FOREIGN = "já existe outro servidor chamado wisp-brain no Claude; o Wisp não mexeu nele"
 
 
 def _load_manifest(path: Path) -> InstalledManifest:
@@ -97,31 +100,39 @@ def _file_mode(path: Path) -> int:
     return os.stat(path).st_mode & 0o777 if path.exists() else 0o644
 
 
-def _is_ours(output: str, wisp_bin: str) -> bool:
+def _is_ours(output: str, wisp_bin: str, server: str = "email") -> bool:
     """Exact match of our command in `claude mcp get` output; the real format is confirmed in the live check."""
     lines = [line.strip() for line in output.splitlines()]
     command = next((line.split(":", 1)[1].strip() for line in lines if line.startswith("Command:")), None)
     args = next((line.split(":", 1)[1].split() for line in lines if line.startswith("Args:")), None)
     if command is not None:
-        return command == wisp_bin and (args is None or args == ["mcp", "email"])
+        return command == wisp_bin and (args is None or args == ["mcp", server])
     tokens = [t for t in output.split() if t not in ("Command:", "Args:")]
-    return any(t == wisp_bin and tokens[i + 1 : i + 3] == ["mcp", "email"] for i, t in enumerate(tokens))
+    return any(t == wisp_bin and tokens[i + 1 : i + 3] == ["mcp", server] for i, t in enumerate(tokens))
 
 
-def _register_email(runner: Runner, paths: WispPaths, cfg: WispConfig) -> tuple[str, str | None]:
-    """Registers the wisp-email MCP server in Claude Code. Returns (state, detail); state is
+def _register(runner: Runner, paths: WispPaths, cfg: WispConfig, name: str, server: str, foreign: str, failure: str) -> tuple[str, str | None]:
+    """Registers a Wisp MCP server in Claude Code. Returns (state, detail); state is
     present | added | foreign | failed, and only present/added allow the permission rule."""
     claude = cfg.claude_bin or "claude"
     wisp_bin = str(paths.runtime / "venv/bin/wisp")
-    current = runner.run([claude, "mcp", "get", MCP_NAME])
+    current = runner.run([claude, "mcp", "get", name])
     if current.exit == 0:
-        if _is_ours(current.stdout, wisp_bin):
+        if _is_ours(current.stdout, wisp_bin, server):
             return "present", None
-        return "foreign", FOREIGN
-    added = runner.run([claude, "mcp", "add", "--scope", "user", MCP_NAME, "--", wisp_bin, "mcp", "email"])
+        return "foreign", foreign
+    added = runner.run([claude, "mcp", "add", "--scope", "user", name, "--", wisp_bin, "mcp", server])
     if added.exit != 0:
-        return "failed", "não consegui registrar o e-mail no Claude; rode wisp setup harness de novo"
+        return "failed", failure
     return "added", None
+
+
+def _register_email(runner: Runner, paths: WispPaths, cfg: WispConfig) -> tuple[str, str | None]:
+    return _register(runner, paths, cfg, MCP_NAME, "email", FOREIGN, "não consegui registrar o e-mail no Claude; rode wisp setup harness de novo")
+
+
+def _register_brain(runner: Runner, paths: WispPaths, cfg: WispConfig) -> tuple[str, str | None]:
+    return _register(runner, paths, cfg, BRAIN_MCP_NAME, "brain", BRAIN_FOREIGN, "não consegui registrar a busca no brain no Claude; rode wisp setup harness de novo")
 
 
 def _failed(summary: str, **data: str) -> StepReport:
@@ -164,8 +175,11 @@ def setup_harness(runner: Runner, paths: WispPaths, cfg: WispConfig, *, dry_run:
         return _failed("o settings.json não é um JSON válido; nada foi alterado")
     ours = json.loads((source / "settings.json").read_text())
     email_state, email_problem = ("skipped", None) if dry_run else _register_email(runner, paths, cfg)
+    brain_state, brain_problem = ("skipped", None) if dry_run else _register_brain(runner, paths, cfg)
     if email_state in ("present", "added"):
         ours["permissions"]["allow"].extend(MCP_ALLOW)
+    if brain_state in ("present", "added"):
+        ours["permissions"]["allow"].extend(BRAIN_MCP_ALLOW)
     new_settings, notes = merge_settings(user_settings or {}, ours)
 
     changes = install_tree(source, claude_dir, plan, values, dry_run=True, roots=_roots(cfg))
@@ -182,6 +196,8 @@ def setup_harness(runner: Runner, paths: WispPaths, cfg: WispConfig, *, dry_run:
         details.append(Detail("agente", 0, agente_problem))
     if email_problem:
         details.append(Detail("e-mail", 0, email_problem))
+    if brain_problem:
+        details.append(Detail("brain", 0, brain_problem))
     if dry_run:
         return StepReport("harness", "done", "dry run: nada foi escrito", details, data)
 
@@ -198,7 +214,7 @@ def setup_harness(runner: Runner, paths: WispPaths, cfg: WispConfig, *, dry_run:
     if manifest != _load_manifest(manifest_path):
         atomic_write(manifest_path, json.dumps({"version": manifest.version, "files": manifest.files}, indent=2, sort_keys=True) + "\n")
 
-    if not pending and email_state != "added":
+    if not pending and "added" not in (email_state, brain_state):
         return StepReport("harness", "skipped", "o harness já está instalado", details, data)
     summary = "harness instalado"
     if conflicts:

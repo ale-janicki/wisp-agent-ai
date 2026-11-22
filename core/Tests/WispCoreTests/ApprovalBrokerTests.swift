@@ -605,6 +605,18 @@ final class CodexProjectConfigTests: XCTestCase {
         }
     }
 
+    func testOnePreflightRunReturnsTheProblemAndTheServersTheUserOwns() throws {
+        let dir = try temp()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let count = dir.appendingPathComponent("runs").path
+        let binary = try script(in: dir, "wisp", #"echo run >> \#(count); echo '{"ready": true, "problem": null, "project": null, "owned": ["wisp-brain"]}'"#)
+        let verdict = CodexReadiness.preflight(wispBinary: binary, environment: [:], workspace: "/w")
+        XCTAssertEqual(verdict, CodexPreflight(problem: nil, ownedByUser: ["wisp-brain"]))
+        XCTAssertEqual(try String(contentsOfFile: count, encoding: .utf8), "run\n")
+        let broken = try script(in: dir, "broken", "echo hi")
+        XCTAssertEqual(CodexReadiness.preflight(wispBinary: broken, environment: [:], workspace: "/w"), CodexPreflight(problem: CodexReadiness.projectUnchecked))
+    }
+
     func testTheCLIReceivesTheWorkspaceAndReadinessCarriesTheProblemInItsNote() throws {
         let dir = try temp()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -624,7 +636,7 @@ final class CodexProjectConfigTests: XCTestCase {
         let codex = try script(in: dir, "codex", "cat >/dev/null; echo ran > \(marker)")
         let session = CodexSession(
             executable: URL(fileURLWithPath: codex), cwd: dir, resume: nil, permission: .ask, wispBinary: "/opt/wisp/venv/bin/wisp",
-            preflight: { "o arquivo \($0)/.codex/config.toml define o servidor wisp-email do Codex" })
+            preflight: { CodexPreflight(problem: "o arquivo \($0)/.codex/config.toml define o servidor wisp-email do Codex") })
         try await session.start()
         try await session.send("oi")
         var seen: SessionEvent?
@@ -637,6 +649,23 @@ final class CodexProjectConfigTests: XCTestCase {
         await session.stop()
     }
 
+    func testTheOwnedServersFromThePreflightDecideWhichBrainOverridesAreSent() async throws {
+        let dir = try temp()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let argv = dir.appendingPathComponent("argv").path
+        let codex = try script(in: dir, "codex", "cat >/dev/null; printf '%s\\n' \"$@\" > \(argv); echo '{\"type\":\"turn.completed\"}'")
+        let session = CodexSession(
+            executable: URL(fileURLWithPath: codex), cwd: dir, resume: nil, permission: .ask, wispBinary: "/opt/wisp/venv/bin/wisp",
+            preflight: { _ in CodexPreflight(ownedByUser: [CodexCommand.brainServer]) })
+        try await session.start()
+        try await session.send("oi")
+        for _ in 0..<200 where !FileManager.default.fileExists(atPath: argv) { try await Task.sleep(for: .milliseconds(25)) }
+        let seen = try String(contentsOfFile: argv, encoding: .utf8)
+        XCTAssertTrue(seen.contains("mcp_servers.wisp-email.command"))
+        XCTAssertFalse(seen.contains("mcp_servers.wisp-brain."))
+        await session.stop()
+    }
+
     func testTheSessionLaunchesWhenThePreflightIsClean() async throws {
         let dir = try temp()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -644,7 +673,7 @@ final class CodexProjectConfigTests: XCTestCase {
         let codex = try script(in: dir, "codex", "cat >/dev/null; echo ran > \(marker); echo '{\"type\":\"turn.completed\"}'")
         let session = CodexSession(
             executable: URL(fileURLWithPath: codex), cwd: dir, resume: nil, permission: .ask, wispBinary: "/opt/wisp/venv/bin/wisp",
-            preflight: { _ in nil })
+            preflight: { _ in CodexPreflight() })
         try await session.start()
         try await session.send("oi")
         for _ in 0..<200 where !FileManager.default.fileExists(atPath: marker) { try await Task.sleep(for: .milliseconds(25)) }

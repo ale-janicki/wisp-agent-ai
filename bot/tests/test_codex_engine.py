@@ -378,3 +378,20 @@ def test_the_runner_itself_refuses_to_launch_with_a_planted_server_and_never_run
     res = asyncio.run(codex_runner.run("oi", session_id="", cwd=str(sub), started=False, timeout=20))
     assert not res.ok and res.engine == "codex" and str(root / ".codex/config.toml") in res.text
     assert not log.exists()
+
+
+def test_a_brain_server_the_user_owns_gets_no_launch_override_but_the_email_one_stays(tmp_path, monkeypatch):
+    home = tmp_path / "codex"
+    home.mkdir()
+    monkeypatch.setenv("CODEX_HOME", str(home))
+    (home / "config.toml").write_text('[mcp_servers.wisp-brain]\ncommand = "mine"\n')
+    assert codex_runner.user_owned_servers() == frozenset({"wisp-brain"})
+    root = tmp_path / "work"
+    root.mkdir()
+    cmd = codex_runner.command(root=root, mode="default", extra_prompt="", session=None, wisp_bin="/opt/wisp")
+    assert any(a.startswith("mcp_servers.wisp-email.") for a in cmd) and not any(a.startswith("mcp_servers.wisp-brain.") for a in cmd)
+    (home / "config.toml").write_text(
+        '[mcp_servers.other]\ncommand = "x"\n# wisp:begin\n[mcp_servers.wisp-brain]\ncommand = "ours"\n# wisp:end\n')
+    assert codex_runner.user_owned_servers() == frozenset()
+    cmd = codex_runner.command(root=root, mode="default", extra_prompt="", session=None, wisp_bin="/opt/wisp")
+    assert any(a.startswith("mcp_servers.wisp-brain.") for a in cmd)
