@@ -1,0 +1,10 @@
+[
+  {"name": "bidi override", "input": "ana‮@x.com", "expected": "ana\\u{202e}@x.com"},
+  {"name": "zero width", "input": "a​b‍c﻿d", "expected": "a\\u{200b}b\\u{200d}c\\u{feff}d"},
+  {"name": "isolates", "input": "x⁦y⁩z", "expected": "x\\u{2066}y\\u{2069}z"},
+  {"name": "line and paragraph separators", "input": "a b c", "expected": "a\\u{2028}b\\u{2029}c"},
+  {"name": "invisible letters", "input": "aㅤbᅟcᅠdﾠe⠀f", "expected": "a\\u{3164}b\\u{115f}c\\u{1160}d\\u{ffa0}e\\u{2800}f"},
+  {"name": "controls", "input": "a\u001bb\u0000c\r", "expected": "a\\u{001b}b\\u{0000}c\\u{000d}"},
+  {"name": "newline and tab stay", "input": "linha 1\n\tlinha 2", "expected": "linha 1\n\tlinha 2"},
+  {"name": "ordinary text stays", "input": "ação 日本 ✓ café", "expected": "ação 日本 ✓ café"}
+]

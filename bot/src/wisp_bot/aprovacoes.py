@@ -46,10 +46,17 @@ def motor_de(req: dict) -> str:
     return "Codex" if req.get("engine") == "codex" else "Claude"
 
 
+LETRAS_INVISIVEIS = frozenset({0x115F, 0x1160, 0x3164, 0xFFA0, 0x2800, 0x17B4, 0x17B5, 0x180B, 0x180C, 0x180D, 0x180E, 0x034F})
+
+
+def _oculto(ch: str) -> bool:
+    return unicodedata.category(ch).startswith("C") or unicodedata.category(ch) in ("Zl", "Zp") or ord(ch) in LETRAS_INVISIVEIS
+
+
 def escapar(texto: str) -> str:
     saida = []
     for ch in texto:
-        if ch in "\n\t" or not unicodedata.category(ch).startswith("C"):
+        if ch in "\n\t" or not _oculto(ch):
             saida.append(ch)
         else:
             saida.append(f"\\u{{{ord(ch):04x}}}")

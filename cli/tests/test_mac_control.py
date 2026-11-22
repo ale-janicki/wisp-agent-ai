@@ -7,7 +7,7 @@ import pytest
 from wisp import mac_control
 from wisp.cli import build_parser
 from wisp.mac import Falha
-from wisp.mac_control import Ctx, call, cli_args, key_sends, url_intent
+from wisp.mac_control import Ctx, call, cli_args, key_is_safe, url_intent
 from wisp.paths import WispPaths
 from wisp.runner import FakeRunner, RunResult
 from wisp.send_gate import Refused
@@ -120,8 +120,26 @@ def test_the_tree_reaches_the_helper_with_clamped_limits_and_returns_its_text(pa
     assert helper_calls(runner, helper) == [args]
 
 
+BUNDLES = {
+    "Finder": "com.apple.finder", "Preview": "com.apple.Preview", "System Settings": "com.apple.systempreferences", "Music": "com.apple.Music",
+    "Spotify": "com.spotify.client", "Calculator": "com.apple.calculator", "Calendar": "com.apple.iCal", "Notes": "com.apple.Notes",
+    "TextEdit": "com.apple.TextEdit", "Pages": "com.apple.iWork.Pages", "Numbers": "com.apple.iWork.Numbers", "Keynote": "com.apple.iWork.Keynote",
+    "Safari": "com.apple.Safari", "Google Chrome": "com.google.Chrome", "Firefox": "org.mozilla.firefox", "Arc": "company.thebrowser.Browser",
+    "Mail": "com.apple.mail", "Messages": "com.apple.MobileSMS", "WhatsApp": "net.whatsapp.WhatsApp", "Slack": "com.tinyspeck.slackmacgap",
+    "Discord": "com.hnc.Discord", "Terminal": "com.apple.Terminal", "iTerm2": "com.googlecode.iterm2", "iTerm": "com.googlecode.iterm2",
+    "Xcode": "com.apple.dt.Xcode", "Warp": "dev.warp.Warp-Stable", "Ghostty": "com.mitchellh.ghostty", "kitty": "net.kovidgoyal.kitty",
+    "Alacritty": "org.alacritty", "Visual Studio Code": "com.microsoft.VSCode", "Code": "com.microsoft.VSCode", "Cursor": "com.todesktop.230313mzl4w4u92",
+    "Script Editor": "com.apple.ScriptEditor2", "WezTerm": "com.github.wez.wezterm", "PyCharm": "com.jetbrains.pycharm", "Automator": "com.apple.Automator",
+    "Notion": "notion.id", "Linear": "com.linear", "Raycast": "com.raycast.macos",
+}
+
+
+def bundle_of(app):
+    return BUNDLES.get(app, "com.example." + "".join(c for c in app.lower() if c.isalnum()))
+
+
 def focus(helper, app="Safari", secure=False):
-    return helper_result(helper, ["foco"], out=json.dumps({"app": app, "papel": "AXTextField", "seguro": secure}))
+    return helper_result(helper, ["foco"], out=json.dumps({"app": app, "bundle": bundle_of(app), "papel": "AXTextField", "seguro": secure}))
 
 
 def test_typing_into_a_password_field_is_refused_and_nothing_is_typed(paths, helper):
@@ -152,12 +170,6 @@ def test_send_buttons_are_recognised(title):
 
 
 
-@pytest.mark.parametrize("combo,sends", [
-    ("return", True), ("Enter", True), ("cmd+return", True), ("command+Return", True), ("cmd+shift+d", True),
-    ("shift+cmd+D", True), ("cmd+d", False), ("cmd+t", False), ("tab", False), ("cmd+shift+4", False), ("escape", False),
-])
-def test_keys_that_send(combo, sends):
-    assert key_sends(combo) is sends
 
 
 @pytest.mark.parametrize("app,blocked", [("Mail", True), ("Messages", True), ("WhatsApp", True), ("Safari", False), ("Finder", False), (None, False)])
@@ -186,13 +198,6 @@ def test_a_click_by_point_is_judged_by_the_app_that_owns_the_element_not_the_fro
     assert helper_calls(runner, helper)[-1] == ["clicar", "--ponto", "10,20", "--bloquear", mac_control.SEND_PATTERN, "--estrito"]
 
 
-def test_a_point_click_on_a_normal_app_has_no_block(paths, helper):
-    owner = json.dumps({"papel": "AXButton", "app": "TextEdit"})
-    script = {(helper, "clicar", "--ponto", "1,2", "--resolver"): RunResult([], 0, owner, ""), **focus(helper, app="TextEdit"),
-              (helper, "clicar", "--ponto", "1,2"): RunResult([], 0, "{}", "")}
-    c, runner = ctx(paths, helper, script)
-    call(c, "mac_ui_click", {"ponto": "1,2"})
-    assert helper_calls(runner, helper)[-1] == ["clicar", "--ponto", "1,2"]
 
 
 def test_a_click_needs_something_to_click(paths, helper):
@@ -371,8 +376,10 @@ def test_the_cli_parses_every_new_command_into_its_tool_and_arguments():
         parse(["mac", "enviar", "--app", "Mail"])
 
 
-def info(app, documento="", janela="", papel="AXTextField", seguro=False):
-    return RunResult([], 0, json.dumps({"app": app, "documento": documento, "janela": janela, "papel": papel, "seguro": seguro}), "")
+def info(app, documento="", janela="", papel="AXTextField", seguro=False, bundle=None, pressavel=False, titulo=""):
+    data = {"app": app, "bundle": bundle_of(app) if bundle is None else bundle, "documento": documento, "janela": janela, "papel": papel,
+            "seguro": seguro, "pressavel": pressavel, "titulo": titulo}
+    return RunResult([], 0, json.dumps(data), "")
 
 
 
@@ -533,18 +540,8 @@ def with_settings(script, **values):
     return {**script, ("defaults", "export", "ai.wisp.app", "-"): settings_plist(**values)}
 
 
-SAFE = ["Finder", "Preview", "System Settings", "Music", "Spotify", "Calculator", "Calendar", "Notes", "TextEdit", "Pages", "Numbers", "Keynote"]
 
 
-@pytest.mark.parametrize("app", SAFE)
-def test_return_newlines_and_send_labels_pass_without_a_card_only_in_the_safe_apps(paths, helper, app):
-    script = {(helper, "foco"): info(app), (helper, "tecla"): OK, (helper, "digitar"): OK, (helper, "clicar"): RunResult([], 0, "{}", "")}
-    c, runner = ctx(paths, helper, script)
-    call(c, "mac_ui_key", {"tecla": "return"})
-    call(c, "mac_ui_type", {"texto": "a\nb"})
-    call(c, "mac_ui_click", {"titulo": "Enviar", "app": app})
-    assert "--bloquear" not in helper_calls(runner, helper)[-1]
-    assert [x[0] for x in helper_calls(runner, helper) if x[0] in ("tecla", "digitar")] == ["tecla", "digitar"]
 
 
 @pytest.mark.parametrize("app", ["Slack", "Mail", "Safari", "Google Chrome", "Firefox", "Arc", "Pages Pro", "Notion", "Linear", "Cursor", "Discord"])
@@ -559,39 +556,12 @@ def test_every_other_app_needs_the_card_for_return_newlines_and_send_labels(path
     assert all(x[0] not in ("tecla", "digitar", "menu") for x in helper_calls(runner, helper))
 
 
-def test_the_safe_list_never_includes_browsers_or_messengers_even_when_the_user_adds_them(paths, helper):
-    script = with_settings({}, macSafeApps=["Safari", "Google Chrome", "Mail", "WhatsApp", "Notion"])
-    c, _ = ctx(paths, helper, script)
-    assert not mac_control.safe_app(c, "Safari") and not mac_control.safe_app(c, "Google Chrome")
-    assert not mac_control.safe_app(c, "Mail") and not mac_control.safe_app(c, "WhatsApp")
-    assert mac_control.safe_app(c, "Notion") and mac_control.safe_app(c, "finder")
 
 
-def test_the_safe_list_and_the_shortcut_list_come_from_the_app_settings_and_not_from_any_file(paths, helper):
-    paths.config.mkdir(parents=True, exist_ok=True)
-    (paths.config / "mac-atalhos-leitura.json").write_text(json.dumps(["Modo Foco"]))
-    (paths.config / "mac-apps-seguros.json").write_text(json.dumps(["Notion"]))
-    c, runner = ctx(paths, helper)
-    assert not mac_control.safe_app(c, "Notion") and mac_control.shortcut_allowlist(c) == set()
-    assert ["defaults", "export", "ai.wisp.app", "-"] in runner.calls
-    c, _ = ctx(paths, helper, with_settings({}, macReadOnlyShortcuts=["Modo Foco"], macSafeApps=["Notion"]))
-    assert mac_control.safe_app(c, "Notion") and mac_control.shortcut_allowlist(c) == {"Modo Foco"}
 
 
-def test_an_unreadable_or_malformed_setting_means_no_extra_safe_apps(paths, helper):
-    c, _ = ctx(paths, helper, {("defaults", "export", "ai.wisp.app", "-"): RunResult([], 0, "not a plist", "")})
-    assert not mac_control.safe_app(c, "Notion") and mac_control.shortcut_allowlist(c) == set()
-    c, _ = ctx(paths, helper, with_settings({}, macSafeApps="Notion"))
-    assert not mac_control.safe_app(c, "Notion")
 
 
-def test_a_point_click_in_a_non_safe_app_is_blocked_and_in_a_safe_app_is_not(paths, helper):
-    owner = json.dumps({"papel": "AXImage", "app": "Slack"})
-    script = {(helper, "clicar", "--ponto", "1,2", "--resolver"): RunResult([], 0, owner, ""), (helper, "foco"): info("Slack"),
-              (helper, "clicar", "--ponto", "1,2", "--bloquear", mac_control.SEND_PATTERN, "--estrito"): RunResult([], 0, "{}", "")}
-    c, runner = ctx(paths, helper, script)
-    call(c, "mac_ui_click", {"ponto": "1,2"})
-    assert "--bloquear" in helper_calls(runner, helper)[-1]
 
 
 BODY = "Oi \"Ana\", chego às 18h.\nBeijo"
@@ -955,23 +925,8 @@ def test_a_body_that_cannot_be_identified_refuses(paths, helper):
     assert asked == [] and all(x[0] != "enviar-janela" for x in helper_calls(runner, helper))
 
 
-@pytest.mark.parametrize("app", ["Terminal", "iTerm2", "iTerm", "Xcode", "Warp", "Ghostty", "kitty", "Alacritty", "Visual Studio Code", "Code", "Cursor",
-                                 "Script Editor", "Script Debugger", "WezTerm", "PyCharm", "Automator"])
-def test_apps_that_run_commands_or_code_are_not_safe_and_cannot_be_added(paths, helper, app):
-    c, _ = ctx(paths, helper, with_settings({}, macSafeApps=[app, app.lower()]))
-    assert not mac_control.safe_app(c, app)
-    script = {(helper, "foco"): info(app), (helper, "digitar"): OK, (helper, "tecla"): OK}
-    c, runner = ctx(paths, helper, with_settings(script, macSafeApps=[app]))
-    with pytest.raises(Falha, match="mac_send"):
-        call(c, "mac_ui_type", {"texto": "rm -rf ~/x\n"})
-    with pytest.raises(Falha, match="mac_send"):
-        call(c, "mac_ui_key", {"tecla": "return"})
-    assert all(x[0] not in ("digitar", "tecla") for x in helper_calls(runner, helper))
 
 
-def test_the_default_safe_list_no_longer_has_any_command_or_code_runner():
-    assert not [a for a in mac_control.DEFAULT_SAFE_APPS if mac_control.NEVER_SAFE.search(a)]
-    assert {"terminal", "iterm", "iterm2", "xcode"}.isdisjoint(mac_control.DEFAULT_SAFE_APPS)
 
 
 @pytest.mark.parametrize("title", ["发送", "送信", "Отправить", "Invia", "Wyślij", "Verstuur", "Répondre", "Skicka", "Senden", "Envoyer", "发送邮件",
@@ -985,25 +940,8 @@ def test_lookalikes_are_not_send(title):
     assert not mac_control.send_title(title)
 
 
-def test_buttons_are_asked_with_the_strict_flag_outside_the_safe_apps_and_not_inside(paths, helper):
-    plain = {(helper, "foco"): info("Slack"), (helper, "clicar"): RunResult([], 0, "{}", "")}
-    c, runner = ctx(paths, helper, plain)
-    call(c, "mac_ui_click", {"titulo": "Continuar", "app": "Slack"})
-    assert helper_calls(runner, helper)[-1][-3:] == ["--bloquear", mac_control.SEND_PATTERN, "--estrito"]
-    c, runner = ctx(paths, helper, {**plain, (helper, "foco"): info("Finder")})
-    call(c, "mac_ui_click", {"titulo": "Continuar", "app": "Finder"})
-    assert "--estrito" not in helper_calls(runner, helper)[-1]
 
 
-def test_space_on_a_focused_button_needs_the_card_outside_the_safe_apps(paths, helper):
-    c, runner = ctx(paths, helper, {(helper, "foco"): info("Slack", papel="AXButton"), (helper, "tecla"): OK})
-    with pytest.raises(Falha, match="mac_send"):
-        call(c, "mac_ui_key", {"tecla": "space"})
-    call(c, "mac_ui_key", {"tecla": "cmd+t"})
-    c, runner = ctx(paths, helper, {(helper, "foco"): info("Slack", papel="AXTextField"), (helper, "tecla"): OK})
-    call(c, "mac_ui_key", {"tecla": "space"})
-    c, runner = ctx(paths, helper, {(helper, "foco"): info("Finder", papel="AXButton"), (helper, "tecla"): OK})
-    call(c, "mac_ui_key", {"tecla": "space"})
 
 
 def test_every_menu_outside_the_safe_apps_needs_the_card_and_inside_them_the_helper_blocks_send_titles(paths, helper):
@@ -1090,3 +1028,183 @@ def test_the_telegram_card_escapes_bidi_zero_width_and_control_characters_like_e
             assert not any(ch in text for ch in "‮​‍﻿⁦\x1b\x00"), (tool, text)
         assert "\\u{202e}" in card["detail"] and "\\u{200b}" in card["detail"]
     assert aprovacoes.escapar("linha 1\n\tação 日本 ✓") == "linha 1\n\tação 日本 ✓"
+
+
+SAFE = ["Finder", "Preview", "System Settings", "Music", "Spotify", "Calculator", "Calendar", "Notes", "TextEdit", "Pages", "Numbers", "Keynote"]
+
+
+@pytest.mark.parametrize("app", SAFE)
+def test_return_newlines_and_other_keys_pass_without_a_card_only_in_the_safe_apps(paths, helper, app):
+    script = {(helper, "foco"): info(app), (helper, "tecla"): OK, (helper, "digitar"): OK, (helper, "clicar"): RunResult([], 0, "{}", "")}
+    c, runner = ctx(paths, helper, script)
+    for combo in ("return", "ctrl+m", "ctrl+j", "ctrl+o", "space", "cmd+shift+d", "f5"):
+        call(c, "mac_ui_key", {"tecla": combo})
+    call(c, "mac_ui_type", {"texto": "a\nb"})
+    call(c, "mac_ui_click", {"titulo": "Continuar", "app": app})
+    assert "--estrito" not in helper_calls(runner, helper)[-1]
+    assert sum(1 for x in helper_calls(runner, helper) if x[0] == "tecla") == 7
+
+
+@pytest.mark.parametrize("combo", ["ctrl+m", "ctrl+j", "ctrl+o", "ctrl+M", "return", "enter", "cmd+return", "cmd+shift+d", "space", "f5", "alt+return",
+                                   "ctrl+a", "cmd+shift+4", "cmd+option+i", "shift+return", "ctrl+shift+m"])
+@pytest.mark.parametrize("app", ["Slack", "Mail", "Safari", "Notion", "Terminal"])
+def test_outside_the_safe_apps_a_key_is_denied_unless_it_is_navigation_or_a_plain_cmd_letter(paths, helper, app, combo):
+    c, runner = ctx(paths, helper, {(helper, "foco"): info(app), (helper, "tecla"): OK})
+    with pytest.raises(Falha, match="mac_send"):
+        call(c, "mac_ui_key", {"tecla": combo})
+    assert all(x[0] != "tecla" for x in helper_calls(runner, helper))
+
+
+@pytest.mark.parametrize("combo", ["up", "down", "left", "right", "tab", "shift+tab", "esc", "escape", "delete", "backspace", "pageup", "pagedown",
+                                   "home", "end", "cmd+t", "cmd+c", "cmd+v", "cmd+a", "cmd+5", "opt+left", "cmd+left", "shift+down"])
+def test_navigation_keys_and_plain_cmd_letters_pass_outside_the_safe_apps(paths, helper, combo):
+    c, runner = ctx(paths, helper, {(helper, "foco"): info("Slack"), (helper, "tecla"): OK})
+    call(c, "mac_ui_key", {"tecla": combo})
+    assert helper_calls(runner, helper)[-1][0] == "tecla"
+
+
+@pytest.mark.parametrize("combo,expected", [("ctrl+m", False), ("ctrl+j", False), ("ctrl+o", False), ("cmd+return", False), ("cmd+shift+d", False),
+                                            ("cmd+d", True), ("tab", True), ("pagedown", True), ("space", False), ("a", False), ("cmd+enter", False)])
+def test_key_is_safe(combo, expected):
+    assert key_is_safe(combo) is expected
+
+
+def test_a_card_approved_key_press_runs_even_for_ctrl_m(paths, helper):
+    asked = []
+    c, runner = ctx(paths, helper, {(helper, "foco"): info("Slack"), (helper, "tecla"): OK}, gate=asked.append)
+    args = {"app": "Slack", "to": ["ctrl+m"], "subject": "tecla", "body": "ctrl+m", "acao": "tecla"}
+    assert call(c, "mac_send", args) == "feito" and len(asked) == 1
+    assert helper_calls(runner, helper)[-1] == ["tecla", "ctrl+m", "--app", "Slack"]
+
+
+@pytest.mark.parametrize("combo", ["space", "return"])
+def test_a_focused_send_control_refuses_space_and_return_even_in_a_safe_app(paths, helper, combo):
+    c, runner = ctx(paths, helper, {(helper, "foco"): info("Calendar", papel="AXButton", pressavel=True, titulo="Send"), (helper, "tecla"): OK})
+    with pytest.raises(Falha, match="mac_send"):
+        call(c, "mac_ui_key", {"tecla": combo})
+    c, runner = ctx(paths, helper, {(helper, "foco"): info("Calendar", papel="AXButton", pressavel=True, titulo="Cancelar"), (helper, "tecla"): OK})
+    call(c, "mac_ui_key", {"tecla": combo})
+
+
+NEVER_BUNDLES = ["com.apple.Terminal", "com.googlecode.iterm2", "dev.warp.Warp-Stable", "com.mitchellh.ghostty", "net.kovidgoyal.kitty", "org.alacritty",
+                 "com.github.wez.wezterm", "com.microsoft.VSCode", "com.todesktop.230313mzl4w4u92", "dev.zed.Zed", "com.jetbrains.pycharm",
+                 "com.jetbrains.intellij.ce", "com.apple.dt.Xcode", "com.apple.ScriptEditor2", "com.apple.Automator", "com.apple.shortcuts",
+                 "com.raycast.macos", "org.hammerspoon.Hammerspoon", "com.stairways.keyboardmaestro.editor", "com.stairways.keyboardmaestro.engine",
+                 "com.docker.docker", "dev.commandline.waveterm"]
+
+
+@pytest.mark.parametrize("bundle", NEVER_BUNDLES)
+def test_command_and_automation_apps_are_never_safe_by_bundle_id_whatever_their_name_or_the_user_setting(paths, helper, bundle):
+    renamed = {(helper, "foco"): info("Notes", bundle=bundle), (helper, "digitar"): OK, (helper, "tecla"): OK}
+    c, runner = ctx(paths, helper, with_settings(renamed, macSafeApps=[bundle, bundle.upper()]))
+    assert not mac_control.safe_app(c, bundle, "Notes")
+    with pytest.raises(Falha, match="mac_send"):
+        call(c, "mac_ui_type", {"texto": "rm -rf ~/x\n"})
+    with pytest.raises(Falha, match="mac_send"):
+        call(c, "mac_ui_key", {"tecla": "return"})
+    assert all(x[0] not in ("digitar", "tecla") for x in helper_calls(runner, helper))
+
+
+def test_an_app_that_claims_a_safe_name_but_has_another_bundle_is_not_safe(paths, helper):
+    c, runner = ctx(paths, helper, {(helper, "foco"): info("Finder", bundle="com.evil.fakefinder"), (helper, "digitar"): OK})
+    with pytest.raises(Falha, match="mac_send"):
+        call(c, "mac_ui_type", {"texto": "a\nb"})
+
+
+@pytest.mark.parametrize("bundle", ["", None])
+def test_an_app_whose_bundle_cannot_be_read_needs_the_card(paths, helper, bundle):
+    data = {"app": "Finder", "papel": "AXTextField", "seguro": False, **({} if bundle is None else {"bundle": bundle})}
+    c, runner = ctx(paths, helper, {(helper, "foco"): RunResult([], 0, json.dumps(data), ""), (helper, "digitar"): OK})
+    with pytest.raises(Falha, match="mac_send"):
+        call(c, "mac_ui_type", {"texto": "a\nb"})
+
+
+def test_the_safe_list_is_by_bundle_id_and_never_takes_browsers_or_messengers(paths, helper):
+    script = with_settings({}, macSafeApps=["com.apple.Safari", "com.google.Chrome", "com.apple.mail", "net.whatsapp.WhatsApp", "notion.id"])
+    c, _ = ctx(paths, helper, script)
+    for bundle in ("com.apple.Safari", "com.google.Chrome", "org.mozilla.firefox", "com.apple.mail", "net.whatsapp.WhatsApp", "company.thebrowser.Browser"):
+        assert not mac_control.safe_app(c, bundle)
+    assert mac_control.safe_app(c, "notion.id") and mac_control.safe_app(c, "COM.APPLE.FINDER") and not mac_control.safe_app(c, "Notion")
+    assert all(mac_control.safe_app(c, b) for b in mac_control.DEFAULT_SAFE_BUNDLES)
+
+
+def test_the_defaults_hold_no_command_or_code_runner():
+    for bundle in mac_control.DEFAULT_SAFE_BUNDLES:
+        assert not mac_control.bundle_matches(bundle, mac_control.NEVER_SAFE_BUNDLES, mac_control.NEVER_SAFE_PREFIXES), bundle
+
+
+def test_the_safe_and_shortcut_lists_come_from_the_app_settings_and_a_malformed_setting_adds_nothing(paths, helper):
+    paths.config.mkdir(parents=True, exist_ok=True)
+    (paths.config / "mac-apps-seguros.json").write_text(json.dumps(["notion.id"]))
+    c, runner = ctx(paths, helper)
+    assert not mac_control.safe_app(c, "notion.id") and mac_control.shortcut_allowlist(c) == set()
+    assert ["defaults", "export", "ai.wisp.app", "-"] in runner.calls
+    c, _ = ctx(paths, helper, with_settings({}, macReadOnlyShortcuts=["Modo Foco"], macSafeApps=["notion.id"]))
+    assert mac_control.safe_app(c, "notion.id") and mac_control.shortcut_allowlist(c) == {"Modo Foco"}
+    c, _ = ctx(paths, helper, {("defaults", "export", "ai.wisp.app", "-"): RunResult([], 0, "not a plist", "")})
+    assert not mac_control.safe_app(c, "notion.id")
+    c, _ = ctx(paths, helper, with_settings({}, macSafeApps="notion.id"))
+    assert not mac_control.safe_app(c, "notion.id")
+
+
+@pytest.mark.parametrize("app", SAFE + ["Slack", "Safari", "Notion"])
+def test_clicks_always_carry_the_send_pattern_and_only_non_safe_apps_get_the_strict_flag(paths, helper, app):
+    plain = {(helper, "foco"): info(app), (helper, "clicar"): RunResult([], 0, "{}", "")}
+    c, runner = ctx(paths, helper, plain)
+    call(c, "mac_ui_click", {"titulo": "Enviar uma cópia", "app": app})
+    last = helper_calls(runner, helper)[-1]
+    assert "--bloquear" in last and last[last.index("--bloquear") + 1] == mac_control.SEND_PATTERN
+    assert ("--estrito" in last) is (app not in SAFE)
+
+
+def test_a_point_click_always_carries_the_send_pattern_and_the_strict_flag_follows_the_owner_app(paths, helper):
+    for owner, strict in (("Calendar", False), ("Slack", True)):
+        resolved = json.dumps({"papel": "AXImage", "app": owner})
+        script = {(helper, "clicar", "--ponto", "1,2", "--resolver"): RunResult([], 0, resolved, ""), (helper, "foco"): info(owner),
+                  (helper, "clicar", "--ponto", "1,2"): RunResult([], 0, "{}", "")}
+        c, runner = ctx(paths, helper, script)
+        call(c, "mac_ui_click", {"ponto": "1,2"})
+        last = helper_calls(runner, helper)[-1]
+        assert last[:3] == ["clicar", "--ponto", "1,2"] and "--bloquear" in last and ("--estrito" in last) is strict
+
+
+def test_the_server_pid_is_stored_in_the_nonce_file_and_a_sigterm_removes_it(paths, helper):
+    import signal
+    import subprocess
+    import sys
+    import textwrap
+
+    c = Ctx(FakeRunner(), paths, test_helper=Path(helper))
+    c.runner.run = lambda argv, **kw: RunResult(list(argv), 0, "{}", "")
+    c.helper_run("apps")
+    assert (paths.state / mac_control.CALLERS_DIR / c.nonce).read_text() == str(os.getpid())
+    script = textwrap.dedent('''
+        import os, sys, time
+        from pathlib import Path
+        from wisp import mac_control
+        from wisp.paths import WispPaths
+        from wisp.runner import FakeRunner, RunResult
+        paths = WispPaths.for_os("Darwin", Path(sys.argv[1]), {})
+        c = mac_control.Ctx(FakeRunner(), paths, test_helper=Path(sys.argv[2]))
+        c.runner.run = lambda argv, **kw: RunResult(list(argv), 0, "{}", "")
+        c.helper_run("apps")
+        print(c.nonce, flush=True)
+        time.sleep(30)
+    ''')
+    child = subprocess.Popen([sys.executable, "-c", script, str(paths.home), helper], stdout=subprocess.PIPE, text=True)
+    nonce = child.stdout.readline().strip()
+    marker = paths.state / mac_control.CALLERS_DIR / nonce
+    assert marker.read_text() == str(child.pid)
+    child.send_signal(signal.SIGTERM)
+    child.wait(timeout=10)
+    assert child.returncode == -signal.SIGTERM and not marker.exists()
+
+
+VECTOR = json.loads((Path(__file__).parent / "fixtures/contract/escape-vector.json").read_text())
+
+
+@pytest.mark.parametrize("case", VECTOR, ids=[c["name"] for c in VECTOR])
+def test_the_shared_escape_vector_holds_for_the_cli_and_the_bot(case):
+    from wisp_bot import aprovacoes
+
+    assert mac_control.escape_controls(case["input"]) == case["expected"] == aprovacoes.escapar(case["input"])

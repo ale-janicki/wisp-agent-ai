@@ -253,8 +253,8 @@ private final class FakeDriver: MacDriver, @unchecked Sendable {
             MacElement(role: "AXTokenField", value: "ana@x.com, Bia <bia@x.com>; ana@x.com", depth: 1),
             MacElement(role: "AXStaticText", title: "Assunto:", depth: 1),
             MacElement(role: "AXTextField", value: "Oi", depth: 1),
-            MacElement(role: "AXTextArea", value: "pequeno", width: 50, height: 20, depth: 1),
-            MacElement(role: "AXTextArea", value: body, width: 700, height: 400, depth: 1),
+            MacElement(role: "AXTextArea", value: "pequeno", editable: true, width: 50, height: 20, depth: 1),
+            MacElement(role: "AXTextArea", value: body, editable: true, width: 700, height: 400, depth: 1),
         ] + extra
     }
 
@@ -265,7 +265,7 @@ private final class FakeDriver: MacDriver, @unchecked Sendable {
         #expect(compose.subject == "Oi")
         #expect(compose.body == body)
         #expect(MacCompose.extract(elements: [MacElement(role: "AXButton", value: "x")], window: "").body == "")
-        let secure = MacElement(role: "AXTextArea", subrole: "AXSecureTextField", value: "senha", width: 900, height: 900)
+        let secure = MacElement(role: "AXTextArea", subrole: "AXSecureTextField", value: "senha", editable: true, width: 900, height: 900)
         #expect(MacCompose.extract(elements: composer() + [secure], window: "").body == "corpo")
     }
 
@@ -387,13 +387,23 @@ private final class FakeDriver: MacDriver, @unchecked Sendable {
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
         let nonce = String(repeating: "ab", count: 16)
-        func allowed(_ line: String?) -> Bool { MacCaller.valid(nonce: line, directory: dir) }
+        let me = getpid()
+        func allowed(_ line: String?, check: @escaping (pid_t) -> Bool = { _ in true }) -> Bool {
+            MacCaller.valid(nonce: line, directory: dir, processCheck: check)
+        }
         #expect(!allowed(nonce), "a well-formed nonce with no file is refused")
         let file = dir.appendingPathComponent(nonce)
-        FileManager.default.createFile(atPath: file.path, contents: Data("1".utf8), attributes: [.posixPermissions: 0o600])
+        FileManager.default.createFile(atPath: file.path, contents: Data("\(me)".utf8), attributes: [.posixPermissions: 0o600])
         #expect(allowed(nonce) && allowed(nonce + "\n"))
         #expect(!allowed(nil) && !allowed("curto") && !allowed(String(repeating: "z", count: 32)) && !allowed(String(repeating: "cd", count: 16)))
         #expect(!allowed("../" + nonce))
+        #expect(!allowed(nonce, check: { _ in false }), "the pid must be the Wisp runtime python")
+        #expect(!MacCaller.valid(nonce: nonce, directory: dir), "this test process is not the Wisp runtime")
+        FileManager.default.createFile(atPath: file.path, contents: Data("999999".utf8), attributes: [.posixPermissions: 0o600])
+        #expect(!allowed(nonce), "a pid that is not alive is refused")
+        FileManager.default.createFile(atPath: file.path, contents: Data("not a pid".utf8), attributes: [.posixPermissions: 0o600])
+        #expect(!allowed(nonce))
+        FileManager.default.createFile(atPath: file.path, contents: Data("\(me)".utf8), attributes: [.posixPermissions: 0o600])
         try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: file.path)
         #expect(!allowed(nonce), "a file others can read is not the server's")
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
@@ -414,5 +424,71 @@ private final class FakeDriver: MacDriver, @unchecked Sendable {
         #expect(MacCaller.readLine(from: fds[0], timeout: 50) == nil)
         _ = "abc\nrest".withCString { write(fds[1], $0, 8) }
         #expect(MacCaller.readLine(from: fds[0], timeout: 500) == "abc")
+    }
+
+    @Test func theRuntimePythonIsRecognisedByItsPath() {
+        #expect(!MacCaller.isWispRuntime(getpid()))
+        #expect(!MacCaller.isWispRuntime(999_999))
+    }
+
+    @Test func anyElementThatExposesPressNeedsTheCardInStrictModeWhateverItsRole() {
+        func card(_ element: MacElement, _ ancestors: [MacElement] = []) -> Bool { MacSafety.requiresCard(element, ancestors: ancestors, strict: true) }
+        #expect(card(MacElement(role: "AXImage", title: "x", pressable: true)))
+        #expect(card(MacElement(role: "AXStaticText", pressable: true)) == false, "text and links that only navigate stay free")
+        #expect(card(MacElement(role: "AXUnknown", pressable: true)))
+        #expect(!card(MacElement(role: "AXImage", title: "x", pressable: false)))
+        #expect(!card(MacElement(role: "AXTextField", pressable: true)))
+        #expect(!card(MacElement(role: "AXLink", title: "Ver", pressable: true)))
+        #expect(!card(MacElement(role: "AXTab", title: "Aba", pressable: true)))
+        #expect(card(MacElement(role: "AXImage"), [MacElement(role: "AXGroup"), MacElement(role: "AXButton", title: "Enviar")]), "a button ancestor counts for a point click")
+        #expect(card(MacElement(role: "AXImage"), [MacElement(role: "AXGroup", pressable: true)]) == false)
+        #expect(card(MacElement(role: "AXImage"), [MacElement(role: "AXImage", pressable: true)]))
+        #expect(!card(MacElement(role: "AXImage"), [MacElement(role: "AXToolbar")]))
+        #expect(!MacSafety.requiresCard(MacElement(role: "AXImage", pressable: true), ancestors: [], strict: false))
+    }
+
+    @Test func pointClicksOnAPressableImageInsideAButtonAreRefusedInStrictMode() {
+        let driver = FakeDriver()
+        let image = MacElement(role: "AXImage", x: 10, y: 10, width: 20, height: 20)
+        driver.hits = [MacHit(element: image, ancestors: [MacElement(role: "AXGroup"), MacElement(role: "AXButton", title: "Continuar")], app: "Slack")]
+        #expect(service(driver).run(arguments: ["clicar", "--ponto", "20,20", "--estrito"]).exitCode == MacError.blocked)
+        #expect(service(driver).run(arguments: ["clicar", "--ponto", "20,20"]).exitCode == 0)
+        #expect(driver.calls == ["point 20,20"])
+    }
+
+    @Test func focusReportsTheBundleIdAndWhetherTheFocusedElementIsPressable() throws {
+        let driver = FakeDriver()
+        driver.focused = MacFocus(app: "Calendar", element: MacElement(role: "AXButton", title: "Send", pressable: true), bundle: "com.apple.iCal")
+        let out = service(driver).run(arguments: ["foco"]).stdout
+        let object = try #require(JSONSerialization.jsonObject(with: Data(out.utf8)) as? [String: Any])
+        #expect(object["bundle"] as? String == "com.apple.iCal" && object["pressavel"] as? Bool == true)
+    }
+
+    @Test func composeRefusesWhenTheTreeHitsTheCapAndTheBodyMustBeEditable() throws {
+        let driver = FakeDriver()
+        driver.focused = MacFocus(app: "Mail", element: nil, window: "W")
+        driver.elements = [MacElement(role: "AXWindow")] + Array(repeating: MacElement(role: "AXGroup", depth: 1), count: MacControlService.composeMax - 1)
+        #expect(driver.elements.count == MacControlService.composeMax)
+        #expect(service(driver).run(arguments: ["composicao"]).stderr == MacRefusal.windowTooBig)
+        let args = ["enviar-janela", "--regex", "send", "--esperado", "{}"]
+        #expect(service(driver).run(arguments: args).stderr == MacRefusal.windowTooBig)
+        driver.elements = composer(body: "texto")
+        let readOnly = composer(body: "texto").map { element -> MacElement in
+            var copy = element
+            copy.editable = false
+            return copy
+        }
+        #expect(MacCompose.extract(elements: readOnly, window: "").body == "")
+        #expect(MacCompose.extract(elements: driver.elements, window: "").body == "texto")
+    }
+
+    @Test func theSharedEscapeVectorHoldsForTheApprovalCard() throws {
+        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("cli/tests/fixtures/contract/escape-vector.json")
+        let cases = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [[String: String]])
+        #expect(cases.count >= 8)
+        for item in cases {
+            #expect(PermissionRequest.escaped(try #require(item["input"])) == item["expected"], Comment(rawValue: item["name"] ?? ""))
+        }
     }
 }

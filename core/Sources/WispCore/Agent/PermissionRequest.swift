@@ -86,10 +86,11 @@ public struct PermissionRequest: Identifiable, Equatable, Sendable {
     }
 
     public static func escaped(_ text: String) -> String {
-        let hidden: Set<Unicode.GeneralCategory> = [.control, .format, .surrogate, .privateUse, .unassigned]
+        let hidden: Set<Unicode.GeneralCategory> = [.control, .format, .surrogate, .privateUse, .unassigned, .lineSeparator, .paragraphSeparator]
+        let invisibleLetters: Set<UInt32> = [0x115F, 0x1160, 0x3164, 0xFFA0, 0x2800, 0x17B4, 0x17B5, 0x180B, 0x180C, 0x180D, 0x180E, 0x034F]
         var out = ""
         for scalar in text.unicodeScalars {
-            if hidden.contains(scalar.properties.generalCategory), scalar != "\n", scalar != "\t" {
+            if (hidden.contains(scalar.properties.generalCategory) || invisibleLetters.contains(scalar.value)), scalar != "\n", scalar != "\t" {
                 out += "\\u{" + String(format: "%04x", scalar.value) + "}"
             } else {
                 out.unicodeScalars.append(scalar)

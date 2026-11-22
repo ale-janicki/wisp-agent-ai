@@ -45,13 +45,26 @@ public final class AXMacDriver: MacDriver {
         return CGRect(origin: origin, size: size)
     }
 
+    private func pressable(_ element: AXUIElement) -> Bool {
+        var names: CFArray?
+        guard AXUIElementCopyActionNames(element, &names) == .success, let list = names as? [String] else { return false }
+        return list.contains("AXPress")
+    }
+
+    private func editable(_ element: AXUIElement) -> Bool {
+        if let flag = attribute(element, "AXEditable") as? Bool, flag { return true }
+        var settable = DarwinBoolean(false)
+        return AXUIElementIsAttributeSettable(element, "AXValue" as CFString, &settable) == .success && settable.boolValue
+    }
+
     private func describe(_ element: AXUIElement, depth: Int) -> MacElement {
         let box = frame(element)
         let role = string(element, "AXRole"), subrole = string(element, "AXSubrole")
         let secure = MacSafety.isSecure(role: role, subrole: subrole)
         return MacElement(role: role, subrole: subrole, title: string(element, "AXTitle"), detail: string(element, "AXDescription"),
                           value: secure ? "" : string(element, "AXValue"),
-                          help: string(element, "AXHelp"), identifier: string(element, "AXIdentifier"), x: Int(box.origin.x), y: Int(box.origin.y),
+                          help: string(element, "AXHelp"), identifier: string(element, "AXIdentifier"),
+                          pressable: pressable(element), editable: editable(element), x: Int(box.origin.x), y: Int(box.origin.y),
                           width: Int(box.size.width), height: Int(box.size.height), depth: depth)
     }
 
@@ -150,9 +163,10 @@ public final class AXMacDriver: MacDriver {
             title = string(windowElement, "AXTitle")
         }
         guard let focused = attribute(element, "AXFocusedUIElement") else {
-            return MacFocus(app: name, element: nil, document: document, window: title)
+            return MacFocus(app: name, element: nil, document: document, window: title, bundle: target.bundleIdentifier ?? "")
         }
-        return MacFocus(app: name, element: describe(unsafeBitCast(focused, to: AXUIElement.self), depth: 0), document: document, window: title)
+        return MacFocus(app: name, element: describe(unsafeBitCast(focused, to: AXUIElement.self), depth: 0), document: document, window: title,
+                        bundle: target.bundleIdentifier ?? "")
     }
 
     private func bringToFront(_ app: String?) throws {
