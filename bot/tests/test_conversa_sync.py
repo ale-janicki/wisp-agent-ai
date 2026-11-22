@@ -362,25 +362,27 @@ def test_the_apply_holds_the_store_lock_so_a_bot_flush_waits(env, monkeypatch):
     assert store_mod.file_lock
 
 
-def test_a_failed_reply_send_resumes_with_the_reply_only(env):
+def test_a_failed_reply_send_keeps_the_cursor_before_the_turn_and_the_retry_sends_both_lines(env):
     store, transcripts, conversation = seeded_topic(env)
     seed(transcripts, conversation, [
         entry("2026-11-21T10:05:00.000Z", "user", "pergunta"),
         entry("2026-11-21T10:05:09.000Z", "assistant", "resposta"),
     ])
     sent = []
+    falhou = []
 
     async def flaky(texto):
-        if texto == "resposta" and not sent.count("tentou"):
-            sent.append("tentou")
+        if texto == "resposta" and not falhou:
+            falhou.append(1)
             raise OSError("fora")
         sent.append(texto)
     with pytest.raises(OSError):
         asyncio.run(conversa.alcancar(store, transcripts, KEY, flaky, agora=1795000000.0))
-    assert store.get(KEY).meta[conversa.CURSOR] == "2026-11-21T10:05:00.000Z"
+    assert store.get(KEY).meta[conversa.CURSOR] == "2026-11-21T10:00:00.000Z"
     again, enviar = sender()
     asyncio.run(conversa.alcancar(store, transcripts, KEY, enviar, agora=1795000000.0))
-    assert again == ["resposta"]
+    assert again == ["💻 pergunta", "resposta"]
+    assert store.get(KEY).meta[conversa.CURSOR] == "2026-11-21T10:05:09.000Z"
 
 
 def test_a_user_line_without_its_reply_waits_and_a_failed_turn_is_skipped(env):
@@ -498,12 +500,7 @@ def test_a_legacy_topic_gets_the_same_id_on_both_sides(env):
 
 def test_the_merge_refuses_while_the_bot_process_runs(env, monkeypatch, capsys):
     from argparse import Namespace
-    from wisp import topic
-    _, transcripts, tmp = env
-    indice, topicos, records = split_data(tmp, monkeypatch)
-    monkeypatch.setattr(topic, "app_index", lambda: indice)
-    monkeypatch.setattr(topic.unir, "plano", lambda *a: [object()])
-    monkeypatch.setattr(topic.unir, "descrever", lambda *a: ["plano"])
+    topic, tmp, indice = unir_cli(env, monkeypatch)
     monkeypatch.setattr(topic, "bot_vivo", lambda: True)
     monkeypatch.setattr(topic.unir, "aplicar", lambda *a: pytest.fail("must not apply"))
     assert topic.cmd_unir(Namespace(aplicar=True, forcar=False)) == 1
@@ -531,3 +528,152 @@ def test_a_kept_record_does_not_come_back_as_a_loser_and_a_second_run_takes_no_b
     assert topic.cmd_unir(Namespace(aplicar=True, forcar=True)) == 0
     assert "nada para juntar" in capsys.readouterr().out
     assert sorted(p.name for p in (tmp / "backup-conversas").iterdir()) == backups
+
+
+def two_topic_data(tmp, monkeypatch):
+    split_data(tmp, monkeypatch)
+    ca = "aaaaaaaa-0000-4000-8000-00000000000a"
+    cb = "bbbbbbbb-0000-4000-8000-00000000000b"
+    sa, sb = "11111111-0000-4000-8000-00000000000a", "22222222-0000-4000-8000-00000000000b"
+    records = [
+        {"id": ca.upper(), "sessionId": sa, "title": "Geral", "updatedAt": "2026-11-21T10:00:00.000Z"},
+        {"id": cb.upper(), "sessionId": sb, "title": "Geral", "updatedAt": "2026-11-21T11:00:00.000Z"},
+    ]
+    topicos = {
+        "1:0": {"key": "1:0", "name": "Geral", "session_id": sb, "conversation": cb, "meta": {}},
+        "1:5": {"key": "1:5", "name": "outro", "session_id": sa, "conversation": ca, "meta": {}},
+    }
+    return records, topicos, ca, cb, sa, sb
+
+
+def test_a_geral_titled_record_bound_to_another_topic_is_not_merged_into_the_geral(env, monkeypatch):
+    _, transcripts, tmp = env
+    records, topicos, ca, cb, sa, sb = two_topic_data(tmp, monkeypatch)
+    seed(transcripts, ca, [{"v": 1, "at": "2026-11-21T09:00:00.000Z", "kind": "session", "session": sa,
+                            "engine": "claude", "reason": "new"}, entry("2026-11-21T09:00:01.000Z", "user", "do A")])
+    assert unir.plano(records, topicos, transcripts) == []
+    assert transcripts.path(ca).exists()
+
+
+def test_a_group_that_spans_two_topics_is_refused_and_never_applied(env, monkeypatch):
+    _, transcripts, tmp = env
+    records, topicos, ca, cb, sa, sb = two_topic_data(tmp, monkeypatch)
+    topicos["1:5"]["conversation"] = cb
+    grupos = unir.plano(records, topicos, transcripts)
+    assert grupos and all(g.recusado for g in grupos)
+    assert sorted(grupos[0].topicos) == ["1:0", "1:5"]
+    assert "recusado" in "\n".join(unir.descrever(grupos, topicos, transcripts))
+    indice = tmp / "idx.json"
+    indice.write_text(json.dumps(records))
+    (tmp / "topics.json").write_text(json.dumps(topicos))
+    before = indice.read_text()
+    unir.aplicar(grupos, indice, tmp / "topics.json", transcripts, tmp, agora=1795300000)
+    assert indice.read_text() == before
+    assert json.loads((tmp / "topics.json").read_text()) == topicos
+
+
+def test_a_stale_plan_is_refused_without_writing_anything(env, monkeypatch):
+    _, transcripts, tmp = env
+    indice, topicos, records = split_data(tmp, monkeypatch)
+    grupos = unir.plano(records, topicos, transcripts)
+    changed = json.loads(indice.read_text())
+    changed[0]["title"] = "Geral"
+    changed.append({"id": "CCCCCCCC-0000-4000-8000-00000000000c", "sessionId": "33333333-0000-4000-8000-00000000000c",
+                    "title": "Geral", "updatedAt": "2026-11-21T19:00:00.000Z"})
+    indice.write_text(json.dumps(changed))
+    with pytest.raises(unir.PlanoMudou):
+        unir.aplicar(grupos, indice, tmp / "topics.json", transcripts, tmp, agora=1795300000)
+    assert not (tmp / "backup-conversas").exists()
+    assert json.loads(indice.read_text()) == changed
+
+
+def test_losing_transcripts_are_deleted_only_after_the_index_and_store_are_written(env, monkeypatch):
+    _, transcripts, tmp = env
+    a, b = "aaaaaaaa-0000-4000-8000-000000000001", "bbbbbbbb-0000-4000-8000-000000000002"
+    seed(transcripts, a, [
+        {"v": 1, "at": "2026-11-18T10:00:00.000Z", "kind": "session", "session": "s-one", "engine": "claude", "reason": "new"},
+        entry("2026-11-18T10:00:01.000Z", "user", "um"),
+        {"v": 1, "at": "2026-11-18T11:00:00.000Z", "kind": "session", "session": "s-two", "engine": "claude", "reason": "rebuilt"},
+    ])
+    records = [
+        {"id": a.upper(), "sessionId": "s-one", "title": "x", "updatedAt": "2026-11-18T10:00:01.000Z"},
+        {"id": b.upper(), "sessionId": "s-two", "title": "x", "updatedAt": "2026-11-18T11:00:09.000Z"},
+    ]
+    indice = tmp / "idx.json"
+    indice.write_text(json.dumps(records))
+    (tmp / "topics.json").write_text("{}")
+    grupos = unir.plano(records, {}, transcripts)
+    real = unir._gravar
+
+    def broken(path, texto):
+        if path == indice:
+            raise OSError("disco cheio")
+        real(path, texto)
+    monkeypatch.setattr(unir, "_gravar", broken)
+    with pytest.raises(OSError):
+        unir.aplicar(grupos, indice, tmp / "topics.json", transcripts, tmp, agora=1795300000)
+    assert transcripts.path(a).exists()
+    assert json.loads(indice.read_text()) == records
+    monkeypatch.setattr(unir, "_gravar", real)
+    unir.aplicar(unir.plano(records, {}, transcripts), indice, tmp / "topics.json", transcripts, tmp, agora=1795300001)
+    assert not transcripts.path(a).exists() and transcripts.path(b).exists()
+
+
+def unir_cli(env, monkeypatch):
+    from types import SimpleNamespace
+    from wisp import topic
+    _, transcripts, tmp = env
+    indice, topicos, records = split_data(tmp, monkeypatch)
+    monkeypatch.setattr(topic, "app_index", lambda: indice)
+    monkeypatch.setattr(topic, "cfg", lambda: SimpleNamespace(wisp_dir=tmp))
+    monkeypatch.setattr(topic.store, "STORE", tmp / "topics.json")
+    monkeypatch.setattr(topic, "bot_vivo", lambda: False)
+    monkeypatch.setattr(topic.subprocess, "run", lambda *a, **k: SimpleNamespace(returncode=1))
+    monkeypatch.delenv(topic.CONFIRMA_ENV, raising=False)
+    monkeypatch.setattr(topic.sys, "stdin", SimpleNamespace(isatty=lambda: False))
+    return topic, tmp, indice
+
+
+def test_apply_without_a_tty_needs_the_token_the_plan_run_printed(env, monkeypatch, capsys):
+    from argparse import Namespace
+    topic, tmp, indice = unir_cli(env, monkeypatch)
+    assert topic.cmd_unir(Namespace(aplicar=False, forcar=False)) == 0
+    pid = capsys.readouterr().out.split("id do plano: ")[1].split()[0]
+    before = indice.read_text()
+    assert topic.cmd_unir(Namespace(aplicar=True, forcar=False)) == 1
+    assert "confirmação" in capsys.readouterr().err
+    monkeypatch.setenv(topic.CONFIRMA_ENV, "outro")
+    assert topic.cmd_unir(Namespace(aplicar=True, forcar=False)) == 1
+    assert indice.read_text() == before and not (tmp / "backup-conversas").exists()
+    monkeypatch.setenv(topic.CONFIRMA_ENV, pid)
+    assert topic.cmd_unir(Namespace(aplicar=True, forcar=False)) == 0
+    assert "juntado" in capsys.readouterr().out
+    assert len(json.loads(indice.read_text())) == 2
+
+
+def test_apply_on_a_tty_asks_for_the_plan_id(env, monkeypatch, capsys):
+    from argparse import Namespace
+    from types import SimpleNamespace
+    topic, tmp, indice = unir_cli(env, monkeypatch)
+    topic.cmd_unir(Namespace(aplicar=False, forcar=False))
+    pid = capsys.readouterr().out.split("id do plano: ")[1].split()[0]
+    monkeypatch.setattr(topic.sys, "stdin", SimpleNamespace(isatty=lambda: True))
+    monkeypatch.setattr("builtins.input", lambda prompt="": "errado")
+    assert topic.cmd_unir(Namespace(aplicar=True, forcar=False)) == 1
+    monkeypatch.setattr("builtins.input", lambda prompt="": pid)
+    assert topic.cmd_unir(Namespace(aplicar=True, forcar=False)) == 0
+
+
+def test_the_unir_apply_and_force_flags_always_ask_in_every_shipped_settings():
+    import json as _json
+    from pathlib import Path
+    from wisp_bot import claude_runner
+    rules = ["Bash(*topic unir*--aplicar*)", "Bash(*topic unir*--forcar*)"]
+    root = Path(__file__).parents[2]
+    shipped = _json.loads((root / "harness/settings.json").read_text())["permissions"]
+    assert all(r in shipped["ask"] for r in rules)
+    assert all(r in claude_runner.guard_settings("/x/wisp")["permissions"]["ask"] for r in rules)
+    fixture = _json.loads((root / "cli/tests/fixtures/contract/guard-settings.json").read_text())
+    assert all(r in fixture["permissions"]["ask"] for r in rules)
+    swift = (root / "core/Sources/WispCore/Agent/EngineGuards.swift").read_text()
+    assert all(r in swift for r in rules)

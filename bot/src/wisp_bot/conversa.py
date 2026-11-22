@@ -126,7 +126,6 @@ async def alcancar(store, transcripts: Transcripts, key: str, enviar, agora: flo
                 continue
             if troca["user"]:
                 await enviar("💻 " + html.escape(clip(troca["user"], USER_CHARS) if resumir else troca["user"]))
-                store.set_meta(key, **{CURSOR: troca["user_at"]})
             await enviar(clip(troca["reply"], RESUMO_CHARS) if resumir else troca["reply"])
             store.set_meta(key, **{CURSOR: troca["reply_at"]})
             enviadas += 1
