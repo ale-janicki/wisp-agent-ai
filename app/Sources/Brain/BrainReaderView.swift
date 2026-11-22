@@ -349,7 +349,7 @@ struct BrainEmbedView: View {
     @ViewBuilder
     private var drawingBody: some View {
         if let path = targetPath, let url = model.url(for: path) {
-            BrainDrawingView(url: url)
+            BrainDrawingView(url: url, vaultRoot: model.root.map { URL(fileURLWithPath: $0) }, onOpenNote: { model.openFromDrawing($0, drawingPath: path) })
         } else {
             missing
         }
