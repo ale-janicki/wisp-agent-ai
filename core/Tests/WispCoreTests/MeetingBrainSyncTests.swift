@@ -198,3 +198,19 @@ final class MeetingBrainSyncTests: XCTestCase {
         XCTAssertFalse(MeetingBrainButton.make(brainNote: gone, exists: exists(gone)).opensNote)
     }
 }
+
+final class MeetingBrainRootTests: XCTestCase {
+    func testResolvesSymlinkedProfileRootAndPrefersItOverConfigured() throws {
+        let base = FileManager.default.temporaryDirectory.appendingPathComponent("brain-root-\(UUID().uuidString)")
+        let real = base.appendingPathComponent("real")
+        let link = base.appendingPathComponent("link")
+        try FileManager.default.createDirectory(at: real, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: real)
+        defer { try? FileManager.default.removeItem(at: base) }
+        let expected = MemorySearch.resolvedRoot(real.path)
+        XCTAssertEqual(MeetingBrainRoot.resolve(profileRoot: link.path, configured: "/elsewhere"), expected)
+        XCTAssertEqual(MeetingBrainRoot.resolve(profileRoot: nil, configured: link.path), expected)
+        XCTAssertEqual(MeetingBrainRoot.resolve(profileRoot: "  ", configured: link.path), expected)
+        XCTAssertNotEqual(expected, link.path)
+    }
+}

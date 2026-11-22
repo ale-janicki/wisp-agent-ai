@@ -28,6 +28,7 @@ final class MeetingLibraryModel: ObservableObject {
 
     var root: () -> URL = { RecordingFolder.defaultRoot() }
     var isRecording: @MainActor @Sendable () -> Bool = { false }
+    var openInBrain: ((String) -> Void)?
 
     private let speech: SpeechModelModel
     private let log = Logger(subsystem: AppIdentity.bundleID, category: "meetings")
@@ -145,9 +146,19 @@ final class MeetingLibraryModel: ObservableObject {
         }
     }
 
+    static func brainRoot() -> String {
+        let profile = try? ProfileLoader.load(from: ConversationViewModel.profileURL)
+        return MeetingBrainRoot.resolve(
+            profileRoot: profile?.blocks?.memory?.root, configured: PathsModel.shared.url(.brain).path)
+    }
+
     func openNote(_ entry: MeetingEntry) {
-        guard entry.hasNote else { return }
-        NSWorkspace.shared.open(entry.noteURL)
+        guard brainButton(entry).opensNote, let path = entry.meta.brainNote else { return }
+        if let openInBrain {
+            openInBrain(path)
+        } else {
+            NSWorkspace.shared.open(URL(fileURLWithPath: path))
+        }
     }
 
     func reveal(_ entry: MeetingEntry) {
@@ -168,8 +179,8 @@ final class MeetingLibraryModel: ObservableObject {
     }
 
     func brainAction(_ entry: MeetingEntry) {
-        if brainButton(entry).opensNote, let path = entry.meta.brainNote {
-            NSWorkspace.shared.open(URL(fileURLWithPath: path))
+        if brainButton(entry).opensNote {
+            openNote(entry)
         } else {
             syncToBrain(entry)
         }
@@ -179,7 +190,7 @@ final class MeetingLibraryModel: ObservableObject {
         guard entry.hasTranscript || entry.hasNote else { return }
         let folder = entry.folder
         let layout = RuntimeLayout(bundle: Bundle.main.bundleURL, home: FileManager.default.homeDirectoryForCurrentUser)
-        let writer = WispBrainWriter(layout: layout, brain: PathsModel.shared.url(.brain).path, recreate: true)
+        let writer = WispBrainWriter(layout: layout, brain: Self.brainRoot(), recreate: true)
         Task { [weak self] in
             do {
                 let saved = try await writer.syncNote(folder: folder)
@@ -315,7 +326,7 @@ final class MeetingLibraryModel: ObservableObject {
         let pause: @Sendable () async throws -> Void = { try await gate.wait() }
         return MeetingPipeline(
             transcriber: MeetingTranscriber(recognizer: recognizer, pause: pause), notes: WispNoteWriter(layout: layout),
-            brain: WispBrainWriter(layout: layout, brain: PathsModel.shared.url(.brain).path)
+            brain: WispBrainWriter(layout: layout, brain: Self.brainRoot())
         )
     }
 
