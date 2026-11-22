@@ -37,3 +37,15 @@ def test_brain_learn_defaults_on_and_round_trips(fake_home):
     save_config(WispConfig(brain_learn=False))
     assert load_config().brain_learn is False
     assert json.loads((fake_home / ".config/wisp/wisp.json").read_text())["brain_learn"] is False
+
+
+def test_recall_tokens_defaults_to_six_thousand_and_round_trips(fake_home):
+    assert WispConfig().recall_tokens == 6000
+    save_config(WispConfig(recall_tokens=9000))
+    assert load_config().recall_tokens == 9000
+
+
+def test_brain_log_markers_default_and_round_trip(fake_home):
+    assert WispConfig().brain_log_markers == ["sessions", "daily", "digest", "session", "log"]
+    save_config(WispConfig(brain_log_markers=["atas"]))
+    assert load_config().brain_log_markers == ["atas"]

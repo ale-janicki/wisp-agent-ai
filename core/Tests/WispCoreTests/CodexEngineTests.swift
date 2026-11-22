@@ -306,6 +306,17 @@ final class CodexEngineTests: XCTestCase {
         }
     }
 
+    func testAUserOwnedBrainServerGetsNoOverrideButTheEmailServerAlwaysDoes() {
+        let all = CodexCommand.mcpOverrides(wispBinary: "/opt/wisp/venv/bin/wisp")
+        let skipped = CodexCommand.mcpOverrides(wispBinary: "/opt/wisp/venv/bin/wisp", ownedByUser: [CodexCommand.brainServer])
+        XCTAssertTrue(all.contains { $0.hasPrefix("mcp_servers.wisp-brain.") })
+        XCTAssertFalse(skipped.contains { $0.hasPrefix("mcp_servers.wisp-brain.") })
+        XCTAssertEqual(skipped, all.filter { $0.hasPrefix("mcp_servers.wisp-email.") })
+        let args = CodexCommand.arguments(workspace: "/w", permission: .ask, wispBinary: "/opt/wisp/venv/bin/wisp", ownedByUser: [CodexCommand.brainServer])
+        XCTAssertFalse(args.contains { $0.hasPrefix("mcp_servers.wisp-brain.") })
+        XCTAssertTrue(args.contains { $0.hasPrefix("mcp_servers.wisp-email.") })
+    }
+
     func testASessionWithoutTheWispBinaryNeverRunsCodex() async throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("wisp-cx-\(UUID().uuidString.prefix(8))")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)

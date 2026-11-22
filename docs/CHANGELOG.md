@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Entries are in descending chronological order (newest first).
 
+## [Unreleased]
+
+### Added
+
+- Brain search for every engine: `wisp mcp brain` is an MCP server (`wisp-brain`) with three read-only tools. `brain_search(query, limit)` ranks notes by title, aliases, headings and text (BM25) with a boost from the wikilink graph; `brain_read(path_or_title)` opens a note by name, alias, path or `[[wikilink]]` (`#heading` and `|text` work) and returns it with its outgoing links and backlinks; `brain_links(note, depth)` walks the link graph. The index is a local SQLite file in the Wisp state folder that updates itself when files change; nothing leaves the Mac. `wisp setup harness` registers it in Claude and in the Codex config; the local engine has it built in.
+- `recall_tokens` in `wisp.json` (default 6000): the ceiling for notes recalled before each reply. `brain_log_markers` (default sessions, daily, digest, session, log): folders and tags whose notes rank lower in brain search, so the topical note beats the session logs about it.
+- Codex launches from the app and the Telegram bot now also pass `wisp-brain` as launch overrides, like `wisp-email`, unless the user defined their own `wisp-brain` in the Codex config (`wisp codex check` reports it as `owned`). The Wisp block in the Codex config adds the brain server even when the user owns the email one.
+- The brain index survives several processes at once (one writer, waiters re-check what is left), never deletes a busy database, skips binary `.md` files, and recall stays quiet while the index has never been completed. Recall remembers hits and link-only neighbours separately and adds a neighbour only when two hits link to it or it matches the prompt itself.
+
+### Changed
+
+- Recall no longer stops at 3 notes. It hands the agent the strong head of the matches (notes whose title or aliases match the message, up to 8, stopping at a clear score drop) and, within the token budget, notes one wikilink away from them. Small talk injects nothing. The agent is told to call `brain_search`, `brain_read` and `brain_links` freely and to cite the notes it used as `[[wikilinks]]`. The brain-scope guard, once-per-session offering and fail-open behavior are unchanged.
+
 ## [0.3.0] - 2026-11-21
 
 - Version 0.3.0 (build 5).

@@ -40,6 +40,22 @@ def test_config_block_is_valid_toml_with_the_email_server_and_a_long_tool_timeou
     assert table["tool_timeout_sec"] > 600 and table["default_tools_approval_mode"] == "approve"
 
 
+def test_config_block_defines_the_read_only_brain_server_with_the_config_vars_forwarded():
+    table = tomllib.loads(render_config_block("/opt/wisp/venv/bin/wisp"))["mcp_servers"]["wisp-brain"]
+    assert table["command"] == "/opt/wisp/venv/bin/wisp" and table["args"] == ["mcp", "brain"]
+    assert "WISP_CONFIG" in table["env_vars"] and "WISP_APPROVAL_SOCKET" not in table["env_vars"]
+
+
+def test_a_brain_server_the_user_defined_stays_and_ours_is_left_out(fake_home):
+    home = _codex(fake_home)
+    mine = '[mcp_servers.wisp-brain]\ncommand = "other"\n'
+    (home / "config.toml").write_text(mine)
+    result = sync_codex(_paths(fake_home), _cfg(fake_home), dry_run=False)
+    servers = tomllib.loads((home / "config.toml").read_text())["mcp_servers"]
+    assert servers["wisp-brain"] == {"command": "other"} and "wisp-email" in servers
+    assert any(d.command == "brain" for d in result.details)
+
+
 def test_config_block_has_no_gate_switch_and_forwards_the_socket_the_host_sets():
     table = tomllib.loads(render_config_block("/opt/wisp/venv/bin/wisp"))["mcp_servers"]["wisp-email"]
     assert "env" not in table
@@ -99,7 +115,9 @@ def test_a_server_the_user_defined_with_our_name_is_left_alone(fake_home):
     mine = '[mcp_servers.wisp-email]\ncommand = "other"\n'
     (home / "config.toml").write_text(mine)
     result = sync_codex(_paths(fake_home), _cfg(fake_home), dry_run=False)
-    assert (home / "config.toml").read_text() == mine
+    after = (home / "config.toml").read_text()
+    assert after.startswith(mine) and "mcp_servers.wisp-email" not in after.split("# wisp:begin")[1]
+    assert tomllib.loads(after)["mcp_servers"]["wisp-email"] == {"command": "other"} and "wisp-brain" in tomllib.loads(after)["mcp_servers"]
     assert any(d.command == "e-mail" for d in result.details)
 
 
@@ -183,7 +201,14 @@ def test_a_user_owned_server_is_found_in_every_toml_form(fake_home, text):
     home = _codex(fake_home)
     (home / "config.toml").write_text(text)
     result = sync_codex(_paths(fake_home), _cfg(fake_home), dry_run=False)
-    assert (home / "config.toml").read_text() == text
+    after = (home / "config.toml").read_text()
+    assert after.startswith(text)
+    if text.startswith("mcp_servers = {"):
+        assert after == text and (home / "AGENTS.md").is_file()
+        assert any("inline table" in d.output for d in result.details)
+        return
+    servers = tomllib.loads(after)["mcp_servers"]
+    assert servers["wisp-email"]["command"] == "other" and servers["wisp-brain"]["args"] == ["mcp", "brain"]
     assert any(d.command == "e-mail" for d in result.details)
 
 
@@ -192,8 +217,28 @@ def test_a_config_that_would_not_parse_after_the_merge_is_refused_untouched(fake
     text = 'mcp_servers = { other = { command = "x" } }\n'
     (home / "config.toml").write_text(text)
     result = sync_codex(_paths(fake_home), _cfg(fake_home), dry_run=False)
-    assert result.state == "failed" and (home / "config.toml").read_text() == text
-    assert not (home / "AGENTS.md").exists()
+    assert (home / "config.toml").read_text() == text
+    assert "wisp:begin" in (home / "AGENTS.md").read_text()
+    assert any("inline table" in d.output for d in result.details)
+
+
+def test_a_user_owned_inline_brain_server_leaves_the_config_alone_and_still_writes_agents(fake_home):
+    home = _codex(fake_home)
+    text = 'mcp_servers = { wisp-brain = { command = "mine" } }\n'
+    (home / "config.toml").write_text(text)
+    result = sync_codex(_paths(fake_home), _cfg(fake_home), dry_run=False)
+    assert (home / "config.toml").read_text() == text
+    assert "wisp:begin" in (home / "AGENTS.md").read_text()
+    assert any(d.command == "brain" for d in result.details)
+
+
+def test_an_inline_table_that_only_blocks_the_brain_still_gets_the_email_block(fake_home):
+    home = _codex(fake_home)
+    (home / "config.toml").write_text('[mcp_servers.wisp-email]\ncommand = "other"\n[mcp_servers.wisp-brain.env]\nA = "b"\n')
+    result = sync_codex(_paths(fake_home), _cfg(fake_home), dry_run=False)
+    assert "wisp:begin" in (home / "AGENTS.md").read_text()
+    assert tomllib.loads((home / "config.toml").read_text())["mcp_servers"]["wisp-brain"]["env"] == {"A": "b"}
+    assert result.details
 
 
 def test_a_config_that_is_not_toml_is_refused_untouched(fake_home):
@@ -209,7 +254,7 @@ def test_the_merged_config_always_parses_with_the_server_defined_once(fake_home)
     (home / "config.toml").write_text('[mcp_servers.other]\ncommand = "x"\n')
     sync_codex(_paths(fake_home), _cfg(fake_home), dry_run=False)
     servers = tomllib.loads((home / "config.toml").read_text())["mcp_servers"]
-    assert set(servers) == {"other", "wisp-email"}
+    assert set(servers) == {"other", "wisp-email", "wisp-brain"}
 
 
 def _block_text(**swap):
@@ -250,7 +295,7 @@ def test_sync_reports_a_stale_foreign_block_and_leaves_it(fake_home):
     result = sync_codex(_paths(fake_home), _cfg(fake_home), dry_run=False)
     assert result.state == "failed"
     assert any("wisp harness sync" in d.output for d in result.details)
-    assert (home / "config.toml").read_text() == '[mcp_servers.wisp-email]\ncommand = "other"\n'
+    assert (home / "config.toml").read_text().startswith('[mcp_servers.wisp-email]\ncommand = "other"\n')
 
 
 def test_sync_reports_a_stale_block_the_user_edited(fake_home):
@@ -271,7 +316,7 @@ def test_a_synced_home_is_clean_and_the_check_command_agrees(fake_home, capsys, 
     result = sync_codex(_paths(fake_home), _cfg(fake_home), dry_run=False)
     assert result.state == "updated" and not any("trava" in d.output for d in result.details)
     assert main(["codex", "check"]) == 0
-    assert json.loads(capsys.readouterr().out) == {"ready": True, "problem": None, "project": None}
+    assert json.loads(capsys.readouterr().out) == {"ready": True, "problem": None, "project": None, "owned": []}
 
 
 def test_overrides_match_the_contract_and_describe_the_same_server_as_the_block():
@@ -279,14 +324,16 @@ def test_overrides_match_the_contract_and_describe_the_same_server_as_the_block(
     from wisp.setup.codex import mcp_overrides
     overrides = mcp_overrides(contract["wisp_bin"])
     assert overrides == contract["overrides"]
-    built = {}
-    for line in overrides:
-        key, raw = line.split("=", 1)
-        built[key.rsplit(".", 1)[1]] = tomllib.loads(f"_x_ = {raw}")["_x_"]
-    rendered = tomllib.loads(render_config_block(contract["wisp_bin"]))["mcp_servers"]["wisp-email"]
-    assert built == {**rendered, "enabled": True}
-    assert "env" not in built and "WISP_APPROVAL_SOCKET" in built["env_vars"]
-    assert built["tool_timeout_sec"] > 620 and built["default_tools_approval_mode"] == "approve"
+    for name, args in (("wisp-email", ["mcp", "email"]), ("wisp-brain", ["mcp", "brain"])):
+        built = {}
+        for line in overrides:
+            key, raw = line.split("=", 1)
+            if key.startswith(f"mcp_servers.{name}."):
+                built[key.rsplit(".", 1)[1]] = tomllib.loads(f"_x_ = {raw}")["_x_"]
+        rendered = tomllib.loads(render_config_block(contract["wisp_bin"]))["mcp_servers"][name]
+        assert built == {**rendered, "enabled": True} and built["args"] == args
+        assert "env" not in built and built["default_tools_approval_mode"] == "approve"
+    assert overrides[-1].endswith("enabled=true") and "wisp-brain" in overrides[-1]
 
 
 def _project(tmp_path, home):
@@ -350,3 +397,32 @@ def test_the_check_command_reports_the_project_file_when_asked(fake_home, capsys
     assert out["ready"] is False and out["problem"] is None and str(root / ".codex/config.toml") in out["project"]
     (root / ".codex/config.toml").unlink()
     assert main(["codex", "check", "--workspace", str(root)]) == 0
+
+
+def test_the_wisp_block_carries_the_brain_even_when_the_user_owns_the_email_server_and_the_reverse(fake_home):
+    home = _codex(fake_home)
+    (home / "config.toml").write_text('[mcp_servers.wisp-brain]\ncommand = "mine"\n')
+    sync_codex(_paths(fake_home), _cfg(fake_home), dry_run=False)
+    servers = tomllib.loads((home / "config.toml").read_text())["mcp_servers"]
+    assert servers["wisp-brain"] == {"command": "mine"} and servers["wisp-email"]["args"] == ["mcp", "email"]
+
+
+def test_the_check_command_lists_the_servers_the_user_owns_outside_the_wisp_block(fake_home, capsys, monkeypatch):
+    home = _codex(fake_home)
+    monkeypatch.setenv("CODEX_HOME", str(home))
+    (home / "config.toml").write_text('[mcp_servers.wisp-brain]\ncommand = "mine"\n')
+    sync_codex(_paths(fake_home), _cfg(fake_home), dry_run=False)
+    main(["codex", "check"])
+    assert json.loads(capsys.readouterr().out)["owned"] == ["wisp-brain"]
+    (home / "config.toml").write_text("")
+    sync_codex(_paths(fake_home), _cfg(fake_home), dry_run=False)
+    main(["codex", "check"])
+    assert json.loads(capsys.readouterr().out)["owned"] == []
+
+
+def test_overrides_skip_a_brain_server_the_user_owns_but_always_keep_the_email_gate():
+    from wisp.setup.codex import mcp_overrides
+
+    owned = mcp_overrides("/w", frozenset({"wisp-brain", "wisp-email"}))
+    assert owned and all(line.startswith("mcp_servers.wisp-email.") for line in owned)
+    assert any(line.startswith("mcp_servers.wisp-brain.") for line in mcp_overrides("/w"))

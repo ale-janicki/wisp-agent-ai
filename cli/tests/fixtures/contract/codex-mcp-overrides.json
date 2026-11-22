@@ -7,6 +7,13 @@
     "mcp_servers.wisp-email.default_tools_approval_mode=\"approve\"",
     "mcp_servers.wisp-email.startup_timeout_sec=30",
     "mcp_servers.wisp-email.tool_timeout_sec=660",
-    "mcp_servers.wisp-email.enabled=true"
+    "mcp_servers.wisp-email.enabled=true",
+    "mcp_servers.wisp-brain.command=\"/opt/wisp/venv/bin/wisp\"",
+    "mcp_servers.wisp-brain.args=[\"mcp\", \"brain\"]",
+    "mcp_servers.wisp-brain.env_vars=[\"WISP_CONFIG\", \"XDG_CONFIG_HOME\", \"XDG_STATE_HOME\"]",
+    "mcp_servers.wisp-brain.default_tools_approval_mode=\"approve\"",
+    "mcp_servers.wisp-brain.startup_timeout_sec=30",
+    "mcp_servers.wisp-brain.tool_timeout_sec=60",
+    "mcp_servers.wisp-brain.enabled=true"
   ]
 }
