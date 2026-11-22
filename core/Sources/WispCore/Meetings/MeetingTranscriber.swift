@@ -81,7 +81,7 @@ public struct MeetingTranscriber: Sendable {
     public var pause: (@Sendable () async throws -> Void)?
 
     public init(
-        recognizer: SpeechRecognizer, language: String? = nil, config: ChannelStreamerConfig = .finalPass,
+        recognizer: SpeechRecognizer, language: String? = nil, config: ChannelStreamerConfig = .default,
         pause: (@Sendable () async throws -> Void)? = nil
     ) {
         self.recognizer = recognizer
@@ -100,7 +100,11 @@ public struct MeetingTranscriber: Sendable {
         for channel in AudioChannel.allCases where Self.uses(channel, sources) {
             streamers[channel] = ChannelStreamer(channel: channel, config: config)
         }
+        var noise: [NoiseRange] = []
         func run(_ jobs: [StreamJob], into merger: inout TranscriptMerger) async throws {
+            for job in jobs where job.kind == .noise {
+                noise.append(NoiseRange(channel: job.channel, start: job.startSeconds, end: job.endSeconds))
+            }
             for job in jobs where !job.samples.isEmpty {
                 try Task.checkCancellation()
                 try await pause?()
@@ -127,6 +131,9 @@ public struct MeetingTranscriber: Sendable {
             streamers[channel] = streamer
             try await run(jobs, into: &merger)
         }
+        if !noise.isEmpty {
+            try await fill(noise, audio: audio, into: &merger, progress: { progress(0.98 + $0 * 0.02) })
+        }
         progress(1)
         let tidy = TranscriptTidy.mergeAdjacent(merger.finals)
         let spoken = tidy.map(\.end).max() ?? 0
@@ -134,6 +141,78 @@ public struct MeetingTranscriber: Sendable {
             startedAt: startedAt, durationSeconds: max(duration, spoken), language: language ?? "auto",
             engine: recognizer.engineName, segments: tidy
         )
+    }
+
+    public func transcribeRanges(
+        folder: URL, ranges: [NoiseRange], progress: @escaping @Sendable (Double) -> Void = { _ in }
+    ) async throws -> [MeetingSegment] {
+        guard let audio = StereoAudioReader.audioURL(in: folder) else { throw MeetingTranscriberError.noAudio }
+        var merger = TranscriptMerger()
+        try await fill(ranges, audio: audio, into: &merger, progress: progress)
+        return merger.finals
+    }
+
+    private static let pieceSamples = 20 * SpeechAudio.sampleRate
+    private static let pieceOverlap = SpeechAudio.sampleRate / 2
+    private static let minimumPieceSamples = SpeechAudio.sampleRate / 10
+
+    private struct Piece {
+        var start = 0
+        var samples: [Float] = []
+        var fresh = 0
+    }
+
+    private func fill(
+        _ ranges: [NoiseRange], audio: URL, into merger: inout TranscriptMerger, progress: @Sendable (Double) -> Void
+    ) async throws {
+        let rate = Double(SpeechAudio.sampleRate)
+        var position: [AudioChannel: Int] = [:]
+        var pieces: [AudioChannel: Piece] = [:]
+        func transcribe(_ channel: AudioChannel, _ piece: Piece, into merger: inout TranscriptMerger) async throws {
+            guard piece.fresh >= Self.minimumPieceSamples else { return }
+            try Task.checkCancellation()
+            try await pause?()
+            let offset = Double(piece.start) / rate
+            let spans = try await recognizer.transcribe(piece.samples, language: language).map {
+                RecognizedSpan(text: $0.text, start: $0.start + offset, end: $0.end + offset, confidence: $0.confidence)
+            }
+            merger.commit(spans, channel: channel)
+        }
+        func inside(_ channel: AudioChannel, _ index: Int) -> Bool {
+            ranges.contains { $0.channel == channel && Double(index) >= $0.start * rate && Double(index) < $0.end * rate }
+        }
+        try await StereoAudioReader().read(audio) { block, fraction in
+            for (channel, samples) in block where ranges.contains(where: { $0.channel == channel }) {
+                let first = position[channel] ?? 0
+                var piece = pieces[channel] ?? Piece()
+                for (offset, sample) in samples.enumerated() {
+                    let index = first + offset
+                    guard inside(channel, index) else {
+                        if piece.fresh > 0 {
+                            try await transcribe(channel, piece, into: &merger)
+                            piece = Piece()
+                        } else if !piece.samples.isEmpty {
+                            piece = Piece()
+                        }
+                        continue
+                    }
+                    if piece.samples.isEmpty { piece.start = index }
+                    piece.samples.append(sample)
+                    piece.fresh += 1
+                    if piece.samples.count >= Self.pieceSamples {
+                        try await transcribe(channel, piece, into: &merger)
+                        let keep = Array(piece.samples.suffix(Self.pieceOverlap))
+                        piece = Piece(start: index + 1 - keep.count, samples: keep, fresh: 0)
+                    }
+                }
+                position[channel] = first + samples.count
+                pieces[channel] = piece
+            }
+            progress(fraction)
+        }
+        for (channel, piece) in pieces where piece.fresh > 0 {
+            try await transcribe(channel, piece, into: &merger)
+        }
     }
 
     static func uses(_ channel: AudioChannel, _ sources: RecordingSources) -> Bool {
