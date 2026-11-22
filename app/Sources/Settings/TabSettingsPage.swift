@@ -65,6 +65,7 @@ struct TabSettingsPage: View {
         case .engine: EngineSettingsCard()
         case .model: ModelPickerCard()
         case .permission: PermissionSettingsCard()
+        case .telegram: TelegramSettingsGroup()
         case .brain: BrainSettingsGroup()
         case .agenda: AgendaSettingsGroup()
         case .meetings: MeetingsSettingsGroup()

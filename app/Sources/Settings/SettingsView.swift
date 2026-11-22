@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 import WispCore
 
 enum SettingsSection: String, CaseIterable, Identifiable {
@@ -110,12 +111,14 @@ struct SettingsView: View {
             EngineSettingsCard()
             ModelPickerCard()
             PermissionSettingsCard()
+            TelegramSettingsGroup()
         case .notices:
             notices
         case .integrations:
             IntegrationsPane(media: media)
         case .general:
             general
+            ProfileSettingsGroup()
             MeetingsSettingsGroup()
             BrainSettingsGroup()
             AgendaSettingsGroup()
@@ -426,6 +429,111 @@ struct BrainSettingsGroup: View {
                     .buttonStyle(CapsuleButtonStyle(kind: .ghost))
             }
         }
+    }
+}
+
+struct TelegramSettingsGroup: View {
+    @Bindable private var model = TelegramConnectModel.shared
+
+    var body: some View {
+        SettingsGroup(
+            title: "Telegram",
+            caption: "Converse com o Wisp pelo celular. Crie um bot no BotFather, cole o token aqui e mande 'oi' no grupo."
+        ) {
+            if model.configured {
+                SettingsRow(title: "Telegram conectado", detail: "O bot do Wisp está configurado neste Mac.") {
+                    Button("Conferir o bot") { model.discover() }
+                        .buttonStyle(CapsuleButtonStyle(kind: .ghost))
+                        .disabled(model.busy)
+                    Button("Desconectar") { model.disconnect() }
+                        .buttonStyle(CapsuleButtonStyle(kind: .ghost))
+                        .disabled(model.busy)
+                }
+            } else if model.tokenStored {
+                SettingsRow(title: "Token guardado", detail: "Mande 'oi' no grupo do bot e toque em Procurar o grupo.") {
+                    Button("Procurar o grupo") { model.discover() }
+                        .buttonStyle(CapsuleButtonStyle())
+                        .disabled(model.busy)
+                }
+            } else {
+                SettingsRow(title: "Conectar Telegram", detail: "Token do bot (criado no BotFather)") {
+                    SecureField("", text: $model.token, prompt: Text("cole o token aqui").foregroundStyle(Theme.textTertiary))
+                        .textFieldStyle(.plain)
+                        .font(Theme.Font.tool)
+                        .foregroundStyle(Theme.textPrimary)
+                        .padding(.horizontal, 12)
+                        .frame(width: 180, height: 30)
+                        .background(Theme.surfaceHi, in: Capsule())
+                    Button("Conectar Telegram") { model.connect() }
+                        .buttonStyle(CapsuleButtonStyle())
+                        .disabled(model.busy || model.token.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+            }
+            if model.busy {
+                ProgressView().controlSize(.small)
+            }
+            if let message = model.message {
+                Text(message)
+                    .font(Theme.Font.caption)
+                    .foregroundStyle(model.failed ? Theme.error : Theme.textSecondary)
+            }
+        }
+        .onAppear { model.refresh() }
+    }
+}
+
+struct ProfileSettingsGroup: View {
+    @Bindable private var model = ProfileEditModel.shared
+
+    var body: some View {
+        SettingsGroup(title: "Perfil", caption: "O nome do seu Wisp, como ele chama você e a imagem dele.") {
+            SettingsRow(title: "Nome do seu Wisp") { field("Wisp", text: $model.name) }
+            Divider().overlay(Theme.stroke)
+            SettingsRow(title: "Como o Wisp chama você") { field("seu nome", text: $model.userName) }
+            Divider().overlay(Theme.stroke)
+            SettingsRow(title: "Imagem") {
+                WispAvatar(size: 36, animates: false, imagePath: model.avatar?.path)
+                Button("Escolher imagem…") { chooseImage() }
+                    .buttonStyle(CapsuleButtonStyle(kind: .ghost))
+                if model.avatar != nil {
+                    Button("Usar a padrão") { model.avatar = nil }
+                        .buttonStyle(CapsuleButtonStyle(kind: .ghost))
+                }
+            }
+            Divider().overlay(Theme.stroke)
+            HStack(spacing: Theme.Space.m) {
+                if let message = model.message {
+                    Text(message)
+                        .font(Theme.Font.caption)
+                        .foregroundStyle(model.failed ? Theme.error : Theme.textSecondary)
+                }
+                Spacer(minLength: 0)
+                Button("Salvar o meu Wisp") { model.save() }
+                    .buttonStyle(CapsuleButtonStyle())
+                    .disabled(!model.canSave)
+            }
+            .padding(.top, Theme.Space.s)
+        }
+        .onAppear { model.load() }
+    }
+
+    private func field(_ prompt: String, text: Binding<String>) -> some View {
+        TextField("", text: text, prompt: Text(prompt).foregroundStyle(Theme.textTertiary))
+            .textFieldStyle(.plain)
+            .font(Theme.Font.body)
+            .foregroundStyle(Theme.textPrimary)
+            .padding(.horizontal, 12)
+            .frame(width: 200, height: 30)
+            .background(Theme.surfaceHi, in: Capsule())
+    }
+
+    private func chooseImage() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.png, .jpeg, .gif, .webP]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.message = "Escolha uma imagem de até 5 MB"
+        if panel.runModal() == .OK { model.avatar = panel.url }
     }
 }
 
