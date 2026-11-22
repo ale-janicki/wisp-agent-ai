@@ -18,6 +18,17 @@ final class BrainRefactorTests: XCTestCase {
         XCTAssertEqual(plan.fileCount, 1)
     }
 
+    func testRenameNeverRewritesLinksInsideADrawing() throws {
+        let vault = try BrainVaultFixture()
+        let drawing = "# Excalidraw Data\n\n## Text Elements\nSee [[bread]] ^abc\n"
+        try vault.put("sketch.excalidraw.md", drawing)
+        let plan = try rename(vault, "recipes/bread.md", "recipes/sourdough.md")
+        XCTAssertEqual(try vault.text("sketch.excalidraw.md"), drawing)
+        XCTAssertEqual(plan.drawings, ["sketch.excalidraw.md"])
+        XCTAssertFalse(plan.edits.contains { $0.oldPath == "sketch.excalidraw.md" })
+        XCTAssertTrue(try vault.text("projects/garden.md").contains("[[../recipes/sourdough]]"))
+    }
+
     func testAliasAndTitleLinksNeedNoRewriteBecauseTheyStillResolve() throws {
         let vault = try BrainVaultFixture()
         let plan = try rename(vault, "recipes/apple-pie.md", "recipes/tart.md")
