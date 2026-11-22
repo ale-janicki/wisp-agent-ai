@@ -375,24 +375,36 @@ struct PrepCard: View {
         VStack(alignment: .leading, spacing: Theme.Space.s) {
             header
             if open {
-                HStack(spacing: 0) {
-                    CapsuleMenu(title: eventTitle, help: "Evento da agenda") {
-                        Button {
-                            copilot.selectedEventID = nil
-                        } label: {
-                            Self.eventLabel("Sem evento da agenda", chosen: copilot.selectedEventID == nil)
-                        }
-                        ForEach(copilot.events) { event in
-                            Button {
-                                copilot.selectedEventID = event.id
-                            } label: {
-                                Self.eventLabel("\(Self.time(event.start)) \(event.title)", chosen: copilot.selectedEventID == event.id)
-                            }
-                        }
-                        Divider()
-                        Button("Atualizar lista") { copilot.loadEvents() }
+                if copilot.events.isEmpty {
+                    HStack(spacing: Theme.Space.s) {
+                        Text("Nenhum evento na agenda hoje")
+                            .font(Theme.Font.caption)
+                            .foregroundStyle(Theme.textTertiary)
+                        Button { copilot.loadEvents() } label: { Image(systemName: "arrow.clockwise") }
+                            .buttonStyle(CapsuleButtonStyle(kind: .ghost, size: .compact))
+                            .help("Atualizar eventos")
+                        Spacer(minLength: 0)
                     }
-                    Spacer(minLength: 0)
+                } else {
+                    HStack(spacing: 0) {
+                        CapsuleMenu(title: eventTitle, help: "Evento da agenda") {
+                            Button {
+                                copilot.selectedEventID = nil
+                            } label: {
+                                Self.eventLabel("Sem evento", chosen: copilot.selectedEventID == nil)
+                            }
+                            ForEach(copilot.events) { event in
+                                Button {
+                                    copilot.selectedEventID = event.id
+                                } label: {
+                                    Self.eventLabel("\(Self.time(event.start)) \(event.title)", chosen: copilot.selectedEventID == event.id)
+                                }
+                            }
+                            Divider()
+                            Button("Atualizar lista") { copilot.loadEvents() }
+                        }
+                        Spacer(minLength: 0)
+                    }
                 }
                 TextField("", text: $copilot.prepText, prompt: Text("ou descreva a reunião").foregroundStyle(Theme.textTertiary), axis: .vertical)
                     .textFieldStyle(.plain)
@@ -452,7 +464,7 @@ struct PrepCard: View {
 
     private var eventTitle: String {
         guard let id = copilot.selectedEventID, let event = copilot.events.first(where: { $0.id == id }) else {
-            return "Sem evento da agenda"
+            return "Escolher evento"
         }
         return "\(Self.time(event.start)) \(event.title)"
     }
