@@ -132,6 +132,13 @@ def _usable_dir(path: Path) -> bool:
     return probe.is_dir()
 
 
+MANAGED_NOTE = "o harness é gerenciado fora do Wisp, então ele não foi alterado"
+
+
+def _managed_elsewhere(report: StepReport) -> bool:
+    return report.status == "failed" and report.data.get("harness") == "managed_elsewhere"
+
+
 def _set_engine(cfg: WispConfig, engine: str) -> StepReport:
     if engine not in ENGINES:
         return StepReport("config", "failed", f"motor desconhecido: {engine}", data={"key": "engine"})
@@ -142,6 +149,8 @@ def _set_engine(cfg: WispConfig, engine: str) -> StepReport:
         stop_server()
     synced = _harness_and_codex(cfg, False)
     data = {"key": "engine", "engine": engine, "sync": synced.status}
+    if _managed_elsewhere(synced):
+        return StepReport("config", "done", f"motor salvo; {MANAGED_NOTE}", data={**data, "harness": "managed_elsewhere"})
     if synced.status == "failed":
         return StepReport("config", "failed", f"motor salvo, mas o harness não sincronizou: {synced.summary}", synced.details, data)
     return StepReport("config", "done", "motor salvo", synced.details, data)
@@ -171,6 +180,8 @@ def _config_set(args: argparse.Namespace) -> int:
             return report
         synced = _harness_and_codex(cfg, False)
         data = {"key": args.key, "path": str(target), "sync": synced.status}
+        if _managed_elsewhere(synced):
+            return StepReport("config", "done", f"caminho salvo; {MANAGED_NOTE}", data={**data, "harness": "managed_elsewhere"})
         if synced.status == "failed":
             return StepReport("config", "failed", f"caminho salvo, mas o harness não sincronizou: {synced.summary}", synced.details, data)
         return StepReport("config", "done", "caminho salvo", synced.details, data)
