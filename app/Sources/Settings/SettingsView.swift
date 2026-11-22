@@ -308,6 +308,12 @@ struct SettingsView: View {
                     .disabled(access.busy)
                 }
             }
+            Divider().overlay(Theme.stroke)
+            ToggleRow(
+                title: "Ocultar títulos nas notificações e na barra de menu",
+                detail: "Mostra \"Reunião\" no lugar do título do evento.",
+                isOn: AppSettings.shared.settings.agenda.hideTitlesInAlerts
+            ) { on in AppSettings.shared.setAgenda { $0.hideTitlesInAlerts = on } }
         }
         .onAppear { access.refresh() }
     }
