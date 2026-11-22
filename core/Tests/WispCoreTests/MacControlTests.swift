@@ -28,9 +28,17 @@ private final class FakeDriver: MacDriver, @unchecked Sendable {
     func type(_ text: String, app: String?) throws { calls.append("type \(text)") }
     func key(_ combo: MacKeyCombo, app: String?) throws { calls.append("key \(combo.keyCode)") }
     func scroll(dx: Int, dy: Int, app: String?) throws { calls.append("scroll \(dx),\(dy)") }
-    func menuItem(path: [String], app: String?, press: Bool) throws -> MacElement {
-        calls.append("menu \(path.joined(separator: ">")) \(press)")
-        return MacElement(role: "AXMenuItem", title: path.last ?? "")
+    var menuTitles: [String: String] = [:]
+    func menuItem(path: [String], app: String?, press: Bool, exact: Bool, block: String?, expect: String?) throws -> MacElement {
+        let last = path.last ?? ""
+        let real = menuTitles[last] ?? last
+        if exact, real != last { throw MacError("não achei o item de menu \"\(last)\"") }
+        let item = MacElement(role: "AXMenuItem", title: real)
+        if press {
+            if MacSafety.blocks(item, pattern: block) { throw MacError(MacRefusal.sendButton(real), exitCode: MacError.blocked) }
+            calls.append("menu \(path.joined(separator: ">")) \(real)")
+        }
+        return item
     }
     func apps() -> [MacApp] { [MacApp(name: "Safari", bundleID: "com.apple.Safari", pid: 7, active: true, hidden: false)] }
     func windows(app: String?) throws -> [MacWindow] { [] }
@@ -63,7 +71,7 @@ private final class FakeDriver: MacDriver, @unchecked Sendable {
 
     @Test func commandsParseAndRejectBadInput() throws {
         #expect(try MacCommand.parse(["rolar", "--direcao", "baixo", "--quantidade", "3"]) == .scroll(dx: 0, dy: -3, app: nil))
-        #expect(try MacCommand.parse(["clicar", "--ponto", "10,20", "--app", "Mail"]) == .click(.point(x: 10, y: 20), app: "Mail", block: nil, resolveOnly: false))
+        #expect(try MacCommand.parse(["clicar", "--ponto", "10,20", "--app", "Mail"]) == .click(.point(x: 10, y: 20), app: "Mail", block: nil, strict: false, resolveOnly: false))
         #expect(throws: MacError.self) { try MacCommand.parse(["clicar"]) }
         #expect(throws: MacError.self) { try MacCommand.parse(["digitar"]) }
         #expect(throws: MacError.self) { try MacCommand.parse(["ativar"]) }
@@ -223,7 +231,7 @@ private final class FakeDriver: MacDriver, @unchecked Sendable {
         _ = service(driver).run(arguments: ["menu", "Arquivo > Salvar"])
         _ = service(driver).run(arguments: ["tecla", "cmd+s"])
         _ = service(driver).run(arguments: ["rolar", "--direcao", "cima", "--quantidade", "4"])
-        #expect(driver.calls == ["menu Arquivo>Salvar true", "key 1", "scroll 0,4"])
+        #expect(driver.calls == ["menu Arquivo>Salvar Salvar", "key 1", "scroll 0,4"])
     }
 
     @Test func elementMatchingIsAccentAndCaseInsensitive() {
@@ -238,33 +246,133 @@ private final class FakeDriver: MacDriver, @unchecked Sendable {
         #expect(service(FakeDriver()).run(arguments: ["selftest"]).stdout == "selftest ok")
     }
 
-    @Test func composeReadsTheComposerValueAndTheToFieldNotTheWholeTree() {
-        let tree = [
-            MacElement(role: "AXWindow", title: "Nova mensagem"),
+    private func composer(body: String = "corpo", extra: [MacElement] = []) -> [MacElement] {
+        [
+            MacElement(role: "AXWindow", title: "Nova mensagem", width: 800, height: 600),
             MacElement(role: "AXStaticText", title: "Para:", depth: 1),
             MacElement(role: "AXTokenField", value: "ana@x.com, Bia <bia@x.com>; ana@x.com", depth: 1),
             MacElement(role: "AXStaticText", title: "Assunto:", depth: 1),
             MacElement(role: "AXTextField", value: "Oi", depth: 1),
-            MacElement(role: "AXStaticText", value: "texto solto que não é o corpo", depth: 1),
-        ]
-        let body = MacElement(role: "AXTextArea", value: "Ele disse \"oi\"\n" + String(repeating: "x", count: 25_000))
-        let compose = MacCompose.extract(elements: tree, focused: body, window: "Nova mensagem")
-        #expect(compose.recipients == ["ana@x.com", "Bia <bia@x.com>"])
-        #expect(compose.subject == "Oi")
-        #expect(compose.body.hasPrefix("Ele disse \"oi\"\n") && compose.body.count == 25_000 + 15)
-        #expect(MacCompose.extract(elements: tree, focused: MacElement(role: "AXButton", value: "x"), window: "").body == "")
-        let secure = MacElement(role: "AXTextField", subrole: "AXSecureTextField", value: "senha")
-        #expect(MacCompose.extract(elements: tree, focused: secure, window: "").body == "")
+            MacElement(role: "AXTextArea", value: "pequeno", width: 50, height: 20, depth: 1),
+            MacElement(role: "AXTextArea", value: body, width: 700, height: 400, depth: 1),
+        ] + extra
     }
 
-    @Test func composeCommandReturnsTheRawValuesWithQuotesAndNoTruncation() throws {
+    @Test func composeTakesTheBodyFromTheLargestTextAreaAndTheFieldsFromTheirLabelsNotFromFocus() {
+        let body = "Ele disse \"oi\"\n" + String(repeating: "x", count: 25_000)
+        let compose = MacCompose.extract(elements: composer(body: body), window: "Nova mensagem")
+        #expect(compose.recipients == ["ana@x.com", "Bia <bia@x.com>"])
+        #expect(compose.subject == "Oi")
+        #expect(compose.body == body)
+        #expect(MacCompose.extract(elements: [MacElement(role: "AXButton", value: "x")], window: "").body == "")
+        let secure = MacElement(role: "AXTextArea", subrole: "AXSecureTextField", value: "senha", width: 900, height: 900)
+        #expect(MacCompose.extract(elements: composer() + [secure], window: "").body == "corpo")
+    }
+
+    @Test func composeReadsCcAndBccFromTheirLabels() {
+        let extra = [
+            MacElement(role: "AXStaticText", title: "Cc:", depth: 1), MacElement(role: "AXTokenField", value: "carla@x.com", depth: 1),
+            MacElement(role: "AXStaticText", title: "Bcc:", depth: 1), MacElement(role: "AXTokenField", value: "evil@y.com", depth: 1),
+        ]
+        let compose = MacCompose.extract(elements: composer(extra: extra), window: "")
+        #expect(compose.cc == ["carla@x.com"] && compose.bcc == ["evil@y.com"])
+        #expect(compose.recipients == ["ana@x.com", "Bia <bia@x.com>"])
+        let portuguese = [MacElement(role: "AXStaticText", title: "Cco:", depth: 1), MacElement(role: "AXTextField", value: "x@y.com", depth: 1)]
+        #expect(MacCompose.extract(elements: composer(extra: portuguese), window: "").bcc == ["x@y.com"])
+    }
+
+    @Test func composeCommandReturnsTheRawValuesWithQuotesNoTruncationAndTheCopies() throws {
         let driver = FakeDriver()
-        driver.elements = [MacElement(role: "AXWindow"), MacElement(role: "AXStaticText", title: "To:", depth: 1), MacElement(role: "AXTextField", value: "ana", depth: 1)]
-        driver.focused = MacFocus(app: "Mail", element: MacElement(role: "AXTextArea", value: "a \"b\" " + String(repeating: "z", count: 30_000)), window: "W")
+        let long = "a \"b\" " + String(repeating: "z", count: 30_000)
+        driver.elements = composer(body: long, extra: [MacElement(role: "AXStaticText", title: "Bcc:", depth: 1), MacElement(role: "AXTextField", value: "evil@y.com", depth: 1)])
+        driver.focused = MacFocus(app: "Mail", element: MacElement(role: "AXButton"), window: "W")
         let out = service(driver).run(arguments: ["composicao"]).stdout
         let object = try #require(JSONSerialization.jsonObject(with: Data(out.utf8)) as? [String: Any])
-        #expect((object["corpo"] as? String)?.count == 6 + 30_000)
-        #expect(object["destinatarios"] as? [String] == ["ana"])
+        #expect((object["corpo"] as? String)?.count == 6 + 30_000, "the body does not depend on what has focus")
+        #expect(object["destinatarios"] as? [String] == ["ana@x.com", "Bia <bia@x.com>"] && object["bcc"] as? [String] == ["evil@y.com"])
+    }
+
+    private func expected(_ driver: FakeDriver, body: String = "corpo") throws -> String {
+        let data = try JSONSerialization.data(withJSONObject: ["corpo": body, "destinatarios": ["ana@x.com", "Bia <bia@x.com>"], "cc": [String](), "assunto": "Oi"])
+        return String(decoding: data, as: UTF8.self)
+    }
+
+    @Test func sendComposePressesTheOneSendButtonInTheSameProcessOnlyWhenNothingDiffers() throws {
+        let driver = FakeDriver()
+        driver.focused = MacFocus(app: "Mail", element: nil, window: "Nova")
+        let send = MacElement(role: "AXButton", title: "Enviar", depth: 1)
+        driver.elements = composer(extra: [send, MacElement(role: "AXButton", title: "Cancelar", depth: 1)])
+        let args = ["enviar-janela", "--regex", "\\b(send|enviar)\\b", "--esperado"]
+        #expect(service(driver).run(arguments: args + [try expected(driver)]).exitCode == 0)
+        #expect(driver.calls == ["press 7"] && driver.expected.map(\.title) == ["Enviar"])
+        for changed in [try expected(driver, body: "outro corpo"), "{}", "isso nao e json"] {
+            driver.calls = []
+            #expect(service(driver).run(arguments: args + [changed]).exitCode != 0)
+            #expect(driver.calls.isEmpty)
+        }
+    }
+
+    @Test func sendComposeRefusesBccCopiesThatDifferAndAmbiguousSendButtons() throws {
+        let driver = FakeDriver()
+        driver.focused = MacFocus(app: "Mail", element: nil, window: "Nova")
+        let send = MacElement(role: "AXButton", title: "Send", depth: 1)
+        let args = ["enviar-janela", "--regex", "\\b(send|enviar)\\b", "--esperado", try expected(driver)]
+        driver.elements = composer(extra: [send, MacElement(role: "AXStaticText", title: "Bcc:", depth: 1), MacElement(role: "AXTextField", value: "evil@y.com", depth: 1)])
+        #expect(service(driver).run(arguments: args).stderr == MacRefusal.composeChanged)
+        driver.elements = composer(extra: [send, MacElement(role: "AXStaticText", title: "Cc:", depth: 1), MacElement(role: "AXTextField", value: "carla@x.com", depth: 1)])
+        #expect(service(driver).run(arguments: args).stderr == MacRefusal.composeChanged, "cc must equal the approved cc")
+        driver.elements = composer(extra: [send, MacElement(role: "AXButton", title: "Responder", depth: 1), MacElement(role: "AXButton", title: "Enviar", depth: 1)])
+        #expect(service(driver).run(arguments: args).stderr == MacRefusal.noSingleSend)
+        driver.elements = composer()
+        #expect(service(driver).run(arguments: args).stderr == MacRefusal.noSingleSend)
+        #expect(driver.calls.isEmpty)
+    }
+
+    @Test func aPartialMenuLabelIsResolvedToItsRealTitleAndBlockedByThatTitle() {
+        let driver = FakeDriver()
+        driver.menuTitles = ["Sen": "Send"]
+        let blocked = service(driver).run(arguments: ["menu", "Message > Sen", "--bloquear", "\\b(send|enviar)\\b"])
+        #expect(blocked.exitCode == MacError.blocked && blocked.stderr.contains("mac_send"))
+        #expect(driver.calls.isEmpty)
+        #expect(service(driver).run(arguments: ["menu", "Message > Sen", "--bloquear", "\\b(send|enviar)\\b", "--exato"]).exitCode == 1)
+        #expect(service(driver).run(arguments: ["menu", "Arquivo > Imprimir", "--bloquear", "\\b(send|enviar)\\b"]).exitCode == 0)
+        #expect(driver.calls == ["menu Arquivo>Imprimir Imprimir"])
+        #expect(service(driver).run(arguments: ["menu", "Message > Sen", "--resolver"]).exitCode == 0)
+    }
+
+    @Test func sendLabelsInOtherLanguagesAndCamelOrSnakeIdentifiersAreRecognised() {
+        let pattern = "\\b(send|enviar|senden|envoyer)\\b|发送|送信|Отправить|Invia|Wyślij|Verstuur|Répondre|Skicka"
+        for title in ["发送", "送信", "Отправить", "Invia", "Wyślij", "Verstuur", "Répondre", "Skicka", "Senden", "Envoyer", "发送邮件"] {
+            #expect(MacSafety.blocks(MacElement(role: "AXButton", title: title), pattern: pattern), "\(title)")
+        }
+        for identifier in ["send_button", "SendButton", "sendButton", "send-btn", "btn.send"] {
+            #expect(MacSafety.blocks(MacElement(role: "AXButton", identifier: identifier), pattern: pattern), "\(identifier)")
+        }
+        for identifier in ["Sender", "resend", "Sentinel", "backButton"] {
+            #expect(!MacSafety.blocks(MacElement(role: "AXButton", identifier: identifier), pattern: pattern), "\(identifier)")
+        }
+    }
+
+    @Test func strictModeAsksForButtonsAndMenuItemsButNotForNavigationRoles() {
+        func card(_ role: String, label: String = "", ancestors: [MacElement] = []) -> Bool {
+            MacSafety.requiresCard(MacElement(role: role, title: label), ancestors: ancestors, strict: true)
+        }
+        for role in ["AXButton", "AXMenuItem", "AXMenuButton"] { #expect(card(role, label: "Continuar")) }
+        for role in ["AXTextField", "AXTextArea", "AXLink", "AXTab", "AXTabGroup", "AXDisclosureTriangle", "AXScrollBar", "AXStaticText", "AXRadioButton"] {
+            #expect(!card(role), Comment(rawValue: role))
+        }
+        #expect(!card("AXButton", label: "Voltar", ancestors: [MacElement(role: "AXToolbar")]), "toolbar navigation does not ask")
+        #expect(card("AXButton", label: "", ancestors: [MacElement(role: "AXToolbar")]), "an unlabelled toolbar button does")
+        #expect(!MacSafety.requiresCard(MacElement(role: "AXButton", title: "X"), ancestors: [], strict: false))
+    }
+
+    @Test func strictClicksAreRefusedOnButtonsAndPassOnTextFields() {
+        let driver = FakeDriver()
+        driver.elements = [MacElement(role: "AXWindow"), MacElement(role: "AXButton", title: "Continuar", depth: 1), MacElement(role: "AXTextField", title: "Busca", depth: 1)]
+        #expect(service(driver).run(arguments: ["clicar", "--titulo", "Continuar", "--estrito"]).exitCode == MacError.blocked)
+        #expect(service(driver).run(arguments: ["clicar", "--titulo", "Busca", "--estrito"]).exitCode == 0)
+        #expect(service(driver).run(arguments: ["clicar", "--titulo", "Continuar"]).exitCode == 0)
+        #expect(driver.calls == ["press 2", "press 1"])
     }
 
     @Test func fullTreeKeepsQuotesAndTheWholeValue() {
@@ -273,15 +381,38 @@ private final class FakeDriver: MacDriver, @unchecked Sendable {
         #expect(line.contains("\\\"") && line.count > 21_000)
     }
 
-    @Test func theHelperActsOnlyWithTheCallersNonce() {
+    @Test func theHelperActsOnlyWhenTheNonceMatchesAFileTheServerWrote() throws {
         let driver = FakeDriver()
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("wisp-callers-\(UUID().uuidString.prefix(8))")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
         let nonce = String(repeating: "ab", count: 16)
-        #expect(service(driver).run(arguments: ["tecla", "cmd+t"], environment: [:]).exitCode == MacError.refused)
-        #expect(service(driver).run(arguments: ["tecla", "cmd+t"], environment: [MacCaller.variable: "curto"]).exitCode == MacError.refused)
-        #expect(service(driver).run(arguments: ["tecla", "cmd+t"], environment: [MacCaller.variable: String(repeating: "z", count: 32)]).exitCode == MacError.refused)
+        func allowed(_ line: String?) -> Bool { MacCaller.valid(nonce: line, directory: dir) }
+        #expect(!allowed(nonce), "a well-formed nonce with no file is refused")
+        let file = dir.appendingPathComponent(nonce)
+        FileManager.default.createFile(atPath: file.path, contents: Data("1".utf8), attributes: [.posixPermissions: 0o600])
+        #expect(allowed(nonce) && allowed(nonce + "\n"))
+        #expect(!allowed(nil) && !allowed("curto") && !allowed(String(repeating: "z", count: 32)) && !allowed(String(repeating: "cd", count: 16)))
+        #expect(!allowed("../" + nonce))
+        try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: file.path)
+        #expect(!allowed(nonce), "a file others can read is not the server's")
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+        let link = dir.appendingPathComponent(String(repeating: "ef", count: 16))
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: file)
+        #expect(!allowed(String(repeating: "ef", count: 16)), "a symlink is not accepted")
+        #expect(service(driver).run(arguments: ["tecla", "cmd+t"], authorize: { false }).exitCode == MacError.refused)
         #expect(driver.calls.isEmpty)
-        #expect(service(driver).run(arguments: ["permissao"], environment: [:]).exitCode == 0)
-        #expect(service(driver).run(arguments: ["selftest"], environment: [:]).stdout == "selftest ok")
-        #expect(service(driver).run(arguments: ["tecla", "cmd+t"], environment: [MacCaller.variable: nonce]).exitCode == 0)
+        #expect(service(driver).run(arguments: ["permissao"], authorize: { false }).exitCode == 0)
+        #expect(service(driver).run(arguments: ["selftest"], authorize: { false }).stdout == "selftest ok")
+        #expect(service(driver).run(arguments: ["tecla", "cmd+t"], authorize: { allowed(nonce) }).exitCode == 0)
+    }
+
+    @Test func theNonceIsReadFromTheInheritedDescriptorWithATimeout() {
+        var fds: [Int32] = [0, 0]
+        #expect(pipe(&fds) == 0)
+        defer { close(fds[0]); close(fds[1]) }
+        #expect(MacCaller.readLine(from: fds[0], timeout: 50) == nil)
+        _ = "abc\nrest".withCString { write(fds[1], $0, 8) }
+        #expect(MacCaller.readLine(from: fds[0], timeout: 500) == "abc")
     }
 }

@@ -8,6 +8,7 @@ import sys
 import time
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import parse_qsl, urlsplit
 
 from wisp.paths import WispPaths
 from wisp.runner import Runner, RunResult, SubprocessRunner
@@ -57,6 +58,21 @@ def _osascript(runner: Runner, *linhas: str, args: tuple[str, ...] = ()) -> str:
     return r.stdout.strip()
 
 
+MAILTO_PARAMS = {"cc", "bcc", "body", "to", "from", "reply-to", "in-reply-to", "attach", "attachment"}
+
+
+def mailto_refusal(alvo: str) -> str | None:
+    if not alvo.lower().startswith("mailto:"):
+        return None
+    query = urlsplit(alvo).query
+    used = {k.lower() for k, _ in parse_qsl(query, keep_blank_values=True)}
+    bad = sorted(used & MAILTO_PARAMS)
+    if bad or "&" in alvo.split("?", 1)[0]:
+        return ("Não abro um mailto: com " + ", ".join(bad or ["parâmetros escondidos"]) + ": ele prepara uma mensagem com destinatários ou texto que o "
+                "usuário não vê. Abra só mailto:endereco (ou com subject) e escreva o resto na janela.")
+    return None
+
+
 def so_mostrar(p: Path) -> bool:
     ext = p.suffix.lower().lstrip(".")
     if p.is_dir() or not ext or ext in REVELAR or ext not in ABRIR:
@@ -80,6 +96,9 @@ def abrir(runner: Runner, alvo: str, com: str | None = None) -> str:
     caminho = Path(os.path.expanduser(alvo))
     mostrar = False
     if URL.match(alvo):
+        recusa = mailto_refusal(alvo)
+        if recusa:
+            raise Falha(recusa)
         argv = ["open", alvo]
     elif caminho.exists():
         mostrar = so_mostrar(caminho)

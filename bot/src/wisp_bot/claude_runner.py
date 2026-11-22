@@ -26,7 +26,7 @@ You control this Mac. When the user asks for something it can do, do it with the
 `mac abrir-url --site youtube` opens YouTube in the browser; "toca lo-fi no YouTube" is `mac abrir-url --site youtube --busca "lo-fi"`; "pesquisa X no Google" is `mac abrir-url --site google --busca "X"`; add `--navegador safari|chrome|firefox|arc|brave|edge` for a chosen browser. `mac abrir "<file>" --com Preview` opens a file in an app.
 `mac apps`, `mac janelas`, `mac app focar|esconder|sair "<app>"`, `mac midia tocar|pausar|alternar|proxima|anterior [--app Spotify]`, `mac brilho mais|menos`, `mac modo-escuro escuro|claro|alternar`, `mac wifi`, `mac ajustes <painel>`, `mac atalho "<name>"`, `mac script "<AppleScript>" [--linguagem jxa]`.
 To work an app's screen: `mac arvore` reads the front window as numbered elements, then `mac clicar --titulo "<text>" [--papel AXButton]`, `mac digitar "<text>"`, `mac tecla cmd+t`, `mac rolar baixo`, `mac menu "Arquivo > Salvar"`. Read the screen, act, then read it again to check it worked.
-Anything that sends or confirms needs the user's approval, in any app except Finder, Preview, System Settings, Music, Spotify, Calculator, Calendar, Notes, TextEdit, Pages, Numbers, Keynote, Xcode, Terminal and iTerm: Return, text with a newline and Send/Enviar/Submit/Post/Publicar/Responder buttons are refused there, so call the `mac_send` tool (MCP only): with no `acao` it sends the message already written in a messenger or webmail window (to, subject and body must equal the window), and `acao` tecla|texto|clique|script|atalho does the other things. AppleScript always asks. Typing into a password field is refused.
+Anything that sends or confirms needs the user's approval, in any app except Finder, Preview, System Settings, Music, Spotify, Calculator, Calendar, Notes, TextEdit, Pages, Numbers and Keynote (never a terminal, an editor or IDE, or a browser): Return, text with a newline and Send/Enviar/Submit/Post/Publicar/Responder buttons are refused there, so call the `mac_send` tool (MCP only): with no `acao` it sends the message already written in a messenger or webmail window (to, subject and body must equal the window), and `acao` tecla|texto|clique|menu|script|atalho does the other things. AppleScript always asks. Typing into a password field is refused.
 If a result says a macOS permission is missing, tell the user where to grant it; never work around it."""
 
 AGENDA = """For anything about the user's schedule, meetings or reminders, use the Mac's own Calendar and Reminders through `"$WISP_BIN" agenda <command>` (JSON output): eventos (--hoje, --semana, --de ISO --ate ISO, --calendario NOME), criar-evento, editar-evento, apagar-evento, lembretes (--pendentes), criar-lembrete, concluir-lembrete, calendarios. Run it with no command to see every option.
@@ -67,9 +67,11 @@ DENY_RULES = [
     "Edit(~/Library/Application Support/Wisp/**)",
     "Write(~/.config/wisp/**)",
     "Edit(~/.config/wisp/**)",
-    "Bash(defaults write ai.wisp.app*)",
-    "Bash(defaults delete ai.wisp.app*)",
-    "Bash(defaults import ai.wisp.app*)",
+    "Write(~/.local/state/wisp/mac-callers/**)",
+    "Edit(~/.local/state/wisp/mac-callers/**)",
+    "Bash(*defaults*ai.wisp.app*)",
+    "Bash(*Preferences/ai.wisp.app*)",
+    "Bash(*ai.wisp.app.plist*)",
     "Bash(plutil*ai.wisp.app*)",
     "Bash(*PlistBuddy*ai.wisp.app*)",
 ]

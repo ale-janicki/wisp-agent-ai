@@ -60,9 +60,11 @@
       "Edit(~/Library/Application Support/Wisp/**)",
       "Write(~/.config/wisp/**)",
       "Edit(~/.config/wisp/**)",
-      "Bash(defaults write ai.wisp.app*)",
-      "Bash(defaults delete ai.wisp.app*)",
-      "Bash(defaults import ai.wisp.app*)",
+      "Write(~/.local/state/wisp/mac-callers/**)",
+      "Edit(~/.local/state/wisp/mac-callers/**)",
+      "Bash(*defaults*ai.wisp.app*)",
+      "Bash(*Preferences/ai.wisp.app*)",
+      "Bash(*ai.wisp.app.plist*)",
       "Bash(plutil*ai.wisp.app*)",
       "Bash(*PlistBuddy*ai.wisp.app*)"
     ]

@@ -62,8 +62,8 @@ public struct PermissionRequest: Identifiable, Equatable, Sendable {
             id: requestId,
             toolName: tool,
             toolUseId: request["tool_use_id"] as? String,
-            summary: Self.summary(phrase),
-            detail: Self.detail(tool: tool, input: input, description: request["description"] as? String),
+            summary: Self.summary(Self.escaped(phrase)),
+            detail: Self.escaped(Self.detail(tool: tool, input: input, description: request["description"] as? String)),
             summaryTruncated: truncated,
             requiresExpansion: Self.requiresExpansion(tool: tool, input: input, summaryTruncated: truncated),
             inputJSON: Self.json(input, pretty: false) ?? "{}",
@@ -83,6 +83,19 @@ public struct PermissionRequest: Identifiable, Equatable, Sendable {
         let tool = rule["toolName"] as? String ?? ""
         guard let content = rule["ruleContent"] as? String, !content.isEmpty else { return tool }
         return "\(tool)(\(content))"
+    }
+
+    public static func escaped(_ text: String) -> String {
+        let hidden: Set<Unicode.GeneralCategory> = [.control, .format, .surrogate, .privateUse, .unassigned]
+        var out = ""
+        for scalar in text.unicodeScalars {
+            if hidden.contains(scalar.properties.generalCategory), scalar != "\n", scalar != "\t" {
+                out += "\\u{" + String(format: "%04x", scalar.value) + "}"
+            } else {
+                out.unicodeScalars.append(scalar)
+            }
+        }
+        return out
     }
 
     static func summary(tool: String, input: [String: Any], home: String) -> String {

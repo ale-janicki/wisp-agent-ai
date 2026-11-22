@@ -73,7 +73,7 @@ public protocol MacDriver {
     func type(_ text: String, app: String?) throws
     func key(_ combo: MacKeyCombo, app: String?) throws
     func scroll(dx: Int, dy: Int, app: String?) throws
-    func menuItem(path: [String], app: String?, press: Bool) throws -> MacElement
+    func menuItem(path: [String], app: String?, press: Bool, exact: Bool, block: String?, expect: String?) throws -> MacElement
     func apps() -> [MacApp]
     func windows(app: String?) throws -> [MacWindow]
     func activate(app: String) throws
@@ -82,14 +82,17 @@ public protocol MacDriver {
 }
 
 public struct MacControlService {
+    public static let composeMax = 1500
+    public static let composeDepth = 20
+
     private let driver: any MacDriver
 
     public init(driver: any MacDriver) {
         self.driver = driver
     }
 
-    public func run(arguments: [String], environment: [String: String]? = nil) -> MacOutcome {
-        if let environment, let first = arguments.first, !MacCaller.freeCommands.contains(first), !MacCaller.valid(environment) {
+    public func run(arguments: [String], authorize: (() -> Bool)? = nil) -> MacOutcome {
+        if let authorize, let first = arguments.first, !MacCaller.freeCommands.contains(first), !authorize() {
             return MacOutcome(stderr: MacCaller.refusal, exitCode: MacError.refused)
         }
         do {
@@ -139,12 +142,16 @@ public struct MacControlService {
         case .compose(let app):
             try needAccessibility()
             let focus = try driver.focus(app: app)
-            let elements = try driver.tree(app: app, max: 1500, depth: 20)
-            let compose = MacCompose.extract(elements: elements, focused: focus.element, window: focus.window)
-            return try json(["app": focus.app, "corpo": compose.body, "destinatarios": compose.recipients, "assunto": compose.subject, "janela": compose.window])
-        case .click(let selector, let app, let block, let resolveOnly):
+            let elements = try driver.tree(app: app, max: Self.composeMax, depth: Self.composeDepth)
+            let compose = MacCompose.extract(elements: elements, window: focus.window)
+            return try json(["app": focus.app, "corpo": compose.body, "destinatarios": compose.recipients, "cc": compose.cc, "bcc": compose.bcc,
+                             "assunto": compose.subject, "janela": compose.window])
+        case .sendCompose(let app, let pattern, let expected):
             try needAccessibility()
-            return try click(selector, app: app, block: block, resolveOnly: resolveOnly)
+            return try sendCompose(app: app, pattern: pattern, expected: expected)
+        case .click(let selector, let app, let block, let strict, let resolveOnly):
+            try needAccessibility()
+            return try click(selector, app: app, block: block, strict: strict, resolveOnly: resolveOnly)
         case .type(let text, let app):
             try needAccessibility()
             try requireWritableFocus(app)
@@ -159,10 +166,12 @@ public struct MacControlService {
             try needAccessibility()
             try driver.scroll(dx: dx, dy: dy, app: app)
             return "ok"
-        case .menu(let path, let app, let resolveOnly):
+        case .menu(let path, let app, let block, let exact, let resolveOnly):
             try needAccessibility()
-            let item = try driver.menuItem(path: path, app: app, press: !resolveOnly)
-            return try json(["menu": path.joined(separator: " > "), "titulo": item.label])
+            let found = try driver.menuItem(path: path, app: app, press: false, exact: exact, block: nil, expect: nil)
+            if MacSafety.blocks(found, pattern: block) { throw blocked(found) }
+            if !resolveOnly { _ = try driver.menuItem(path: path, app: app, press: true, exact: exact, block: block, expect: found.title) }
+            return try json(["menu": path.joined(separator: " > "), "titulo": found.label])
         }
     }
 
@@ -173,11 +182,32 @@ public struct MacControlService {
         if element.isSecure { throw MacError(MacRefusal.secureField, exitCode: MacError.refused) }
     }
 
-    private func click(_ selector: MacSelector, app: String?, block: String?, resolveOnly: Bool) throws -> String {
+    private func sendCompose(app: String?, pattern: String, expected: String) throws -> String {
+        guard let data = expected.data(using: .utf8), let wanted = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
+            throw MacError("enviar-janela: --esperado não é um JSON válido", exitCode: MacError.usage)
+        }
+        let focus = try driver.focus(app: app)
+        let elements = try driver.tree(app: app, max: Self.composeMax, depth: Self.composeDepth)
+        let now = MacCompose.extract(elements: elements, window: focus.window)
+        func list(_ key: String) -> [String] { ((wanted[key] as? [String]) ?? []).map(MacCompose.canon).sorted() }
+        let same = MacCompose.canon(now.body) == (wanted["corpo"] as? String).map(MacCompose.canon)
+            && now.recipients.map(MacCompose.canon).sorted() == list("destinatarios")
+            && now.cc.map(MacCompose.canon).sorted() == list("cc")
+            && MacCompose.canon(now.subject) == (wanted["assunto"] as? String).map(MacCompose.canon)
+            && now.bcc.isEmpty && !now.body.isEmpty
+        guard same else { throw MacError(MacRefusal.composeChanged, exitCode: MacError.refused) }
+        let buttons = elements.indices.filter { elements[$0].role == "AXButton" && MacSafety.blocks(elements[$0], pattern: pattern) }
+        guard buttons.count == 1, let index = buttons.first else { throw MacError(MacRefusal.noSingleSend, exitCode: MacError.refused) }
+        try driver.pressElement(app: app, max: Self.composeMax, depth: Self.composeDepth, at: index, expect: elements[index], block: nil)
+        return try json(["enviado": true, "botao": elements[index].label])
+    }
+
+    private func click(_ selector: MacSelector, app: String?, block: String?, strict: Bool, resolveOnly: Bool) throws -> String {
         switch selector {
         case .point(let x, let y):
             let found = driver.hit(x: x, y: y)
-            if let found, MacSafety.blocks(found.element, ancestors: found.ancestors, pattern: block) { throw blocked(found.element) }
+            if let found, MacSafety.blocks(found.element, ancestors: found.ancestors, pattern: block)
+                || MacSafety.requiresCard(found.element, ancestors: found.ancestors, strict: strict) { throw blocked(found.element) }
             if !resolveOnly { try driver.clickPoint(x: x, y: y) }
             guard let found else { return try json(["ponto": "\(x),\(y)"]) }
             var report = elementReport(found.element)
@@ -192,7 +222,10 @@ public struct MacControlService {
                 throw MacError("não achei o elemento pedido na janela da frente (use arvore para ver os elementos)", exitCode: 1)
             }
             let target = elements[found[index]]
-            if MacSafety.blocks(target, ancestors: MacSafety.ancestors(of: found[index], in: elements), pattern: block) { throw blocked(target) }
+            let chain = MacSafety.ancestors(of: found[index], in: elements)
+            if MacSafety.blocks(target, ancestors: chain, pattern: block) || MacSafety.requiresCard(target, ancestors: chain, strict: strict) {
+                throw blocked(target)
+            }
             if !resolveOnly { try driver.pressElement(app: app, max: max, depth: depth, at: found[index], expect: target, block: block) }
             return try json(elementReport(target))
         }
@@ -225,6 +258,8 @@ public struct MacControlService {
 public enum MacRefusal {
     public static let secureField = "recusei: o campo em foco é de senha, o Wisp nunca digita em campo de senha"
     public static let unreadableFocus = "recusei: não consegui ver qual campo está em foco, então não digito nada"
+    public static let composeChanged = "recusei: a janela da mensagem mudou depois da aprovação (corpo, destinatários, cópias ou assunto) ou há cópia oculta"
+    public static let noSingleSend = "recusei: não achei exatamente um botão de enviar dentro da janela da mensagem"
     public static let focusChanged = "interrompi: o foco mudou de app ou virou campo de senha antes de digitar"
 
     public static func sendButton(_ label: String) -> String {

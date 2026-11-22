@@ -75,12 +75,32 @@ public enum MacSafety {
         subrole == secureSubrole || role == secureSubrole
     }
 
+    public static func normalized(_ text: String) -> String {
+        var out = ""
+        var previous: Character?
+        for character in text {
+            if let previous, previous.isLowercase, character.isUppercase { out.append(" ") }
+            out.append("_-.".contains(character) ? " " : character)
+            previous = character
+        }
+        return out
+    }
+
     public static func blocks(_ element: MacElement, pattern: String?) -> Bool {
         guard let pattern, !pattern.isEmpty,
               let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else { return false }
         return [element.title, element.detail, element.help, element.identifier].contains { text in
-            !text.isEmpty && regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) != nil
+            guard !text.isEmpty else { return false }
+            return [text, normalized(text)].contains { regex.firstMatch(in: $0, range: NSRange($0.startIndex..., in: $0)) != nil }
         }
+    }
+
+    public static let cardRoles: Set<String> = ["AXButton", "AXMenuItem", "AXMenuButton", "AXDefaultButton"]
+
+    public static func requiresCard(_ element: MacElement, ancestors: [MacElement], strict: Bool) -> Bool {
+        guard strict, cardRoles.contains(element.role) else { return false }
+        if !element.label.isEmpty, ancestors.prefix(ancestorLimit).contains(where: { $0.role == "AXToolbar" }) { return false }
+        return true
     }
 
     public static let ancestorLimit = 3
@@ -228,10 +248,23 @@ public enum MacMenuPath {
 public struct MacCompose: Equatable, Sendable {
     public let body: String
     public let recipients: [String]
+    public let cc: [String]
+    public let bcc: [String]
     public let subject: String
     public let window: String
 
+    static let bodyRoles: Set<String> = ["AXTextArea", "AXWebArea"]
     static let textRoles: Set<String> = ["AXTextArea", "AXTextField", "AXComboBox", "AXTokenField", "AXWebArea"]
+    static let toPattern = "^\\s*(to|para|recipients?|destinat[aá]rios?)\\s*:?\\s*$"
+    static let ccPattern = "^\\s*(cc|c\\.c\\.|c[oó]pia)\\s*:?\\s*$"
+    static let bccPattern = "^\\s*(bcc|cco|c[oó]pia oculta|blind copy)\\s*:?\\s*$"
+    static let subjectPattern = "^\\s*(subject|assunto)\\s*:?\\s*$"
+
+    public static func canon(_ text: String) -> String {
+        text.precomposedStringWithCanonicalMapping
+            .replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
 
     static func matches(_ pattern: String, _ text: String) -> Bool {
         guard !text.isEmpty, let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else { return false }
@@ -262,28 +295,47 @@ public struct MacCompose: Equatable, Sendable {
         return out
     }
 
-    public static func extract(elements: [MacElement], focused: MacElement?, window: String) -> MacCompose {
+    static func names(_ elements: [MacElement], _ pattern: String) -> [String] {
         let separators = CharacterSet(charactersIn: ",;\n")
         var seen: [String] = []
-        for raw in labelled(elements, "^\\s*(to|para|recipients?|destinat[aá]rios?)\\s*:?\\s*$") {
+        for raw in labelled(elements, pattern) {
             for part in raw.components(separatedBy: separators) {
                 let name = part.trimmingCharacters(in: .whitespaces)
                 if !name.isEmpty, !seen.contains(name) { seen.append(name) }
             }
         }
-        let subject = labelled(elements, "^\\s*(subject|assunto)\\s*:?\\s*$").first { !$0.isEmpty } ?? ""
-        let body = focused.flatMap { textRoles.contains($0.role) && !$0.isSecure ? $0.value : nil } ?? ""
-        return MacCompose(body: body, recipients: seen, subject: subject, window: window)
+        return seen
+    }
+
+    public static func extract(elements: [MacElement], window: String) -> MacCompose {
+        let candidates = elements.filter { bodyRoles.contains($0.role) && !$0.isSecure }
+        let main = candidates.max { $0.width * $0.height < $1.width * $1.height }
+        let subject = labelled(elements, subjectPattern).first { !$0.isEmpty } ?? ""
+        return MacCompose(body: main?.value ?? "", recipients: names(elements, toPattern), cc: names(elements, ccPattern),
+                          bcc: names(elements, bccPattern), subject: subject, window: window)
     }
 }
 
 public enum MacCaller {
-    public static let variable = "WISP_MAC_CALLER"
     public static let minimumLength = 32
+    public static let maximumLength = 128
 
-    public static func valid(_ environment: [String: String]) -> Bool {
-        guard let nonce = environment[variable], nonce.count >= minimumLength else { return false }
-        return nonce.allSatisfy { $0.isHexDigit }
+    public static func valid(nonce: String?, directory: URL, uid: uid_t = getuid(), fileManager: FileManager = .default) -> Bool {
+        guard let nonce = nonce?.trimmingCharacters(in: .whitespacesAndNewlines), nonce.count >= minimumLength, nonce.count <= maximumLength,
+              nonce.allSatisfy({ $0.isHexDigit }) else { return false }
+        let path = directory.appendingPathComponent(nonce).path
+        var info = Darwin.stat()
+        guard lstat(path, &info) == 0, (info.st_mode & S_IFMT) == S_IFREG, info.st_uid == uid, info.st_mode & 0o077 == 0 else { return false }
+        return fileManager.isReadableFile(atPath: path)
+    }
+
+    public static func readLine(from descriptor: Int32, timeout: Int32 = 2000) -> String? {
+        var poller = pollfd(fd: descriptor, events: Int16(POLLIN), revents: 0)
+        guard poll(&poller, 1, timeout) > 0 else { return nil }
+        var buffer = [UInt8](repeating: 0, count: maximumLength + 2)
+        let count = read(descriptor, &buffer, buffer.count)
+        guard count > 0 else { return nil }
+        return String(decoding: buffer[0..<count], as: UTF8.self).split(separator: "\n", maxSplits: 1).first.map(String.init)
     }
 
     public static let refusal = "recusei: o ajudante só age quando chamado pelo servidor de controle do Mac do Wisp (use `wisp mac ...` ou as ferramentas mac_*)"

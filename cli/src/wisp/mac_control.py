@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import atexit
 import json
 import os
 import plistlib
@@ -31,10 +32,16 @@ APP_ROOTS = (Path("/Applications"),)
 SETTINGS_DOMAIN = "ai.wisp.app"
 SAFE_APPS_KEY = "macSafeApps"
 SHORTCUTS_KEY = "macReadOnlyShortcuts"
-CALLER_ENV = "WISP_MAC_CALLER"
+CALLERS_DIR = "mac-callers"
+CALLER_TTL_S = 7 * 86400
 DEFAULT_SAFE_APPS = ("finder", "preview", "system settings", "music", "spotify", "calculator", "calendar", "notes", "textedit", "pages",
-                     "numbers", "keynote", "xcode", "terminal", "iterm", "iterm2")
-ACOES = ("tecla", "texto", "clique", "script", "atalho")
+                     "numbers", "keynote")
+NEVER_SAFE = re.compile(
+    r"terminal|iterm|warp|ghostty|kitty|alacritty|wezterm|hyper|tabby|xcode|visual studio|vscode|\bcode\b|cursor|windsurf|zed|sublime|nova|"
+    r"bbedit|textmate|pycharm|intellij|webstorm|goland|rider|clion|android studio|emacs|vim|script editor|script debugger|automator|"
+    r"shortcuts|atalhos|jupyter|python|node|ruby|shell|console|terminal"
+)
+ACOES = ("tecla", "texto", "clique", "script", "atalho", "menu")
 HELPER_S = 30
 LOG_NAME = "mac-acoes.jsonl"
 LOG_LIMIT = 5_000_000
@@ -68,7 +75,8 @@ WEBMAIL = re.compile(r"mail\.google\.com|outlook\.live\.com|outlook\.office(365)
                      r"gmail|whatsapp|outlook|messenger|telegram|discord|slack|teams", re.I)
 ATALHOS_APP = ("atalhos", "shortcuts")
 SHORTCUT_SENDS = re.compile(r"send|enviar|envia|message|mensagem|e-?mail|sms|imessage|mail", re.I)
-SEND_PATTERN = r"\b(send|enviar|envia|mandar|senden|envoyer|submit|post|publicar|responder|reply)\b"
+SEND_PATTERN = (r"\b(send|enviar|envia|mandar|senden|envoyer|submit|post|publicar|responder|reply)\b|"
+                "发送|送信|Отправить|Invia|Wyślij|Verstuur|Répondre|Skicka")
 SEND_TITLE = re.compile(SEND_PATTERN, re.I)
 SHELL_IN_SCRIPT = re.compile(r"do shell script\s+\"((?:[^\"\\]|\\.)*)\"|doShellScript\(\s*[\"']((?:[^\"'\\]|\\.)*)[\"']", re.I)
 SEND_KEYS = {"return", "enter"}
@@ -136,14 +144,23 @@ def sensitive(info: dict) -> bool:
     return is_browser(app) and bool(WEBMAIL.search(f"{info.get('documento') or ''} {info.get('janela') or ''}"))
 
 
+def normalize_label(text: str) -> str:
+    return re.sub(r"[_.\-]", " ", re.sub(r"(?<=[a-z])(?=[A-Z])", " ", text))
+
+
 def send_title(text: str) -> bool:
-    return bool(SEND_TITLE.search(text))
+    return bool(SEND_TITLE.search(text) or SEND_TITLE.search(normalize_label(text)))
 
 
 def key_sends(combo: str) -> bool:
     tokens = [MODIFIERS.get(t.strip(), t.strip()) for t in combo.lower().split("+")]
     key, mods = tokens[-1], set(tokens[:-1])
     return key in SEND_KEYS or (key == SEND_MAIL_COMBO[1] and mods == SEND_MAIL_COMBO[0])
+
+
+def key_presses_button(combo: str, info: dict) -> bool:
+    key = combo.lower().split("+")[-1].strip()
+    return key in ("space", " ") and info.get("papel") == "AXButton"
 
 
 def canon(text: str) -> str:
@@ -199,6 +216,7 @@ class Ctx:
     verified: dict = field(default_factory=dict)
     nonce: str = field(default_factory=lambda: secrets.token_hex(16))
     settings_cache: dict = field(default_factory=dict)
+    registered: bool = False
 
     def candidates(self) -> list[Path]:
         bundles = [p for p in Path(__file__).resolve().parents if p.suffix == ".app"][:1]
@@ -237,8 +255,33 @@ class Ctx:
         self.verify(path)
         return path
 
+    def register_caller(self) -> None:
+        if self.registered:
+            return
+        folder = self.paths.state / CALLERS_DIR
+        folder.mkdir(parents=True, exist_ok=True)
+        os.chmod(folder, 0o700)
+        cutoff = time.time() - CALLER_TTL_S
+        for old in folder.iterdir():
+            try:
+                if old.stat().st_mtime < cutoff:
+                    old.unlink()
+            except OSError:
+                continue
+        marker = folder / self.nonce
+        fd = os.open(marker, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w") as f:
+            f.write(str(os.getpid()))
+        os.chmod(marker, 0o600)
+        atexit.register(lambda: marker.unlink(missing_ok=True))
+        self.registered = True
+
     def helper_run(self, *args: str) -> str:
-        r = self.runner.run([str(self.helper()), *args], timeout=HELPER_S, env={**os.environ, CALLER_ENV: self.nonce})
+        try:
+            self.register_caller()
+        except OSError:
+            raise Falha("Não consegui registrar este servidor para o ajudante do Mac.") from None
+        r = self.runner.run([str(self.helper()), *args], stdin=(self.nonce + "\n").encode(), timeout=HELPER_S)
         if r.timed_out:
             raise Falha("O Mac demorou demais para responder. Tente de novo.")
         if r.exit == 3:
@@ -397,7 +440,7 @@ def shortcut_allowlist(ctx: Ctx) -> set[str]:
 
 def safe_app(ctx: Ctx, app: str | None) -> bool:
     name = fold(app or "")
-    if not name or is_browser(app) or is_messenger(app):
+    if not name or is_browser(app) or is_messenger(app) or NEVER_SAFE.search(name):
         return False
     allowed = {fold(n) for n in (*DEFAULT_SAFE_APPS, *app_setting(ctx, SAFE_APPS_KEY))}
     return name in allowed
@@ -495,7 +538,7 @@ def clicar(ctx: Ctx, titulo: str | None = None, papel: str | None = None, ponto:
         args = ["clicar", *(["--titulo", titulo] if titulo else []), *(["--regex", regex] if regex else []),
                 *(["--papel", papel] if papel else []), "--indice", str(max(0, indice)), *(["--app", app] if app else [])]
     if needs_card(ctx, info):
-        args += ["--bloquear", SEND_PATTERN]
+        args += ["--bloquear", SEND_PATTERN, "--estrito"]
     try:
         feito = ctx.helper_json(*args)
     except Falha as e:
@@ -526,7 +569,7 @@ def digitar(ctx: Ctx, texto: str, app: str | None = None) -> str:
 def tecla(ctx: Ctx, combo: str, app: str | None = None) -> str:
     combo = parse_combo(combo)
     info = writable_focus(ctx, app)
-    if needs_card(ctx, info) and key_sends(combo):
+    if needs_card(ctx, info) and (key_sends(combo) or key_presses_button(combo, info)):
         raise Falha(ENVIO_DIRETO)
     ctx.helper_run("tecla", combo, *(["--app", app] if app else []))
     return f"Apertei {combo}."
@@ -540,10 +583,10 @@ def rolar(ctx: Ctx, direcao: str = "baixo", quantidade: int = 5, app: str | None
 
 
 def menu(ctx: Ctx, caminho: str, app: str | None = None) -> str:
-    ultimo = caminho.split(">")[-1]
-    if needs_card(ctx, focus_info(ctx, app)) and send_title(ultimo):
+    info = focus_info(ctx, app)
+    if needs_card(ctx, info):
         raise Falha(ENVIO_DIRETO)
-    ctx.helper_run("menu", caminho, *(["--app", app] if app else []))
+    ctx.helper_run("menu", caminho, "--bloquear", SEND_PATTERN, *(["--app", app] if app else []))
     return f"Escolhi o menu {caminho}."
 
 
@@ -565,23 +608,29 @@ def composicao(ctx: Ctx, app: str) -> dict:
     if not isinstance(data, dict):
         raise Falha(FOCO_ILEGIVEL)
     janela = canon(str(data.get("janela") or ""))
-    destinatarios = [canon(str(d)) for d in data.get("destinatarios") or [] if str(d).strip()]
+
+    def names(key: str) -> list[str]:
+        return [canon(str(d)) for d in data.get(key) or [] if str(d).strip()]
+
+    destinatarios = names("destinatarios")
     if not destinatarios and janela and not is_email_app(app):
         destinatarios = [janela]
     return {"app": str(data.get("app") or ""), "corpo": canon(str(data.get("corpo") or "")), "destinatarios": destinatarios,
-            "assunto": canon(str(data.get("assunto") or ""))}
+            "cc": names("cc"), "bcc": names("bcc"), "assunto": canon(str(data.get("assunto") or ""))}
 
 
-def snapshot(info: dict) -> tuple:
-    return (info["corpo"], tuple(sorted(info["destinatarios"])), info["assunto"])
+def snapshot(info: dict) -> dict:
+    return {"corpo": info["corpo"], "destinatarios": sorted(info["destinatarios"]), "cc": sorted(info["cc"]), "assunto": info["assunto"]}
 
 
-def confirm_compose(ctx: Ctx, app: str, para: list[str], assunto: str, corpo: str) -> dict:
+def confirm_compose(ctx: Ctx, app: str, para: list[str], cc: list[str], assunto: str, corpo: str) -> dict:
     if not (is_messenger(app) or is_browser(app)) or not sensitive(focus_info(ctx, app)):
         raise Falha(NAO_MENSAGEIRO)
     atual = composicao(ctx, app)
     if not atual["corpo"]:
-        raise Falha("Não achei texto escrito no campo da mensagem; escreva a mensagem no app e tente de novo.")
+        raise Falha("Não consegui identificar o campo do corpo da mensagem (o maior campo de texto da janela) ou ele está vazio; não enviei.")
+    if atual["bcc"]:
+        raise Falha("Há destinatários em cópia oculta (Bcc) na janela; o mac_send não envia assim. Tire a cópia oculta ou envie você mesmo.")
     if not atual["destinatarios"]:
         raise Falha("Não consegui ler para quem a mensagem vai; não enviei.")
     if corpo != atual["corpo"]:
@@ -589,6 +638,8 @@ def confirm_compose(ctx: Ctx, app: str, para: list[str], assunto: str, corpo: st
                     "Texto da janela: " + json.dumps(atual["corpo"][:200], ensure_ascii=False))
     if sorted(para) != sorted(atual["destinatarios"]) or len(set(para)) != len(para):
         raise Falha("Os destinatários não são iguais aos da janela; não enviei. Na janela: " + json.dumps(atual["destinatarios"], ensure_ascii=False))
+    if sorted(cc) != sorted(atual["cc"]) or len(set(cc)) != len(cc):
+        raise Falha("As cópias (Cc) não são iguais às da janela; não enviei. Na janela: " + json.dumps(atual["cc"], ensure_ascii=False))
     if assunto != atual["assunto"]:
         raise Falha("O assunto não é igual ao da janela; não enviei. Na janela: " + json.dumps(atual["assunto"], ensure_ascii=False))
     return atual
@@ -606,21 +657,19 @@ def ask_gate(ctx: Ctx, request: dict) -> None:
 def enviar(ctx: Ctx, app: str, para: list[str], assunto: str, corpo: str, cc: list[str] | None = None, acao: str | None = None) -> str:
     modo = acao or ("atalho" if fold(app) in ATALHOS_APP else "enviar")
     if modo not in (*ACOES, "enviar"):
-        raise Falha("A ação é tecla, texto, clique, script, atalho, ou nenhuma para enviar a mensagem da janela.")
+        raise Falha("A ação é tecla, texto, clique, menu, script, atalho, ou nenhuma para enviar a mensagem da janela.")
     if modo != "enviar" and assunto != modo:
         raise Falha(ACAO_SUBJECT.format(acao=modo))
     if not corpo.strip() or not para:
         raise Falha("Informe para quem vai e o texto da mensagem.")
     strict = modo not in ("script", "texto")
-    if any(p != canon(p) for p in para) or (strict and corpo != canon(corpo)) or assunto != canon(assunto):
+    if any(p != canon(p) for p in [*para, *(cc or [])]) or (strict and corpo != canon(corpo)) or assunto != canon(assunto):
         raise Falha("Os textos precisam vir sem espaços sobrando nas pontas e com quebras de linha simples; copie exatamente o que está na janela.")
     request = {"app": app, "to": para, "cc": cc or [], "subject": assunto, "body": corpo}
     if modo == "enviar":
-        atual = confirm_compose(ctx, app, para, assunto, corpo)
+        atual = confirm_compose(ctx, app, para, cc or [], assunto, corpo)
         ask_gate(ctx, request)
-        if snapshot(composicao(ctx, app)) != snapshot(atual):
-            raise Falha(JANELA_MUDOU)
-        ctx.helper_run("clicar", "--app", app, "--regex", SEND_PATTERN, "--papel", "AXButton")
+        ctx.helper_run("enviar-janela", "--app", app, "--regex", SEND_PATTERN, "--esperado", json.dumps(snapshot(atual), ensure_ascii=False))
         return "enviado"
     if modo == "script":
         lang = "jxa" if fold(app) == "jxa" else "applescript"
@@ -636,10 +685,16 @@ def enviar(ctx: Ctx, app: str, para: list[str], assunto: str, corpo: str, cc: li
         nome = para[0]
         run_shortcut(ctx, nome, None if corpo == nome else corpo)
         return "enviado"
+    if modo == "menu":
+        visto = ctx.helper_json("menu", corpo, "--exato", "--resolver", "--app", app)
+        if canon(str(visto.get("titulo") or "")) != canon(corpo.split(">")[-1]):
+            raise Falha("O item de menu real é " + json.dumps(visto.get("titulo"), ensure_ascii=False) + ", diferente do que você pediu; não executei.")
     ask_gate(ctx, request)
     if fold(focus_info(ctx, app).get("app", "")) != fold(app):
         raise Falha(JANELA_MUDOU)
-    if modo == "tecla":
+    if modo == "menu":
+        ctx.helper_run("menu", corpo, "--exato", "--app", app)
+    elif modo == "tecla":
         writable_focus(ctx, app)
         ctx.helper_run("tecla", parse_combo(corpo), "--app", app)
     elif modo == "texto":
@@ -772,8 +827,8 @@ TOOLS: dict[str, Tool] = {t.name: t for t in [
          ("caminho",), False, lambda c, a: menu(c, a["caminho"], a.get("app"))),
     Tool("mac_send", "Tudo o que envia, confirma ou executa algo e precisa da aprovação do usuário. Sem acao: envia a mensagem escrita na janela de um app de "
          "mensagem ou webmail (Mail, Mensagens, WhatsApp, Gmail…); body, to e subject precisam ser iguais ao campo da mensagem, à linha Para e ao Assunto da janela. "
-         "acao=tecla (to=[tecla], subject=tecla, body=tecla), texto (to=[app], subject=texto, body=texto), clique (to=[rótulo], subject=clique, body=rótulo) "
-         "em app não seguro; acao=script (app=AppleScript ou JXA, to=[script], subject=script, body=o script); acao=atalho (app=Atalhos, to=[nome], subject=atalho, "
+         "acao=tecla (to=[tecla], subject=tecla, body=tecla), texto (to=[app], subject=texto, body=texto), clique (to=[rótulo], subject=clique, body=rótulo), "
+         "menu (to=[caminho], subject=menu, body=caminho) em app não seguro; acao=script (app=AppleScript ou JXA, to=[script], subject=script, body=o script); acao=atalho (app=Atalhos, to=[nome], subject=atalho, "
          "body=texto de entrada ou o nome). Sem aprovação nada acontece.",
          {"app": _s("app alvo, AppleScript/JXA ou Atalhos"), "to": _list("destinatários como na janela, ou o alvo da ação"), "subject": _s("assunto da janela (vazio se não houver) ou o nome da ação"),
           "body": _s("o texto exato da mensagem ou o conteúdo da ação"), "cc": _list("cópias"), "acao": _s("tecla, texto, clique, script ou atalho; vazio para enviar a mensagem da janela")},
