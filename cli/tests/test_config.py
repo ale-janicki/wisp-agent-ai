@@ -65,3 +65,19 @@ def test_invalid_recall_tokens_and_markers_fall_back_to_defaults(fake_home, capl
     path.write_text(json.dumps({"recall_tokens": 0, "brain_log_markers": ["atas"]}))
     cfg = load_config(path)
     assert cfg.recall_tokens == 0 and cfg.brain_log_markers == ["atas"]
+
+
+
+def test_a_brain_path_saved_with_a_tilde_counts_as_existing(tmp_path, monkeypatch):
+    from wisp.doctor import _check_brain as check_brain
+    from wisp.paths import WispPaths
+    from wisp.setup import harness
+
+    home = tmp_path / "home"
+    (home / "Documents" / "brain").mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(home))
+    cfg = WispConfig(brain="~/Documents/brain")
+    monkeypatch.setattr(harness, "_managed_elsewhere", lambda _: True)
+    paths = WispPaths(home, home / "c", home / "r", home / "s", home / "b", None)
+    assert harness.setup_harness(None, paths, cfg, dry_run=True).summary == "harness gerenciado fora do Wisp"
+    assert check_brain(cfg).ok
