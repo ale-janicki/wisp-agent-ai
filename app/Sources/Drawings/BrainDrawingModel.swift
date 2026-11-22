@@ -109,7 +109,7 @@ final class BrainDrawingModel {
 
     private func warnIfEditsWereLost() {
         guard session.pageDirty, session.pendingScene == nil, !externalChangePending else { return }
-        log.error("drawing page did not answer the last save request for \(self.url.lastPathComponent, privacy: .public)")
+        log.error("drawing page did not answer the last save request for \(self.url.lastPathComponent, privacy: .private)")
         onNotice("Não consegui salvar as últimas edições de \(url.lastPathComponent): a página não respondeu a tempo.")
     }
 
@@ -152,7 +152,7 @@ final class BrainDrawingModel {
             session.discardPending()
             onNotice("\(url.lastPathComponent) mudou fora do Wisp. Suas edições foram salvas em \(destination.lastPathComponent).")
         } catch {
-            log.error("drawing recovery failed: \(error.localizedDescription, privacy: .public)")
+            log.error("drawing recovery failed: \(error.localizedDescription, privacy: .private)")
             onNotice("Não consegui salvar suas edições de \(url.lastPathComponent): \(error.localizedDescription)")
         }
     }
@@ -217,10 +217,10 @@ final class BrainDrawingModel {
         case .openLink(let link):
             open(link)
         case .failure(let message):
-            log.error("drawing web error: \(message, privacy: .public)")
+            log.error("drawing web error: \(message, privacy: .private)")
             if status == .loading { status = .failed(message) }
         case .log(let message):
-            log.debug("drawing web: \(message, privacy: .public)")
+            log.debug("drawing web: \(message, privacy: .private)")
         }
     }
 
@@ -295,7 +295,7 @@ final class BrainDrawingModel {
             externalChangePending = true
         } catch {
             saveNote = "Não consegui salvar: \((error as? AtomicFile.Failure)?.description ?? error.localizedDescription)"
-            log.error("drawing save failed: \(error.localizedDescription, privacy: .public)")
+            log.error("drawing save failed: \(error.localizedDescription, privacy: .private)")
         }
     }
 
