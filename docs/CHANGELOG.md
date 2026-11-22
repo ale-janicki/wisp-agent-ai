@@ -37,11 +37,8 @@ Entries are in descending chronological order (newest first).
 
 - Recall no longer stops at 3 notes. It hands the agent the strong head of the matches (notes whose title or aliases match the message, up to 8, stopping at a clear score drop) and, within the token budget, notes one wikilink away from them. Small talk injects nothing. The agent is told to call `brain_search`, `brain_read` and `brain_links` freely and to cite the notes it used as `[[wikilinks]]`. The brain-scope guard, once-per-session offering and fail-open behavior are unchanged.
 
-<<<<<<< HEAD
 - The default brain is `brain/` inside the Wisp folder, and meetings are recorded in its `reunioes/`, wherever the folder is. The Telegram bot's log goes to `logs/bot.log` the next time the Telegram step installs the job.
 
-=======
->>>>>>> b4ec39f (fix: the conversation merge never touches another topic and asks before it runs)
 ### Fixed
 
 - One conversation across the app and Telegram: the Geral (or any conversation) no longer shows up twice, once local and once on Telegram. The link used the Claude session id, which changes on the Geral's 24 h reset, on a rebuild and on an engine switch, so the app's old conversation was orphaned and a new one was created. A conversation now has one stable id owned by Wisp (the app's conversation UUID, lowercase, also the transcript file name); the Telegram topic stores it (`conversation` in `topics.json`, listed by `wisp topic listar --json`) and both sides key on it. Session ids are only a cache linked to it by `session` lines. The Geral reset links its new session with `reason: reset`, which starts the model's memory over without starting a new conversation.
@@ -50,24 +47,13 @@ Entries are in descending chronological order (newest first).
 - The bot's `topics.json` store takes a file lock on every write and adopts a `conversation` written to the file by another process, so a merge cannot be overwritten by the bot's in-memory copy. `wisp topic unir --aplicar` also refuses while the `wisp-bot` process or the `ai.wisp.bot` job runs, and holds that lock for the whole apply.
 - A topic created before this change gets the id of the app record that points at its session, else its transcript, else its session id; the bot and `wisp topic listar --json` compute it the same way, and the app opens such a topic with `UUID(sessionId)` when there is no record, so the id is the same on both sides.
 - The catch-up posts a turn only when its reply is in the transcript (user line and reply together), advances its cursor after each posted message, skips a turn that never got a reply, and an app mirror request whose conversation id does not match the topic, or whose turn the transcript does not hold, posts the payload as before (never twice).
+- `wisp topic unir` no longer accepts abbreviated flags (`--apl`, `--for`), so the ask rules always match; a crash after the index and store are written but before the losing transcript is deleted converges on the next run (the plan lists the orphan file, and only when the winner already holds all its content), and the bot and the merge resolve a session to the conversation that has an index record.
+- The catch-up sends the user line and the reply as one Telegram message (split only past 4000 characters, with a per-part cursor so a retry resumes at the failed part) and sends its header once per backlog.
 - The merge keeps (and still links) a record whose session cannot be imported because its Claude file is not on this Mac, lists it in the plan, and imports it on a later run when the file appears. The app and `TranscriptHistory.load` fill the history of sessions the Wisp transcript does not cover from the Claude session files.
-<<<<<<< HEAD
 
 ## [0.3.1] - 2026-11-21
 
 - Version 0.3.1 (build 6).
-=======
-### Added
-- `wisp topic unir [--aplicar] [--forcar]`: rejoins conversations split by a session id change (records sharing a transcript by session links, records of a topic's session, and every record titled like the Geral) into one. Without `--aplicar` it only prints the plan. With it, it refuses while the app is open or the bot is reading (unless `--forcar`), copies `conversations.json`, `topics.json` and the transcripts it touches to `<wisp_dir>/backup-conversas/<time>/`, merges the transcripts in time order, imports the text of sessions that had no transcript from the Claude session files, writes `unir.log` there and sets the topic's `conversation`.
->>>>>>> b4ec39f (fix: the conversation merge never touches another topic and asks before it runs)
-
-## [0.3.1] - 2026-11-21
-
-- Version 0.3.1 (build 6).
-
-### Fixed
-
-- Runtime install: `uv sync` can no longer hang the app. uv is killed only after 3 minutes without output or cache growth (a slow download is never cut off), runs with `UV_LOCK_TIMEOUT`, is retried once on a lock wait or a stall, and a failure names the last step reached with "Tentar de novo". Only uv's own lock messages count as a lock problem.
 
 ## [0.3.0] - 2026-11-21
 

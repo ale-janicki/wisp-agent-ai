@@ -113,8 +113,9 @@ def prime(context: str | None, prompt: str) -> str:
 
 
 class Transcripts:
-    def __init__(self, folder: Path, secrets: Iterable[str] = ()):
+    def __init__(self, folder: Path, secrets: Iterable[str] = (), indice: Path | None = None):
         self.folder = folder
+        self.indice = indice
         self.secrets = [s for s in secrets if s]
         self.failed = False
         self.notice: str | None = None
@@ -125,11 +126,23 @@ class Transcripts:
             raise ValueError(f"invalid conversation id: {conversation!r}")
         return self.folder / f"{conversation}.jsonl"
 
+    def indexadas(self) -> set[str]:
+        if self.indice is None:
+            return set()
+        try:
+            registros = json.loads(self.indice.read_text("utf-8"))
+        except (OSError, ValueError):
+            return set()
+        return {str(r["id"]).lower() for r in registros if isinstance(r, dict) and r.get("id")} \
+            if isinstance(registros, list) else set()
+
     def find(self, session_id: str) -> str | None:
         if not ID.match(session_id or ""):
             return None
         if session_id in self.found and self.path(self.found[session_id]).exists():
             return self.found[session_id]
+        if self.indice is not None:
+            return self._find_indexada(session_id)
         if self.path(session_id).exists():
             return session_id
         needle = f'"session":"{session_id}"'
@@ -147,6 +160,32 @@ class Transcripts:
                 self.found[session_id] = candidate.stem
                 return candidate.stem
         return None
+
+    def _find_indexada(self, session_id: str) -> str | None:
+        achadas = []
+        if self.path(session_id).exists():
+            achadas.append(session_id)
+        needle = f'"session":"{session_id}"'
+        try:
+            candidates = sorted(self.folder.glob("*.jsonl"))
+        except OSError:
+            candidates = []
+        for candidate in candidates:
+            if candidate.stem == session_id:
+                continue
+            try:
+                raw = candidate.read_text("utf-8", errors="replace")
+            except OSError:
+                continue
+            if needle in raw and any(e.get("kind") == "session" and e.get("session") == session_id
+                                     for e in read_entries(candidate)):
+                achadas.append(candidate.stem)
+        if not achadas:
+            return None
+        vivas = self.indexadas()
+        escolhida = next((a for a in achadas if a.lower() in vivas), achadas[0])
+        self.found[session_id] = escolhida
+        return escolhida
 
     def entries(self, session_id: str) -> list[dict]:
         conversation = self.find(session_id)

@@ -35,7 +35,7 @@ PERSONA = _CFG.persona
 _QUEM = f"o {_CFG.user_name}" if _CFG.user_name else "o usuario"
 TG_LIMIT = 4000
 MODELO = os.environ.get("WISP_MODEL", "opus")
-transcripts = Transcripts(_CFG.wisp_dir / "conversas", secrets=[_CFG.token])
+transcripts = Transcripts(_CFG.wisp_dir / "conversas", secrets=[_CFG.token], indice=_CFG.conversations_file)
 
 REPOS_ROOT = os.path.expanduser(os.environ.get("WISP_REPOS_ROOT", "~/repos"))
 ATALHOS = {"brain": DEFAULT_CWD}

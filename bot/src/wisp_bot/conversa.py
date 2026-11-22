@@ -3,6 +3,7 @@ import asyncio, html, json, logging
 from datetime import datetime, timezone
 from pathlib import Path
 
+from . import tg_html
 from .store import CURSOR
 from .transcript import Transcripts, clip, stamp
 
@@ -12,6 +13,9 @@ RESUMO_CHARS = 1200
 USER_CHARS = 600
 ULTIMAS_TROCAS = 5
 ATRASO_S = 90
+LIMITE = 4000
+PARTE = "espelhado_parte"
+CABECALHO_ENVIADO = "espelhado_cabecalho"
 CABECALHO = "<i>↻ do app, enquanto o Telegram estava fora</i>"
 _locks: dict[str, asyncio.Lock] = {}
 
@@ -89,6 +93,19 @@ def coberto(entries: list[dict], cursor: str, reply: str, turn_at: str) -> bool:
                and str(e.get("text") or "").strip() == alvo for e in entries)
 
 
+def _corpo(troca: dict, resumir: bool) -> str:
+    partes = []
+    if troca["user"]:
+        partes.append("💻 " + html.escape(clip(troca["user"], USER_CHARS) if resumir else troca["user"]))
+    partes.append(clip(troca["reply"], RESUMO_CHARS) if resumir else troca["reply"])
+    return "\n\n".join(partes)
+
+
+def _partes_enviadas(meta: dict, reply_at: str) -> int:
+    marca = meta.get(PARTE)
+    return int(marca.get("n", 0)) if isinstance(marca, dict) and marca.get("at") == reply_at else 0
+
+
 async def alcancar(store, transcripts: Transcripts, key: str, enviar, agora: float | None = None) -> int:
     topic = store.get(key)
     if topic is None or topic.meta.get("espelho"):
@@ -112,10 +129,12 @@ async def alcancar(store, transcripts: Transcripts, key: str, enviar, agora: flo
         agora = datetime.now(timezone.utc).timestamp() if agora is None else agora
         resumir = len(postaveis) > 1 or (bool(postaveis) and atrasado(postaveis[0], agora))
         omitidas = postaveis[:-ULTIMAS_TROCAS] if resumir else []
-        if postaveis and resumir:
+        if postaveis and resumir and not topic.meta.get(CABECALHO_ENVIADO):
             await enviar(CABECALHO)
+            if omitidas:
+                await enviar(f"<i>(+{len(omitidas)} trocas mais antigas ficaram só no app)</i>")
+            store.set_meta(key, **{CABECALHO_ENVIADO: True})
         if omitidas:
-            await enviar(f"<i>(+{len(omitidas)} trocas mais antigas ficaram só no app)</i>")
             store.set_meta(key, **{CURSOR: _fim(omitidas[-1])})
         enviadas = 0
         for troca in lista:
@@ -124,9 +143,15 @@ async def alcancar(store, transcripts: Transcripts, key: str, enviar, agora: flo
                 continue
             if troca in omitidas:
                 continue
-            if troca["user"]:
-                await enviar("💻 " + html.escape(clip(troca["user"], USER_CHARS) if resumir else troca["user"]))
-            await enviar(clip(troca["reply"], RESUMO_CHARS) if resumir else troca["reply"])
-            store.set_meta(key, **{CURSOR: troca["reply_at"]})
+            partes = tg_html.split(tg_html.sanitize(_corpo(troca, resumir)), LIMITE)
+            ja = _partes_enviadas(store.get(key).meta, troca["reply_at"])
+            for indice, parte in enumerate(partes):
+                if indice < ja:
+                    continue
+                await enviar(parte)
+                if indice + 1 < len(partes):
+                    store.set_meta(key, **{PARTE: {"at": troca["reply_at"], "n": indice + 1}})
+            store.set_meta(key, **{CURSOR: troca["reply_at"], PARTE: None})
             enviadas += 1
+        store.set_meta(key, **{CABECALHO_ENVIADO: None})
         return enviadas
