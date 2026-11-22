@@ -34,6 +34,8 @@ public enum RuntimeBootstrap {
             "UV_PYTHON_INSTALL_DIR": layout.root.appendingPathComponent("python").path,
             "UV_CACHE_DIR": layout.root.appendingPathComponent("cache").path,
             "UV_PYTHON": "3.13",
+            "UV_LOCK_TIMEOUT": String(RuntimeSync.lockTimeoutSeconds),
+            "TMPDIR": layout.root.appendingPathComponent("tmp").path,
             "WISP_RESOURCES": layout.src.path,
         ]
     }

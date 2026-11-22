@@ -33,12 +33,11 @@ extension SetupStepID {
 /// A runtime failure as one plain sentence plus the raw line for "detalhes".
 enum RuntimeFailure {
     static func describe(_ text: String) -> (sentence: String, detail: String?) {
-        let lower = text.lowercased()
-        let markers = [
-            "dns", "network", "offline", "internet", "connection", "connect", "resolve", "lookup", "timed out",
-            "error sending request", "failed to fetch", "failed to download", "tcp",
-        ]
-        if markers.contains(where: lower.contains) { return ("Sem internet — conecte e tente de novo", text) }
+        switch RuntimeSync.classify(text) {
+        case .lock, .stalled: return (text, nil)
+        case .offline: return ("Sem internet — conecte e tente de novo", text)
+        case .other: break
+        }
         return ("Não deu para preparar o Wisp", text)
     }
 }
@@ -173,7 +172,7 @@ private struct PreparingPane: View {
                 Text(failure.sentence)
                     .font(Theme.Font.body)
                     .foregroundStyle(Theme.busy)
-                Button("tentar de novo", action: retry)
+                Button("Tentar de novo", action: retry)
                     .buttonStyle(CapsuleButtonStyle())
                 if let raw = failure.detail {
                     StepDetailsView(
