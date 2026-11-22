@@ -1,3 +1,4 @@
+import CoreML
 import FluidAudio
 import Foundation
 import WispCore
@@ -70,7 +71,11 @@ final class ParakeetRecognizer: SpeechRecognizer, @unchecked Sendable {
 
         func manager(from directory: URL) async throws -> AsrManager {
             if let loaded { return loaded }
-            let models = try AsrModels.loadLocal(from: directory, version: .v3, encoderPrecision: .int8V2)
+            let configuration = MLModelConfigurationUtils.defaultConfiguration(computeUnits: .cpuAndNeuralEngine)
+            let models = try AsrModels.loadLocal(
+                from: directory, version: .v3, configuration: configuration, encoderPrecision: .int8V2,
+                encoderComputeUnits: .cpuAndNeuralEngine
+            )
             let manager = AsrManager(config: .default)
             try await manager.loadModels(models)
             loaded = manager

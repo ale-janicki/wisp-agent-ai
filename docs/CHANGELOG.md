@@ -11,6 +11,7 @@ Entries are in descending chronological order (newest first).
 
 ### Changed
 
+- Reuniões: lighter live transcription and a lighter stop. Silent stretches and windows with nothing new spoken no longer run the model, partial updates come every 2.75 s instead of 1.5 s, "Salvando…" shows the conversion percentage and runs at background priority, and recordings over 10 minutes keep the live transcript instead of re-transcribing the whole hour (the new "Melhorar transcrição" menu item runs the full pass on demand).
 - Reuniões: one button standard (primary, secondary, icon, all 32 pt tall), the source and event pickers look like buttons, the detail header keeps back and sidebar together on the left, and "Gravação salva" no longer shows the folder name and can be dismissed.
 
 ### Fixed

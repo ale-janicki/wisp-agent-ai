@@ -60,11 +60,36 @@ public struct MeetingPipeline: Sendable {
     public var transcriber: MeetingTranscriber
     public var notes: MeetingNoteWriter
     public var brain: MeetingBrainWriter?
+    public var liveTrustSeconds: Double
 
-    public init(transcriber: MeetingTranscriber, notes: MeetingNoteWriter, brain: MeetingBrainWriter? = nil) {
+    public init(
+        transcriber: MeetingTranscriber, notes: MeetingNoteWriter, brain: MeetingBrainWriter? = nil, liveTrustSeconds: Double = 600
+    ) {
         self.transcriber = transcriber
         self.notes = notes
         self.brain = brain
+        self.liveTrustSeconds = liveTrustSeconds
+    }
+
+    func trustedLive(folder: URL, meta: RecordingMeta) -> MeetingTranscriptDocument? {
+        guard (meta.durationSeconds ?? 0) > liveTrustSeconds,
+              var live = try? MeetingTranscriptFile.read(in: folder, live: true), !live.segments.isEmpty else { return nil }
+        live.durationSeconds = max(live.durationSeconds, meta.durationSeconds ?? 0)
+        live.segments = TranscriptTidy.mergeAdjacent(live.segments)
+        return live
+    }
+
+    public func improveTranscript(folder: URL, stage: @escaping @Sendable (MeetingStage) -> Void = { _ in }) async throws {
+        let meta = try RecordingFolder.read(in: folder)
+        stage(.transcribing(0))
+        let document = try await transcriber.transcribe(
+            folder: folder, startedAt: meta.startedAt, sources: meta.sources ?? .both,
+            duration: meta.durationSeconds ?? 0, progress: { stage(.transcribing($0)) }
+        )
+        guard !document.segments.isEmpty else { return }
+        try MeetingTranscriptFile.write(document, in: folder)
+        stage(.writingNote)
+        try await writeNote(folder: folder, document: document, meta: try RecordingFolder.read(in: folder))
     }
 
     public func process(folder: URL, stage: @escaping @Sendable (MeetingStage) -> Void = { _ in }) async throws {
@@ -75,10 +100,15 @@ public struct MeetingPipeline: Sendable {
         if meta.status == .transcribing || meta.status == .interrupted || !MeetingTranscriptFile.exists(in: folder) {
             do {
                 stage(.transcribing(0))
-                let document = try await transcriber.transcribe(
-                    folder: folder, startedAt: meta.startedAt, sources: meta.sources ?? .both,
-                    duration: meta.durationSeconds ?? 0, progress: { stage(.transcribing($0)) }
-                )
+                let document: MeetingTranscriptDocument
+                if let live = trustedLive(folder: folder, meta: meta) {
+                    document = live
+                } else {
+                    document = try await transcriber.transcribe(
+                        folder: folder, startedAt: meta.startedAt, sources: meta.sources ?? .both,
+                        duration: meta.durationSeconds ?? 0, progress: { stage(.transcribing($0)) }
+                    )
+                }
                 try MeetingTranscriptFile.write(document, in: folder)
                 try? manager.removeItem(at: MeetingTranscriptFile.url(in: folder, live: true))
                 meta = try RecordingFolder.update(in: folder) {
