@@ -9,6 +9,10 @@ Entries are in descending chronological order (newest first).
 
 ## [Unreleased]
 
+### Changed
+
+- The "Memória" and "Brain" sidebar tabs are now one "Brain" tab: the recent notes list, the command search and the graph search moved into it (home view when no note is open, "Visão geral" button).
+
 ## [0.4.1] - 2026-11-22
 
 - Version 0.4.1 (build 8).
@@ -17,9 +21,6 @@ Entries are in descending chronological order (newest first).
 
 - The app no longer quits by itself while the Brain tab is open. The Brain's file watcher read the changed paths as objects while macOS sent them as C strings, so the first change in the brain folder crashed the app. The stream now asks for CF types, and the watcher's handler stays alive until the stream is invalidated. A crash in the middle of the first runtime install also left `mlx-lm` missing; the install resumes on the next launch.
 - A brain folder saved as `~/…` counts as existing: the harness step no longer fails with "falta criar o cérebro antes", `BRAIN_DIR` is passed expanded, and the doctor's brain check expands it too.
-### Changed
-
-- The "Memória" and "Brain" sidebar tabs are now one "Brain" tab: the recent notes list, the command search and the graph search moved into it (home view when no note is open, "Visão geral" button).
 
 ## [0.4.0] - 2026-11-22
 
