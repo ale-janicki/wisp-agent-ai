@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from local_fakes import FakeOllama, reply
+from local_fakes import FakeLLM, reply
 
 from wisp import reuniao, reuniao_copilot as copilot
 from wisp.cli import main
@@ -95,8 +95,8 @@ def test_assist_with_codex_and_no_claude_uses_the_local_model_with_an_empty_tool
     (wisp_dir / "modelos.toml").write_text('ativo = "codex"\n')
     modelos.write(wisp_dir, modelos.LocalState("qwen3:8b", ("qwen3:8b",)))
     runner = Fake(claude=False)
-    with FakeOllama(script=[reply(ASSIST_ANSWER)], tags={"qwen3:8b": 5}) as fake:
-        monkeypatch.setattr(reuniao, "make_client", lambda: fake.client())
+    with FakeLLM(script=[reply(ASSIST_ANSWER)], tags={"qwen3:8b": 5}) as fake:
+        monkeypatch.setattr(reuniao, "make_client", lambda cfg: fake.client())
         assert copilot.run("assist", cfg, runner, assist_input()) == 0
         chats = fake.chats()
     assert len(chats) == 1 and chats[0]["tools"] == []
@@ -108,8 +108,8 @@ def test_assist_with_codex_and_no_claude_uses_the_local_model_with_an_empty_tool
 def test_assist_with_codex_and_nothing_else_fails_with_the_reason(cfg, monkeypatch, capsys):
     wisp_dir = Path(cfg.wisp_dir)
     (wisp_dir / "modelos.toml").write_text('ativo = "codex"\n')
-    with FakeOllama(tags={}) as fake:
-        monkeypatch.setattr(reuniao, "make_client", lambda: fake.client())
+    with FakeLLM(tags={}) as fake:
+        monkeypatch.setattr(reuniao, "make_client", lambda cfg: fake.client())
         assert copilot.run("assist", cfg, Fake(claude=False), assist_input()) == 1
     assert json.loads(capsys.readouterr().err)["erro"] == reuniao.CODEX_REFUSED
 
