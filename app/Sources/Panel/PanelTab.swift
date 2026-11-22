@@ -16,7 +16,6 @@ enum PanelTab: String, CaseIterable, Identifiable {
         switch self {
         case .tasks: profile.blocks?.tasks?.file.isPresent ?? false
         case .reminders: profile.blocks?.alerts?.list.isPresent ?? false
-        case .agenda: profile.blocks?.agenda?.list.isPresent ?? false
         case .memory: profile.blocks?.memory?.root.isPresent ?? false
         case .routines: (profile.blocks?.routines?.registry.isPresent ?? false) && (profile.blocks?.routines?.status.isPresent ?? false)
         default: true

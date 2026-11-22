@@ -133,6 +133,7 @@ final class ShellController: ObservableObject {
         media.start()
         clipboard.start()
         notices.start()
+        MeetingsCoordinator.shared.start(shell: self)
         screenObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification,
             object: nil,
