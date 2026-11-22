@@ -11,6 +11,7 @@ Entries are in descending chronological order (newest first).
 
 ### Changed
 
+- Reuniões: "Preparar a reunião" no longer shows an empty calendar dropdown when there are no events today: it says "Nenhum evento na agenda hoje" with a refresh button, and the description field is the way in. With events, the closed menu reads "Escolher evento".
 - Reuniões: the meetings list shows shimmering placeholders until the first scan of the recordings folder finishes, instead of "Nenhuma reunião ainda." flashing first. Meeting notes show a `[[wikilink]]` as plain text when its note does not exist in the brain.
 - Brain: the last "Grafo | Lista" choice is remembered across launches.
 - Início: when the conversation input is blocked, the composer shows the reason under it with the same button as Conversa (for example "Abrir Ajustes > Modelo"), instead of only "Configuração pendente".
