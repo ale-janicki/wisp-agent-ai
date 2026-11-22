@@ -160,11 +160,15 @@ def send_title(text: str) -> bool:
     return bool(SEND_TITLE.search(text) or SEND_TITLE.search(normalize_label(text)))
 
 
+def has_control_character(text: str) -> bool:
+    return any(ch != "\t" and (unicodedata.category(ch) in ("Cc", "Cf", "Zl", "Zp") or ch == "\x85") for ch in text)
+
+
 def key_is_safe(combo: str) -> bool:
     tokens = [MODIFIERS.get(t.strip(), t.strip()) for t in combo.lower().split("+")]
     key, mods = tokens[-1], set(tokens[:-1])
     if key in NAV_KEYS:
-        return True
+        return mods <= {"shift"}
     return mods == {"cmd"} and bool(re.fullmatch(r"[a-z0-9]", key))
 
 
@@ -604,7 +608,7 @@ def digitar(ctx: Ctx, texto: str, app: str | None = None) -> str:
     if not texto:
         raise Falha("Informe o texto.")
     info = writable_focus(ctx, app)
-    if needs_card(ctx, info) and ("\n" in texto or "\r" in texto):
+    if needs_card(ctx, info) and has_control_character(texto):
         raise Falha(ENVIO_DIRETO)
     ctx.helper_run("digitar", texto, *(["--app", app] if app else []))
     return f"Digitei {len(texto)} caracteres."

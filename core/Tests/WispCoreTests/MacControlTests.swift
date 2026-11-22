@@ -353,16 +353,22 @@ private final class FakeDriver: MacDriver, @unchecked Sendable {
         }
     }
 
-    @Test func strictModeAsksForButtonsAndMenuItemsButNotForNavigationRoles() {
-        func card(_ role: String, label: String = "", ancestors: [MacElement] = []) -> Bool {
-            MacSafety.requiresCard(MacElement(role: role, title: label), ancestors: ancestors, strict: true)
+    @Test func strictModeAsksForEveryPressableElementExceptTextFieldsScrollAreasAndTabs() {
+        func card(_ role: String, label: String = "", pressable: Bool = true, ancestors: [MacElement] = []) -> Bool {
+            MacSafety.requiresCard(MacElement(role: role, title: label, pressable: pressable), ancestors: ancestors, strict: true)
         }
-        for role in ["AXButton", "AXMenuItem", "AXMenuButton"] { #expect(card(role, label: "Continuar")) }
-        for role in ["AXTextField", "AXTextArea", "AXLink", "AXTab", "AXTabGroup", "AXDisclosureTriangle", "AXScrollBar", "AXStaticText", "AXRadioButton"] {
+        for role in ["AXButton", "AXMenuItem", "AXMenuButton"] { #expect(card(role, label: "Continuar", pressable: false), Comment(rawValue: role)) }
+        for role in ["AXGroup", "AXLink", "AXStaticText", "AXRow", "AXCell", "AXMenuBarItem", "AXImage", "AXUnknown", "AXDisclosureTriangle"] {
+            #expect(card(role, label: "x"), Comment(rawValue: role))
+        }
+        for role in ["AXTextField", "AXTextArea", "AXSearchField", "AXComboBox", "AXScrollArea", "AXScrollBar", "AXTab"] {
             #expect(!card(role), Comment(rawValue: role))
         }
-        #expect(!card("AXButton", label: "Voltar", ancestors: [MacElement(role: "AXToolbar")]), "toolbar navigation does not ask")
-        #expect(card("AXButton", label: "", ancestors: [MacElement(role: "AXToolbar")]), "an unlabelled toolbar button does")
+        #expect(!card("AXRadioButton", ancestors: [MacElement(role: "AXTabGroup")]), "a radio button inside a tab group is a tab")
+        #expect(card("AXRadioButton"), "a radio button outside a tab group asks")
+        #expect(card("AXButton", label: "Run", ancestors: [MacElement(role: "AXToolbar")]), "a toolbar gives no exemption, so Run and Build ask")
+        #expect(card("AXGroup", label: "Build", ancestors: [MacElement(role: "AXToolbar")]))
+        #expect(!card("AXGroup", pressable: false) && !card("AXLink", pressable: false) && !card("AXStaticText", pressable: false))
         #expect(!MacSafety.requiresCard(MacElement(role: "AXButton", title: "X"), ancestors: [], strict: false))
     }
 
@@ -434,17 +440,59 @@ private final class FakeDriver: MacDriver, @unchecked Sendable {
     @Test func anyElementThatExposesPressNeedsTheCardInStrictModeWhateverItsRole() {
         func card(_ element: MacElement, _ ancestors: [MacElement] = []) -> Bool { MacSafety.requiresCard(element, ancestors: ancestors, strict: true) }
         #expect(card(MacElement(role: "AXImage", title: "x", pressable: true)))
-        #expect(card(MacElement(role: "AXStaticText", pressable: true)) == false, "text and links that only navigate stay free")
+        #expect(card(MacElement(role: "AXStaticText", pressable: true)))
         #expect(card(MacElement(role: "AXUnknown", pressable: true)))
+        #expect(card(MacElement(role: "AXLink", title: "Ver", pressable: true)))
         #expect(!card(MacElement(role: "AXImage", title: "x", pressable: false)))
         #expect(!card(MacElement(role: "AXTextField", pressable: true)))
-        #expect(!card(MacElement(role: "AXLink", title: "Ver", pressable: true)))
         #expect(!card(MacElement(role: "AXTab", title: "Aba", pressable: true)))
         #expect(card(MacElement(role: "AXImage"), [MacElement(role: "AXGroup"), MacElement(role: "AXButton", title: "Enviar")]), "a button ancestor counts for a point click")
-        #expect(card(MacElement(role: "AXImage"), [MacElement(role: "AXGroup", pressable: true)]) == false)
+        #expect(card(MacElement(role: "AXImage"), [MacElement(role: "AXGroup", pressable: true)]), "a pressable group ancestor asks too")
         #expect(card(MacElement(role: "AXImage"), [MacElement(role: "AXImage", pressable: true)]))
         #expect(!card(MacElement(role: "AXImage"), [MacElement(role: "AXToolbar")]))
+        #expect(card(MacElement(role: "AXImage"), [MacElement(role: "AXToolbar", pressable: true)]), "a page posing as a toolbar is no exemption")
         #expect(!MacSafety.requiresCard(MacElement(role: "AXImage", pressable: true), ancestors: [], strict: false))
+    }
+
+    @Test func theRuntimeCheckIsAnExactPrefixOfTheRealPathUnderTheInstallLocations() {
+        let home = "/Users/ana"
+        for path in ["/Users/ana/.local/share/wisp/runtime/venv/bin/python3", "/Applications/Wisp.app/Contents/MacOS/Wisp",
+                     "/Users/ana/Applications/Wisp.app/Contents/Resources/runtime/bin/python"] {
+            #expect(MacCaller.isWispRuntimePath(path, home: home), Comment(rawValue: path))
+        }
+        for path in ["/tmp/wisp/runtime/evil", "/tmp/Wisp.app/Contents/MacOS/evil", "/Users/ana/Downloads/x/.local/share/wisp/runtime/python",
+                     "/Users/ana/.local/share/wisp/runtime", "/Users/bob/.local/share/wisp/runtime/venv/bin/python", "/usr/bin/python3",
+                     "/Applications/Wisp.app.evil/Contents/MacOS/x", "/Applications/Other.app/Contents/Wisp.app/Contents/MacOS/x"] {
+            #expect(!MacCaller.isWispRuntimePath(path, home: home), Comment(rawValue: path))
+        }
+    }
+
+    @Test func aSymlinkIntoTheRuntimeFromElsewhereIsNotTheRuntime() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("wisp-rt-\(UUID().uuidString.prefix(8))")
+        let runtime = dir.appendingPathComponent(".local/share/wisp/runtime/bin")
+        try FileManager.default.createDirectory(at: runtime, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let real = runtime.appendingPathComponent("python")
+        FileManager.default.createFile(atPath: real.path, contents: Data())
+        let link = dir.appendingPathComponent("elsewhere")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: real)
+        #expect(MacCaller.isWispRuntimePath(real.path, home: dir.path))
+        #expect(MacCaller.isWispRuntimePath(link.path, home: dir.path), "the real path is what counts, and it is inside the runtime")
+        let outside = dir.appendingPathComponent("outside-python")
+        FileManager.default.createFile(atPath: outside.path, contents: Data())
+        let pointing = dir.appendingPathComponent(".local/share/wisp/runtime/bin/sneaky")
+        try FileManager.default.createSymbolicLink(at: pointing, withDestinationURL: outside)
+        #expect(!MacCaller.isWispRuntimePath(pointing.path, home: dir.path), "a link inside the runtime that points out of it is not the runtime")
+    }
+
+    @Test func hittingTheDepthCapIsTruncationJustLikeTheElementCap() {
+        let driver = FakeDriver()
+        driver.focused = MacFocus(app: "Mail", element: nil, window: "W")
+        driver.elements = composer(body: "texto") + [MacElement(role: "AXGroup", depth: MacControlService.composeDepth)]
+        #expect(service(driver).run(arguments: ["composicao"]).stderr == MacRefusal.windowTooBig)
+        #expect(service(driver).run(arguments: ["enviar-janela", "--regex", "send", "--esperado", "{}"]).stderr == MacRefusal.windowTooBig)
+        driver.elements = composer(body: "texto") + [MacElement(role: "AXGroup", depth: MacControlService.composeDepth - 1)]
+        #expect(service(driver).run(arguments: ["composicao"]).exitCode == 0)
     }
 
     @Test func pointClicksOnAPressableImageInsideAButtonAreRefusedInStrictMode() {

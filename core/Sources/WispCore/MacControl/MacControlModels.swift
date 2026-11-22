@@ -101,23 +101,22 @@ public enum MacSafety {
 
     public static let cardRoles: Set<String> = ["AXButton", "AXMenuItem", "AXMenuButton", "AXDefaultButton"]
 
-    public static let navigationRoles: Set<String> = [
-        "AXTextField", "AXTextArea", "AXSearchField", "AXComboBox", "AXTab", "AXTabGroup", "AXDisclosureTriangle", "AXScrollBar", "AXScrollArea",
-        "AXStaticText", "AXLink", "AXRow", "AXCell", "AXOutline", "AXTable", "AXList", "AXGroup", "AXToolbar", "AXWindow", "AXSplitGroup",
-        "AXSplitter", "AXRadioButton", "AXRadioGroup", "AXMenuBarItem", "AXMenuBar", "AXMenu", "AXWebArea", "AXSlider", "AXValueIndicator",
-    ]
+    public static let freeRoles: Set<String> = ["AXTextField", "AXTextArea", "AXSearchField", "AXComboBox", "AXScrollArea", "AXScrollBar"]
+
+    static func isTab(_ element: MacElement, ancestors: [MacElement]) -> Bool {
+        element.role == "AXTab" || (element.role == "AXRadioButton" && ancestors.prefix(ancestorLimit).contains { $0.role == "AXTabGroup" })
+    }
 
     static func asksCard(_ element: MacElement, ancestors: [MacElement]) -> Bool {
-        guard cardRoles.contains(element.role) || (element.pressable && !navigationRoles.contains(element.role)) else { return false }
-        if !element.label.isEmpty, ancestors.prefix(ancestorLimit).contains(where: { $0.role == "AXToolbar" }) { return false }
-        return true
+        if cardRoles.contains(element.role) { return true }
+        return element.pressable && !freeRoles.contains(element.role) && !isTab(element, ancestors: ancestors)
     }
 
     public static func requiresCard(_ element: MacElement, ancestors: [MacElement], strict: Bool) -> Bool {
         guard strict else { return false }
         let chain = Array(ancestors.prefix(ancestorLimit))
         if asksCard(element, ancestors: chain) { return true }
-        return chain.indices.contains { asksCard(chain[$0], ancestors: Array(chain.dropFirst($0 + 1))) && chain[$0].role != "AXToolbar" }
+        return chain.indices.contains { asksCard(chain[$0], ancestors: Array(chain.dropFirst($0 + 1))) }
     }
 
     public static let ancestorLimit = 3
@@ -337,11 +336,20 @@ public enum MacCaller {
     public static let minimumLength = 32
     public static let maximumLength = 128
 
+    public static func runtimePrefixes(home: String) -> [String] {
+        let roots = [home + "/.local/share/wisp/runtime/", "/Applications/Wisp.app/Contents/", home + "/Applications/Wisp.app/Contents/"]
+        return roots.flatMap { [$0, URL(fileURLWithPath: $0).resolvingSymlinksInPath().path + "/"] }
+    }
+
+    public static func isWispRuntimePath(_ path: String, home: String) -> Bool {
+        let real = URL(fileURLWithPath: path).resolvingSymlinksInPath().path
+        return runtimePrefixes(home: home).contains { real.hasPrefix($0) }
+    }
+
     public static func isWispRuntime(_ pid: pid_t) -> Bool {
         var buffer = [CChar](repeating: 0, count: 4096)
         guard proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 else { return false }
-        let path = URL(fileURLWithPath: String(cString: buffer)).resolvingSymlinksInPath().path
-        return path.contains("/wisp/runtime/") || path.contains("/Wisp.app/Contents/")
+        return isWispRuntimePath(String(cString: buffer), home: FileManager.default.homeDirectoryForCurrentUser.path)
     }
 
     public static func valid(nonce: String?, directory: URL, uid: uid_t = getuid(), fileManager: FileManager = .default,

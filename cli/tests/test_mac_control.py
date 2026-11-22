@@ -1056,7 +1056,7 @@ def test_outside_the_safe_apps_a_key_is_denied_unless_it_is_navigation_or_a_plai
 
 
 @pytest.mark.parametrize("combo", ["up", "down", "left", "right", "tab", "shift+tab", "esc", "escape", "delete", "backspace", "pageup", "pagedown",
-                                   "home", "end", "cmd+t", "cmd+c", "cmd+v", "cmd+a", "cmd+5", "opt+left", "cmd+left", "shift+down"])
+                                   "home", "end", "cmd+t", "cmd+c", "cmd+v", "cmd+a", "cmd+5", "shift+left", "shift+down", "shift+pageup"])
 def test_navigation_keys_and_plain_cmd_letters_pass_outside_the_safe_apps(paths, helper, combo):
     c, runner = ctx(paths, helper, {(helper, "foco"): info("Slack"), (helper, "tecla"): OK})
     call(c, "mac_ui_key", {"tecla": combo})
@@ -1064,7 +1064,9 @@ def test_navigation_keys_and_plain_cmd_letters_pass_outside_the_safe_apps(paths,
 
 
 @pytest.mark.parametrize("combo,expected", [("ctrl+m", False), ("ctrl+j", False), ("ctrl+o", False), ("cmd+return", False), ("cmd+shift+d", False),
-                                            ("cmd+d", True), ("tab", True), ("pagedown", True), ("space", False), ("a", False), ("cmd+enter", False)])
+                                            ("cmd+d", True), ("tab", True), ("pagedown", True), ("space", False), ("a", False), ("cmd+enter", False),
+                                            ("cmd+delete", False), ("cmd+backspace", False), ("opt+delete", False), ("ctrl+delete", False), ("cmd+left", False),
+                                            ("opt+left", False), ("ctrl+tab", False), ("shift+delete", True), ("shift+tab", True), ("delete", True)])
 def test_key_is_safe(combo, expected):
     assert key_is_safe(combo) is expected
 
@@ -1208,3 +1210,32 @@ def test_the_shared_escape_vector_holds_for_the_cli_and_the_bot(case):
     from wisp_bot import aprovacoes
 
     assert mac_control.escape_controls(case["input"]) == case["expected"] == aprovacoes.escapar(case["input"])
+
+
+CONTROL_TEXTS = ["ls\x0f", "ls\x04", "ls\x0b", "ls\x0c", "ls\x0e", "ls\x1b", "ls\n", "ls\r", "ls\x00", "ls\x01", "ls\x08", "ls\x7f",
+                 "ls\x85", "ls\u2028", "ls\u2029", "ls\u200b", "ls\u202e", "ls\u2066", "ls\ufeff", "ls\u200d", "ls\u00ad", "ls\x9b"]
+
+
+@pytest.mark.parametrize("text", CONTROL_TEXTS, ids=[repr(t) for t in CONTROL_TEXTS])
+@pytest.mark.parametrize("app", ["Terminal", "Slack", "Safari"])
+def test_typed_text_with_any_control_or_format_character_needs_the_card_outside_the_safe_apps(paths, helper, app, text):
+    c, runner = ctx(paths, helper, {(helper, "foco"): info(app), (helper, "digitar"): OK})
+    with pytest.raises(Falha, match="mac_send"):
+        call(c, "mac_ui_type", {"texto": text})
+    assert all(x[0] != "digitar" for x in helper_calls(runner, helper))
+
+
+@pytest.mark.parametrize("text", ["ls -la\tdir", "ação 日本 ✓ café", "linha única com espaço", "tab\tseparado"])
+def test_ordinary_text_and_tabs_still_type_outside_the_safe_apps(paths, helper, text):
+    c, runner = ctx(paths, helper, {(helper, "foco"): info("Slack"), (helper, "digitar"): OK})
+    call(c, "mac_ui_type", {"texto": text})
+    assert helper_calls(runner, helper)[-1][:2] == ["digitar", text]
+
+
+def test_the_safe_apps_and_the_card_approved_text_may_carry_control_characters(paths, helper):
+    c, runner = ctx(paths, helper, {(helper, "foco"): info("Notes"), (helper, "digitar"): OK})
+    call(c, "mac_ui_type", {"texto": "a\nb\x0f"})
+    asked = []
+    c, runner = ctx(paths, helper, {(helper, "foco"): info("Terminal"), (helper, "digitar"): OK}, gate=asked.append)
+    args = {"app": "Terminal", "to": ["Terminal"], "subject": "texto", "body": "ls\x0f", "acao": "texto"}
+    assert call(c, "mac_send", args) == "feito" and asked[0]["body"] == "ls\x0f"
