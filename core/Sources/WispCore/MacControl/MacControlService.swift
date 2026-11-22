@@ -145,7 +145,7 @@ public struct MacControlService {
             try needAccessibility()
             let focus = try driver.focus(app: app)
             let elements = try driver.tree(app: app, max: Self.composeMax, depth: Self.composeDepth)
-            guard elements.count < Self.composeMax else { throw MacError(MacRefusal.windowTooBig, exitCode: MacError.refused) }
+            guard elements.count < Self.composeMax, !elements.contains(where: { $0.depth >= Self.composeDepth }) else { throw MacError(MacRefusal.windowTooBig, exitCode: MacError.refused) }
             let compose = MacCompose.extract(elements: elements, window: focus.window)
             return try json(["app": focus.app, "corpo": compose.body, "destinatarios": compose.recipients, "cc": compose.cc, "bcc": compose.bcc,
                              "assunto": compose.subject, "janela": compose.window])
@@ -191,7 +191,7 @@ public struct MacControlService {
         }
         let focus = try driver.focus(app: app)
         let elements = try driver.tree(app: app, max: Self.composeMax, depth: Self.composeDepth)
-        guard elements.count < Self.composeMax else { throw MacError(MacRefusal.windowTooBig, exitCode: MacError.refused) }
+        guard elements.count < Self.composeMax, !elements.contains(where: { $0.depth >= Self.composeDepth }) else { throw MacError(MacRefusal.windowTooBig, exitCode: MacError.refused) }
         let now = MacCompose.extract(elements: elements, window: focus.window)
         func list(_ key: String) -> [String] { ((wanted[key] as? [String]) ?? []).map(MacCompose.canon).sorted() }
         let same = MacCompose.canon(now.body) == (wanted["corpo"] as? String).map(MacCompose.canon)
