@@ -114,6 +114,41 @@ def test_assist_with_codex_and_nothing_else_fails_with_the_reason(cfg, monkeypat
     assert json.loads(capsys.readouterr().err)["erro"] == reuniao.CODEX_REFUSED
 
 
+def test_assist_with_local_active_and_a_ready_model_uses_it_and_never_runs_the_hosted_engine(cfg, monkeypatch, capsys):
+    wisp_dir = Path(cfg.wisp_dir)
+    (wisp_dir / "modelos.toml").write_text('ativo = "local"\n')
+    modelos.write(wisp_dir, modelos.LocalState("qwen3:8b", ("qwen3:8b",)))
+    runner = Fake(ASSIST_ANSWER)
+    with FakeLLM(script=[reply(ASSIST_ANSWER)], tags={"qwen3:8b": 5}) as fake:
+        monkeypatch.setattr(reuniao, "make_client", lambda cfg: fake.client())
+        assert copilot.run("assist", cfg, runner, assist_input()) == 0
+        chats = fake.chats()
+    assert len(chats) == 1 and chats[0]["tools"] == []
+    assert json.loads(capsys.readouterr().out)["motor"] == "local"
+    assert runner.calls == []
+
+
+def test_assist_and_prep_with_local_active_and_no_ready_model_fail_with_the_reason_and_run_nothing_hosted(cfg, monkeypatch, capsys):
+    (Path(cfg.wisp_dir) / "modelos.toml").write_text('ativo = "local"\n')
+    runner = Fake(ASSIST_ANSWER)
+    with FakeLLM(tags={}) as fake:
+        monkeypatch.setattr(reuniao, "make_client", lambda cfg: fake.client())
+        assert copilot.run("assist", cfg, runner, assist_input()) == 1
+        assert copilot.run("prep", cfg, runner, json.dumps({"titulo": "Planejamento"})) == 1
+        assert fake.chats() == []
+    errors = [json.loads(line)["erro"] for line in capsys.readouterr().err.splitlines()]
+    assert len(errors) == 2 and all(error.startswith("a IA local não está pronta: ") for error in errors)
+    assert runner.calls == []
+
+
+def test_assist_with_claude_active_uses_the_hosted_engine(cfg, monkeypatch, capsys):
+    (Path(cfg.wisp_dir) / "modelos.toml").write_text('ativo = "claude"\n')
+    runner = Fake(ASSIST_ANSWER)
+    assert copilot.run("assist", cfg, runner, assist_input()) == 0
+    assert json.loads(capsys.readouterr().out)["motor"] == "claude"
+    assert runner.calls[-1]["argv"] == reuniao.engine_argv(cfg, copilot.ASSIST_PROMPT)
+
+
 def test_assist_engine_failure_and_bad_input_are_errors_not_crashes(cfg, capsys):
     assert copilot.run("assist", cfg, Fake("", exit=1), assist_input()) == 1
     assert "boom" in json.loads(capsys.readouterr().err)["erro"]
