@@ -23,8 +23,8 @@ enum MemoryGraphBench {
         }
         let model = MemoryGraphModel.shared
         Self.shell = shell
-        MemoryTab.lastMode = .graph
-        shell.tab = .memory
+        BrainModel.shared.showsGraph = true
+        shell.tab = .brain
         shell.show(.panel)
         model.load(root: root)
         guard await wait(limit: .seconds(120), until: { model.phase == .ready && !model.settling }) else {
@@ -78,7 +78,7 @@ enum MemoryGraphBench {
         let state = shell.map { String(describing: $0.state) } ?? "indisponível"
         let tab = shell.map { $0.tab.rawValue } ?? "indisponível"
         let visible = NSApp.windows.contains { $0.isVisible && $0.occlusionState.contains(.visible) }
-        guard shell?.state == .panel, shell?.tab == .memory, model.displayOwner != nil, visible else {
+        guard shell?.state == .panel, shell?.tab == .brain, model.displayOwner != nil, visible else {
             log.notice("bench: aborted at \(step, privacy: .public): graph not on screen (state=\(state, privacy: .public) tab=\(tab, privacy: .public) view=\(model.displayOwner != nil) visible=\(visible)); panel used, display asleep or screen locked during the run?")
             return false
         }

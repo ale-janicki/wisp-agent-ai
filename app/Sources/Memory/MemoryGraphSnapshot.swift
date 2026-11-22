@@ -11,16 +11,16 @@ extension SnapshotRenderer {
     ) async {
         setvbuf(stdout, nil, _IOLBF, 0)
         let profile = shell.conversation.profile
-        guard PanelTab.memory.isAvailable(in: profile), let root = profile.blocks?.memory?.root else {
+        guard PanelTab.brain.isAvailable(in: profile), let root = profile.blocks?.memory?.root else {
             print("snapshot: graph skipped, no memory root")
             return
         }
         let model = MemoryGraphModel.shared
         let memory = MemoryModel.shared
         memory.refreshRecents(root: root)
-        MemoryTab.lastMode = .graph
+        BrainModel.shared.showsGraph = true
         shell.setSnapshotState(.panel, notch: layout.notch)
-        shell.tab = .memory
+        shell.tab = .brain
 
         model.load(root: root, force: true)
         guard await waitForGraph(model, limit: .seconds(90)) else {
@@ -57,19 +57,19 @@ extension SnapshotRenderer {
 
         MemoryGraphView.snapshotForcesOpen = true
         shell.tab = .home
-        shell.tab = .memory
+        shell.tab = .brain
         await render(shell, frame: layout.panel, notch: layout.notch, to: directory, name: "g2c-graph-forces")
         MemoryGraphView.snapshotForcesOpen = false
 
         let query = "brain-sync"
-        MemoryTab.snapshotQuery = query
+        BrainTab.snapshotGraphQuery = query
         shell.tab = .home
-        shell.tab = .memory
+        shell.tab = .brain
         model.search(query)
         model.finishAnimationsForSnapshot()
         print("snapshot: graph search \"\(query)\" matches=\(model.matches.count) best=\(model.bestMatch.map(model.title(ofScene:)) ?? "indisponível")")
         await render(shell, frame: layout.panel, notch: layout.notch, to: directory, name: "g3-graph-search")
-        MemoryTab.snapshotQuery = ""
+        BrainTab.snapshotGraphQuery = ""
         model.search("")
 
         var recent: String?
@@ -78,7 +78,7 @@ extension SnapshotRenderer {
             try? await Task.sleep(for: .milliseconds(100))
         }
         shell.tab = .home
-        shell.tab = .memory
+        shell.tab = .brain
         model.setLocalMode(true, fallback: recent)
         _ = await waitForGraph(model, limit: .seconds(30))
         for _ in 0..<150 where model.frame.running { try? await Task.sleep(for: .milliseconds(100)) }

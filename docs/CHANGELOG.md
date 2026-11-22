@@ -9,6 +9,10 @@ Entries are in descending chronological order (newest first).
 
 ## [Unreleased]
 
+### Changed
+
+- The "Memória" and "Brain" sidebar tabs are now one "Brain" tab: the recent notes list, the command search and the graph search moved into it (home view when no note is open, "Visão geral" button).
+
 ## [0.4.1] - 2026-11-22
 
 - Version 0.4.1 (build 8).
