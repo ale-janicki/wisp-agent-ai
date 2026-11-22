@@ -122,6 +122,7 @@ public struct TelegramEntry: Identifiable, Sendable, Equatable {
 public struct ConversationSections: Sendable, Equatable {
     public var wisp: [ConversationRecord]
     public var telegram: [TelegramEntry]
+    public var closed: [ConversationRecord] = []
 }
 
 public enum TelegramTopics {
@@ -168,6 +169,12 @@ public enum TelegramTopics {
             ($0.lastUsed ?? .distantPast) > ($1.lastUsed ?? .distantPast)
         }
         return fresh + kept
+    }
+
+    public static func sections(allRecords: [ConversationRecord], topics: [TelegramTopic]?, order: [Int] = []) -> ConversationSections {
+        var sections = sections(records: allRecords.filter { !$0.isClosed }, topics: topics, order: order)
+        sections.closed = allRecords.filter(\.isClosed).sorted { ($0.closedAt ?? .distantPast) > ($1.closedAt ?? .distantPast) }
+        return sections
     }
 
     public static func sections(records: [ConversationRecord], topics: [TelegramTopic]?, order: [Int] = []) -> ConversationSections {

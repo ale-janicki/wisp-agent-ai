@@ -90,4 +90,92 @@ final class ConversationStoreTests: XCTestCase {
         XCTAssertEqual(store.all().count, 200)
         XCTAssertEqual(ConversationStore(directory: dir).all().count, 200)
     }
+
+    func testIndexWithoutClosedFieldsDecodesAsOpen() throws {
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let id = UUID()
+        let json = """
+        [{"id": "\(id.uuidString)", "sessionId": "s", "title": "old", "updatedAt": "2026-01-01T00:00:00.000Z"}]
+        """
+        try json.write(to: dir.appendingPathComponent("conversations.json"), atomically: true, encoding: .utf8)
+        let record = try XCTUnwrap(ConversationStore(directory: dir).all().first)
+        XCTAssertNil(record.closedAt)
+        XCTAssertNil(record.closedFrom)
+        XCTAssertFalse(record.isClosed)
+    }
+
+    func testClosedMarkWrittenByTheBotIsReadAndSurvivesReopen() throws {
+        let id = UUID()
+        let store = ConversationStore(directory: dir)
+        try store.upsert(ConversationRecord(id: id, sessionId: "s", title: "t", updatedAt: Date(timeIntervalSince1970: 1_000)))
+        let file = dir.appendingPathComponent("conversations.json")
+        var text = try String(contentsOf: file, encoding: .utf8)
+        text = text.replacingOccurrences(of: "\"id\"", with: "\"closedAt\" : \"2026-02-03T04:05:06Z\", \"closedFrom\" : \"telegram\", \"id\"")
+        try text.write(to: file, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(5)], ofItemAtPath: file.path)
+
+        var record = try XCTUnwrap(store.all().first)
+        XCTAssertTrue(record.isClosed)
+        XCTAssertEqual(record.closedFrom, "telegram")
+        XCTAssertEqual(record.closedAt, ISO8601DateFormatter().date(from: "2026-02-03T04:05:06Z"))
+
+        record.closedAt = nil
+        record.closedFrom = nil
+        try store.upsert(record)
+        XCTAssertFalse(try XCTUnwrap(ConversationStore(directory: dir).all().first).isClosed)
+    }
+
+    func testClosedMarkRoundTripsThroughThePersistedFile() throws {
+        let store = ConversationStore(directory: dir)
+        let when = Date(timeIntervalSince1970: 1_700_000_000)
+        try store.upsert(ConversationRecord(
+            id: UUID(), sessionId: "s", title: "t", updatedAt: when, closedAt: when, closedFrom: "app"))
+        let back = try XCTUnwrap(ConversationStore(directory: dir).all().first)
+        XCTAssertEqual(back.closedAt, when)
+        XCTAssertEqual(back.closedFrom, "app")
+    }
+
+    func testMalformedClosedAtReadsAsOpenWithoutLosingTheIndex() throws {
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let json = """
+        [{"id": "\(UUID().uuidString)", "title": "t", "updatedAt": "2026-01-01T00:00:00.000Z", "closedAt": "not a date", "closedFrom": "telegram"}]
+        """
+        try json.write(to: dir.appendingPathComponent("conversations.json"), atomically: true, encoding: .utf8)
+        let store = ConversationStore(directory: dir)
+        XCTAssertNil(store.lastRecoveryNote)
+        let record = try XCTUnwrap(store.all().first)
+        XCTAssertFalse(record.isClosed)
+        XCTAssertNil(record.closedFrom)
+    }
+
+    func testReopenClearsOnlyTheClosedMarkOfTheStoredRecord() throws {
+        let id = UUID()
+        let when = Date(timeIntervalSince1970: 1_700_000_000)
+        let store = ConversationStore(directory: dir)
+        try store.upsert(ConversationRecord(
+            id: id, sessionId: "s", title: "fresh", updatedAt: when, lastPreview: "kept", closedAt: when, closedFrom: "telegram"))
+        try store.reopen(id: id)
+        let back = try XCTUnwrap(ConversationStore(directory: dir).all().first)
+        XCTAssertFalse(back.isClosed)
+        XCTAssertEqual(back.title, "fresh")
+        XCTAssertEqual(back.lastPreview, "kept")
+    }
+
+    func testWritesWaitForTheSharedFileLock() throws {
+        let store = ConversationStore(directory: dir)
+        try store.upsert(ConversationRecord(id: UUID(), sessionId: nil, title: "a", updatedAt: Date()))
+        let fd = open(dir.appendingPathComponent("conversations.json.lock").path, O_RDWR | O_CREAT, 0o600)
+        XCTAssertGreaterThanOrEqual(fd, 0)
+        XCTAssertEqual(flock(fd, LOCK_EX), 0)
+        let done = DispatchSemaphore(value: 0)
+        DispatchQueue.global().async {
+            try? store.upsert(ConversationRecord(id: UUID(), sessionId: nil, title: "b", updatedAt: Date()))
+            done.signal()
+        }
+        XCTAssertEqual(done.wait(timeout: .now() + 0.4), .timedOut)
+        flock(fd, LOCK_UN)
+        close(fd)
+        XCTAssertEqual(done.wait(timeout: .now() + 5), .success)
+        XCTAssertEqual(store.all().count, 2)
+    }
 }

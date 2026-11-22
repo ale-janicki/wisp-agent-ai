@@ -56,6 +56,31 @@ final class OneConversationTests: XCTestCase {
         XCTAssertEqual(sections.wisp.map(\.id), [other])
     }
 
+    func testClosedConversationsLeaveLocalAndTelegramAndAreCounted() {
+        let closedLocal = UUID()
+        let closedLinked = UUID()
+        let when = Date(timeIntervalSince1970: 1_700_000_000)
+        var a = record(closedLocal, session: "x", title: "encerrada-a")
+        a.closedAt = when
+        var b = record(closedLinked, session: "s-1", title: "encerrada-b")
+        b.closedAt = when.addingTimeInterval(60)
+        let open = UUID()
+        let sections = TelegramTopics.sections(
+            allRecords: [a, b, record(open, session: "o", title: "aberta")],
+            topics: [topic(session: "s-1", conversation: closedLinked.uuidString.lowercased())])
+        XCTAssertEqual(sections.wisp.map(\.id), [open])
+        XCTAssertNil(sections.telegram.first?.record)
+        XCTAssertEqual(sections.closed.map(\.id), [closedLinked, closedLocal])
+    }
+
+    func testClosedConversationsAreCountedWithoutTopics() {
+        var a = record(geral, session: "x")
+        a.closedAt = Date()
+        let sections = TelegramTopics.sections(allRecords: [a], topics: nil)
+        XCTAssertTrue(sections.wisp.isEmpty)
+        XCTAssertEqual(sections.closed.count, 1)
+    }
+
     func testPostPayloadCarriesTheConversationOnlyWhenKnown() throws {
         let with = TelegramPost(thread: 4, user: "u", reply: "r", conversation: "abc")
         let body = try JSONSerialization.jsonObject(with: with.payload) as? [String: Any]
