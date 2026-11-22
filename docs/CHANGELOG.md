@@ -9,6 +9,10 @@ Entries are in descending chronological order (newest first).
 
 ## [Unreleased]
 
+### Fixed
+
+- Brain index hardening: the index folder is now private (0700) and the database and its `-wal`/`-shm` files 0600, since they hold a plain-text copy of the notes. The first `brain_search` on a large brain stops indexing after 45 s and answers from the partial index with a note that it is still being built, instead of hitting the tool timeout. An invalid `recall_tokens` (not an integer >= 0) or `brain_log_markers` (not a list of strings) in `wisp.json` now falls back to the default with a warning instead of silently disabling recall.
+
 ### Added
 
 - Brain search for every engine: `wisp mcp brain` is an MCP server (`wisp-brain`) with three read-only tools. `brain_search(query, limit)` ranks notes by title, aliases, headings and text (BM25) with a boost from the wikilink graph; `brain_read(path_or_title)` opens a note by name, alias, path or `[[wikilink]]` (`#heading` and `|text` work) and returns it with its outgoing links and backlinks; `brain_links(note, depth)` walks the link graph. The index is a local SQLite file in the Wisp state folder that updates itself when files change; nothing leaves the Mac. `wisp setup harness` registers it in Claude and in the Codex config; the local engine has it built in.

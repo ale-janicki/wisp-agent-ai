@@ -1,5 +1,6 @@
 import os
 import shutil
+import stat
 import time
 from pathlib import Path
 
@@ -475,3 +476,20 @@ def test_a_file_that_vanishes_between_scan_and_read_leaves_no_stamp(vault, tmp_p
     assert found.sync().indexed == 0
     monkeypatch.setattr(brain_index, "read_prefix", real)
     assert found.sync().indexed == 1 and "fugiu.md" in found.graph().notes
+
+
+def test_the_index_folder_and_database_files_are_private(vault, tmp_path):
+    state = tmp_path / "state"
+    folder = state / "brain-index"
+    folder.mkdir(parents=True, mode=0o755)
+    folder.chmod(0o755)
+    db = index_path(state, vault)
+    idx = BrainIndex(vault, db)
+    idx.sync()
+    idx.search("plano", 3)
+    assert stat.S_IMODE(folder.stat().st_mode) == 0o700
+    for suffix in ("", "-wal", "-shm"):
+        target = Path(str(db) + suffix)
+        if target.exists():
+            assert stat.S_IMODE(target.stat().st_mode) == 0o600
+    assert db.exists()

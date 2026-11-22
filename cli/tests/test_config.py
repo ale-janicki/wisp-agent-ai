@@ -49,3 +49,19 @@ def test_brain_log_markers_default_and_round_trip(fake_home):
     assert WispConfig().brain_log_markers == ["sessions", "daily", "digest", "session", "log"]
     save_config(WispConfig(brain_log_markers=["atas"]))
     assert load_config().brain_log_markers == ["atas"]
+
+
+def test_invalid_recall_tokens_and_markers_fall_back_to_defaults(fake_home, caplog):
+    default = WispConfig()
+    for bad in ("6000", -1, 1.5, True, None):
+        raw = {"recall_tokens": bad, "brain_log_markers": ["ok", 3]}
+        path = fake_home / "wisp.json"
+        path.write_text(json.dumps(raw))
+        with caplog.at_level("WARNING"):
+            cfg = load_config(path)
+        assert cfg.recall_tokens == default.recall_tokens
+        assert cfg.brain_log_markers == default.brain_log_markers
+    assert "recall_tokens" in caplog.text and "brain_log_markers" in caplog.text
+    path.write_text(json.dumps({"recall_tokens": 0, "brain_log_markers": ["atas"]}))
+    cfg = load_config(path)
+    assert cfg.recall_tokens == 0 and cfg.brain_log_markers == ["atas"]

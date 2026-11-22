@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
@@ -6,6 +7,8 @@ from pathlib import Path
 from wisp.brain_index import LOG_MARKERS
 from wisp.fsops import atomic_write
 from wisp.paths import WispPaths
+
+log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -43,6 +46,17 @@ def _known(cls, raw: dict) -> dict:
     return {k: v for k, v in raw.items() if k in names}
 
 
+def _checked(data: dict) -> None:
+    tokens = data.get("recall_tokens")
+    if "recall_tokens" in data and (not isinstance(tokens, int) or isinstance(tokens, bool) or tokens < 0):
+        log.warning("recall_tokens must be an integer >= 0, got %r; using the default", tokens)
+        del data["recall_tokens"]
+    markers = data.get("brain_log_markers")
+    if "brain_log_markers" in data and (not isinstance(markers, list) or not all(isinstance(m, str) for m in markers)):
+        log.warning("brain_log_markers must be a list of strings, got %r; using the default", markers)
+        del data["brain_log_markers"]
+
+
 def _default_path() -> Path:
     env = os.environ.get("WISP_CONFIG")
     return Path(env) if env else WispPaths.current().config / "wisp.json"
@@ -55,6 +69,7 @@ def load_config(path: Path | None = None) -> WispConfig:
     raw = json.loads(path.read_text())
     telegram = raw.get("telegram")
     data = _known(WispConfig, raw)
+    _checked(data)
     data["telegram"] = TelegramConfig(**_known(TelegramConfig, telegram)) if telegram else None
     return WispConfig(**data)
 
