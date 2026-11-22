@@ -9,8 +9,13 @@ Entries are in descending chronological order (newest first).
 
 ## [Unreleased]
 
+### Fixed
+
+- Reuniões: the automatic save of the meeting note into the brain now uses the same brain folder as the Brain tab, with symlinks (for example a vault in iCloud Drive) resolved by the app before the command runs, so it no longer fails with "o brain não existe". When macOS denies access to the folder the message now says so and where to grant it (Privacidade e Segurança > Arquivos e Pastas), and a failed save shows its reason next to "Tentar de novo".
+
 ### Changed
 
+- Reuniões: "Abrir nota" in the "…" menu opens the saved brain note inside the Brain tab instead of an external app, and is hidden until the note is saved; the duplicate "Abrir no brain" item is gone.
 - Reuniões: "Preparar a reunião" no longer shows an empty calendar dropdown when there are no events today: it says "Nenhum evento na agenda hoje" with a refresh button, and the description field is the way in. With events, the closed menu reads "Escolher evento".
 - Reuniões: the meetings list shows shimmering placeholders until the first scan of the recordings folder finishes, instead of "Nenhuma reunião ainda." flashing first. Meeting notes show a `[[wikilink]]` as plain text when its note does not exist in the brain.
 - Brain: the last "Grafo | Lista" choice is remembered across launches.

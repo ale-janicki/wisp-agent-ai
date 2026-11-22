@@ -459,3 +459,16 @@ def test_a_non_empty_old_lock_file_is_left_alone(tmp_path):
     with reuniao_brain.vault_lock(meetings):
         pass
     assert (meetings / reuniao_brain.VAULT_LOCK).exists()
+
+
+def test_missing_brain_and_denied_brain_have_distinct_messages(tmp_path, monkeypatch):
+    with pytest.raises(reuniao.Falha, match="não existe"):
+        reuniao_brain.meetings_folder(tmp_path / "ausente")
+
+    def denied(path, *args, **kwargs):
+        raise PermissionError(1, "Operation not permitted")
+
+    monkeypatch.setattr(reuniao_brain.os, "stat", denied)
+    with pytest.raises(reuniao.Falha, match="Arquivos e Pastas") as raised:
+        reuniao_brain.meetings_folder(tmp_path)
+    assert "não existe" not in str(raised.value)
