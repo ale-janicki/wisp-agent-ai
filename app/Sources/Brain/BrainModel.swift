@@ -421,6 +421,12 @@ final class BrainModel {
         }
     }
 
+    /// A link clicked inside a drawing or canvas: `name` or `name#heading`, resolved from the drawing's own path.
+    func openFromDrawing(_ link: String, drawingPath: String) {
+        let parts = link.split(separator: "#", maxSplits: 1, omittingEmptySubsequences: false)
+        follow(BrainWikiLink(name: String(parts[0]), heading: parts.count > 1 ? String(parts[1]) : ""), from: drawingPath)
+    }
+
     func resolveFile(_ name: String, from source: String) -> String? {
         fileResolver.resolve(name, from: source)
     }

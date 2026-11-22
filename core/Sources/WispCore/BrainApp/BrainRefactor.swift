@@ -15,6 +15,8 @@ public struct BrainMovePlan: Sendable, Equatable {
     public var edits: [BrainFileEdit]
     public var undownloaded: [String] = []
     public var skipped: [String] = []
+    /// Drawings that link to the moved item. Their links are never rewritten (the drawing editor owns those files).
+    public var drawings: [String] = []
 
     public var isComplete: Bool { undownloaded.isEmpty && skipped.isEmpty }
     public var linkCount: Int { edits.reduce(0) { $0 + $1.count } }
@@ -53,12 +55,14 @@ public enum BrainRefactor {
             for alias in note.aliases { needles.insert(alias.lowercased()) }
         }
         needles.remove("")
+        let drawings = candidates.filter { BrainFileKind.of($0) == .drawing }
+        candidates.subtract(drawings)
         let movesAttachment = moved.keys.contains { !BrainText.isMarkdown($0) || scan.catalog.notes[$0] == nil }
         let bySize = Dictionary(uniqueKeysWithValues: scan.entries.map { ($0.path, $0) })
         let needleData = needles.map { Data($0.utf8) }
         var skipped: [String] = []
         var examined: [String: String] = [:]
-        for note in scan.catalog.notes.values where !candidates.contains(note.path) {
+        for note in scan.catalog.notes.values where !candidates.contains(note.path) && BrainFileKind.of(note.path) != .drawing {
             let large = (bySize[note.path]?.size ?? note.size) > Int64(BrainNoteParser.readLimit)
             guard large || movesAttachment else { continue }
             guard let data = try? files.data(note.path), let text = BrainFiles.strictText(data) else {
@@ -103,7 +107,7 @@ public enum BrainRefactor {
             }
         }
         let undownloaded = scan.entries.filter { $0.dataless && BrainText.isMarkdown($0.path) }.map(\.path).sorted()
-        return BrainMovePlan(from: from, to: to, isFolder: source.isFolder, edits: edits, undownloaded: undownloaded, skipped: Array(Set(skipped)).sorted())
+        return BrainMovePlan(from: from, to: to, isFolder: source.isFolder, edits: edits, undownloaded: undownloaded, skipped: Array(Set(skipped)).sorted(), drawings: drawings.sorted())
     }
 
     private static func linkText(for target: String, occurrence: BrainLinkOccurrence, source: String, catalog: BrainCatalog, files: BrainFileResolver) -> String {

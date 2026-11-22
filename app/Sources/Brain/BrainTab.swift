@@ -124,7 +124,7 @@ struct BrainTab: View {
                     BrainReaderView(tab: tab, model: model)
                 }
             case .drawing:
-                if let url = model.url(for: tab.path) { BrainDrawingView(url: url).padding(.horizontal, Theme.Space.m) }
+                if let url = model.url(for: tab.path) { BrainDrawingView(url: url, vaultRoot: model.root.map { URL(fileURLWithPath: $0) }, onOpenNote: { model.openFromDrawing($0, drawingPath: tab.path) }).padding(.horizontal, Theme.Space.m) }
             case .image:
                 BrainEmbedView(embed: BrainEmbed(name: tab.path), source: tab.path, model: model, depth: 0).padding(.horizontal, Theme.Space.m)
             case .other:

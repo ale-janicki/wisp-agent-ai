@@ -199,6 +199,12 @@ struct BrainPromptOverlay: View {
                             .font(Theme.Font.caption)
                             .foregroundStyle(Theme.busy)
                     }
+                    if !plan.drawings.isEmpty {
+                        let rest = plan.drawings.count - 5
+                        Text("Links dentro destes desenhos não são atualizados: \(plan.drawings.prefix(5).joined(separator: ", "))\(rest > 0 ? " e mais \(rest)" : "")")
+                            .font(Theme.Font.caption)
+                            .foregroundStyle(Theme.busy)
+                    }
                     buttons(confirm: "Mover e atualizar") { model.apply(plan) }
                 }
             }
