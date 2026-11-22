@@ -1,6 +1,7 @@
 name: Wisp
 options:
   bundleIdPrefix: ai.wisp
+  preGenCommand: ../scripts/build-excalidraw.sh --if-missing
   deploymentTarget:
     macOS: "15.0"
 packages:
@@ -79,6 +80,8 @@ targets:
     sources:
       - Sources
       - path: Resources/ThirdParty
+        type: folder
+      - path: Resources/Excalidraw
         type: folder
       - Resources/Assets.xcassets
     dependencies:
