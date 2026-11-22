@@ -72,6 +72,10 @@ final class MeetingTranscriptionTests: XCTestCase {
         (0..<Int(seconds * Double(rate))).map { amplitude * sin(Float($0) * 0.05) }
     }
 
+    private func silence(seconds: Double, rate: Int = 16_000) -> [Float] {
+        [Float](repeating: 0, count: Int(seconds * Double(rate)))
+    }
+
     private func span(_ text: String, _ start: Double, _ end: Double) -> RecognizedSpan {
         RecognizedSpan(text: text, start: start, end: end)
     }
@@ -92,46 +96,31 @@ final class MeetingTranscriptionTests: XCTestCase {
 
     // MARK: segmenting
 
-    func testStreamerCutsFiveSecondWindowsWithOneSecondOverlapAndPartialsBetween() {
+    func testStreamerEmitsOneFinalPerSpeechSegmentAndATypingMarkWhileItIsOpen() {
         var streamer = ChannelStreamer(channel: .mic)
-        var jobs: [StreamJob] = []
-        for _ in 0..<12 { jobs += streamer.append(tone(seconds: 1)) }
-        let finals = jobs.filter { $0.kind == .final }
-        XCTAssertEqual(finals.map(\.startSeconds), [0, 4])
-        XCTAssertEqual(finals.map { $0.samples.count }, [80_000, 80_000])
-        let partials = jobs.filter { $0.kind == .partial }
-        XCTAssertFalse(partials.isEmpty)
-        XCTAssertTrue(partials.allSatisfy { $0.samples.count <= 80_000 && $0.channel == .mic })
-        let flushed = streamer.flush()
-        XCTAssertEqual(flushed.map(\.startSeconds), [8])
-        XCTAssertEqual(flushed.first?.samples.count, 64_000)
+        var jobs = streamer.append(silence(seconds: 0.96))
+        jobs += streamer.append(tone(seconds: 1.92))
+        jobs += streamer.append(silence(seconds: 1))
+        jobs += streamer.flush()
+        XCTAssertEqual(jobs.map(\.kind), [.typing, .final])
+        XCTAssertEqual(jobs[0].samples, [])
+        XCTAssertEqual(jobs[1].startSample, 15_360 - 4_800)
+        XCTAssertEqual(jobs[1].samples.count, 4_800 + 30_720 + 6_400)
+        XCTAssertTrue(jobs.allSatisfy { $0.channel == .mic })
     }
 
-    func testStreamerEmitsAtMostOnePartialPerIntervalAndNoneWithoutEnoughAudio() {
-        var streamer = ChannelStreamer(channel: .system)
-        XCTAssertEqual(streamer.append(tone(seconds: 1.0)), [])
-        XCTAssertEqual(streamer.append(tone(seconds: 1.0)), [])
-        let jobs = streamer.append(tone(seconds: 1.0))
-        XCTAssertEqual(jobs.map(\.kind), [.partial])
-        XCTAssertEqual(jobs.first?.samples.count, 48_000)
-        XCTAssertEqual(streamer.append(tone(seconds: 0.5)), [])
-    }
-
-    func testSilentWindowIsNotSentToTheRecognizerButStillClosesTheWindow() {
+    func testSilentChannelIsNeverSentToTheRecognizer() {
         var streamer = ChannelStreamer(channel: .mic)
-        let jobs = streamer.append([Float](repeating: 0, count: 80_000))
-        XCTAssertEqual(jobs.count, 1)
-        XCTAssertEqual(jobs.first?.kind, .final)
-        XCTAssertEqual(jobs.first?.samples, [])
+        let jobs = streamer.append([Float](repeating: 0, count: 80_000)) + streamer.flush()
+        XCTAssertEqual(jobs, [])
     }
 
-    func testFlushSkipsTailAlreadyCoveredByTheLastWindowAndTinyTails() {
-        var covered = ChannelStreamer(channel: .mic)
-        _ = covered.append(tone(seconds: 5))
-        XCTAssertEqual(covered.flush(), [])
-        var tiny = ChannelStreamer(channel: .mic)
-        _ = tiny.append(tone(seconds: 0.3))
-        XCTAssertEqual(tiny.flush(), [])
+    func testShortBlipsAreDroppedWithoutInference() {
+        var streamer = ChannelStreamer(channel: .mic)
+        var jobs = streamer.append(tone(seconds: 0.1))
+        jobs += streamer.append(silence(seconds: 2))
+        jobs += streamer.flush()
+        XCTAssertEqual(jobs.filter { !$0.samples.isEmpty }, [])
     }
 
     func testDecimatorGivesOneThirdAndKeepsTheRemainderAcrossCalls() {
@@ -248,7 +237,7 @@ final class MeetingTranscriptionTests: XCTestCase {
 
     // MARK: live transcriber
 
-    func testLiveTranscriberLabelsChannelsAndPublishesPartialThenFinal() async throws {
+    func testLiveTranscriberLabelsChannelsAndPublishesTypingThenFinal() async throws {
         let recognizer = ScriptedRecognizer()
         let store = MeetingTranscriptStore(startedAt: t0, engine: recognizer.engineName)
         let updates = UpdateLog()
@@ -260,9 +249,10 @@ final class MeetingTranscriptionTests: XCTestCase {
         let result = await live.finish()
         XCTAssertTrue(result.allSatisfy { $0.isFinal })
         XCTAssertEqual(Set(result.map(\.speakerName)), ["Você", "Outros"])
-        XCTAssertEqual(result.filter { $0.speaker == "eu" }.count, 2)
-        XCTAssertEqual(result.filter { $0.speaker == "outros" }.count, 2)
-        XCTAssertTrue(updates.all.contains { $0.contains { !$0.isFinal } } || recognizer.seen.count >= 4)
+        XCTAssertEqual(result.filter { $0.speaker == "eu" }.count, 1)
+        XCTAssertEqual(result.filter { $0.speaker == "outros" }.count, 1)
+        XCTAssertEqual(recognizer.seen.count, 2)
+        XCTAssertTrue(updates.all.contains { $0.contains { !$0.isFinal && $0.text == "…" } })
         XCTAssertEqual(result.map(\.start), result.map(\.start).sorted())
     }
 
@@ -285,7 +275,7 @@ final class MeetingTranscriptionTests: XCTestCase {
         let live = LiveTranscriber(recognizer: recognizer, store: MeetingTranscriptStore(startedAt: t0, engine: "x"), onUpdate: { _ in })
         for _ in 0..<6 { live.push48k(tone(seconds: 1, rate: 48_000), channel: .mic) }
         _ = await live.finish()
-        XCTAssertTrue(recognizer.seen.contains(80_000))
+        XCTAssertEqual(recognizer.seen, [96_000])
     }
 
     // MARK: pipeline end to end
@@ -325,9 +315,7 @@ final class MeetingTranscriptionTests: XCTestCase {
 
     private func pipeline(_ recognizer: ScriptedRecognizer = ScriptedRecognizer(), notes: MeetingNoteWriter = FixedNoteWriter()) -> MeetingPipeline {
         MeetingPipeline(
-            transcriber: MeetingTranscriber(
-                recognizer: recognizer, config: ChannelStreamerConfig(windowSeconds: 4, overlapSeconds: 1, emitsPartials: false)
-            ),
+            transcriber: MeetingTranscriber(recognizer: recognizer),
             notes: notes
         )
     }
@@ -696,44 +684,28 @@ final class MeetingTranscriptionTests: XCTestCase {
         XCTAssertEqual(notes.calls, before.1 + 1)
     }
 
-    private func inferenceCalls(
-        seconds: Int, config: ChannelStreamerConfig = .live, audio: (Int) -> [Float]
-    ) -> (partials: Int, finals: Int) {
-        var streamer = ChannelStreamer(channel: .mic, config: config)
+    private func inferenceCalls(seconds: Int, audio: (Int) -> [Float]) -> (typing: Int, finals: Int) {
+        var streamer = ChannelStreamer(channel: .mic)
         var jobs: [StreamJob] = []
         for second in 0..<seconds { jobs += streamer.append(audio(second)) }
         jobs += streamer.flush()
-        let sent = jobs.filter { !$0.samples.isEmpty }
-        return (sent.filter { $0.kind == .partial }.count, sent.filter { $0.kind == .final }.count)
+        return (jobs.filter { $0.kind == .typing }.count, jobs.filter { $0.kind == .final && !$0.samples.isEmpty }.count)
     }
 
     func testSilentChannelRunsZeroInferencesOverTenMinutes() {
         let calls = inferenceCalls(seconds: 600) { _ in [Float](repeating: 0.0005, count: 16_000) }
-        XCTAssertEqual(calls.partials + calls.finals, 0)
+        XCTAssertEqual(calls.finals, 0)
+        XCTAssertEqual(calls.typing, 0)
     }
 
-    func testContinuousSpeechRunsPartialsAtTheSlowerCadence() {
+    func testContinuousSpeechRunsOneInferencePerTwentySeconds() {
         let calls = inferenceCalls(seconds: 60) { _ in self.tone(seconds: 1) }
-        let before = inferenceCalls(seconds: 60, config: ChannelStreamerConfig(partialIntervalSeconds: 1.5)) { _ in self.tone(seconds: 1) }
-        XCTAssertEqual(calls.finals, 15)
-        XCTAssertEqual(calls.partials, 15)
-        XCTAssertEqual(before.partials, 30)
-        XCTAssertLessThan(calls.partials + calls.finals, before.partials + before.finals)
+        XCTAssertEqual(calls.finals, 4)
     }
 
-    func testPartialIsNotRerunWhenNothingNewWasSpokenInTheWindow() {
-        var streamer = ChannelStreamer(channel: .mic)
-        var jobs = streamer.append(tone(seconds: 3))
-        XCTAssertEqual(jobs.map(\.kind), [.partial])
-        for _ in 0..<3 { jobs += streamer.append([Float](repeating: 0, count: 16_000)) }
-        XCTAssertEqual(jobs.filter { $0.kind == .partial }.count, 1)
-    }
-
-    func testSpeechAfterSilenceTriggersOnePartialAgain() {
-        var streamer = ChannelStreamer(channel: .mic)
-        _ = streamer.append([Float](repeating: 0, count: 16_000))
-        let jobs = streamer.append(tone(seconds: 3))
-        XCTAssertEqual(jobs.map(\.kind), [.partial])
+    func testHalfSpeechConversationRunsOneInferencePerSpokenBurst() {
+        let calls = inferenceCalls(seconds: 60) { second in second % 8 < 4 ? self.tone(seconds: 1) : self.silence(seconds: 1) }
+        XCTAssertEqual(calls.finals, 8)
     }
 
     func testPipelineKeepsTheLiveTranscriptForLongRecordingsAndSkipsTheFinalPass() async throws {
@@ -754,7 +726,7 @@ final class MeetingTranscriptionTests: XCTestCase {
         XCTAssertEqual(try RecordingFolder.read(in: folder).status, .noted)
     }
 
-    func testPipelineRunsTheFinalPassForShortRecordingsEvenWithALiveTranscript() async throws {
+    func testPipelineReusesTheLiveSegmentsForShortRecordingsToo() async throws {
         let folder = try makeRecording(status: .transcribing)
         let live = MeetingTranscriptDocument(
             startedAt: t0, durationSeconds: 9, language: "auto", engine: "live-asr",
@@ -763,7 +735,15 @@ final class MeetingTranscriptionTests: XCTestCase {
         try MeetingTranscriptFile.write(live, in: folder, live: true)
         let recognizer = ScriptedRecognizer()
         try await pipeline(recognizer).process(folder: folder)
-        XCTAssertGreaterThan(recognizer.seen.count, 0)
+        XCTAssertEqual(recognizer.seen.count, 0)
+        XCTAssertEqual(try MeetingTranscriptFile.read(in: folder).engine, "live-asr")
+    }
+
+    func testPipelineTranscribesByVoiceSegmentsWhenThereIsNoLiveTranscript() async throws {
+        let folder = try makeRecording(status: .transcribing)
+        let recognizer = ScriptedRecognizer()
+        try await pipeline(recognizer).process(folder: folder)
+        XCTAssertEqual(recognizer.seen.count, 2)
         XCTAssertEqual(try MeetingTranscriptFile.read(in: folder).engine, "fake-asr")
     }
 
@@ -795,7 +775,7 @@ final class MeetingTranscriptionTests: XCTestCase {
         let gate = UpdateLog()
         let recognizer = ScriptedRecognizer()
         let transcriber = MeetingTranscriber(
-            recognizer: recognizer, config: ChannelStreamerConfig(windowSeconds: 4, overlapSeconds: 1, emitsPartials: false),
+            recognizer: recognizer,
             pause: { gate.note("tick") }
         )
         _ = try await transcriber.transcribe(folder: folder, startedAt: t0, duration: 9)
@@ -833,25 +813,31 @@ final class MeetingTranscriptionTests: XCTestCase {
         }
     }
 
-    func testLiveQueueKeepsFinalsDropsPartialsAndReportsLagWhenTheRecognizerFallsBehind() async {
+    func testLiveQueueKeepsEverySegmentAndReportsLagWhenTheRecognizerFallsBehind() async {
         let recognizer = SlowRecognizer()
         let lag = UpdateLog()
         let store = MeetingTranscriptStore(startedAt: t0, engine: "slow")
         let live = LiveTranscriber(recognizer: recognizer, store: store, onUpdate: { _ in }, onLag: { lag.flag($0) })
-        for _ in 0..<26 { live.push16k(tone(seconds: 1), channel: .mic) }
+        for _ in 0..<9 {
+            live.push16k(tone(seconds: 1), channel: .mic)
+            live.push16k(silence(seconds: 1), channel: .mic)
+        }
         XCTAssertTrue(lag.flags.contains(true))
         await recognizer.gate.open()
         let result = await live.finish()
         XCTAssertEqual(lag.flags.last, false)
-        XCTAssertGreaterThanOrEqual(result.filter { $0.isFinal }.count, 5)
-        XCTAssertLessThanOrEqual(recognizer.sizes.filter { $0 < 80_000 }.count, 3)
+        XCTAssertEqual(result.filter { $0.isFinal }.count, 9)
+        XCTAssertEqual(recognizer.sizes.count, 9)
     }
 
     func testStopAndWaitReturnsOnlyAfterTheWorkerIsDoneAndNothingIsCommittedLater() async throws {
         let recognizer = SlowRecognizer()
         let store = MeetingTranscriptStore(startedAt: t0, engine: "slow", folder: root)
         let live = LiveTranscriber(recognizer: recognizer, store: store, onUpdate: { _ in })
-        for _ in 0..<6 { live.push16k(tone(seconds: 1), channel: .mic) }
+        for _ in 0..<3 {
+            live.push16k(tone(seconds: 1), channel: .mic)
+            live.push16k(silence(seconds: 1), channel: .mic)
+        }
         Task { try? await Task.sleep(for: .milliseconds(100)); await recognizer.gate.open() }
         await live.stopAndWait()
         let count = store.finals.count
@@ -901,7 +887,7 @@ final class MeetingTranscriptionTests: XCTestCase {
         let flushed = streamer.skipGap(samples: 16_000 * 600)
         XCTAssertEqual(flushed.map(\.startSeconds), [0])
         XCTAssertEqual(streamer.totalSamples, 16_000 * 602)
-        let jobs = streamer.append(tone(seconds: 5))
+        let jobs = streamer.append(tone(seconds: 2) + silence(seconds: 1))
         XCTAssertEqual(jobs.filter { $0.kind == .final }.map(\.startSeconds), [602])
     }
 
@@ -909,7 +895,7 @@ final class MeetingTranscriptionTests: XCTestCase {
         let folder = try makeRecording(status: .transcribing)
         let recognizer = ScriptedRecognizer()
         let transcriber = MeetingTranscriber(
-            recognizer: recognizer, config: ChannelStreamerConfig(windowSeconds: 4, overlapSeconds: 1, emitsPartials: false),
+            recognizer: recognizer,
             pause: { throw CancellationError() }
         )
         do {

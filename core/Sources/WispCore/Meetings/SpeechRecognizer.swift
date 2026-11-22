@@ -92,7 +92,7 @@ public final class LiveTranscriber: @unchecked Sendable {
 
     public init(
         recognizer: SpeechRecognizer, store: MeetingTranscriptStore, language: String? = nil,
-        config: ChannelStreamerConfig = .live, channels: Set<AudioChannel> = Set(AudioChannel.allCases),
+        config: ChannelStreamerConfig = .default, channels: Set<AudioChannel> = Set(AudioChannel.allCases),
         onUpdate: @escaping @Sendable ([MeetingSegment]) -> Void, onFailure: @escaping @Sendable (String) -> Void = { _ in },
         onLag: @escaping @Sendable (Bool) -> Void = { _ in }
     ) {
@@ -173,10 +173,7 @@ public final class LiveTranscriber: @unchecked Sendable {
         guard !jobs.isEmpty else { return }
         let changed = lock.withLock { () -> Bool? in
             for job in jobs {
-                if job.kind == .partial {
-                    if pending.contains(where: { $0.channel == job.channel && $0.kind == .final }) { continue }
-                    pending.removeAll { $0.kind == .partial && $0.channel == job.channel }
-                }
+                if job.kind == .typing, pending.contains(where: { $0.channel == job.channel }) { continue }
                 pending.append(job)
             }
             let behind = pending.filter { $0.kind == .final }.count >= Self.lagThreshold
@@ -208,6 +205,11 @@ public final class LiveTranscriber: @unchecked Sendable {
     }
 
     private func process(_ job: StreamJob) async {
+        if job.kind == .typing {
+            store.setPartial(RecognizedSpan(text: "…", start: job.startSeconds, end: job.startSeconds), channel: job.channel)
+            onUpdate(store.snapshot)
+            return
+        }
         if job.samples.isEmpty {
             store.commit([], channel: job.channel)
             onUpdate(store.snapshot)
@@ -220,23 +222,16 @@ public final class LiveTranscriber: @unchecked Sendable {
                 )
             }
             guard !Task.isCancelled else { return }
-            switch job.kind {
-            case .partial: store.setPartial(Self.joined(spans), channel: job.channel)
-            case .final: store.commit(spans, channel: job.channel)
-            }
+            store.commit(spans, channel: job.channel)
             onUpdate(store.snapshot)
         } catch {
             let first = lock.withLock { () -> Bool in
                 defer { failureReported = true }
                 return !failureReported
             }
+            store.commit([], channel: job.channel)
+            onUpdate(store.snapshot)
             if first { onFailure(error.localizedDescription) }
         }
-    }
-
-    static func joined(_ spans: [RecognizedSpan]) -> RecognizedSpan? {
-        guard let first = spans.first, let last = spans.last else { return nil }
-        let text = spans.map(\.text).joined(separator: " ")
-        return RecognizedSpan(text: text, start: first.start, end: last.end, confidence: first.confidence)
     }
 }

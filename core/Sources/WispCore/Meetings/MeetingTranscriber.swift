@@ -81,7 +81,7 @@ public struct MeetingTranscriber: Sendable {
     public var pause: (@Sendable () async throws -> Void)?
 
     public init(
-        recognizer: SpeechRecognizer, language: String? = nil, config: ChannelStreamerConfig = .finalPass,
+        recognizer: SpeechRecognizer, language: String? = nil, config: ChannelStreamerConfig = .default,
         pause: (@Sendable () async throws -> Void)? = nil
     ) {
         self.recognizer = recognizer
