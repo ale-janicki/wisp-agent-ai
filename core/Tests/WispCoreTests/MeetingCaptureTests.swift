@@ -614,6 +614,73 @@ final class MeetingCaptureTests: XCTestCase {
         XCTAssertLessThan(rms(1), 0.02)
     }
 
+    func testMicOnlyNeverStartsTheSystemSourceNorWarnsAboutIt() throws {
+        let mic = FakeSource(name: "mic"), system = FakeSource(name: "sys"), clock = ClockBox()
+        let base = root!
+        let rec = MeetingRecorder(
+            mic: mic, system: system, root: { base }, makeSink: { _ in MemorySink() }, converter: FakeConverter(),
+            diskSpace: FixedDisk(bytes: 50_000_000_000), unsupportedMessage: { nil }, clock: { clock.now },
+            autoPump: false, timeZone: utc, sources: .mic
+        )
+        let folder = try rec.start(now: t0)
+        XCTAssertEqual(system.started, 0)
+        XCTAssertEqual(mic.started, 1)
+        for second in 1...12 {
+            mic.emit([Float](repeating: 0.2, count: CaptureFormat.sampleRate))
+            clock.now = Double(second)
+            rec.pump()
+        }
+        XCTAssertEqual(rec.warnings(), [])
+        let meta = try RecordingFolder.read(in: folder)
+        XCTAssertEqual(meta.sources, .mic)
+        XCTAssertNil(meta.devices.system)
+        _ = try rec.stop()
+        XCTAssertEqual(system.stopped, 0)
+    }
+
+    func testSystemOnlyNeverStartsTheMicrophone() throws {
+        let mic = FakeSource(name: "mic"), system = FakeSource(name: "sys")
+        let base = root!
+        let rec = MeetingRecorder(
+            mic: mic, system: system, root: { base }, makeSink: { _ in MemorySink() }, converter: FakeConverter(),
+            diskSpace: FixedDisk(bytes: 50_000_000_000), unsupportedMessage: { nil }, autoPump: false, timeZone: utc, sources: .system
+        )
+        try rec.start(now: t0)
+        XCTAssertEqual(mic.started, 0)
+        XCTAssertEqual(system.started, 1)
+        _ = try rec.stop()
+        XCTAssertEqual(mic.stopped, 0)
+    }
+
+    func testAudioObserverGetsMonoSamplesPerChannelAndLevelsMoveWithTheSignal() throws {
+        final class Heard: @unchecked Sendable {
+            let lock = NSLock()
+            var counts: [AudioChannel: Int] = [:]
+            func add(_ channel: AudioChannel, _ count: Int) { lock.withLock { counts[channel, default: 0] += count } }
+        }
+        let heard = Heard()
+        let mic = FakeSource(name: "mic"), system = FakeSource(name: "sys")
+        let base = root!
+        let rec = MeetingRecorder(
+            mic: mic, system: system, root: { base }, makeSink: { _ in MemorySink() }, converter: FakeConverter(),
+            diskSpace: FixedDisk(bytes: 50_000_000_000), unsupportedMessage: { nil }, autoPump: false, timeZone: utc,
+            onAudio: { channel, samples, _ in heard.add(channel, samples.count) }
+        )
+        try rec.start(now: t0)
+        mic.emit([Float](repeating: 0.5, count: 4800))
+        system.emit([Float](repeating: 0, count: 4800))
+        rec.pump()
+        XCTAssertEqual(heard.counts[.mic], 4800)
+        XCTAssertEqual(heard.counts[.system], 4800)
+        let loud = rec.levels()
+        XCTAssertGreaterThan(loud.mic, 0.8)
+        XCTAssertEqual(loud.system, 0)
+        for _ in 0..<40 { rec.pump() }
+        XCTAssertLessThan(rec.levels().mic, 0.05)
+        _ = try rec.stop()
+        XCTAssertEqual(rec.levels().mic, 0)
+    }
+
     func testElapsedClockFormat() {
         XCTAssertEqual(ElapsedFormat.clock(-3), "0:00")
         XCTAssertEqual(ElapsedFormat.clock(7.9), "0:07")
