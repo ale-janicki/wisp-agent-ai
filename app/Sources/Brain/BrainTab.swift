@@ -29,7 +29,7 @@ struct BrainTab: View {
         }
         .environment(\.openURL, OpenURLAction { url in
             guard let source = model.active?.path else { return .systemAction }
-            return BrainLinks.handle(url, source: source, model: model)
+            return BrainLinkRouter.handle(url, source: source, model: model)
         })
     }
 
