@@ -11,13 +11,26 @@ public enum EngineGuards {
     static let agendaHeads = ["\"$WISP_BIN\" agenda", "$WISP_BIN agenda", "wisp agenda", "\"$WISP_AGENDA_BIN\""]
     public static let agendaAskRules = agendaAsk.flatMap { sub in agendaHeads.map { "Bash(\($0) \(sub):*)" } }
     public static let askTools = ["mcp__wisp-email__email_send", "mcp__wisp-mac__mac_send"]
+    public static let denyRules = [
+        "Write(~/Library/Preferences/ai.wisp.app.plist)",
+        "Edit(~/Library/Preferences/ai.wisp.app.plist)",
+        "Write(~/Library/Application Support/Wisp/**)",
+        "Edit(~/Library/Application Support/Wisp/**)",
+        "Write(~/.config/wisp/**)",
+        "Edit(~/.config/wisp/**)",
+        "Bash(defaults write ai.wisp.app*)",
+        "Bash(defaults delete ai.wisp.app*)",
+        "Bash(defaults import ai.wisp.app*)",
+        "Bash(plutil*ai.wisp.app*)",
+        "Bash(*PlistBuddy*ai.wisp.app*)",
+    ]
 
     public static func settings(wispBinary: String) -> [String: Any] {
         let quoted = "'" + wispBinary.replacingOccurrences(of: "'", with: "'\\''") + "'"
         let commands = hooks.map { ["type": "command", "command": "\(quoted) hook \($0)"] }
         let recall: [[String: Any]] = [["type": "command", "command": "\(quoted) hook recall", "timeout": recallTimeout]]
         let lessons: [[String: Any]] = [["type": "command", "command": "\(quoted) hook aprendizados", "timeout": recallTimeout]]
-        return ["permissions": ["ask": askRules + agendaAskRules + askTools], "hooks": [
+        return ["permissions": ["ask": askRules + agendaAskRules + askTools, "deny": denyRules], "hooks": [
             "PreToolUse": [["matcher": matcher, "hooks": commands]],
             "UserPromptSubmit": [["hooks": recall]],
             "SessionStart": [["hooks": lessons]],

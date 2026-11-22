@@ -109,9 +109,11 @@ public enum MacTree {
     public static let defaultMax = 400
     public static let defaultDepth = 8
 
-    public static func quoted(_ text: String, limit: Int) -> String {
-        let flat = text.replacingOccurrences(of: "\n", with: " ").replacingOccurrences(of: "\"", with: "'")
-        return flat.count > limit ? "\"" + flat.prefix(limit) + "…\"" : "\"" + flat + "\""
+    public static func quoted(_ text: String, limit: Int, full: Bool = false) -> String {
+        let flat = text.replacingOccurrences(of: "\n", with: full ? "\\n" : " ")
+        if full { return "\"" + flat.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") + "\"" }
+        let plain = flat.replacingOccurrences(of: "\"", with: "'")
+        return plain.count > limit ? "\"" + plain.prefix(limit) + "…\"" : "\"" + plain + "\""
     }
 
     public static func line(_ element: MacElement, index: Int, full: Bool = false) -> String {
@@ -122,7 +124,7 @@ public enum MacTree {
         if element.isSecure {
             parts.append("value=<oculto>")
         } else if !element.value.isEmpty {
-            parts.append("value=" + quoted(element.value, limit: full ? 20_000 : valueLimit))
+            parts.append("value=" + quoted(element.value, limit: valueLimit, full: full))
         }
         if element.width > 0 || element.height > 0 { parts.append("@\(element.x),\(element.y) \(element.width)x\(element.height)") }
         return parts.joined(separator: " ")
@@ -221,4 +223,69 @@ public enum MacMenuPath {
         }
         return parts
     }
+}
+
+public struct MacCompose: Equatable, Sendable {
+    public let body: String
+    public let recipients: [String]
+    public let subject: String
+    public let window: String
+
+    static let textRoles: Set<String> = ["AXTextArea", "AXTextField", "AXComboBox", "AXTokenField", "AXWebArea"]
+
+    static func matches(_ pattern: String, _ text: String) -> Bool {
+        guard !text.isEmpty, let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else { return false }
+        return regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) != nil
+    }
+
+    static func labelled(_ elements: [MacElement], _ pattern: String) -> [String] {
+        var out: [String] = []
+        for (index, element) in elements.enumerated() where matches(pattern, element.title) || matches(pattern, element.detail) {
+            var values = [element.value]
+            var cursor = index + 1
+            while cursor < elements.count, elements[cursor].depth > element.depth {
+                values += [elements[cursor].value, elements[cursor].title]
+                cursor += 1
+            }
+            if values.allSatisfy({ $0.isEmpty }) {
+                if let next = elements[(index + 1)...].prefix(3).first(where: { textRoles.contains($0.role) }) {
+                    values = [next.value]
+                    var inner = elements.firstIndex(of: next).map { $0 + 1 } ?? elements.count
+                    while inner < elements.count, elements[inner].depth > next.depth {
+                        values += [elements[inner].value, elements[inner].title]
+                        inner += 1
+                    }
+                }
+            }
+            out += values
+        }
+        return out
+    }
+
+    public static func extract(elements: [MacElement], focused: MacElement?, window: String) -> MacCompose {
+        let separators = CharacterSet(charactersIn: ",;\n")
+        var seen: [String] = []
+        for raw in labelled(elements, "^\\s*(to|para|recipients?|destinat[aá]rios?)\\s*:?\\s*$") {
+            for part in raw.components(separatedBy: separators) {
+                let name = part.trimmingCharacters(in: .whitespaces)
+                if !name.isEmpty, !seen.contains(name) { seen.append(name) }
+            }
+        }
+        let subject = labelled(elements, "^\\s*(subject|assunto)\\s*:?\\s*$").first { !$0.isEmpty } ?? ""
+        let body = focused.flatMap { textRoles.contains($0.role) && !$0.isSecure ? $0.value : nil } ?? ""
+        return MacCompose(body: body, recipients: seen, subject: subject, window: window)
+    }
+}
+
+public enum MacCaller {
+    public static let variable = "WISP_MAC_CALLER"
+    public static let minimumLength = 32
+
+    public static func valid(_ environment: [String: String]) -> Bool {
+        guard let nonce = environment[variable], nonce.count >= minimumLength else { return false }
+        return nonce.allSatisfy { $0.isHexDigit }
+    }
+
+    public static let refusal = "recusei: o ajudante só age quando chamado pelo servidor de controle do Mac do Wisp (use `wisp mac ...` ou as ferramentas mac_*)"
+    public static let freeCommands: Set<String> = ["permissao", "selftest"]
 }

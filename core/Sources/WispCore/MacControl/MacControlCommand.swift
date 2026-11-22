@@ -9,6 +9,7 @@ public enum MacCommand: Equatable, Sendable {
     case permission(ask: Bool)
     case tree(app: String?, max: Int, depth: Int, full: Bool)
     case focus(app: String?)
+    case compose(app: String?)
     case click(MacSelector, app: String?, block: String?, resolveOnly: Bool)
     case type(text: String, app: String?)
     case key(MacKeyCombo, app: String?)
@@ -65,6 +66,7 @@ public enum MacCommand: Equatable, Sendable {
             return .tree(app: app, max: min(max(try number("--max", MacTree.defaultMax), 1), 2000),
                          depth: min(max(try number("--profundidade", MacTree.defaultDepth), 1), 20), full: flags.contains("--completo"))
         case "foco": return .focus(app: app)
+        case "composicao": return .compose(app: app)
         case "clicar":
             let selector: MacSelector
             if let raw = options["--ponto"] {
@@ -111,7 +113,7 @@ public enum MacCommand: Equatable, Sendable {
     }
 
     public static let usageText = """
-    wisp-mac <comando>: permissao [--pedir] | arvore [--app N] [--max N] [--profundidade N] [--completo] | foco [--app N] | \
+    wisp-mac <comando>: permissao [--pedir] | arvore [--app N] [--max N] [--profundidade N] [--completo] | foco [--app N] | composicao [--app N] | \
     clicar (--titulo T | --regex R | --papel P | --ponto x,y) [--indice N] [--app N] [--bloquear R] [--resolver] | digitar <texto> [--app N] | \
     tecla <cmd+shift+4> [--app N] | rolar (--direcao cima|baixo|esquerda|direita [--quantidade N] | --dx N --dy N) | \
     menu "A > B" [--app N] [--resolver] | apps | janelas [--app N] | ativar|esconder|sair --app N | selftest

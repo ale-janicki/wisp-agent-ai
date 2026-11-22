@@ -237,4 +237,51 @@ private final class FakeDriver: MacDriver, @unchecked Sendable {
         #expect(try MacSelfTest.run() == "selftest ok")
         #expect(service(FakeDriver()).run(arguments: ["selftest"]).stdout == "selftest ok")
     }
+
+    @Test func composeReadsTheComposerValueAndTheToFieldNotTheWholeTree() {
+        let tree = [
+            MacElement(role: "AXWindow", title: "Nova mensagem"),
+            MacElement(role: "AXStaticText", title: "Para:", depth: 1),
+            MacElement(role: "AXTokenField", value: "ana@x.com, Bia <bia@x.com>; ana@x.com", depth: 1),
+            MacElement(role: "AXStaticText", title: "Assunto:", depth: 1),
+            MacElement(role: "AXTextField", value: "Oi", depth: 1),
+            MacElement(role: "AXStaticText", value: "texto solto que não é o corpo", depth: 1),
+        ]
+        let body = MacElement(role: "AXTextArea", value: "Ele disse \"oi\"\n" + String(repeating: "x", count: 25_000))
+        let compose = MacCompose.extract(elements: tree, focused: body, window: "Nova mensagem")
+        #expect(compose.recipients == ["ana@x.com", "Bia <bia@x.com>"])
+        #expect(compose.subject == "Oi")
+        #expect(compose.body.hasPrefix("Ele disse \"oi\"\n") && compose.body.count == 25_000 + 15)
+        #expect(MacCompose.extract(elements: tree, focused: MacElement(role: "AXButton", value: "x"), window: "").body == "")
+        let secure = MacElement(role: "AXTextField", subrole: "AXSecureTextField", value: "senha")
+        #expect(MacCompose.extract(elements: tree, focused: secure, window: "").body == "")
+    }
+
+    @Test func composeCommandReturnsTheRawValuesWithQuotesAndNoTruncation() throws {
+        let driver = FakeDriver()
+        driver.elements = [MacElement(role: "AXWindow"), MacElement(role: "AXStaticText", title: "To:", depth: 1), MacElement(role: "AXTextField", value: "ana", depth: 1)]
+        driver.focused = MacFocus(app: "Mail", element: MacElement(role: "AXTextArea", value: "a \"b\" " + String(repeating: "z", count: 30_000)), window: "W")
+        let out = service(driver).run(arguments: ["composicao"]).stdout
+        let object = try #require(JSONSerialization.jsonObject(with: Data(out.utf8)) as? [String: Any])
+        #expect((object["corpo"] as? String)?.count == 6 + 30_000)
+        #expect(object["destinatarios"] as? [String] == ["ana"])
+    }
+
+    @Test func fullTreeKeepsQuotesAndTheWholeValue() {
+        let long = "q\"" + String(repeating: "a", count: 21_000)
+        let line = MacTree.line(MacElement(role: "AXTextArea", value: long), index: 0, full: true)
+        #expect(line.contains("\\\"") && line.count > 21_000)
+    }
+
+    @Test func theHelperActsOnlyWithTheCallersNonce() {
+        let driver = FakeDriver()
+        let nonce = String(repeating: "ab", count: 16)
+        #expect(service(driver).run(arguments: ["tecla", "cmd+t"], environment: [:]).exitCode == MacError.refused)
+        #expect(service(driver).run(arguments: ["tecla", "cmd+t"], environment: [MacCaller.variable: "curto"]).exitCode == MacError.refused)
+        #expect(service(driver).run(arguments: ["tecla", "cmd+t"], environment: [MacCaller.variable: String(repeating: "z", count: 32)]).exitCode == MacError.refused)
+        #expect(driver.calls.isEmpty)
+        #expect(service(driver).run(arguments: ["permissao"], environment: [:]).exitCode == 0)
+        #expect(service(driver).run(arguments: ["selftest"], environment: [:]).stdout == "selftest ok")
+        #expect(service(driver).run(arguments: ["tecla", "cmd+t"], environment: [MacCaller.variable: nonce]).exitCode == 0)
+    }
 }

@@ -53,7 +53,18 @@
       "Bash(sudo *)",
       "Read(~/.config/wisp/secrets/**)",
       "Bash(cat *wisp/secrets*)",
-      "Bash(grep *wisp/secrets*)"
+      "Bash(grep *wisp/secrets*)",
+      "Write(~/Library/Preferences/ai.wisp.app.plist)",
+      "Edit(~/Library/Preferences/ai.wisp.app.plist)",
+      "Write(~/Library/Application Support/Wisp/**)",
+      "Edit(~/Library/Application Support/Wisp/**)",
+      "Write(~/.config/wisp/**)",
+      "Edit(~/.config/wisp/**)",
+      "Bash(defaults write ai.wisp.app*)",
+      "Bash(defaults delete ai.wisp.app*)",
+      "Bash(defaults import ai.wisp.app*)",
+      "Bash(plutil*ai.wisp.app*)",
+      "Bash(*PlistBuddy*ai.wisp.app*)"
     ]
   },
   "hooks": {

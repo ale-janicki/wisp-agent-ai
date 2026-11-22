@@ -88,7 +88,10 @@ public struct MacControlService {
         self.driver = driver
     }
 
-    public func run(arguments: [String]) -> MacOutcome {
+    public func run(arguments: [String], environment: [String: String]? = nil) -> MacOutcome {
+        if let environment, let first = arguments.first, !MacCaller.freeCommands.contains(first), !MacCaller.valid(environment) {
+            return MacOutcome(stderr: MacCaller.refusal, exitCode: MacError.refused)
+        }
         do {
             let command = try MacCommand.parse(arguments)
             return MacOutcome(stdout: try execute(command))
@@ -133,6 +136,12 @@ public struct MacControlService {
             try needAccessibility()
             let focus = try driver.focus(app: app)
             return try json(focusReport(focus))
+        case .compose(let app):
+            try needAccessibility()
+            let focus = try driver.focus(app: app)
+            let elements = try driver.tree(app: app, max: 1500, depth: 20)
+            let compose = MacCompose.extract(elements: elements, focused: focus.element, window: focus.window)
+            return try json(["app": focus.app, "corpo": compose.body, "destinatarios": compose.recipients, "assunto": compose.subject, "janela": compose.window])
         case .click(let selector, let app, let block, let resolveOnly):
             try needAccessibility()
             return try click(selector, app: app, block: block, resolveOnly: resolveOnly)
