@@ -92,6 +92,7 @@ struct BrainTab: View {
                     .padding(.horizontal, Theme.Space.s)
                 MemoryGraphView(root: root, query: graphQuery, recent: model.active?.path ?? recentPath) { path in
                     model.showsGraph = false
+                    showsHome = false
                     model.open(path)
                 }
             }
@@ -169,8 +170,8 @@ struct BrainTab: View {
             iconButton("chevron.right", help: "Avançar (⌘])", enabled: model.active?.history.canGoForward == true) { model.goForward() }
             Spacer(minLength: 0)
             iconButton("house", help: "Visão geral: recentes e busca", on: showsHome || (model.active == nil && !model.showsGraph)) {
+                showsHome = model.showsGraph ? true : !showsHome
                 model.showsGraph = false
-                showsHome.toggle()
             }
             if let tab = model.active, tab.kind == .note, !model.showsGraph, !showsHome {
                 iconButton(tab.editing ? "book" : "pencil", help: tab.readOnly != nil ? "Somente leitura" : (tab.editing ? "Ler (⌘E)" : "Editar (⌘E)"), on: tab.editing, enabled: tab.readOnly == nil) { model.toggleEditing() }
