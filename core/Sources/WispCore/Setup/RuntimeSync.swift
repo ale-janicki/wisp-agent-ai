@@ -17,6 +17,10 @@ public enum RuntimeSync {
     public static let lockTimeoutSeconds = 120
     public static let lockFailure = "O instalador ficou esperando outro processo do Wisp ou do uv. Feche as outras janelas do Wisp e tente de novo."
     public static let idleFailure = "A instalação ficou parada sem progresso. Confira a internet e tente de novo."
+    private static let offlineMarkers = [
+        "dns", "network", "offline", "internet", "connection", "connect", "resolve", "lookup", "timed out",
+        "error sending request", "failed to fetch", "failed to download", "tcp",
+    ]
     private static let lockMarkers = ["could not acquire lock", "when waiting for lock", "is another uv process running"]
 
     public static func watchedFolders(_ root: URL, venv: URL) -> [URL] {
@@ -46,6 +50,17 @@ public enum RuntimeSync {
         }
     }
 
+    public enum FailureKind: Equatable, Sendable {
+        case lock, stalled, offline, other
+    }
+
+    public static func classify(_ text: String) -> FailureKind {
+        if text.hasPrefix(lockFailure) { return .lock }
+        if text.hasPrefix(idleFailure) { return .stalled }
+        let lower = text.lowercased()
+        return offlineMarkers.contains { lower.contains($0) } ? .offline : .other
+    }
+
     public static func isLockWait(_ text: String) -> Bool {
         let lower = text.lowercased()
         return lockMarkers.contains { lower.contains($0) }
@@ -56,11 +71,12 @@ public enum RuntimeSync {
         let words = line.split(separator: " ").map(String.init)
         guard let first = words.first?.lowercased() else { return nil }
         let name = words.dropFirst().first.map { $0.split(separator: "=").first.map(String.init) ?? $0 } ?? ""
+        let label = name.isEmpty || name.allSatisfy(\.isNumber) ? "os pacotes" : name
         let python = lower.contains("cpython") || lower.contains("python-build")
         switch first {
-        case "downloading": return python ? "baixando o Python" : "baixando \(name)"
-        case "installing", "installed": return python ? "instalando o Python" : (name.isEmpty ? "instalando os pacotes" : "instalando \(name)")
-        case "building", "built": return "construindo \(name)"
+        case "downloading": return python ? "baixando o Python" : "baixando \(label)"
+        case "installing", "installed": return python ? "instalando o Python" : "instalando \(label)"
+        case "building", "built": return "construindo \(label)"
         case "prepared": return "preparando os pacotes"
         case "resolved", "resolving": return "resolvendo as dependências"
         default: return nil
@@ -141,7 +157,16 @@ public enum RuntimeSync {
         var status: Int32 = 0
         var sampledAt = Date()
         var lastFootprint = -1
-        while waitpid(pid, &status, WNOHANG) == 0 {
+        var waited: pid_t = 0
+        var waitError: Int32 = 0
+        while true {
+            waited = waitpid(pid, &status, WNOHANG)
+            if waited == -1 {
+                if errno == EINTR { continue }
+                waitError = errno
+                break
+            }
+            if waited != 0 { break }
             if progress.idleFor > watchdog.quiet, Date().timeIntervalSince(sampledAt) >= watchdog.sample {
                 sampledAt = Date()
                 let now = footprint(watch)
@@ -156,6 +181,7 @@ public enum RuntimeSync {
             Thread.sleep(forTimeInterval: 0.05)
         }
         _ = group.wait(timeout: .now() + 1)
+        if waitError != 0 { return .failed("Não consegui acompanhar o instalador (erro \(waitError)).") }
         if ProcessCore.exitCode(of: status) == 0 { return .ok }
         let text = String(decoding: captureLock.withLock { Data(captured) }, as: UTF8.self)
         if isLockWait(text) { return .lockBusy }
