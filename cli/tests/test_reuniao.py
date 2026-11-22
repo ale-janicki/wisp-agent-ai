@@ -379,6 +379,62 @@ def test_codex_active_with_no_claude_and_no_local_model_skips_the_note_with_the_
     assert all(call["argv"][1:] == ["--version"] for call in runner.calls)
 
 
+def use_engine(wisp_dir, engine):
+    (wisp_dir / "modelos.toml").write_text(f'ativo = "{engine}"\n')
+
+
+def test_local_active_with_a_ready_model_writes_the_note_locally_and_never_runs_the_hosted_engine(world, monkeypatch):
+    folder, wisp_dir, cfg = world
+    use_engine(wisp_dir, "local")
+    modelos.write(wisp_dir, modelos.LocalState("qwen3:8b", ("qwen3:8b",)))
+    runner = Routed()
+    with FakeLLM(script=[reply(NOTE)], tags={"qwen3:8b": 5}) as fake:
+        fake.repeat_last = True
+        monkeypatch.setattr(reuniao, "make_client", lambda cfg: fake.client())
+        report = reuniao.make_note(cfg, runner, folder)
+        chats = fake.chats()
+    assert report["motor"] == "local" and report["pedido"] == "local" and report["gerada"] is True
+    assert len(chats) == 3 and all(chat["tools"] == [] for chat in chats)
+    assert runner.calls == []
+
+
+def test_local_active_not_ready_skips_the_note_with_the_reason_and_never_falls_back_to_the_hosted_engine(world, monkeypatch):
+    folder, wisp_dir, cfg = world
+    use_engine(wisp_dir, "local")
+    runner = Routed()
+    with FakeLLM(tags={}) as fake:
+        monkeypatch.setattr(reuniao, "make_client", lambda cfg: fake.client())
+        report = reuniao.make_note(cfg, runner, folder)
+        assert fake.chats() == []
+    assert report["gerada"] is False and report["motor"] == "local"
+    assert report["motivo"].startswith("a IA local não está pronta: ")
+    assert "> Nota não gerada: a IA local não está pronta: " in (folder / "nota.md").read_text()
+    assert runner.calls == []
+
+
+def test_local_active_without_any_client_skips_the_note_and_never_runs_the_hosted_engine(world, monkeypatch):
+    folder, wisp_dir, cfg = world
+    use_engine(wisp_dir, "local")
+    runner = Routed()
+    monkeypatch.setattr(reuniao, "make_client", lambda cfg: None)
+    report = reuniao.make_note(cfg, runner, folder)
+    assert report["gerada"] is False and report["motivo"].startswith("a IA local não está pronta: ")
+    assert runner.calls == []
+
+
+def test_claude_active_uses_the_hosted_engine_even_with_a_ready_local_model(world, monkeypatch):
+    folder, wisp_dir, cfg = world
+    use_engine(wisp_dir, "claude")
+    modelos.write(wisp_dir, modelos.LocalState("qwen3:8b", ("qwen3:8b",)))
+    runner = Routed()
+    with FakeLLM(tags={"qwen3:8b": 5}) as fake:
+        monkeypatch.setattr(reuniao, "make_client", lambda cfg: fake.client())
+        report = reuniao.make_note(cfg, runner, folder)
+        assert fake.chats() == []
+    assert report["motor"] == "claude" and report["gerada"] is True
+    assert len(runner.engine_calls()) == 3
+
+
 def test_no_codex_binary_is_ever_located_or_run(world):
     folder, wisp_dir, cfg = world
     use_codex(wisp_dir)

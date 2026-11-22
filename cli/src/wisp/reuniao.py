@@ -169,7 +169,23 @@ def local_model(cfg: WispConfig, client) -> str | None:
     return active if active and client.readiness(active) is None else None
 
 
+def local_problem(cfg: WispConfig, client) -> str:
+    if client is None:
+        return "nenhum modelo local configurado"
+    try:
+        active = modelos.read(Path(cfg.wisp_dir).expanduser()).ativo
+    except modelos.ModelosError as problem:
+        return str(problem)
+    if not active:
+        return "nenhum modelo local escolhido"
+    return client.readiness(active) or "o modelo local não respondeu"
+
+
 def pick_backend(requested: str, cfg: WispConfig, runner: Runner, client) -> tuple[str | None, str | None]:
+    if requested == "local":
+        if local_model(cfg, client) is not None:
+            return "local", None
+        return None, f"a IA local não está pronta: {local_problem(cfg, client)}"
     if requested != "codex":
         return "claude", None
     if claude_available(cfg, runner):
