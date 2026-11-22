@@ -110,8 +110,13 @@ public enum MeetingLinks {
         return "em \(hours / 24) d"
     }
 
-    public static func menuBarTitle(title: String, start: Date, end: Date, now: Date, limit: Int = 22) -> String {
-        let clipped = title.count > limit ? String(title.prefix(limit - 1)) + "…" : title
+    public static let hiddenTitle = "Reunião"
+
+    public static func displayTitle(_ title: String, hidden: Bool) -> String { hidden ? hiddenTitle : title }
+
+    public static func menuBarTitle(title: String, start: Date, end: Date, now: Date, limit: Int = 22, hideTitle: Bool = false) -> String {
+        let shown = displayTitle(title, hidden: hideTitle)
+        let clipped = shown.count > limit ? String(shown.prefix(limit - 1)) + "…" : shown
         return "\(clipped) · \(countdown(to: start, end: end, now: now))"
     }
 
@@ -123,7 +128,7 @@ public enum MeetingLinks {
         public let url: URL
     }
 
-    public static func alerts(for events: [CalEvent], now: Date, leadMinutes: Int, horizon: TimeInterval = 48 * 3_600, limit: Int = 40) -> [Alert] {
+    public static func alerts(for events: [CalEvent], now: Date, leadMinutes: Int, horizon: TimeInterval = 48 * 3_600, limit: Int = 40, hideTitles: Bool = false) -> [Alert] {
         let lead = TimeInterval(max(0, leadMinutes) * 60)
         return events
             .filter { !$0.allDay && !$0.declined && $0.start > now && $0.start.timeIntervalSince(now) <= horizon }
@@ -132,7 +137,7 @@ public enum MeetingLinks {
                 guard let link = detect(event) else { return nil }
                 let fire = max(event.start.addingTimeInterval(-lead), now.addingTimeInterval(1))
                 guard fire < event.start else { return nil }
-                return Alert(key: event.uid, title: event.title, fireDate: fire, start: event.start, url: link.url)
+                return Alert(key: event.uid, title: displayTitle(event.title, hidden: hideTitles), fireDate: fire, start: event.start, url: link.url)
             }
             .prefix(limit)
             .map { $0 }

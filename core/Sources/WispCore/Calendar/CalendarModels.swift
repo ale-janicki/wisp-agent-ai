@@ -55,15 +55,62 @@ public enum RecurrenceEnd: Codable, Equatable, Sendable {
     case until(Date)
 }
 
+public struct RecurrenceDay: Codable, Equatable, Sendable {
+    public var weekday: Int
+    public var weekNumber: Int
+
+    public init(weekday: Int, weekNumber: Int = 0) {
+        self.weekday = weekday
+        self.weekNumber = weekNumber
+    }
+}
+
 public struct CalRecurrence: Codable, Equatable, Sendable {
     public var frequency: RecurrenceFrequency
     public var interval: Int
     public var end: RecurrenceEnd
+    public var daysOfWeek: [RecurrenceDay]
+    public var daysOfMonth: [Int]
+    public var monthsOfYear: [Int]
+    public var weeksOfYear: [Int]
+    public var daysOfYear: [Int]
+    public var setPositions: [Int]
 
-    public init(frequency: RecurrenceFrequency, interval: Int = 1, end: RecurrenceEnd = .never) {
+    public init(frequency: RecurrenceFrequency, interval: Int = 1, end: RecurrenceEnd = .never, daysOfWeek: [RecurrenceDay] = [],
+                daysOfMonth: [Int] = [], monthsOfYear: [Int] = [], weeksOfYear: [Int] = [], daysOfYear: [Int] = [],
+                setPositions: [Int] = []) {
         self.frequency = frequency
         self.interval = max(1, interval)
         self.end = end
+        self.daysOfWeek = daysOfWeek
+        self.daysOfMonth = daysOfMonth
+        self.monthsOfYear = monthsOfYear
+        self.weeksOfYear = weeksOfYear
+        self.daysOfYear = daysOfYear
+        self.setPositions = setPositions
+    }
+
+    public var hasDetail: Bool {
+        !daysOfWeek.isEmpty || !daysOfMonth.isEmpty || !monthsOfYear.isEmpty || !weeksOfYear.isEmpty || !daysOfYear.isEmpty || !setPositions.isEmpty
+    }
+
+    public func changing(frequency newFrequency: RecurrenceFrequency, interval newInterval: Int, end newEnd: RecurrenceEnd) -> CalRecurrence {
+        var next = newFrequency == frequency ? self : CalRecurrence(frequency: newFrequency)
+        next.interval = max(1, newInterval)
+        next.end = newEnd
+        return next
+    }
+}
+
+public enum CalendarBackendError: Error, Equatable, LocalizedError {
+    case notFound(String)
+    case modifiedExternally(String)
+
+    public var errorDescription: String? {
+        switch self {
+        case .notFound(let id): "não achei o evento \(id)"
+        case .modifiedExternally(let title): "\"\(title)\" mudou fora do Wisp. Recarreguei a agenda; confira e tente de novo."
+        }
     }
 }
 
@@ -85,11 +132,12 @@ public struct CalEvent: Identifiable, Equatable, Sendable {
     public var writable: Bool
     public var busy: Bool
     public var declined: Bool
+    public var modified: Date?
 
     public init(
         id: String, calendarID: String, title: String, start: Date, end: Date, allDay: Bool = false, timeZoneID: String? = nil,
         location: String? = nil, url: URL? = nil, notes: String? = nil, attendees: [CalAttendee] = [], alarmOffsets: [Int] = [],
-        recurrence: CalRecurrence? = nil, isRecurring: Bool = false, writable: Bool = true, busy: Bool = true, declined: Bool = false
+        recurrence: CalRecurrence? = nil, isRecurring: Bool = false, writable: Bool = true, busy: Bool = true, declined: Bool = false, modified: Date? = nil
     ) {
         self.id = id
         self.calendarID = calendarID
@@ -108,6 +156,7 @@ public struct CalEvent: Identifiable, Equatable, Sendable {
         self.writable = writable
         self.busy = busy
         self.declined = declined
+        self.modified = modified
     }
 
     public var uid: String { isRecurring ? "\(id)@\(Int(start.timeIntervalSince1970))" : id }
@@ -210,11 +259,38 @@ public struct EventEdit: Equatable, Sendable {
 
     public var isEmpty: Bool { self == EventEdit() }
 
-    public static func restoring(_ event: CalEvent) -> EventEdit {
-        EventEdit(title: event.title, start: event.start, end: event.end, allDay: event.allDay, calendarID: event.calendarID,
-                  timeZoneID: event.timeZoneID ?? "", location: event.location ?? "", url: event.url?.absoluteString ?? "",
-                  notes: event.notes ?? "", alarmOffsets: event.alarmOffsets,
-                  recurrence: event.recurrence.map(RecurrenceChange.set) ?? .remove)
+    public static func restoring(_ event: CalEvent, matching change: EventEdit) -> EventEdit {
+        var back = EventEdit()
+        if change.title != nil { back.title = event.title }
+        if change.start != nil { back.start = event.start }
+        if change.end != nil { back.end = event.end }
+        if change.allDay != nil { back.allDay = event.allDay }
+        if change.calendarID != nil { back.calendarID = event.calendarID }
+        if change.timeZoneID != nil { back.timeZoneID = event.timeZoneID ?? "" }
+        if change.location != nil { back.location = event.location ?? "" }
+        if change.url != nil { back.url = event.url?.absoluteString ?? "" }
+        if change.notes != nil { back.notes = event.notes ?? "" }
+        if change.alarmOffsets != nil { back.alarmOffsets = event.alarmOffsets }
+        if change.recurrence != .keep { back.recurrence = event.recurrence.map(RecurrenceChange.set) ?? .remove }
+        return back
+    }
+}
+
+public struct DeletePrompt: Equatable, Sendable {
+    public let title: String
+    public let detail: String
+    public let notifiesGuests: Bool
+
+    public static func make(for event: CalEvent) -> DeletePrompt {
+        let guests = event.attendees.filter { !$0.isMe }.count
+        let name = event.title.isEmpty ? "Sem título" : event.title
+        if guests > 0 {
+            let noun = guests == 1 ? "convidado" : "convidados"
+            return DeletePrompt(title: "Apagar \"\(name)\"?",
+                                detail: "\(guests) \(noun) receberá um cancelamento. Isso não pode ser desfeito: desfazer recria o evento, mas não reenvia o convite.",
+                                notifiesGuests: true)
+        }
+        return DeletePrompt(title: "Apagar \"\(name)\"?", detail: "Você pode desfazer com Cmd+Z.", notifiesGuests: false)
     }
 }
 
@@ -225,7 +301,7 @@ public protocol CalendarBackend: Sendable {
     func events(from start: Date, to end: Date) async throws -> [CalEvent]
     func event(ref: EventRef) async throws -> CalEvent
     func create(_ draft: EventDraft) async throws -> CalEvent
-    func update(ref: EventRef, edit: EventEdit, scope: RecurrenceScope) async throws -> CalEvent
-    func delete(ref: EventRef, scope: RecurrenceScope) async throws
+    func update(ref: EventRef, edit: EventEdit, scope: RecurrenceScope, expectedModified: Date?) async throws -> CalEvent
+    func delete(ref: EventRef, scope: RecurrenceScope, expectedModified: Date?) async throws
     func changes() -> AsyncStream<Void>
 }

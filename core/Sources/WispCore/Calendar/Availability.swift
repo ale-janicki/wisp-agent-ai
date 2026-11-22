@@ -47,9 +47,9 @@ public enum Availability {
         let origin = calendar.startOfDay(for: first)
         for offset in 0..<max(days, 0) {
             guard let day = calendar.date(byAdding: .day, value: offset, to: origin),
-                  hours.weekdays.contains(calendar.component(.weekday, from: day)),
-                  let open = calendar.date(byAdding: .minute, value: hours.startMinute, to: day),
-                  let close = calendar.date(byAdding: .minute, value: hours.endMinute, to: day) else { continue }
+                  hours.weekdays.contains(calendar.component(.weekday, from: day)) else { continue }
+            let open = GridMath.date(onDayOf: day, minute: hours.startMinute, calendar: calendar)
+            let close = GridMath.date(onDayOf: day, minute: hours.endMinute, calendar: calendar)
             var cursor = max(open, now)
             guard cursor < close else { continue }
             for block in blocked where block.end > cursor && block.start < close {

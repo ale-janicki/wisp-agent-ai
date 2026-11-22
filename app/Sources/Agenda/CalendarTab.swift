@@ -94,6 +94,7 @@ struct CalendarTab: View {
             .padding(Theme.Space.s)
             .allowsHitTesting(model.availabilityOn)
             if let pending = model.pendingScope { ScopeSheet(model: model, pending: pending) }
+            if let event = model.pendingDelete { DeleteSheet(model: model, event: event) }
         }
         .animation(.easeOut(duration: 0.18), value: model.detail != nil)
         .animation(.easeOut(duration: 0.18), value: model.sidebarOpen)
@@ -179,7 +180,7 @@ private struct QuickBar: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: Theme.Space.s) {
                 Image(systemName: "sparkles").font(.system(size: 11)).foregroundStyle(Theme.accent)
-                TextField("", text: $model.quickText, prompt: Text("almoço amanhã 13h por 1h · reunião sexta 10-11 no calendário Moonxi").foregroundStyle(Theme.textTertiary))
+                TextField("", text: $model.quickText, prompt: Text("almoço amanhã 13h por 1h · reunião sexta 10-11 no calendário Trabalho").foregroundStyle(Theme.textTertiary))
                     .textFieldStyle(.plain)
                     .font(Theme.Font.body)
                     .foregroundStyle(Theme.textPrimary)
@@ -324,6 +325,34 @@ private struct ScopeSheet: View {
     }
 
     private var isDelete: Bool { pending.action == .delete }
+}
+
+private struct DeleteSheet: View {
+    let model: CalendarModel
+    let event: CalEvent
+
+    var body: some View {
+        let prompt = DeletePrompt.make(for: event)
+        ZStack {
+            Color.black.opacity(0.4).onTapGesture { model.pendingDelete = nil }
+            VStack(spacing: Theme.Space.s) {
+                Text(prompt.title).font(Theme.Font.title).foregroundStyle(Theme.textPrimary).lineLimit(2).multilineTextAlignment(.center)
+                Text(prompt.detail)
+                    .font(Theme.Font.caption)
+                    .foregroundStyle(prompt.notifiesGuests ? Theme.error : Theme.textSecondary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 280)
+                Button("Apagar") { model.confirmDelete() }
+                    .buttonStyle(CapsuleButtonStyle(kind: .error))
+                    .frame(width: 200)
+                Button("Cancelar") { model.pendingDelete = nil }
+                    .buttonStyle(CompactCapsuleStyle(accent: false))
+            }
+            .padding(Theme.Space.l)
+            .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous).strokeBorder(Theme.stroke, lineWidth: 1))
+        }
+    }
 }
 
 private struct GoogleHint: View {

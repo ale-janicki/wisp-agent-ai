@@ -43,8 +43,8 @@ public enum EventLayout {
         guard let dayEnd = calendar.date(byAdding: .day, value: 1, to: dayStart) else { return nil }
         guard event.start < dayEnd, event.end > dayStart || event.start == event.end && event.start >= dayStart else { return nil }
         let lower = max(event.start, dayStart), upper = min(event.end, dayEnd)
-        let startMinute = Int((lower.timeIntervalSince(dayStart) / 60).rounded(.down))
-        let rawEnd = Int((upper.timeIntervalSince(dayStart) / 60).rounded(.up))
+        let startMinute = lower <= dayStart ? 0 : GridMath.minuteOfDay(lower, calendar: calendar)
+        let rawEnd = upper >= dayEnd ? minutesPerDay : GridMath.minuteOfDay(upper, calendar: calendar, roundingUp: true)
         let endMinute = min(minutesPerDay, max(rawEnd, startMinute + minimumVisibleMinutes))
         return DaySegment(id: event.uid, startMinute: min(startMinute, minutesPerDay - 1), endMinute: endMinute)
     }

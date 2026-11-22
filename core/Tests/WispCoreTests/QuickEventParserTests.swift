@@ -9,7 +9,7 @@ final class QuickEventParserTests: XCTestCase {
         return c
     }()
     private lazy var now = date(2026, 11, 21, 10, 0)
-    private let names = ["Pessoal", "Moonxi", "Trabalho Extra"]
+    private let names = ["Pessoal", "Trabalho", "Trabalho Extra"]
 
     private func date(_ y: Int, _ mo: Int, _ d: Int, _ h: Int = 0, _ mi: Int = 0) -> Date {
         calendar.date(from: DateComponents(year: y, month: mo, day: d, hour: h, minute: mi))!
@@ -39,11 +39,11 @@ final class QuickEventParserTests: XCTestCase {
     }
 
     func testWeekdayRangeAndCalendarName() {
-        let r = parse("reunião sexta 10-11 no calendário Moonxi")
+        let r = parse("reunião sexta 10-11 no calendário Trabalho")
         XCTAssertEqual(r.title, "reunião")
         XCTAssertEqual(r.start, date(2026, 11, 27, 10))
         XCTAssertEqual(r.end, date(2026, 11, 27, 11))
-        XCTAssertEqual(r.calendarName, "Moonxi")
+        XCTAssertEqual(r.calendarName, "Trabalho")
     }
 
     func testTomorrowAtBareHour() {
@@ -159,7 +159,7 @@ final class QuickEventParserTests: XCTestCase {
 
     func testCalendarNameForms() {
         XCTAssertEqual(parse("call tomorrow 3pm on calendar Work Stuff").calendarName, "Work Stuff")
-        XCTAssertEqual(parse("reunião amanhã 10h #Moonxi").calendarName, "Moonxi")
+        XCTAssertEqual(parse("reunião amanhã 10h #Trabalho").calendarName, "Trabalho")
         let known = parse("reunião amanhã 10h no calendário trabalho extra")
         XCTAssertEqual(known.calendarName, "Trabalho Extra")
         XCTAssertEqual(known.title, "reunião")
@@ -170,8 +170,8 @@ final class QuickEventParserTests: XCTestCase {
     }
 
     func testCalendarNameFollowedByMoreText() {
-        let r = parse("reunião no calendário Moonxi sexta 10h")
-        XCTAssertEqual(r.calendarName, "Moonxi")
+        let r = parse("reunião no calendário Trabalho sexta 10h")
+        XCTAssertEqual(r.calendarName, "Trabalho")
         XCTAssertEqual(r.start, date(2026, 11, 27, 10))
     }
 
@@ -181,9 +181,9 @@ final class QuickEventParserTests: XCTestCase {
         XCTAssertEqual(r.title, "reunião")
         XCTAssertEqual(parse("workshop friday 2pm @ Office").location, "Office")
         XCTAssertEqual(parse("almoço amanhã local: Restaurante X").location, "Restaurante X")
-        let both = parse("reunião amanhã 15h @ Sala 3 no calendário Moonxi")
+        let both = parse("reunião amanhã 15h @ Sala 3 no calendário Trabalho")
         XCTAssertEqual(both.location, "Sala 3")
-        XCTAssertEqual(both.calendarName, "Moonxi")
+        XCTAssertEqual(both.calendarName, "Trabalho")
     }
 
     func testEmailAndTimeAtSignAreNotLocations() {

@@ -13,7 +13,8 @@ public struct QuickEvent: Equatable, Sendable {
 
 public enum CalendarDates {
     public static func allDayEnd(lastDay: Date, calendar: Calendar) -> Date {
-        calendar.startOfDay(for: lastDay).addingTimeInterval(86_399)
+        let next = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: lastDay)) ?? calendar.startOfDay(for: lastDay).addingTimeInterval(86_400)
+        return next.addingTimeInterval(-1)
     }
 
     public static func lastDay(of event: CalEvent, calendar: Calendar) -> Date {
@@ -39,6 +40,8 @@ public enum QuickEventParser {
     ]
     private static let weekdayNames = weekdayNumbers.keys.sorted { $0.count > $1.count }.joined(separator: "|")
 
+    private static let maxDurationMinutes = 7 * 24 * 60
+
     private static let trailing: Set<String> = [
         "as", "a", "at", "on", "em", "no", "na", "de", "do", "da", "para", "for", "to", "in", "from", "das", "dos", "entre",
         "between", "por", "ate", "until", "e", "and", "-", "–", ",", "o", "the", "dia", "day", "@", "com-o",
@@ -62,10 +65,14 @@ public enum QuickEventParser {
 
         init(_ source: String) {
             let composed = source.precomposedStringWithCanonicalMapping
-            let lowered = composed.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: nil).lowercased()
-            let same = lowered.utf16.count == composed.utf16.count
+            var foldedText = ""
+            for character in composed {
+                let piece = String(character)
+                let candidate = piece.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: nil).lowercased()
+                foldedText += candidate.utf16.count == piece.utf16.count ? candidate : String(repeating: "?", count: piece.utf16.count)
+            }
             original = NSMutableString(string: composed)
-            folded = NSMutableString(string: same ? lowered : composed.lowercased())
+            folded = NSMutableString(string: foldedText)
         }
 
         var range: NSRange { NSRange(location: 0, length: folded.length) }
@@ -126,7 +133,7 @@ public enum QuickEventParser {
             text.blank(m.range)
         }
 
-        if let m = text.first(#"\b(?:em|daqui\s+a|in)\s+(\d+|uma?|an?|meia|half(?:\s+an?)?)\s*(horas?|hours?|hrs?|h|minutos?|minutes?|mins?|dias?|days?|semanas?|weeks?)\b"#) {
+        if let m = text.first(#"\b(?:em|daqui\s+a|in)\s+(\d{1,4}|uma?|an?|meia|half(?:\s+an?)?)\s*(horas?|hours?|hrs?|h|minutos?|minutes?|mins?|dias?|days?|semanas?|weeks?)\b"#) {
             let quantityWord = text.g(m, 1) ?? "1"
             let quantity: Double = Double(quantityWord) ?? (quantityWord.hasPrefix("meia") || quantityWord.hasPrefix("half") ? 0.5 : 1)
             let unit = text.g(m, 2) ?? "h"
@@ -135,9 +142,9 @@ public enum QuickEventParser {
             } else if unit.hasPrefix("h") {
                 relativeStart = roundedToMinute(now.addingTimeInterval(quantity * 3_600), calendar: calendar)
             } else if unit.hasPrefix("d") {
-                date = calendar.date(byAdding: .day, value: Int(quantity), to: today)
+                date = calendar.date(byAdding: .day, value: min(Int(quantity), 3_650), to: today)
             } else {
-                date = calendar.date(byAdding: .day, value: Int(quantity) * 7, to: today)
+                date = calendar.date(byAdding: .day, value: min(Int(quantity), 520) * 7, to: today)
             }
             text.blank(m.range)
         }
@@ -213,8 +220,7 @@ public enum QuickEventParser {
     }
 
     private static func at(_ clock: Clock, on day: Date, calendar: Calendar) -> Date {
-        let start = calendar.startOfDay(for: day)
-        return calendar.date(byAdding: .minute, value: clock.hour * 60 + clock.minute, to: start) ?? start
+        GridMath.date(onDayOf: day, minute: clock.hour * 60 + clock.minute, calendar: calendar)
     }
 
     private static func cleaned(_ text: Text) -> String {
@@ -264,12 +270,12 @@ public enum QuickEventParser {
     private static func takeDuration(_ text: inout Text) -> Int? {
         let keywords = text.matches(#"\b(?:por|for|durante|lasting)\s+"#)
         let tails: [(String, (NSTextCheckingResult, Text) -> Int?)] = [
-            (#"^(\d+)\s*h(?:ours?|oras?|rs?)?\s*(?:e|and)?\s*(\d{1,2})\s*(?:m|min\w*)\b"#, { m, t in (t.int(m, 1) ?? 0) * 60 + (t.int(m, 2) ?? 0) }),
-            (#"^(\d+)h(\d{2})\b"#, { m, t in (t.int(m, 1) ?? 0) * 60 + (t.int(m, 2) ?? 0) }),
-            (#"^(\d+(?:[.,]\d+)?)\s*(?:h|hr|hrs|hours?|horas?)\b"#, { m, t in
+            (#"^(\d{1,4})\s*h(?:ours?|oras?|rs?)?\s*(?:e|and)?\s*(\d{1,2})\s*(?:m|min\w*)\b"#, { m, t in (t.int(m, 1) ?? 0) * 60 + (t.int(m, 2) ?? 0) }),
+            (#"^(\d{1,4})h(\d{2})\b"#, { m, t in (t.int(m, 1) ?? 0) * 60 + (t.int(m, 2) ?? 0) }),
+            (#"^(\d{1,4}(?:[.,]\d{1,2})?)\s*(?:h|hr|hrs|hours?|horas?)\b"#, { m, t in
                 Double((t.g(m, 1) ?? "").replacingOccurrences(of: ",", with: ".")).map { Int(($0 * 60).rounded()) }
             }),
-            (#"^(\d+)\s*(?:m|min|mins|minutos?|minutes?)\b"#, { m, t in t.int(m, 1) }),
+            (#"^(\d{1,4})\s*(?:m|min|mins|minutos?|minutes?)\b"#, { m, t in t.int(m, 1) }),
             (#"^(?:uma?|an?)\s+(?:hora|hour)\b"#, { _, _ in 60 }),
             (#"^(?:meia\s+hora|half\s+an?\s+hour|half\s+hour)\b"#, { _, _ in 30 }),
             (#"^(?:um|uma|a|an)\s+(?:minuto|minute)\b"#, { _, _ in 1 }),
@@ -279,7 +285,7 @@ public enum QuickEventParser {
             let tail = NSRange(location: tailStart, length: text.folded.length - tailStart)
             for (pattern, minutes) in tails {
                 guard let m = rx(pattern).firstMatch(in: text.folded as String, range: tail),
-                      m.range.location == tailStart, let value = minutes(m, text), value > 0 else { continue }
+                      m.range.location == tailStart, let value = minutes(m, text), value >= 1, value <= maxDurationMinutes else { continue }
                 text.blank(NSRange(location: keyword.range.location, length: m.range.location + m.range.length - keyword.range.location))
                 return value
             }
