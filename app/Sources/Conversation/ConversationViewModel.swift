@@ -12,7 +12,7 @@ final class ConversationViewModel {
     }
 
     private(set) var records: [ConversationRecord] = []
-    private(set) var onboarding: Onboarding?
+    private(set) var claudeProblem: Onboarding?
     private(set) var profileError: String?
     private(set) var profile: Profile = .default
     private(set) var rateLimit: RateLimit?
@@ -91,6 +91,8 @@ final class ConversationViewModel {
         if let note = store.lastRecoveryNote { current.appendSystem(note) }
         loadProfile()
         probeClaude()
+        if EngineChoice.active() != .claude { EngineModel.shared.refresh() }
+        if EngineChoice.active() == .local { ModelPickerModel.shared.refresh() }
         Task { [weak self] in await self?.refreshTelegram() }
         PermissionModel.shared.onChange = { [weak self] in self?.permissionModeChanged() }
         sweepTask = Task { [weak self] in
@@ -175,8 +177,34 @@ final class ConversationViewModel {
         Task { [weak self] in
             let found = await Task.detached { (try? ClaudeLocator.resolve(configured: configured)) != nil }.value
             guard let self, !found else { return }
-            self.onboarding = .claudeMissing
+            self.claudeProblem = .claudeMissing
         }
+    }
+
+    var onboarding: OnboardingState {
+        let engines = EngineModel.shared
+        let picker = ModelPickerModel.shared
+        return OnboardingGate.decide(
+            engine: engines.active,
+            profileError: profileError,
+            claude: EngineAccess(installed: claudeProblem != .claudeMissing, loggedIn: claudeProblem != .authRequired),
+            codex: engines.codex.map { EngineAccess(installed: $0.installed, loggedIn: $0.loggedIn) },
+            localRuntimeReady: picker.status?.backend.available == true,
+            localActiveModel: picker.status?.active,
+            localDownload: Self.localDownload(picker))
+    }
+
+    private static func localDownload(_ picker: ModelPickerModel) -> LocalDownload? {
+        func name(_ tag: String) -> String { picker.status?.models.first { $0.tag == tag }?.name ?? tag }
+        if case .pulling(let tag, let completed, let total) = picker.job {
+            return LocalDownload(model: name(tag), percent: LocalDownload.percent(completed: completed, total: total))
+        }
+        return picker.status?.downloading.first.map { LocalDownload(model: name($0)) }
+    }
+
+    private func refreshEngines() {
+        EngineModel.shared.refresh()
+        ModelPickerModel.shared.refresh()
     }
 
     func recheck() {
@@ -186,17 +214,18 @@ final class ConversationViewModel {
             let found = await Task.detached { (try? ClaudeLocator.resolve(configured: configured)) != nil }.value
             guard let self else { return }
             if found {
-                self.onboarding = nil
+                self.claudeProblem = nil
                 if self.isFailed { self.retry() }
             } else {
-                self.onboarding = .claudeMissing
+                self.claudeProblem = .claudeMissing
             }
         }
+        refreshEngines()
     }
 
     // MARK: Actions
 
-    var inputBlocked: Bool { profileError != nil || onboarding != nil }
+    var inputBlocked: Bool { onboarding.blocksInput }
 
     func attach(_ urls: [URL]) {
         let checked = AttachmentStaging.regularFiles(urls.filter(\.isFileURL))
@@ -361,7 +390,7 @@ final class ConversationViewModel {
         )
     }
 
-    func setOnboarding(_ value: Onboarding?) { onboarding = value }
+    func setOnboarding(_ value: Onboarding?) { claudeProblem = value }
 
     func setRateLimit(_ value: RateLimit?) { rateLimit = value }
 
