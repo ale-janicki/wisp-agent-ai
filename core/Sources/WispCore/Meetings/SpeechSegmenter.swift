@@ -50,6 +50,7 @@ public enum SegmenterEvent: Equatable, Sendable {
     case opened(startSample: Int)
     case segment(startSample: Int, samples: [Float])
     case dropped
+    case noise(startSample: Int, endSample: Int)
 }
 
 public struct SpeechSegmenter: Sendable {
@@ -69,6 +70,7 @@ public struct SpeechSegmenter: Sendable {
     private var off: Float
     private var noisyCuts = 0
     private var noiseRun = false
+    private var noiseStart = 0
     private var buffer: [Float] = []
     private var bufferStart = 0
     private var processed = 0
@@ -169,9 +171,12 @@ public struct SpeechSegmenter: Sendable {
         defer {
             isOpen = false
             noisyCuts = 0
-            noiseRun = false
         }
-        guard !noiseRun, hasEnoughSpeech else {
+        if noiseRun {
+            finishNoise(end: min(lastVoicedEnd + postPad, total), into: &events)
+            return
+        }
+        guard hasEnoughSpeech else {
             if announced { events.append(.dropped) }
             return
         }
@@ -209,6 +214,7 @@ public struct SpeechSegmenter: Sendable {
             return
         }
         let cut = best + frame / 2
+        if quiet { finishNoise(end: emitFrom, into: &events) }
         emit(from: emitFrom, to: cut, into: &events)
         isContinuation = true
         announced = false
@@ -221,7 +227,10 @@ public struct SpeechSegmenter: Sendable {
     }
 
     private mutating func markNoise(until now: Int, into events: inout [SegmenterEvent]) {
-        noiseRun = true
+        if !noiseRun {
+            noiseRun = true
+            noiseStart = emitFrom
+        }
         events.append(.dropped)
         floorLevels = []
         var index = now - frame
@@ -236,6 +245,12 @@ public struct SpeechSegmenter: Sendable {
         emitFrom = now
         lastEmittedEnd = max(lastEmittedEnd, now)
         lastVoicedEnd = now
+    }
+
+    private mutating func finishNoise(end: Int, into events: inout [SegmenterEvent]) {
+        guard noiseRun else { return }
+        noiseRun = false
+        if end > noiseStart { events.append(.noise(startSample: noiseStart, endSample: end)) }
     }
 
     private mutating func rescanVoiced(after first: Int, until now: Int) {

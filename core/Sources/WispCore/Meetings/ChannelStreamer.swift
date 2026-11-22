@@ -40,14 +40,17 @@ public enum SignalLevel {
 }
 
 public struct StreamJob: Equatable, Sendable {
-    public enum Kind: Equatable, Sendable { case typing, final }
+    public enum Kind: Equatable, Sendable { case typing, final, noise }
 
     public var channel: AudioChannel
     public var kind: Kind
     public var startSample: Int
     public var samples: [Float]
+    public var endSample: Int?
 
     public var startSeconds: Double { Double(startSample) / Double(SpeechAudio.sampleRate) }
+
+    public var endSeconds: Double { Double(endSample ?? startSample) / Double(SpeechAudio.sampleRate) }
 }
 
 public typealias ChannelStreamerConfig = SpeechSegmenterConfig
@@ -75,6 +78,7 @@ public struct ChannelStreamer: Sendable {
             case .opened(let start): StreamJob(channel: channel, kind: .typing, startSample: start, samples: [])
             case .segment(let start, let samples): StreamJob(channel: channel, kind: .final, startSample: start, samples: samples)
             case .dropped: StreamJob(channel: channel, kind: .final, startSample: 0, samples: [])
+            case .noise(let start, let end): StreamJob(channel: channel, kind: .noise, startSample: start, samples: [], endSample: end)
             }
         }
     }

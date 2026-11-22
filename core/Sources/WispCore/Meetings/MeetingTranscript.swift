@@ -52,6 +52,18 @@ public struct MeetingSegment: Codable, Equatable, Identifiable, Sendable {
     private enum CodingKeys: String, CodingKey { case start, end, speaker, text, confidence }
 }
 
+public struct NoiseRange: Codable, Equatable, Sendable {
+    public var channel: AudioChannel
+    public var start: Double
+    public var end: Double
+
+    public init(channel: AudioChannel, start: Double, end: Double) {
+        self.channel = channel
+        self.start = start
+        self.end = end
+    }
+}
+
 public struct MeetingTranscriptDocument: Codable, Equatable, Sendable {
     public static let fileName = "transcript.json"
     public static let liveFileName = "transcript.live.json"
@@ -63,6 +75,7 @@ public struct MeetingTranscriptDocument: Codable, Equatable, Sendable {
     public var engine: String
     public var segments: [MeetingSegment]
     public var failedSegments: Int?
+    public var noiseRanges: [NoiseRange]?
 
     public init(startedAt: Date, durationSeconds: Double, language: String = "auto", engine: String, segments: [MeetingSegment]) {
         self.startedAt = startedAt
@@ -75,6 +88,7 @@ public struct MeetingTranscriptDocument: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case version, language, engine, segments
         case failedSegments = "failed_segments"
+        case noiseRanges = "noise_ranges"
         case startedAt = "started_at"
         case durationSeconds = "duration_s"
     }
