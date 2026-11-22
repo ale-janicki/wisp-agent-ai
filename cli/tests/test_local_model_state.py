@@ -87,3 +87,46 @@ def test_remove_deletes_the_model_the_partial_folder_and_the_lock(tmp_path):
     stale_lock(folder)
     fetch.remove(folder, TAG)
     assert fetch.state_of(folder, TAG) == "absent" and not fetch.lock_path(folder, TAG).exists()
+
+
+def test_a_lock_unlinked_between_open_and_flock_is_retaken_on_the_current_file(tmp_path, monkeypatch):
+    folder = tmp_path / "Wisp"
+    path = fetch.lock_path(folder, TAG)
+    path.parent.mkdir(parents=True)
+    real = fcntl.flock
+    calls = []
+
+    def racing(fd, op):
+        calls.append(fd)
+        if len(calls) == 1:
+            path.unlink()
+        return real(fd, op)
+
+    monkeypatch.setattr(fetch.fcntl, "flock", racing)
+    guard = fetch._take_lock(path, TAG)
+    try:
+        assert len(calls) == 2 and os.fstat(guard).st_ino == os.stat(path).st_ino
+    finally:
+        os.close(guard)
+
+
+def test_remove_unlinks_a_symlinked_model_folder_without_following_it(tmp_path):
+    folder = tmp_path / "Wisp"
+    elsewhere = tmp_path / "elsewhere"
+    put(elsewhere, "keep.txt")
+    fetch.model_dir(folder, TAG).parent.mkdir(parents=True)
+    fetch.model_dir(folder, TAG).symlink_to(elsewhere)
+    fetch.remove(folder, TAG)
+    assert not fetch.model_dir(folder, TAG).is_symlink() and (elsewhere / "keep.txt").exists()
+
+
+def test_remove_reports_a_folder_it_cannot_delete(tmp_path, monkeypatch):
+    folder = tmp_path / "Wisp"
+    complete(folder)
+
+    def refuse(target):
+        raise PermissionError(13, "no")
+
+    monkeypatch.setattr(fetch.shutil, "rmtree", refuse)
+    with pytest.raises(fetch.FetchError, match="não consegui apagar"):
+        fetch.remove(folder, TAG)

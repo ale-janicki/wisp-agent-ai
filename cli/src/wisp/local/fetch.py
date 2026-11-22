@@ -132,7 +132,13 @@ def remove(folder: Path, tag: str) -> None:
     if lock_is_live(folder, tag):
         raise FetchError(f"o download de {tag} está em andamento; cancele antes de apagar")
     for target in (model_dir(folder, tag), partial_dir(folder, tag), backup_dir(folder, tag)):
-        shutil.rmtree(target, ignore_errors=True)
+        try:
+            if target.is_symlink():
+                target.unlink()
+            elif target.exists():
+                shutil.rmtree(target)
+        except OSError as e:
+            raise FetchError(f"não consegui apagar {target.name} ({type(e).__name__})") from None
     lock_path(folder, tag).unlink(missing_ok=True)
 
 
@@ -166,17 +172,28 @@ def _safe(relative: str) -> str:
     return relative
 
 
+def _take_lock(path: Path, tag: str) -> int:
+    while True:
+        guard = os.open(path, os.O_RDWR | os.O_CREAT, 0o600)
+        try:
+            fcntl.flock(guard, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            os.close(guard)
+            raise FetchError(f"já há um download de {tag} em andamento") from None
+        try:
+            if os.fstat(guard).st_ino == os.stat(path).st_ino:
+                return guard
+        except FileNotFoundError:
+            pass
+        os.close(guard)
+
+
 def download(folder: Path, entry, emit: Callable[[dict], None], *, margin: int, base: str | None = None,
              free: Callable[[Path], int] | None = None) -> Path:
     free = free or storage.free_bytes
     base = (base or os.environ.get("WISP_HF_URL") or HF_URL).rstrip("/")
     models_root(folder).mkdir(parents=True, exist_ok=True)
-    guard = os.open(lock_path(folder, entry.tag), os.O_RDWR | os.O_CREAT, 0o600)
-    try:
-        fcntl.flock(guard, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except OSError:
-        os.close(guard)
-        raise FetchError(f"já há um download de {entry.tag} em andamento") from None
+    guard = _take_lock(lock_path(folder, entry.tag), entry.tag)
     try:
         return _download(folder, entry, emit, margin=margin, base=base, free=free)
     finally:

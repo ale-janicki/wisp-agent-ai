@@ -190,3 +190,13 @@ def test_a_thinking_value_that_is_not_a_boolean_is_refused(folder):
     (folder / "modelos.toml").write_text('[local]\nativo = ""\npensar = "sim"\n')
     with pytest.raises(modelos.ModelosError, match="pensar"):
         modelos.read(folder)
+
+
+def test_delete_stops_the_server_of_the_active_model_before_removing_its_folder(folder, capsys, monkeypatch):
+    install_model(folder, "qwen3:4b")
+    modelos.write(folder, modelos.LocalState("qwen3:4b", ("qwen3:4b",)))
+    seen = []
+    monkeypatch.setattr(backends, "stop_server", lambda *a: seen.append(fetch.model_dir(folder, "qwen3:4b").exists()))
+    assert wisp_cli.main(["local", "delete", "qwen3:4b"]) == 0
+    assert seen == [True] and not fetch.model_dir(folder, "qwen3:4b").exists()
+    assert modelos.read(folder).ativo == "" and modelos.read(folder).instalados == ()
