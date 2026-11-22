@@ -25,6 +25,8 @@ final class MeetingLibraryModel: ObservableObject {
     private let log = Logger(subsystem: AppIdentity.bundleID, category: "meetings")
     private var queue: [URL] = []
     private var runner: Task<Void, Never>?
+    private var noteTasks: [String: Task<Void, Never>] = [:]
+    private var deferred: Set<String> = []
     private var reloadToken = 0
     private var readiness: AnyCancellable?
 
@@ -94,13 +96,18 @@ final class MeetingLibraryModel: ObservableObject {
         let folder = entry.folder
         let id = entry.id
         working[id] = .writingNote
-        Task { [weak self] in
+        deferred.remove(id)
+        noteTasks[id] = Task { [weak self] in
             do {
                 try await self?.makePipeline()?.regenerateNote(folder: folder)
+            } catch is CancellationError {
+                self?.notice = "Geração da nota cancelada."
             } catch {
                 self?.notice = "Não consegui gerar a nota: \(error.localizedDescription)"
             }
             self?.working[id] = nil
+            self?.noteTasks[id] = nil
+            await self?.speech.releaseFinal()
             self?.reload()
         }
     }
@@ -147,13 +154,18 @@ final class MeetingLibraryModel: ObservableObject {
 
     func cancelProcessing() {
         runner?.cancel()
+        noteTasks.values.forEach { $0.cancel() }
+    }
+
+    func cancelNote(_ id: String) {
+        if let task = noteTasks[id] { task.cancel() } else { runner?.cancel() }
     }
 
     func dismissNotice() { notice = nil }
 
     private func enqueue(_ folder: URL) {
         let id = folder.lastPathComponent
-        guard working[id] == nil, !queue.contains(folder) else { return }
+        guard working[id] == nil, !queue.contains(folder), !deferred.contains(id) else { return }
         queue.append(folder)
         working[id] = .transcribing(0)
         if runner == nil { runner = Task { [weak self] in await self?.drain() } }
@@ -184,6 +196,9 @@ final class MeetingLibraryModel: ObservableObject {
                     publish(id, stage)
                 })
             } catch is CancellationError {
+            } catch is MeetingNoteBusy {
+                deferred.insert(id)
+                notice = MeetingNoteBusy().localizedDescription
             } catch {
                 log.error("pipeline failed: \(error.localizedDescription, privacy: .public)")
                 notice = "Não consegui transcrever \(id): \(error.localizedDescription)"
@@ -192,15 +207,15 @@ final class MeetingLibraryModel: ObservableObject {
             reload()
         }
         runner = nil
+        await speech.releaseFinal()
     }
 
     private func makePipeline() -> MeetingPipeline? {
         guard let recognizer = speech.finalRecognizer() else { return nil }
         let layout = RuntimeLayout(bundle: Bundle.main.bundleURL, home: FileManager.default.homeDirectoryForCurrentUser)
         let recording = isRecording
-        let pause: @Sendable () async throws -> Void = {
-            while await recording() { try await Task.sleep(for: .seconds(1)) }
-        }
+        let gate = MeetingPauseGate(recognizer: recognizer, isRecording: { await recording() })
+        let pause: @Sendable () async throws -> Void = { try await gate.wait() }
         return MeetingPipeline(transcriber: MeetingTranscriber(recognizer: recognizer, pause: pause), notes: WispNoteWriter(layout: layout))
     }
 

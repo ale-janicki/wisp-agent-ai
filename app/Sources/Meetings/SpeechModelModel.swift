@@ -64,6 +64,18 @@ final class SpeechModelModel: ObservableObject {
         task?.cancel()
     }
 
+    func releaseLive() async {
+        let released = live
+        live = nil
+        await released?.unload()
+    }
+
+    func releaseFinal() async {
+        let released = final
+        final = nil
+        await released?.unload()
+    }
+
     func liveRecognizer() -> ParakeetRecognizer? {
         guard isReady else { return nil }
         if let live { return live }

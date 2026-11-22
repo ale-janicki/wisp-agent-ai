@@ -3,6 +3,29 @@ import Foundation
 public protocol SpeechRecognizer: Sendable {
     var engineName: String { get }
     func transcribe(_ samples: [Float], language: String?) async throws -> [RecognizedSpan]
+    func unload() async
+}
+
+public extension SpeechRecognizer {
+    func unload() async {}
+}
+
+public struct MeetingPauseGate: Sendable {
+    public var isRecording: @Sendable () async -> Bool
+    public var recognizer: SpeechRecognizer
+    public var interval: Duration
+
+    public init(recognizer: SpeechRecognizer, interval: Duration = .seconds(1), isRecording: @escaping @Sendable () async -> Bool) {
+        self.recognizer = recognizer
+        self.interval = interval
+        self.isRecording = isRecording
+    }
+
+    public func wait() async throws {
+        guard await isRecording() else { return }
+        await recognizer.unload()
+        while await isRecording() { try await Task.sleep(for: interval) }
+    }
 }
 
 public final class MeetingTranscriptStore: @unchecked Sendable {

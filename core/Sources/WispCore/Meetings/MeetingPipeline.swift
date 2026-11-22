@@ -12,6 +12,12 @@ public struct NoteOutcome: Equatable, Sendable {
     }
 }
 
+public struct MeetingNoteBusy: Error, LocalizedError, Equatable {
+    public init() {}
+
+    public var errorDescription: String? { "A nota dessa reunião já está sendo gerada por outro processo." }
+}
+
 public protocol MeetingNoteWriter: Sendable {
     func writeNote(folder: URL) async throws -> NoteOutcome
 }
@@ -101,6 +107,8 @@ public struct MeetingPipeline: Sendable {
             outcome = try await notes.writeNote(folder: folder)
         } catch is CancellationError {
             throw CancellationError()
+        } catch let busy as MeetingNoteBusy {
+            throw busy
         } catch {
             outcome = NoteOutcome(generated: false, reason: error.localizedDescription)
         }

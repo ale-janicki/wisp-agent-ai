@@ -233,7 +233,12 @@ final class MeetingRecordingModel: ObservableObject {
             let saved = result.failure ?? "Gravação salva em \(result.folder.lastPathComponent) (\(ElapsedFormat.clock(result.durationSeconds)))."
             message = reason.map { "A gravação parou: \($0) \(saved)" } ?? saved
             log.info("recording stopped")
-            library.reload(select: result.folder.lastPathComponent, thenProcess: result.failure == nil)
+            let folder = result.folder.lastPathComponent
+            let process = result.failure == nil
+            Task { [weak self] in
+                await self?.speech.releaseLive()
+                self?.library.reload(select: folder, thenProcess: process)
+            }
         case .failure(let error):
             message = error.localizedDescription
         }
