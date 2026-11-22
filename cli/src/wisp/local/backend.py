@@ -278,7 +278,7 @@ class MlxBackend(Backend):
 
     def __init__(self, client: OpenAIClient, folder: Path, catalog, *, runtime_ok: Callable[[], bool] | None = None,
                  launcher: list[str] | None = None, child: list[str] | None = None, wait: float = SERVE_WAIT,
-                 state_dir: Path | None = None, idle_minutes: int = 15):
+                 state_dir: Path | None = None, idle_minutes: int = 10):
         super().__init__(client, folder)
         self.catalog = catalog
         self.runtime_ok = runtime_ok or (lambda: importlib.util.find_spec("mlx_lm") is not None)
@@ -396,10 +396,6 @@ class MlxBackend(Backend):
             return "nenhum modelo local está ativo"
         if active not in self.available():
             return f"o modelo {active} não está baixado"
-        try:
-            self.ensure_running(active)
-        except BackendError as e:
-            return str(e)
         return None
 
 

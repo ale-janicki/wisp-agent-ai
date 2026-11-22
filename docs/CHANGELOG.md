@@ -15,6 +15,7 @@ Entries are in descending chronological order (newest first).
 
 ### Fixed
 
+- Local engine: Settings no longer wakes the model server. Turning "Pensar antes de responder" off (or any status check) used to start the MLX server and load 4.7 GB on a 16 GB Mac while the engine was Claude; `wisp local ready` now only checks that the runtime, the active model and its files are there, and the server starts on the first real request. The server also unloads after 10 idle minutes (was 15), removes its key file on exit, and `wisp local use` with another model stops the old server.
 - Local engine: today's date no longer goes after the user's words as `[Hoje é AAAA-MM-DD.]`, which the model echoed ("Hoje é 2026-11-22. Como posso ajudar…"); it is a `<contexto>` metadata line the system prompt tells the model never to mention.
 - Local engine: the history sent to the model has a per-size budget (about 2,500 / 5,000 / 10,000 tokens), cut in whole exchanges down to 60% so the prompt cache keeps working, and long replies from Claude or Codex in a resumed conversation are shortened to about 600 tokens, so a long conversation no longer re-reads ~8k tokens on every turn.
 - Local engine: a tool result can no longer pose as app metadata: `<contexto` and `</contexto` in tool output are neutralized before the model sees it.

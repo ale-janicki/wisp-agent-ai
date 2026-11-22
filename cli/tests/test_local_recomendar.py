@@ -131,15 +131,6 @@ def test_ready_names_what_is_missing_in_order(folder, capsys, monkeypatch):
     assert lines(capsys) == [{"type": "ready", "ready": True}]
 
 
-def test_ready_reports_a_server_that_will_not_start(folder, capsys, monkeypatch):
-    monkeypatch.setattr(backends.importlib.util, "find_spec", lambda name: object())
-    modelos.write(folder, modelos.LocalState("qwen3:4b", ("qwen3:4b",)))
-    install_qwen4b(folder)
-    monkeypatch.setattr(backends.MlxBackend, "ensure_running", lambda self, tag=None: (_ for _ in ()).throw(backends.BackendError("o servidor do MLX encerrou ao iniciar (código 1)")))
-    assert wisp_cli.main(["local", "ready"]) == 0
-    assert lines(capsys)[0]["missing"] == "o servidor do MLX encerrou ao iniciar (código 1)"
-
-
 def test_an_openai_backend_never_needs_apple_silicon_to_be_ready(folder, capsys, monkeypatch):
     monkeypatch.setattr(arch, "host_is_apple_silicon", lambda: False)
     with FakeLLM(tags={"qwen2.5-7b": 1}) as fake:
