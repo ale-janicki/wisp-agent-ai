@@ -28,8 +28,7 @@ SEM_BILHETE = ("Não há aprovação do usuário para este e-mail exato (ou ela 
 OCUPADO = "Já existe um pedido de aprovação aguardando o usuário nesta conversa, então nada foi enviado."
 
 
-def huella(entrada: dict) -> str | None:
-    """Hash do conteudo exato de um e-mail; o mesmo calculo vale no app (Swift), tem que bater byte a byte."""
+def huella(ferramenta: str, entrada: dict) -> str | None:
     def texto(valor) -> bytes | None:
         if not isinstance(valor, str):
             return None
@@ -44,7 +43,8 @@ def huella(entrada: dict) -> str | None:
         partes = [texto(v) for v in valor]
         return None if any(p is None for p in partes) else str(len(partes)).encode() + b"[" + b"".join(partes) + b"]"
 
-    campos = [lista(entrada.get("to")), lista(entrada.get("cc")), texto(entrada.get("subject")), texto(entrada.get("body"))]
+    campos = [texto(ferramenta), texto(entrada.get("app", "")), lista(entrada.get("to")), lista(entrada.get("cc")),
+              texto(entrada.get("subject")), texto(entrada.get("body"))]
     return None if any(c is None for c in campos) else hashlib.sha256(b"\n".join(campos)).hexdigest()
 
 
@@ -90,6 +90,10 @@ def varrer_mortos(pasta: str | None = None) -> None:
                 shutil.rmtree(caminho, ignore_errors=True)
         except OSError:
             continue
+
+
+def _curto(nome_completo: str) -> str:
+    return next((k for k, v in TOOLS.items() if v == nome_completo), "")
 
 
 def _pedido(linha: bytes) -> dict | None:
@@ -140,9 +144,8 @@ class Broker:
             await self._server.wait_closed()
         shutil.rmtree(self._pasta, ignore_errors=True)
 
-    def autorizar(self, entrada: object) -> bool:
-        """Cunha o bilhete do e-mail que o dono acabou de permitir. So o bot chama isto; o socket nao tem verbo para isso."""
-        marca = huella(entrada) if isinstance(entrada, dict) else None
+    def autorizar(self, entrada: object, ferramenta: str = "email_send") -> bool:
+        marca = huella(ferramenta, entrada) if isinstance(entrada, dict) else None
         if marca is None:
             return False
         self._bilhetes.append((marca, time.monotonic() + self.bilhete_s, time.time() + self.bilhete_s))
@@ -189,7 +192,7 @@ class Broker:
         if pedido is None:
             await self._responder(writer, {"decision": "deny", "message": MALFORMADO})
             return
-        if self._consumir(huella(pedido["input"])):
+        if self._consumir(huella(_curto(pedido["tool_name"]), pedido["input"])):
             await self._responder(writer, {"decision": "allow"})
             return
         if self.decidir is None:

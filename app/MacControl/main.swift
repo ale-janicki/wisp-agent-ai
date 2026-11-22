@@ -7,7 +7,7 @@ DispatchQueue.global().asyncAfter(deadline: .now() + .seconds(watchdogSeconds)) 
     exit(MacError.timeout)
 }
 
-let outcome = MacControlService(driver: AXMacDriver()).run(arguments: Array(CommandLine.arguments.dropFirst()))
+let outcome = MacControlService(driver: AXMacDriver()).run(arguments: Array(CommandLine.arguments.dropFirst()), environment: ProcessInfo.processInfo.environment)
 if !outcome.stdout.isEmpty { print(outcome.stdout) }
 if !outcome.stderr.isEmpty { FileHandle.standardError.write(Data((outcome.stderr + "\n").utf8)) }
 exit(outcome.exitCode)

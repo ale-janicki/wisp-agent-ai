@@ -32,9 +32,9 @@ def test_the_shipped_file_is_valid_and_has_the_three_tiers():
 
 
 def test_the_irreversible_floor_cannot_be_removed_from_the_file():
-    assert rails().irreversible == {"email_send", "mac_send", "run_shell"}
+    assert rails().irreversible == {"email_send", "mac_script", "mac_send", "run_shell"}
     extra = rails(GOOD + '\n[irreversible]\ntools = ["delete_everything"]\n')
-    assert extra.irreversible == {"email_send", "mac_send", "run_shell", "delete_everything"}
+    assert extra.irreversible == {"email_send", "mac_script", "mac_send", "run_shell", "delete_everything"}
 
 
 @pytest.mark.parametrize(
@@ -133,6 +133,7 @@ def test_mac_send_always_needs_the_card_and_read_only_mac_tools_never_do():
     shipped = guardrails.parse(SHIPPED.read_text())
     for mode in guardrails.MODES:
         assert needs_card(shipped, shipped.tier("grande"), mode, "mac_send")
+        assert needs_card(shipped, shipped.tier("grande"), mode, "mac_script")
         assert not needs_card(shipped, shipped.tier("grande"), mode, "mac_ui_tree")
     assert needs_card(shipped, shipped.tier("grande"), "default", "mac_ui_click")
     assert not needs_card(shipped, shipped.tier("grande"), "auto", "mac_ui_click")

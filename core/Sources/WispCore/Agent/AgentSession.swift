@@ -257,7 +257,7 @@ public actor AgentSession: EngineSession {
 
     public func respond(to request: PermissionRequest, _ decision: PermissionDecision) throws {
         if decision.allows, EngineGuards.askTools.contains(request.toolName) {
-            broker?.authorize(inputJSON: request.inputJSON)
+            broker?.authorize(inputJSON: request.inputJSON, toolName: request.toolName)
         }
         try write(ClaudeControl.response(to: request, decision))
     }

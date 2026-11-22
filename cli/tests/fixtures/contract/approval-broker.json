@@ -1,8 +1,61 @@
 {
   "socket_env": "WISP_APPROVAL_SOCKET",
   "tool": "mcp__wisp-email__email_send",
-  "request": {"op": "request", "tool": "email_send", "input": {"to": ["ana@exemplo.com"], "cc": ["bia@exemplo.com"], "subject": "Oi", "body": "Olá, tudo bem?"}},
-  "allow": {"decision": "allow"},
-  "deny": {"decision": "deny", "message": "O usuário negou o envio."},
-  "ticket": {"input": {"to": ["ana@exemplo.com", "caio@exemplo.com"], "cc": [], "subject": "Olá / ação 日本", "body": "linha 1\nlinha 2 \"aspas\" \\ é"}, "sha256": "86003210e0bdefe8507deaf857918391ed86ec3abddaeb48e040c3e837d98bc2", "same_without_cc": {"to": ["ana@exemplo.com", "caio@exemplo.com"], "subject": "Olá / ação 日本", "body": "linha 1\nlinha 2 \"aspas\" \\ é"}}
+  "request": {
+    "op": "request",
+    "tool": "email_send",
+    "input": {
+      "to": [
+        "ana@exemplo.com"
+      ],
+      "cc": [
+        "bia@exemplo.com"
+      ],
+      "subject": "Oi",
+      "body": "Olá, tudo bem?"
+    }
+  },
+  "allow": {
+    "decision": "allow"
+  },
+  "deny": {
+    "decision": "deny",
+    "message": "O usuário negou o envio."
+  },
+  "ticket": {
+    "input": {
+      "to": [
+        "ana@exemplo.com",
+        "caio@exemplo.com"
+      ],
+      "cc": [],
+      "subject": "Olá / ação 日本",
+      "body": "linha 1\nlinha 2 \"aspas\" \\ é"
+    },
+    "sha256": "f30ed98882301bc399919ac7130016a2f4d57aea0f8045121173b4433d823660",
+    "same_without_cc": {
+      "to": [
+        "ana@exemplo.com",
+        "caio@exemplo.com"
+      ],
+      "subject": "Olá / ação 日本",
+      "body": "linha 1\nlinha 2 \"aspas\" \\ é"
+    },
+    "tool": "email_send"
+  },
+  "ticket_mac": {
+    "tool": "mac_send",
+    "input": {
+      "app": "Messages",
+      "to": [
+        "Ana"
+      ],
+      "cc": [],
+      "subject": "",
+      "body": "Oi \"Ana\"\nchego às 18h"
+    },
+    "sha256": "b50a16d39acbce2dc2fe7be510929536ab140c644a2e222485a97015abc904e4",
+    "other_app_sha256": "ce95ebfe27223419adced0f338f542b1d19bc1f14dd8beed35cfabb1490a4e8f",
+    "other_tool_sha256": "267655749c6cb535e2002c51b67322d807b550664086a96e17a0d86716a3326e"
+  }
 }

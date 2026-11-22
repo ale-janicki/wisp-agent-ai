@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Awaitable, Callable
 
 from . import hosting
-from .broker import SOCKET_ENV, Broker
+from .broker import SOCKET_ENV, Broker, _curto
 from .config import CURRENT as _CFG, config_path
 from .engine import Result, Status
 from .hosting import HOST
@@ -26,7 +26,7 @@ You control this Mac. When the user asks for something it can do, do it with the
 `mac abrir-url --site youtube` opens YouTube in the browser; "toca lo-fi no YouTube" is `mac abrir-url --site youtube --busca "lo-fi"`; "pesquisa X no Google" is `mac abrir-url --site google --busca "X"`; add `--navegador safari|chrome|firefox|arc|brave|edge` for a chosen browser. `mac abrir "<file>" --com Preview` opens a file in an app.
 `mac apps`, `mac janelas`, `mac app focar|esconder|sair "<app>"`, `mac midia tocar|pausar|alternar|proxima|anterior [--app Spotify]`, `mac brilho mais|menos`, `mac modo-escuro escuro|claro|alternar`, `mac wifi`, `mac ajustes <painel>`, `mac atalho "<name>"`, `mac script "<AppleScript>" [--linguagem jxa]`.
 To work an app's screen: `mac arvore` reads the front window as numbered elements, then `mac clicar --titulo "<text>" [--papel AXButton]`, `mac digitar "<text>"`, `mac tecla cmd+t`, `mac rolar baixo`, `mac menu "Arquivo > Salvar"`. Read the screen, act, then read it again to check it worked.
-Sending a message through an app's screen needs the user's approval: write the message in the app, then call the `mac_send` tool (MCP only); clicking Send yourself is refused. Typing into a password field is refused.
+Anything that sends or confirms needs the user's approval, in any app except Finder, Preview, System Settings, Music, Spotify, Calculator, Calendar, Notes, TextEdit, Pages, Numbers, Keynote, Xcode, Terminal and iTerm: Return, text with a newline and Send/Enviar/Submit/Post/Publicar/Responder buttons are refused there, so call the `mac_send` tool (MCP only): with no `acao` it sends the message already written in a messenger or webmail window (to, subject and body must equal the window), and `acao` tecla|texto|clique|script|atalho does the other things. AppleScript always asks. Typing into a password field is refused.
 If a result says a macOS permission is missing, tell the user where to grant it; never work around it."""
 
 AGENDA = """For anything about the user's schedule, meetings or reminders, use the Mac's own Calendar and Reminders through `"$WISP_BIN" agenda <command>` (JSON output): eventos (--hoje, --semana, --de ISO --ate ISO, --calendario NOME), criar-evento, editar-evento, apagar-evento, lembretes (--pendentes), criar-lembrete, concluir-lembrete, calendarios. Run it with no command to see every option.
@@ -60,6 +60,19 @@ AGENDA_ASK = ("criar-evento", "editar-evento", "apagar-evento", "criar-lembrete"
 AGENDA_HEADS = ('"$WISP_BIN" agenda', "$WISP_BIN agenda", "wisp agenda", '"$WISP_AGENDA_BIN"')
 AGENDA_ASK_RULES = [f"Bash({head} {sub}:*)" for sub in AGENDA_ASK for head in AGENDA_HEADS]
 ASK_TOOLS = ("mcp__wisp-email__email_send", "mcp__wisp-mac__mac_send")
+DENY_RULES = [
+    "Write(~/Library/Preferences/ai.wisp.app.plist)",
+    "Edit(~/Library/Preferences/ai.wisp.app.plist)",
+    "Write(~/Library/Application Support/Wisp/**)",
+    "Edit(~/Library/Application Support/Wisp/**)",
+    "Write(~/.config/wisp/**)",
+    "Edit(~/.config/wisp/**)",
+    "Bash(defaults write ai.wisp.app*)",
+    "Bash(defaults delete ai.wisp.app*)",
+    "Bash(defaults import ai.wisp.app*)",
+    "Bash(plutil*ai.wisp.app*)",
+    "Bash(*PlistBuddy*ai.wisp.app*)",
+]
 
 
 def guard_settings(wisp_bin: str) -> dict:
@@ -68,7 +81,7 @@ def guard_settings(wisp_bin: str) -> dict:
     recall = [{"type": "command", "command": f"{quoted} hook recall", "timeout": RECALL_TIMEOUT}]
     lessons = [{"type": "command", "command": f"{quoted} hook aprendizados", "timeout": RECALL_TIMEOUT}]
     return {
-        "permissions": {"ask": ASK_RULES + AGENDA_ASK_RULES + list(ASK_TOOLS)},
+        "permissions": {"ask": ASK_RULES + AGENDA_ASK_RULES + list(ASK_TOOLS), "deny": DENY_RULES},
         "hooks": {
             "PreToolUse": [{"matcher": GUARD_MATCHER, "hooks": hooks}],
             "UserPromptSubmit": [{"hooks": recall}],
@@ -360,7 +373,7 @@ async def _turno_com(cmd: list[str], modo: str, prompt: str, *, cwd: str, timeou
                 log.warning("pedido de permissao %s falhou: %s", id, e)
                 negativa = "Não consegui perguntar ao usuário, então a ação foi negada. Siga sem ela."
         if negativa is None and broker and req.get("tool_name") in ASK_TOOLS:
-            broker.autorizar(req.get("input"))
+            broker.autorizar(req.get("input"), _curto(req.get("tool_name", "")))
         resposta = ({"behavior": "allow", "updatedInput": req.get("input") if isinstance(req.get("input"), dict) else {}}
                     if negativa is None else {"behavior": "deny", "message": negativa})
         await escrever({"type": "control_response",

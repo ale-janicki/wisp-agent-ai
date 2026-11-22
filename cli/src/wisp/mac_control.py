@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 import os
+import plistlib
 import re
+import secrets
 import shlex
 import shutil
 import tempfile
@@ -16,6 +18,8 @@ from urllib.parse import quote_plus, urlparse
 from wisp.config import WispConfig, load_config
 from wisp.guard_destructive import hook_guard_destructive
 from wisp.guard_outbound import hook_guard_outbound
+from wisp.hooks import hook_guard_secrets
+from wisp.secrets_scan import scan_text
 from wisp.mac import NEGADO, OSASCRIPT_S, SEM_AUTOMACAO, Falha, _app_instalado, _osascript, abrir, bateria, nao_perturbe, notificar, print_tela, volume
 from wisp.paths import WispPaths
 from wisp.runner import Runner
@@ -24,7 +28,13 @@ from wisp.send_gate import Gate, Refused
 HELPER = "wisp-mac"
 HELPER_IN_APP = Path("Contents/Helpers") / HELPER
 APP_ROOTS = (Path("/Applications"),)
-SHORTCUT_ALLOWLIST = "mac-atalhos-leitura.json"
+SETTINGS_DOMAIN = "ai.wisp.app"
+SAFE_APPS_KEY = "macSafeApps"
+SHORTCUTS_KEY = "macReadOnlyShortcuts"
+CALLER_ENV = "WISP_MAC_CALLER"
+DEFAULT_SAFE_APPS = ("finder", "preview", "system settings", "music", "spotify", "calculator", "calendar", "notes", "textedit", "pages",
+                     "numbers", "keynote", "xcode", "terminal", "iterm", "iterm2")
+ACOES = ("tecla", "texto", "clique", "script", "atalho")
 HELPER_S = 30
 LOG_NAME = "mac-acoes.jsonl"
 LOG_LIMIT = 5_000_000
@@ -33,17 +43,22 @@ TREE_MAX = 1500
 EXIT_BLOCKED = 5
 
 ASSINATURA = ("Recusei: o ajudante wisp-mac não tem a mesma assinatura do Wisp.app, então não o executo. Reinstale ou atualize o Wisp.")
-ATALHO_ENVIA = ("Recusei: um atalho pode enviar algo e não consigo ler as ações dele. Para rodá-lo use mac_send com app=Atalhos, to=[nome do atalho], "
-                "subject, body=o texto de entrada (ou o próprio nome), que pede a aprovação do usuário.")
+ATALHO_ENVIA = ("Recusei: um atalho pode enviar algo e não consigo ler as ações dele. Para rodá-lo use mac_send com app=Atalhos, acao=atalho, "
+                "to=[nome do atalho], subject=atalho, body=o texto de entrada (ou o próprio nome), que pede a aprovação do usuário.")
 FOCO_ILEGIVEL = "Recusei: não consegui ver qual campo está em foco, então não digito nada."
 SEM_AJUDANTE = ("não achei o ajudante de controle do Mac (wisp-mac) dentro do Wisp.app; abra o app Wisp, instale ou atualize o Wisp "
                 "e tente de novo")
 SO_NO_MAC = "o controle do Mac só existe no macOS"
 SEM_ACESSIBILIDADE = ("Sem permissão de Acessibilidade. Abra o Wisp > Ajustes > Controle do Mac e permita; depois peça de novo.")
 SENHA = "Recusei: o campo em foco é de senha, o Wisp nunca digita em campo de senha."
-ENVIO_DIRETO = ("Recusei: isso enviaria uma mensagem. O envio precisa da aprovação do usuário: use a ferramenta mac_send "
-                "(app, para, assunto, corpo), que mostra o cartão de aprovação.")
-NAO_MENSAGEIRO = "mac_send só vale para apps de mensagem (Mail, Mensagens, WhatsApp, Slack, Telegram, Signal, Discord, Outlook, Teams)."
+ENVIO_DIRETO = ("Recusei: isso pode enviar ou confirmar algo e este app não está na lista de apps seguros. O usuário precisa aprovar: use mac_send com "
+                "acao=tecla (to=[tecla], subject=tecla, body=tecla), acao=texto (to=[app], subject=texto, body=o texto), "
+                "acao=clique (to=[rótulo], subject=clique, body=rótulo) ou, para enviar uma mensagem escrita na janela, sem acao.")
+NAO_MENSAGEIRO = "mac_send sem acao só vale para apps de mensagem ou webmail no navegador (Mail, Mensagens, WhatsApp, Slack, Telegram, Outlook, Gmail…)."
+SEGREDO = "Recusei: o script mexe em senhas, chaves ou no chaveiro do usuário."
+ACAO_SUBJECT = "Para a ação {acao} o assunto precisa ser exatamente {acao}."
+JANELA_MUDOU = "Não enviei: a janela mudou depois da aprovação."
+SECRET_COMMAND = re.compile(r"security\s+(find|dump|export|add|delete|import)-|find-(generic|internet)-password|dump-keychain|library/keychains|\.keychain|\.ssh/|id_rsa|id_ed25519", re.I)
 
 MENSAGEIROS = ("mail", "messages", "mensagens", "whatsapp", "slack", "telegram", "signal", "discord", "outlook", "teams",
                "thunderbird", "spark", "zoom", "skype", "messenger")
@@ -53,16 +68,8 @@ WEBMAIL = re.compile(r"mail\.google\.com|outlook\.live\.com|outlook\.office(365)
                      r"gmail|whatsapp|outlook|messenger|telegram|discord|slack|teams", re.I)
 ATALHOS_APP = ("atalhos", "shortcuts")
 SHORTCUT_SENDS = re.compile(r"send|enviar|envia|message|mensagem|e-?mail|sms|imessage|mail", re.I)
-SEND_PATTERN = r"\b(send|enviar|envia|mandar)\b"
+SEND_PATTERN = r"\b(send|enviar|envia|mandar|senden|envoyer|submit|post|publicar|responder|reply)\b"
 SEND_TITLE = re.compile(SEND_PATTERN, re.I)
-SEND_WORD = re.compile(r"\bsend\b", re.I)
-SEND_KEY_SCRIPT = re.compile(
-    r"keycode(36|76)(?!\d)|characterid(13|3)(?!\d)|asciicharacter(13|3)(?!\d)|keystroke\"\\(r|n|x0d)\"|keystroke(return|enter)|"
-    r"keystroke\"d\"(?=.{0,60}commanddown)(?=.{0,60}shiftdown)"
-)
-KEY_ANY_SCRIPT = re.compile(r"keycode|keystroke|characterid|asciicharacter")
-CLICK_SEND_SCRIPT = re.compile(r"clickbutton\"(send|enviar)")
-SCRIPT_MESSENGER = re.compile("|".join(MENSAGEIROS), re.I)
 SHELL_IN_SCRIPT = re.compile(r"do shell script\s+\"((?:[^\"\\]|\\.)*)\"|doShellScript\(\s*[\"']((?:[^\"'\\]|\\.)*)[\"']", re.I)
 SEND_KEYS = {"return", "enter"}
 SEND_MAIL_COMBO = ({"cmd", "shift"}, "d")
@@ -129,10 +136,6 @@ def sensitive(info: dict) -> bool:
     return is_browser(app) and bool(WEBMAIL.search(f"{info.get('documento') or ''} {info.get('janela') or ''}"))
 
 
-def squash(text: str) -> str:
-    return re.sub(r"[\s()]+", "", text.replace("'", '"')).casefold()
-
-
 def send_title(text: str) -> bool:
     return bool(SEND_TITLE.search(text))
 
@@ -141,6 +144,20 @@ def key_sends(combo: str) -> bool:
     tokens = [MODIFIERS.get(t.strip(), t.strip()) for t in combo.lower().split("+")]
     key, mods = tokens[-1], set(tokens[:-1])
     return key in SEND_KEYS or (key == SEND_MAIL_COMBO[1] and mods == SEND_MAIL_COMBO[0])
+
+
+def canon(text: str) -> str:
+    return unicodedata.normalize("NFC", text).replace("\r\n", "\n").replace("\r", "\n").strip()
+
+
+def escape_controls(text: str) -> str:
+    out = []
+    for ch in text:
+        if ch in "\n\t" or not unicodedata.category(ch).startswith("C"):
+            out.append(ch)
+        else:
+            out.append(f"\\u{{{ord(ch):04x}}}")
+    return "".join(out)
 
 
 def url_intent(site: str | None = None, query: str | None = None, url: str | None = None) -> str:
@@ -180,6 +197,8 @@ class Ctx:
     cfg: WispConfig | None = None
     test_helper: Path | None = None
     verified: dict = field(default_factory=dict)
+    nonce: str = field(default_factory=lambda: secrets.token_hex(16))
+    settings_cache: dict = field(default_factory=dict)
 
     def candidates(self) -> list[Path]:
         bundles = [p for p in Path(__file__).resolve().parents if p.suffix == ".app"][:1]
@@ -219,7 +238,7 @@ class Ctx:
         return path
 
     def helper_run(self, *args: str) -> str:
-        r = self.runner.run([str(self.helper()), *args], timeout=HELPER_S)
+        r = self.runner.run([str(self.helper()), *args], timeout=HELPER_S, env={**os.environ, CALLER_ENV: self.nonce})
         if r.timed_out:
             raise Falha("O Mac demorou demais para responder. Tente de novo.")
         if r.exit == 3:
@@ -357,12 +376,35 @@ def atalhos(ctx: Ctx) -> str:
     return r.stdout.strip() or "Nenhum atalho criado."
 
 
+def app_setting(ctx: Ctx, key: str) -> list[str]:
+    if key in ctx.settings_cache:
+        return ctx.settings_cache[key]
+    values: list[str] = []
+    r = ctx.runner.run(["defaults", "export", SETTINGS_DOMAIN, "-"], timeout=OSASCRIPT_S)
+    if r.exit == 0:
+        try:
+            raw = plistlib.loads(r.stdout.encode()).get(key)
+        except (ValueError, plistlib.InvalidFileException):
+            raw = None
+        values = [v for v in raw if isinstance(v, str)] if isinstance(raw, list) else []
+    ctx.settings_cache[key] = values
+    return values
+
+
 def shortcut_allowlist(ctx: Ctx) -> set[str]:
-    try:
-        raw = json.loads((ctx.paths.config / SHORTCUT_ALLOWLIST).read_text("utf-8"))
-    except (OSError, ValueError):
-        return set()
-    return {n for n in raw if isinstance(n, str)} if isinstance(raw, list) else set()
+    return set(app_setting(ctx, SHORTCUTS_KEY))
+
+
+def safe_app(ctx: Ctx, app: str | None) -> bool:
+    name = fold(app or "")
+    if not name or is_browser(app) or is_messenger(app):
+        return False
+    allowed = {fold(n) for n in (*DEFAULT_SAFE_APPS, *app_setting(ctx, SAFE_APPS_KEY))}
+    return name in allowed
+
+
+def needs_card(ctx: Ctx, info: dict) -> bool:
+    return not safe_app(ctx, str(info.get("app") or ""))
 
 
 def run_shortcut(ctx: Ctx, nome: str, entrada: str | None = None) -> str:
@@ -395,35 +437,33 @@ def atalho(ctx: Ctx, nome: str, entrada: str | None = None) -> str:
     return run_shortcut(ctx, nome, entrada)
 
 
-def _front_or_empty(ctx: Ctx) -> dict:
-    try:
-        return focus_info(ctx)
-    except Falha:
-        return {}
+def shell_bodies(script: str) -> list[str]:
+    return [(a or b).replace('\\"', '"').replace("\\\\", "\\") for a, b in SHELL_IN_SCRIPT.findall(script)]
 
 
 def script_refusal(ctx: Ctx, script: str) -> str | None:
     paths, cfg = ctx.paths, ctx.settings()
-    commands = ["osascript -e " + shlex.quote(script)]
-    commands += [(a or b).replace('\\"', '"').replace("\\\\", "\\") for a, b in SHELL_IN_SCRIPT.findall(script)]
+    commands = ["osascript -e " + shlex.quote(script), *shell_bodies(script)]
     for command in commands:
         payload = {"tool_name": "Bash", "tool_input": {"command": command}, "cwd": str(paths.home)}
-        reason = hook_guard_destructive(payload, paths, cfg) or hook_guard_outbound(payload, paths)
+        if scan_text(command) or SECRET_COMMAND.search(command) or hook_guard_secrets(payload, paths):
+            return SEGREDO
+    for command in commands:
+        payload = {"tool_name": "Bash", "tool_input": {"command": command}, "cwd": str(paths.home)}
+        reason = hook_guard_destructive(payload, paths, cfg) or hook_guard_outbound(payload, paths, ui_scripts=False)
         if reason:
             return "Recusei: " + reason.removeprefix("wisp-guard:").strip()
-    flat = squash(script)
-    if CLICK_SEND_SCRIPT.search(flat):
-        return ENVIO_DIRETO
-    sends = bool(SEND_KEY_SCRIPT.search(flat))
-    if SCRIPT_MESSENGER.search(script) and (sends or SEND_WORD.search(script)):
-        return ENVIO_DIRETO
-    if KEY_ANY_SCRIPT.search(flat):
-        front = _front_or_empty(ctx)
-        if sends and (is_messenger(front.get("app")) or is_browser(front.get("app"))):
-            return ENVIO_DIRETO
-        if "systemevents" in flat and (is_messenger(front.get("app")) or is_browser(front.get("app"))):
-            return ENVIO_DIRETO
     return None
+
+
+def run_script(ctx: Ctx, codigo: str, linguagem: str) -> str:
+    argv = ["osascript", *(["-l", "JavaScript"] if linguagem != "applescript" else []), "-e", codigo]
+    r = ctx.runner.run(argv, timeout=OSASCRIPT_S)
+    if r.timed_out:
+        raise Falha("O script demorou demais e foi cancelado.")
+    if r.exit != 0:
+        raise Falha(SEM_AUTOMACAO if NEGADO.search(r.stderr) else f"O script falhou: {r.stderr.strip()[:300]}")
+    return r.stdout.strip() or "Script executado."
 
 
 def script(ctx: Ctx, codigo: str, linguagem: str = "applescript") -> str:
@@ -432,16 +472,8 @@ def script(ctx: Ctx, codigo: str, linguagem: str = "applescript") -> str:
     lang = fold(linguagem)
     if lang not in ("applescript", "jxa", "javascript"):
         raise Falha("A linguagem é applescript ou jxa.")
-    motivo = script_refusal(ctx, codigo)
-    if motivo:
-        raise Falha(motivo)
-    argv = ["osascript", *(["-l", "JavaScript"] if lang != "applescript" else []), "-e", codigo]
-    r = ctx.runner.run(argv, timeout=OSASCRIPT_S)
-    if r.timed_out:
-        raise Falha("O script demorou demais e foi cancelado.")
-    if r.exit != 0:
-        raise Falha(SEM_AUTOMACAO if NEGADO.search(r.stderr) else f"O script falhou: {r.stderr.strip()[:300]}")
-    return r.stdout.strip() or "Script executado."
+    label = "AppleScript" if lang == "applescript" else "JXA"
+    return enviar(ctx, label, ["script"], "script", codigo, acao="script")
 
 
 def arvore(ctx: Ctx, app: str | None = None, maximo: int = 400, profundidade: int = 8, completo: bool = False) -> str:
@@ -462,7 +494,7 @@ def clicar(ctx: Ctx, titulo: str | None = None, papel: str | None = None, ponto:
         info = focus_info(ctx, app)
         args = ["clicar", *(["--titulo", titulo] if titulo else []), *(["--regex", regex] if regex else []),
                 *(["--papel", papel] if papel else []), "--indice", str(max(0, indice)), *(["--app", app] if app else [])]
-    if sensitive(info):
+    if needs_card(ctx, info):
         args += ["--bloquear", SEND_PATTERN]
     try:
         feito = ctx.helper_json(*args)
@@ -485,7 +517,7 @@ def digitar(ctx: Ctx, texto: str, app: str | None = None) -> str:
     if not texto:
         raise Falha("Informe o texto.")
     info = writable_focus(ctx, app)
-    if sensitive(info) and ("\n" in texto or "\r" in texto):
+    if needs_card(ctx, info) and ("\n" in texto or "\r" in texto):
         raise Falha(ENVIO_DIRETO)
     ctx.helper_run("digitar", texto, *(["--app", app] if app else []))
     return f"Digitei {len(texto)} caracteres."
@@ -494,7 +526,7 @@ def digitar(ctx: Ctx, texto: str, app: str | None = None) -> str:
 def tecla(ctx: Ctx, combo: str, app: str | None = None) -> str:
     combo = parse_combo(combo)
     info = writable_focus(ctx, app)
-    if sensitive(info) and key_sends(combo):
+    if needs_card(ctx, info) and key_sends(combo):
         raise Falha(ENVIO_DIRETO)
     ctx.helper_run("tecla", combo, *(["--app", app] if app else []))
     return f"Apertei {combo}."
@@ -509,7 +541,7 @@ def rolar(ctx: Ctx, direcao: str = "baixo", quantidade: int = 5, app: str | None
 
 def menu(ctx: Ctx, caminho: str, app: str | None = None) -> str:
     ultimo = caminho.split(">")[-1]
-    if sensitive(focus_info(ctx, app)) and send_title(ultimo):
+    if needs_card(ctx, focus_info(ctx, app)) and send_title(ultimo):
         raise Falha(ENVIO_DIRETO)
     ctx.helper_run("menu", caminho, *(["--app", app] if app else []))
     return f"Escolhi o menu {caminho}."
@@ -524,40 +556,102 @@ def tela(ctx: Ctx, app: str | None = None) -> str:
     return print_tela(ctx.runner, ctx.paths, False, janela_id=int(lista[0]["id"]))
 
 
-def normalizar(texto: str) -> str:
-    return re.sub(r"\s+", " ", texto).strip().casefold()
+def is_email_app(app: str) -> bool:
+    return any(part in fold(app) for part in ("mail", "outlook", "thunderbird", "spark")) or is_browser(app)
 
 
-def enviar(ctx: Ctx, app: str, para: list[str], assunto: str, corpo: str, cc: list[str] | None = None) -> str:
-    shortcut = fold(app) in ATALHOS_APP
-    if not corpo.strip() or not para:
-        raise Falha("Informe para quem vai e o texto da mensagem.")
-    if not shortcut:
-        if not (is_messenger(app) or is_browser(app)):
-            raise Falha(NAO_MENSAGEIRO)
-        if not sensitive(focus_info(ctx, app)):
-            raise Falha(NAO_MENSAGEIRO)
-        visivel = normalizar(ctx.helper_run("arvore", "--app", app, "--max", str(TREE_MAX), "--profundidade", "20", "--completo"))
-        if normalizar(corpo) not in visivel:
-            raise Falha("O texto que você me passou não é o que está escrito na janela do app; não enviei. Escreva a mensagem no app e tente de novo.")
-        ausente = next((p for p in para if normalizar(p) not in visivel), None)
-        if ausente is not None:
-            raise Falha(f"Não vejo o destinatário {ausente} na janela do app; não enviei.")
+def composicao(ctx: Ctx, app: str) -> dict:
+    data = ctx.helper_json("composicao", "--app", app)
+    if not isinstance(data, dict):
+        raise Falha(FOCO_ILEGIVEL)
+    janela = canon(str(data.get("janela") or ""))
+    destinatarios = [canon(str(d)) for d in data.get("destinatarios") or [] if str(d).strip()]
+    if not destinatarios and janela and not is_email_app(app):
+        destinatarios = [janela]
+    return {"app": str(data.get("app") or ""), "corpo": canon(str(data.get("corpo") or "")), "destinatarios": destinatarios,
+            "assunto": canon(str(data.get("assunto") or ""))}
+
+
+def snapshot(info: dict) -> tuple:
+    return (info["corpo"], tuple(sorted(info["destinatarios"])), info["assunto"])
+
+
+def confirm_compose(ctx: Ctx, app: str, para: list[str], assunto: str, corpo: str) -> dict:
+    if not (is_messenger(app) or is_browser(app)) or not sensitive(focus_info(ctx, app)):
+        raise Falha(NAO_MENSAGEIRO)
+    atual = composicao(ctx, app)
+    if not atual["corpo"]:
+        raise Falha("Não achei texto escrito no campo da mensagem; escreva a mensagem no app e tente de novo.")
+    if not atual["destinatarios"]:
+        raise Falha("Não consegui ler para quem a mensagem vai; não enviei.")
+    if corpo != atual["corpo"]:
+        raise Falha("O texto que você me passou não é igual ao que está escrito no campo da mensagem; não enviei. "
+                    "Texto da janela: " + json.dumps(atual["corpo"][:200], ensure_ascii=False))
+    if sorted(para) != sorted(atual["destinatarios"]) or len(set(para)) != len(para):
+        raise Falha("Os destinatários não são iguais aos da janela; não enviei. Na janela: " + json.dumps(atual["destinatarios"], ensure_ascii=False))
+    if assunto != atual["assunto"]:
+        raise Falha("O assunto não é igual ao da janela; não enviei. Na janela: " + json.dumps(atual["assunto"], ensure_ascii=False))
+    return atual
+
+
+def ask_gate(ctx: Ctx, request: dict) -> None:
     if ctx.gate is None:
         raise Falha("Não enviei: o envio precisa da aprovação do usuário e o canal de aprovação do Wisp não está disponível aqui.")
     try:
-        ctx.gate({"to": para, "cc": cc or [], "subject": assunto, "body": corpo})
+        ctx.gate(request)
     except Refused as e:
         raise Falha(str(e)) from None
-    if shortcut:
+
+
+def enviar(ctx: Ctx, app: str, para: list[str], assunto: str, corpo: str, cc: list[str] | None = None, acao: str | None = None) -> str:
+    modo = acao or ("atalho" if fold(app) in ATALHOS_APP else "enviar")
+    if modo not in (*ACOES, "enviar"):
+        raise Falha("A ação é tecla, texto, clique, script, atalho, ou nenhuma para enviar a mensagem da janela.")
+    if modo != "enviar" and assunto != modo:
+        raise Falha(ACAO_SUBJECT.format(acao=modo))
+    if not corpo.strip() or not para:
+        raise Falha("Informe para quem vai e o texto da mensagem.")
+    strict = modo not in ("script", "texto")
+    if any(p != canon(p) for p in para) or (strict and corpo != canon(corpo)) or assunto != canon(assunto):
+        raise Falha("Os textos precisam vir sem espaços sobrando nas pontas e com quebras de linha simples; copie exatamente o que está na janela.")
+    request = {"app": app, "to": para, "cc": cc or [], "subject": assunto, "body": corpo}
+    if modo == "enviar":
+        atual = confirm_compose(ctx, app, para, assunto, corpo)
+        ask_gate(ctx, request)
+        if snapshot(composicao(ctx, app)) != snapshot(atual):
+            raise Falha(JANELA_MUDOU)
+        ctx.helper_run("clicar", "--app", app, "--regex", SEND_PATTERN, "--papel", "AXButton")
+        return "enviado"
+    if modo == "script":
+        lang = "jxa" if fold(app) == "jxa" else "applescript"
+        if fold(app) not in ("applescript", "jxa"):
+            raise Falha("Para scripts o app é AppleScript ou JXA.")
+        motivo = script_refusal(ctx, corpo)
+        if motivo:
+            raise Falha(motivo)
+        ask_gate(ctx, {**request, "exibir": escape_controls(corpo)})
+        return run_script(ctx, corpo, lang)
+    if modo == "atalho":
+        ask_gate(ctx, request)
         nome = para[0]
         run_shortcut(ctx, nome, None if corpo == nome else corpo)
         return "enviado"
-    ctx.helper_run("clicar", "--app", app, "--regex", SEND_PATTERN, "--papel", "AXButton")
-    return "enviado"
+    ask_gate(ctx, request)
+    if fold(focus_info(ctx, app).get("app", "")) != fold(app):
+        raise Falha(JANELA_MUDOU)
+    if modo == "tecla":
+        writable_focus(ctx, app)
+        ctx.helper_run("tecla", parse_combo(corpo), "--app", app)
+    elif modo == "texto":
+        writable_focus(ctx, app)
+        ctx.helper_run("digitar", corpo, "--app", app)
+    else:
+        ctx.helper_json("clicar", "--titulo", corpo, "--indice", "0", "--app", app)
+    return "feito"
 
 
-REDACTED = {"mac_send": ("body", "subject", "to", "cc"), "mac_shortcut": ("entrada",), "mac_ui_type": ("texto",)}
+REDACTED = {"mac_send": ("body", "subject", "to", "cc", "exibir"), "mac_shortcut": ("entrada",), "mac_ui_type": ("texto",), "mac_script": ("script",)}
+LENGTH_ONLY_RESULT = frozenset({"mac_ui_tree", "mac_script", "mac_screenshot", "mac_shortcut", "mac_send"})
 
 
 def redact(tool: str, args: dict) -> dict:
@@ -570,7 +664,9 @@ def registrar(ctx: Ctx, tool: str, args: dict, fase: str, resultado: str = "") -
     pasta = ctx.paths.state
     arquivo = pasta / LOG_NAME
     linha = {"ts": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "ferramenta": tool, "fase": fase, "args": redact(tool, args)}
-    if resultado and tool not in ("mac_shortcut", "mac_send"):
+    if resultado and tool in LENGTH_ONLY_RESULT:
+        linha["resultado"] = f"<{len(resultado)} caracteres>"
+    elif resultado:
         linha["resultado"] = resultado[:LOG_FIELD]
     try:
         pasta.mkdir(parents=True, exist_ok=True)
@@ -659,10 +755,10 @@ TOOLS: dict[str, Tool] = {t.name: t for t in [
     Tool("mac_notify", "Mostra uma notificação do Mac", {"texto": _s("texto")}, ("texto",), False, lambda c, a: notificar(c.runner, a["texto"])),
     Tool("mac_shortcut", "Roda um Atalho (Shortcuts) de leitura pelo nome, com um texto de entrada opcional. Qualquer outro atalho exige mac_send com app=Atalhos",
          {"nome": _s("nome do atalho"), "entrada": _s("texto de entrada")}, ("nome",), False, lambda c, a: atalho(c, a["nome"], a.get("entrada"))),
-    Tool("mac_script", "Roda AppleScript ou JXA para automatizar apps. Não envia mensagens nem apaga dados protegidos",
+    Tool("mac_script", "Roda AppleScript ou JXA para automatizar apps. Pede sempre a aprovação do usuário e mostra o script inteiro; mexer em senhas ou chaveiro é recusado. Sob o Claude use mac_send com acao=script (app=AppleScript ou JXA)",
          {"script": _s("o código"), "linguagem": _s("applescript (padrão) ou jxa")}, ("script",), False,
          lambda c, a: script(c, a["script"], _g(a, "linguagem", "applescript"))),
-    Tool("mac_ui_click", "Clica num elemento da janela pelo título e/ou papel (AXButton…), ou num ponto x,y. Botões de enviar mensagem são recusados: use mac_send",
+    Tool("mac_ui_click", "Clica num elemento da janela pelo título e/ou papel (AXButton…), ou num ponto x,y. Rótulos de enviar/confirmar são recusados fora dos apps seguros: use mac_send acao=clique",
          {"titulo": _s("título ou descrição do elemento"), "papel": _s("papel AX, como AXButton"), "ponto": _s("x,y na tela"),
           "indice": _i("qual dos achados (0 é o primeiro)"), "app": APP}, (), False,
          lambda c, a: clicar(c, a.get("titulo"), a.get("papel"), a.get("ponto"), int(_g(a, "indice", 0)), a.get("app"))),
@@ -674,15 +770,18 @@ TOOLS: dict[str, Tool] = {t.name: t for t in [
          ("direcao",), False, lambda c, a: rolar(c, a["direcao"], int(_g(a, "quantidade", 5)), a.get("app"))),
     Tool("mac_ui_menu", "Escolhe um item da barra de menus por caminho", {"caminho": _s("como 'Arquivo > Exportar como PDF'"), "app": APP},
          ("caminho",), False, lambda c, a: menu(c, a["caminho"], a.get("app"))),
-    Tool("mac_send", "Envia a mensagem que já está escrita na janela de um app de mensagem (Mail, Mensagens, WhatsApp, webmail no navegador…) clicando em Enviar, "
-         "ou roda um Atalho com app=Atalhos (to=[nome do atalho], body=texto de entrada ou o nome). "
-         "O usuário aprova antes de sair; sem aprovação nada é enviado. Escreva a mensagem no app antes e repita aqui exatamente o texto e o destinatário.",
-         {"app": _s("Mail, Messages, WhatsApp…"), "to": _list("destinatários como aparecem na janela"), "subject": _s("assunto (vazio se não houver)"),
-          "body": _s("o texto exato da mensagem"), "cc": _list("cópias")}, ("app", "to", "subject", "body"), False,
-         lambda c, a: enviar(c, a["app"], list(a["to"]), a["subject"], a["body"], a.get("cc"))),
+    Tool("mac_send", "Tudo o que envia, confirma ou executa algo e precisa da aprovação do usuário. Sem acao: envia a mensagem escrita na janela de um app de "
+         "mensagem ou webmail (Mail, Mensagens, WhatsApp, Gmail…); body, to e subject precisam ser iguais ao campo da mensagem, à linha Para e ao Assunto da janela. "
+         "acao=tecla (to=[tecla], subject=tecla, body=tecla), texto (to=[app], subject=texto, body=texto), clique (to=[rótulo], subject=clique, body=rótulo) "
+         "em app não seguro; acao=script (app=AppleScript ou JXA, to=[script], subject=script, body=o script); acao=atalho (app=Atalhos, to=[nome], subject=atalho, "
+         "body=texto de entrada ou o nome). Sem aprovação nada acontece.",
+         {"app": _s("app alvo, AppleScript/JXA ou Atalhos"), "to": _list("destinatários como na janela, ou o alvo da ação"), "subject": _s("assunto da janela (vazio se não houver) ou o nome da ação"),
+          "body": _s("o texto exato da mensagem ou o conteúdo da ação"), "cc": _list("cópias"), "acao": _s("tecla, texto, clique, script ou atalho; vazio para enviar a mensagem da janela")},
+         ("app", "to", "subject", "body"), False,
+         lambda c, a: enviar(c, a["app"], list(a["to"]), a["subject"], a["body"], a.get("cc"), a.get("acao"))),
 ]}
 READ_ONLY = frozenset(name for name, tool in TOOLS.items() if tool.read_only)
-ALWAYS_ASK = frozenset({"mac_send"})
+ALWAYS_ASK = frozenset({"mac_send", "mac_script"})
 
 
 def call(ctx: Ctx, name: str, args: dict) -> str:

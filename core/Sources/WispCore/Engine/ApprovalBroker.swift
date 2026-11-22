@@ -52,10 +52,11 @@ public final class ApprovalBroker: @unchecked Sendable {
 
     /// Mints the single-use ticket for the mail the user just allowed. Only the host calls this; the socket has no verb for it.
     @discardableResult
-    public func authorize(inputJSON: String) -> Bool { core.authorize(inputJSON: inputJSON) }
+    public func authorize(inputJSON: String, toolName: String = "mcp__wisp-email__email_send") -> Bool {
+        core.authorize(inputJSON: inputJSON, toolName: toolName)
+    }
 
-    /// Hash of the exact mail (to, cc, subject, body); the Python hosts compute the same bytes (`cli/tests/fixtures/contract/approval-broker.json`).
-    public static func fingerprint(_ input: [String: Any]) -> String? { BrokerCore.fingerprint(input) }
+    public static func fingerprint(tool: String, input: [String: Any]) -> String? { BrokerCore.fingerprint(tool: tool, input) }
 
     static func permissionRequest(_ line: Data) -> PermissionRequest? { BrokerCore.permissionRequest(line) }
 }
@@ -156,9 +157,10 @@ final class BrokerCore: @unchecked Sendable {
         return true
     }
 
-    func authorize(inputJSON: String) -> Bool {
+    func authorize(inputJSON: String, toolName: String) -> Bool {
         guard let input = (try? JSONSerialization.jsonObject(with: Data(inputJSON.utf8))) as? [String: Any],
-              let hash = Self.fingerprint(input) else { return false }
+              let short = Self.tools.first(where: { $0.value == toolName })?.key,
+              let hash = Self.fingerprint(tool: short, input) else { return false }
         lock.lock()
         defer { lock.unlock() }
         guard !stopped else { return false }
@@ -176,7 +178,7 @@ final class BrokerCore: @unchecked Sendable {
         return true
     }
 
-    static func fingerprint(_ input: [String: Any]) -> String? {
+    static func fingerprint(tool: String, _ input: [String: Any]) -> String? {
         func text(_ value: Any?) -> Data? {
             guard let string = value as? String else { return nil }
             let bytes = Data(string.utf8)
@@ -195,9 +197,9 @@ final class BrokerCore: @unchecked Sendable {
             guard !parts.contains(where: { $0 == nil }) else { return nil }
             return Data("\(parts.count)[".utf8) + parts.reduce(into: Data()) { $0.append($1!) } + Data("]".utf8)
         }
-        guard let to = list(input["to"]), let cc = list(input["cc"]), let subject = text(input["subject"]),
-              let body = text(input["body"]) else { return nil }
-        let joined = [to, cc, subject, body].reduce(into: Data()) { total, part in
+        guard let toolPart = text(tool), let appPart = text(input["app"] ?? ""), let to = list(input["to"]), let cc = list(input["cc"]),
+              let subject = text(input["subject"]), let body = text(input["body"]) else { return nil }
+        let joined = [toolPart, appPart, to, cc, subject, body].reduce(into: Data()) { total, part in
             if !total.isEmpty { total.append(0x0A) }
             total.append(part)
         }
@@ -270,7 +272,8 @@ final class BrokerCore: @unchecked Sendable {
         guard let request = Self.permissionRequest(line.text) else { return reply(client, deny: Self.malformed) }
         guard line.rest.isEmpty else { return }
         let input = (try? JSONSerialization.jsonObject(with: Data(request.inputJSON.utf8))) as? [String: Any]
-        if consumeTicket(input.flatMap(Self.fingerprint)) { return send(client, ["decision": "allow"]) }
+        let short = Self.tools.first(where: { $0.value == request.toolName })?.key ?? ""
+        if consumeTicket(input.flatMap { Self.fingerprint(tool: short, $0) }) { return send(client, ["decision": "allow"]) }
         guard live else { return reply(client, deny: Self.noTicket) }
         var fds: [Int32] = [0, 0]
         guard pipe(&fds) == 0 else { return reply(client, deny: Self.malformed) }
