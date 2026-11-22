@@ -114,6 +114,7 @@ final class RuntimeInstaller {
         let wispThere = fm.isExecutableFile(atPath: layout.wisp.path)
         let shim = layout.home.appendingPathComponent(".local/bin/wisp")
         let environment = runtimeEnvironment(layout, base: base)
+        RuntimeSourceSwap.sweepLeftovers(of: layout.src, log: { NSLog("Wisp runtime install: %@", $0) })
 
         if let bundled, RuntimeBootstrap.needsInstall(bundledVersion: bundled, installedVersion: installed) || !wispThere {
             if let failure = fullInstall(layout: layout, version: bundled, environment: environment, progress: progress) {
@@ -144,8 +145,9 @@ final class RuntimeInstaller {
         progress("Copiando os arquivos")
         do {
             try? fm.removeItem(at: layout.versionFile)
-            try? fm.removeItem(at: layout.src)
-            try fm.copyItem(at: layout.bundled.appendingPathComponent("src", isDirectory: true), to: layout.src)
+            try RuntimeSourceSwap.install(
+                bundled: layout.bundled.appendingPathComponent("src", isDirectory: true), destination: layout.src,
+                log: { NSLog("Wisp runtime install: %@", $0) })
         } catch {
             return "Não consegui copiar os arquivos do Wisp: \(error.localizedDescription)"
         }
