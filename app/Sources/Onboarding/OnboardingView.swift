@@ -39,3 +39,30 @@ struct OnboardingView: View {
         return state.action == .retry ? "Tentar de novo" : "Verificar de novo"
     }
 }
+
+struct PendingSetupNote: View {
+    var model: ConversationViewModel
+    let openModelSettings: () -> Void
+
+    var body: some View {
+        let state = model.onboarding
+        if state.blocksInput, !state.detail.isEmpty {
+            HStack(spacing: Theme.Space.s) {
+                Text(state.detail)
+                    .font(Theme.Font.caption)
+                    .foregroundStyle(Theme.textSecondary)
+                    .lineLimit(2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                if state.action == .openModelSettings {
+                    Button("Abrir Ajustes > Modelo", action: openModelSettings)
+                        .buttonStyle(CapsuleButtonStyle(size: .compact))
+                } else if state.action == .retry {
+                    Button("Tentar de novo") { model.recheck() }
+                        .buttonStyle(CapsuleButtonStyle(size: .compact))
+                }
+            }
+            .padding(.horizontal, Theme.Space.s)
+            .padding(.top, Theme.Space.s)
+        }
+    }
+}

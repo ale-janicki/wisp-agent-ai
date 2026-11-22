@@ -104,6 +104,18 @@ final class TaskListTests: XCTestCase {
         XCTAssertEqual(TaskList.filter(TaskList.parse(file), query: "nada assim"), [])
     }
 
+    func testLineIndexIsZeroBasedAndRespectsDuplicates() throws {
+        let parts = file.components(separatedBy: "\n")
+        let groups = TaskList.parse(file)
+        let first = groups[0].items[0]
+        XCTAssertEqual(TaskList.lineIndex(of: first, in: file), parts.firstIndex(of: first.line))
+        let duplicates = groups[1].items.filter { $0.title == "pagar boleto" }
+        let indexes = try duplicates.map { try XCTUnwrap(TaskList.lineIndex(of: $0, in: file)) }
+        XCTAssertEqual(indexes.count, 2)
+        XCTAssertLessThan(indexes[0], indexes[1])
+        XCTAssertNil(TaskList.lineIndex(of: first, in: "outra coisa"))
+    }
+
     func testPlain() {
         XCTAssertEqual(TaskList.plain("**a** `b` [[c]] [[d|e]] [[x"), "a b c e [[x")
     }

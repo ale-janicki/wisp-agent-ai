@@ -16,6 +16,27 @@ import Testing
             localActiveModel: model, localDownload: download)
     }
 
+    @Test func localStatusNotYetAnsweredIsCheckingAndBlocksQuietly() {
+        let state = OnboardingGate.decide(
+            engine: .local, profileError: nil, claude: connected, codex: nil, localRuntimeReady: false,
+            localActiveModel: nil, localDownload: nil, localStatusKnown: false, localCheckTimedOut: false)
+        #expect(state == .localChecking)
+        #expect(state.blocksInput)
+        #expect(state.detail.isEmpty)
+        #expect(state.action == nil)
+    }
+
+    @Test func localCheckingFallsBackToInstallingAfterTimeout() {
+        let state = OnboardingGate.decide(
+            engine: .local, profileError: nil, claude: connected, codex: nil, localRuntimeReady: false,
+            localActiveModel: nil, localDownload: nil, localStatusKnown: false, localCheckTimedOut: true)
+        #expect(state == .localRuntimeInstalling)
+    }
+
+    @Test func localAnsweredWithoutRuntimeIsInstallingAtOnce() {
+        #expect(decide(.local, runtime: false) == .localRuntimeInstalling)
+    }
+
     @Test func localWithoutClaudeIsNotBlockedByClaude() {
         #expect(decide(.local, claude: absent, model: "gemma") == .ready)
         #expect(decide(.local, claude: absent, codex: absent, model: "gemma") == .ready)

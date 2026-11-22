@@ -13,6 +13,7 @@ final class ConversationViewModel {
 
     private(set) var records: [ConversationRecord] = []
     private(set) var claudeProblem: Onboarding?
+    private(set) var localCheckTimedOut = false
     private(set) var profileError: String?
     private(set) var profile: Profile = .default
     private(set) var rateLimit: RateLimit?
@@ -93,6 +94,10 @@ final class ConversationViewModel {
         probeClaude()
         if EngineChoice.active() != .claude { EngineModel.shared.refresh() }
         if EngineChoice.active() == .local { ModelPickerModel.shared.refresh() }
+        Task { [weak self] in
+            try? await Task.sleep(for: Self.localCheckGrace)
+            self?.localCheckTimedOut = true
+        }
         Task { [weak self] in await self?.refreshTelegram() }
         PermissionModel.shared.onChange = { [weak self] in self?.permissionModeChanged() }
         sweepTask = Task { [weak self] in
@@ -181,6 +186,8 @@ final class ConversationViewModel {
         }
     }
 
+    private static let localCheckGrace: Duration = .seconds(5)
+
     var onboarding: OnboardingState {
         let engines = EngineModel.shared
         let picker = ModelPickerModel.shared
@@ -191,7 +198,9 @@ final class ConversationViewModel {
             codex: engines.codex.map { EngineAccess(installed: $0.installed, loggedIn: $0.loggedIn) },
             localRuntimeReady: picker.status?.backend.available == true,
             localActiveModel: picker.status?.active,
-            localDownload: Self.localDownload(picker))
+            localDownload: Self.localDownload(picker),
+            localStatusKnown: picker.status != nil || picker.error != nil,
+            localCheckTimedOut: localCheckTimedOut)
     }
 
     private static func localDownload(_ picker: ModelPickerModel) -> LocalDownload? {

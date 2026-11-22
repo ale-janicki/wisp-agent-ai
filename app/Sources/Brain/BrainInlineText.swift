@@ -45,6 +45,7 @@ struct BrainInlineStyle {
     var strike = false
     var mono = false
     var highlight = false
+    var plainMissingLinks = false
     var color: Color = Theme.textPrimary
 
     var font: Font {
@@ -105,6 +106,7 @@ enum BrainInlineText {
             return text
         case .wikilink(let link):
             let found = exists(link)
+            if !found, style.plainMissingLinks { return styled(link.display, style) }
             var next = style
             next.color = found ? Theme.accent : Theme.textTertiary
             var text = styled(link.display, next)

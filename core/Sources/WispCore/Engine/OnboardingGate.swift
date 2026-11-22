@@ -37,6 +37,7 @@ public enum OnboardingState: Equatable, Sendable {
     case claudeLoggedOut
     case codexMissing
     case codexLoggedOut
+    case localChecking
     case localRuntimeInstalling
     case localNeedsModel
     case localDownloading(model: String, percent: Int?)
@@ -49,6 +50,7 @@ public enum OnboardingState: Equatable, Sendable {
         case .profileInvalid: "Perfil inválido"
         case .claudeMissing, .claudeLoggedOut: "Conecte o Claude"
         case .codexMissing, .codexLoggedOut: "Conecte o Codex"
+        case .localChecking: "Verificando…"
         case .localRuntimeInstalling: "IA local quase pronta"
         case .localNeedsModel: "Escolha um modelo"
         case .localDownloading: "Baixando o modelo"
@@ -57,7 +59,7 @@ public enum OnboardingState: Equatable, Sendable {
 
     public var detail: String {
         switch self {
-        case .ready: ""
+        case .ready, .localChecking: ""
         case .profileInvalid(let message): message
         case .claudeMissing, .claudeLoggedOut: "Conecte o Claude em Ajustes > Modelo."
         case .codexMissing, .codexLoggedOut: "Conecte o Codex em Ajustes > Modelo."
@@ -70,7 +72,7 @@ public enum OnboardingState: Equatable, Sendable {
 
     public var action: OnboardingAction? {
         switch self {
-        case .ready, .profileInvalid, .localDownloading: nil
+        case .ready, .profileInvalid, .localDownloading, .localChecking: nil
         case .claudeMissing, .claudeLoggedOut, .codexMissing, .codexLoggedOut, .localNeedsModel: .openModelSettings
         case .localRuntimeInstalling: .retry
         }
@@ -85,7 +87,9 @@ public enum OnboardingGate {
         codex: EngineAccess?,
         localRuntimeReady: Bool,
         localActiveModel: String?,
-        localDownload: LocalDownload?
+        localDownload: LocalDownload?,
+        localStatusKnown: Bool = true,
+        localCheckTimedOut: Bool = false
     ) -> OnboardingState {
         if let profileError { return .profileInvalid(profileError) }
         switch engine {
@@ -97,7 +101,9 @@ public enum OnboardingGate {
             if !codex.installed { return .codexMissing }
             return codex.loggedIn ? .ready : .codexLoggedOut
         case .local:
-            guard localRuntimeReady else { return .localRuntimeInstalling }
+            guard localRuntimeReady else {
+                return !localStatusKnown && !localCheckTimedOut ? .localChecking : .localRuntimeInstalling
+            }
             if localActiveModel?.isEmpty == false { return .ready }
             if let localDownload { return .localDownloading(model: localDownload.model, percent: localDownload.percent) }
             return .localNeedsModel

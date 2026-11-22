@@ -82,6 +82,7 @@ struct BrainBlockView: View {
         var style = BrainInlineStyle()
         style.size = size
         style.bold = bold
+        style.plainMissingLinks = readOnly
         return Text(BrainInlineText.attributed(inline, style: style) { model.resolve($0, from: source) != nil })
     }
 
@@ -209,6 +210,7 @@ private struct BrainCalloutView: View {
     var model: BrainModel
     let depth: Int
     @State private var folded: Bool
+    @Environment(\.brainReadOnly) private var readOnly
 
     init(kind: String, title: [BrainInline], foldable: Bool, collapsed: Bool, content: [BrainBlockNode], source: String, model: BrainModel, depth: Int) {
         self.kind = kind
@@ -269,6 +271,7 @@ private struct BrainCalloutView: View {
     private var calloutTitle: BrainInlineStyle {
         var style = BrainInlineStyle()
         style.bold = true
+        style.plainMissingLinks = readOnly
         style.color = self.style.color
         return style
     }
@@ -280,10 +283,12 @@ private struct BrainTableView: View {
     let rows: [[[BrainInline]]]
     let source: String
     var model: BrainModel
+    @Environment(\.brainReadOnly) private var readOnly
 
     private func cell(_ inline: [BrainInline], _ column: Int, bold: Bool) -> some View {
         var style = BrainInlineStyle()
         style.bold = bold
+        style.plainMissingLinks = readOnly
         let text = Text(BrainInlineText.attributed(inline, style: style) { model.resolve($0, from: source) != nil })
         let alignment: Alignment = alignments.indices.contains(column) ? (alignments[column] == .center ? .center : (alignments[column] == .trailing ? .trailing : .leading)) : .leading
         return text.padding(.horizontal, 8).padding(.vertical, 5).frame(minWidth: 60, alignment: alignment)

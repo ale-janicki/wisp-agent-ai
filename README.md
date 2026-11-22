@@ -23,7 +23,7 @@ xcodebuild -project app/Wisp.xcodeproj -scheme Wisp -configuration Debug \
   -skipPackagePluginValidation build
 ```
 
-`-skipPackagePluginValidation` is required on the command line because SwiftTerm ships a build plugin Xcode does not trust by default.
+`-skipPackagePluginValidation` and `-skipMacroValidation` keep command-line builds from stopping at Xcode's trust prompt for package plugins and macros.
 
 Release: `scripts/build-release.sh` builds the Release app and writes `dist/Wisp.dmg` and `dist/Wisp.zip`, ad-hoc signed. The disk image is laid out by [dmgbuild](https://github.com/dmgbuild/dmgbuild) (pinned, run through `uvx`, so uv must be on `PATH`). Set `WISP_SIGN_ID` to sign with a Developer ID and `WISP_NOTARY_PROFILE` to notarize.
 
@@ -55,7 +55,6 @@ Other projects use similar names, such as `marciovicente/wisp-ai` and Wispr Flow
 
 ## Third-party software
 
-- [SwiftTerm](https://github.com/migueldeicaza/SwiftTerm), used by the setup wizard's terminal: MIT License, Copyright (c) 2019-2026 Miguel de Icaza; it also carries notices from xterm.js, SourceLair and Christopher Jeffrey (see its LICENSE, shipped in the app under Ajustes › Avisos de terceiros).
 - [Sparkle](https://github.com/sparkle-project/Sparkle) 2.10.1, the in-app updater: MIT License, Copyright (c) 2006-2013 Andy Matuschak and the other authors it lists; it also carries notices from bsdiff (BSD), sais-lite (MIT) and ed25519 (zlib) (see its LICENSE, shipped in the app under Ajustes › Avisos de terceiros).
 - [uv](https://github.com/astral-sh/uv) by Astral, embedded in the app to install the Python runtime: dual-licensed under MIT or Apache-2.0.
 
