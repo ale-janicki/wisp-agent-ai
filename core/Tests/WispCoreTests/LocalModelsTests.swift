@@ -18,6 +18,20 @@ final class LocalModelsTests: XCTestCase {
         return try Data(contentsOf: root.appendingPathComponent("cli/tests/fixtures/contract/\(name)"))
     }
 
+    func testLowFreeMemoryPicksOneModelLighterAndSaysWhy() {
+        let big = model("big", size: 4_600_000_000, memory: 6_100_000_000)
+        let small = model("small", size: 2_200_000_000, memory: 3_700_000_000)
+        func pick(available: UInt64) -> LocalPick? {
+            let hardware = HardwareProfile(chip: "Apple M2", totalMemory: 16 << 30, availableMemory: available, freeDisk: 100_000_000_000)
+            return LocalAdvisor.recommend(hardware: hardware, models: [big, small], diskMargin: 5_000_000_000).best
+        }
+        XCTAssertEqual(pick(available: 0)?.tag, "big")
+        XCTAssertEqual(pick(available: 12 << 30)?.tag, "big")
+        let pressed = pick(available: 5 << 30)
+        XCTAssertEqual(pressed?.tag, "small")
+        XCTAssertTrue(pressed?.reason.hasSuffix(LocalAdvisor.lowMemoryReason) ?? false)
+    }
+
     func testFitFollowsTheShareOfUnifiedMemory() {
         let m = model(memory: 6_700_000_000)
         XCTAssertEqual(ModelFit.assess(m, on: mac(memoryGB: 16, diskGB: 100), diskMargin: 5_000_000_000).level, .fits)
