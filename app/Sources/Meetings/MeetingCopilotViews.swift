@@ -278,37 +278,62 @@ private struct AssistCard: View {
 
 private struct BrainCard: View {
     @ObservedObject var copilot: MeetingCopilotModel
+    @State private var expanded: Set<String> = []
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             CardTitle(text: "No brain", icon: "brain")
-            if copilot.brainHits.isEmpty {
-                Text("Quando alguém citar um nome, cliente ou projeto, as notas do brain aparecem aqui.")
-                    .font(Theme.Font.caption)
-                    .foregroundStyle(Theme.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            ForEach(copilot.brainHits) { hit in
-                VStack(alignment: .leading, spacing: 2) {
-                    HStack(alignment: .firstTextBaseline) {
-                        Text(hit.title)
-                            .font(Theme.Font.caption)
-                            .foregroundStyle(Theme.textPrimary)
-                            .lineLimit(1)
-                        Spacer(minLength: 0)
-                        Button("Abrir") { copilot.openHit(hit) }
-                            .buttonStyle(CompactCapsuleStyle(accent: false))
-                    }
-                    if !hit.snippet.isEmpty {
-                        Text(hit.snippet)
-                            .font(Theme.Font.caption)
-                            .foregroundStyle(Theme.textSecondary)
-                            .lineLimit(3)
+            SwitchRow(
+                title: "Buscar no brain",
+                detail: "Procura notas quando você cita um nome, cliente ou projeto. A busca é local; os títulos aparecem aqui. Cuidado ao compartilhar a tela: eles ficam visíveis para quem assiste.",
+                isOn: $copilot.brainOn
+            )
+            if copilot.brainOn {
+                SwitchRow(
+                    title: "Também no que os Outros dizem",
+                    detail: "Por padrão só a sua fala dispara a busca.",
+                    isOn: $copilot.brainOthersOn
+                )
+                if copilot.brainHits.isEmpty {
+                    Text("Nada achado ainda.")
+                        .font(Theme.Font.caption)
+                        .foregroundStyle(Theme.textSecondary)
+                }
+                ForEach(copilot.brainHits) { hit in
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack(alignment: .firstTextBaseline) {
+                            Button { toggle(hit) } label: {
+                                HStack(spacing: 4) {
+                                    Image(systemName: expanded.contains(hit.id) ? "chevron.down" : "chevron.right")
+                                        .font(.system(size: 9, weight: .bold))
+                                    Text(hit.title)
+                                        .font(Theme.Font.caption)
+                                        .lineLimit(1)
+                                }
+                                .foregroundStyle(Theme.textPrimary)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .pointerStyle(.link)
+                            Spacer(minLength: 0)
+                            Button("Abrir") { copilot.openHit(hit) }
+                                .buttonStyle(CompactCapsuleStyle(accent: false))
+                        }
+                        if expanded.contains(hit.id), !hit.snippet.isEmpty {
+                            Text(hit.snippet)
+                                .font(Theme.Font.caption)
+                                .foregroundStyle(Theme.textSecondary)
+                                .lineLimit(4)
+                        }
                     }
                 }
             }
         }
         .sidebarCard()
+    }
+
+    private func toggle(_ hit: BrainHit) {
+        if expanded.contains(hit.id) { expanded.remove(hit.id) } else { expanded.insert(hit.id) }
     }
 }
 
@@ -388,11 +413,16 @@ struct WebhookCard: View {
                 Text("Enviar \"\(offer.title)\" para \(offer.pending.host)?")
                     .font(Theme.Font.bodyMedium)
                     .foregroundStyle(Theme.textPrimary)
-                Text("\(offer.pending.sizeText) em JSON: a nota, as métricas e as ações. A transcrição não vai. Nada é enviado sem o seu clique.")
+                Text(offer.pending.preview)
+                    .font(Theme.Font.caption)
+                    .foregroundStyle(Theme.textPrimary)
+                    .lineLimit(6)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text("\(offer.pending.sizeText) em JSON: título, data, duração, resumo, pontos principais, ações e as métricas em números. Não vai: a transcrição, os marcadores, a checklist nem o texto das métricas.\(offer.pending.signature == nil ? "" : " Assinado com HMAC-SHA256.") Nada é enviado sem o seu clique.")
                     .font(Theme.Font.caption)
                     .foregroundStyle(Theme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
-                Text(offer.pending.url.absoluteString)
+                Text(offer.pending.maskedURL)
                     .font(Theme.Font.tool)
                     .foregroundStyle(Theme.textTertiary)
                     .lineLimit(1)

@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 public enum WebhookError: Error, LocalizedError, Equatable {
@@ -27,22 +28,37 @@ public struct ActionItem: Codable, Equatable, Sendable {
 public struct PendingWebhook: Equatable, Sendable {
     public var url: URL
     public var body: Data
+    public var preview: String
+    public var signature: String?
 
-    public init(url: URL, body: Data) {
+    public init(url: URL, body: Data, preview: String = "", signature: String? = nil) {
         self.url = url
         self.body = body
+        self.preview = preview
+        self.signature = signature
     }
 
     public var host: String { url.host ?? url.absoluteString }
+
+    public var maskedURL: String {
+        let path = url.path
+        let hidden = path.isEmpty || path == "/" ? "" : "/•••"
+        return "\(url.scheme ?? "https")://\(url.host ?? "")\(url.port.map { ":\($0)" } ?? "")\(hidden)"
+    }
 
     public var sizeText: String {
         body.count < 1024 ? "\(body.count) B" : String(format: "%.1f KB", Double(body.count) / 1024)
     }
 }
 
+public struct WebhookContent: Equatable, Sendable {
+    public var body: Data
+    public var preview: String
+}
+
 public enum MeetingWebhook {
     public static let maximumURLLength = 2048
-    public static let noteLimit = 500_000
+    public static let previewLimit = 280
 
     public static func validate(_ text: String) throws -> URL {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -68,33 +84,84 @@ public enum MeetingWebhook {
         return !blocked.contains(labels.last ?? "")
     }
 
-    public static func payload(
+    public static func content(
         title: String, startedAt: Date, durationSeconds: Double, note: String, metrics: MeetingMetrics?
-    ) throws -> Data {
+    ) throws -> WebhookContent {
         struct Body: Encodable {
             var event: String
             var title: String
             var startedAt: Date
             var durationSeconds: Double
-            var note: String
-            var metrics: MeetingMetrics?
+            var overview: String
+            var keyPoints: String
             var actionItems: [ActionItem]
+            var metrics: MeetingMetrics?
 
             enum CodingKeys: String, CodingKey {
-                case event, title, note, metrics
+                case event, title, overview, metrics
                 case startedAt = "started_at"
                 case durationSeconds = "duration_s"
+                case keyPoints = "key_points"
                 case actionItems = "action_items"
             }
         }
-        let withoutTranscript = note.components(separatedBy: "\n## Transcrição").first ?? note
+        let overview = section("## Resumo", in: note)
+        let keyPoints = section("## Pontos principais", in: note)
+        let actions = actionItems(in: note)
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
-        return try encoder.encode(Body(
-            event: "meeting.finished", title: title, startedAt: startedAt, durationSeconds: durationSeconds,
-            note: String(withoutTranscript.prefix(noteLimit)), metrics: metrics, actionItems: actionItems(in: note)
+        let body = try encoder.encode(Body(
+            event: "meeting.finished", title: title, startedAt: startedAt, durationSeconds: durationSeconds, overview: overview,
+            keyPoints: keyPoints, actionItems: actions, metrics: metrics
         ))
+        let topics = keyPoints.split(separator: "\n").filter { $0.hasPrefix("### ") }.count
+        let lead = overview.count > previewLimit ? String(overview.prefix(previewLimit)) + "…" : overview
+        let counts = "\(topics) tópico(s) · \(actions.count) ação(ões)"
+        return WebhookContent(body: body, preview: lead.isEmpty ? counts : "\(lead)\n\(counts)")
+    }
+
+    public static func section(_ heading: String, in note: String) -> String {
+        var inside = false
+        var captured = false
+        var lines: [String] = []
+        for line in note.split(separator: "\n", omittingEmptySubsequences: false) {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("## ") {
+                if inside { captured = true }
+                inside = !captured && trimmed == heading
+                continue
+            }
+            if inside, !trimmed.hasPrefix(">") { lines.append(String(line)) }
+        }
+        return lines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    public static func signature(body: Data, secret: String) -> String {
+        let code = HMAC<SHA256>.authenticationCode(for: body, using: SymmetricKey(data: Data(secret.utf8)))
+        return "sha256=" + code.map { String(format: "%02x", $0) }.joined()
+    }
+
+    public static func request(for pending: PendingWebhook) -> Data? {
+        guard let components = URLComponents(url: pending.url, resolvingAgainstBaseURL: false), let host = components.host else { return nil }
+        var target = components.percentEncodedPath.isEmpty ? "/" : components.percentEncodedPath
+        if let query = components.percentEncodedQuery { target += "?" + query }
+        let port = components.port.map { $0 == 443 ? "" : ":\($0)" } ?? ""
+        let authority = (host.contains(":") ? "[\(host)]" : host) + port
+        var lines = [
+            "POST \(target) HTTP/1.1", "Host: \(authority)", "Content-Type: application/json", "Content-Length: \(pending.body.count)",
+            "User-Agent: Wisp", "Connection: close",
+        ]
+        if let signature = pending.signature { lines.append("X-Wisp-Signature: \(signature)") }
+        guard lines.allSatisfy({ $0.unicodeScalars.allSatisfy { $0.value >= 0x20 && $0.value != 0x7F } }), !target.contains(" ") else { return nil }
+        return Data((lines.joined(separator: "\r\n") + "\r\n\r\n").utf8) + pending.body
+    }
+
+    public static func statusCode(of response: Data) -> Int? {
+        guard let line = String(decoding: response.prefix(64), as: UTF8.self).split(separator: "\r\n", maxSplits: 1).first else { return nil }
+        let parts = line.split(separator: " ")
+        guard parts.count >= 2, parts[0].hasPrefix("HTTP/1."), parts[1].count == 3, let code = Int(parts[1]) else { return nil }
+        return code
     }
 
     public static func actionItems(in note: String) -> [ActionItem] {
@@ -145,7 +212,15 @@ public enum MeetingWebhook {
             v4.s_addr = UInt32(bytes[12]) | UInt32(bytes[13]) << 8 | UInt32(bytes[14]) << 16 | UInt32(bytes[15]) << 24
             return publicIPv4(v4)
         }
-        return bytes[0] & 0xE0 == 0x20
+        guard bytes[0] & 0xE0 == 0x20 else { return false }
+        if bytes[0] == 0x20, bytes[1] == 0x02 {
+            var v4 = in_addr()
+            v4.s_addr = UInt32(bytes[2]) | UInt32(bytes[3]) << 8 | UInt32(bytes[4]) << 16 | UInt32(bytes[5]) << 24
+            return publicIPv4(v4)
+        }
+        if bytes[0] == 0x20, bytes[1] == 0x01, bytes[2] == 0x00, bytes[3] == 0x00 { return false }
+        if bytes[0] == 0x20, bytes[1] == 0x01, bytes[2] == 0x0D, bytes[3] == 0xB8 { return false }
+        return true
     }
 }
 

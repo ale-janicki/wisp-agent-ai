@@ -149,6 +149,16 @@ final class MeetingEntityTests: XCTestCase {
         XCTAssertEqual(Set(found).count, found.count)
     }
 
+    func testOnlyTheUsersOwnChannelFeedsTheLookupUnlessOthersAreTurnedOn() {
+        let segments = [
+            segment(.mic, 0, 4, "falei com a Mariana Costa ontem"),
+            segment(.system, 5, 9, "o projeto Atlas atrasou"),
+            segment(.mic, 10, 12, "e o contrato 12345", final: false),
+        ]
+        XCTAssertEqual(EntityDetector.candidates(in: segments, includeOthers: false), ["Mariana Costa"])
+        XCTAssertEqual(EntityDetector.candidates(in: segments, includeOthers: true), ["Mariana Costa", "Atlas"])
+    }
+
     func testGateDeduplicatesCaseAndAccentsAndSpacesSearches() {
         var gate = LookupGate(minimumInterval: 20)
         XCTAssertEqual(gate.pick(from: ["Atlas", "Mariana", "Beto"], at: 0), ["Atlas", "Mariana"])
@@ -323,12 +333,12 @@ final class MeetingAssistTests: XCTestCase {
 }
 
 final class RecordingLimitTests: XCTestCase {
-    private func run(_ clock: inout RecordingLimitClock, from: Double, to: Double, paused: Bool = false) -> [RecordingLimitEvent] {
+    private func run(_ clock: inout RecordingLimitClock, from: Double, to: Double) -> [RecordingLimitEvent] {
         var events: [RecordingLimitEvent] = []
         var now = from
         while now < to {
             now += 1
-            if let event = clock.tick(at: now, paused: paused) { events.append(event) }
+            if let event = clock.tick(at: now) { events.append(event) }
         }
         return events
     }
@@ -336,28 +346,46 @@ final class RecordingLimitTests: XCTestCase {
     func testWarnsFiveMinutesBeforeThenStopsAtTheLimit() {
         var clock = RecordingLimitClock(limit: 7200)
         clock.start(at: 0)
-        let events = run(&clock, from: 0, to: 7300)
-        XCTAssertEqual(events, [.warning(remaining: 300), .reached])
-        XCTAssertEqual(clock.remaining, 0)
+        XCTAssertEqual(run(&clock, from: 0, to: 7300), [.warning(remaining: 300), .reached])
+        XCTAssertEqual(clock.remaining(at: 7300), 0)
     }
 
-    func testPausesDoNotCountTowardTheLimit() {
+    func testExplicitPausesDoNotCountTowardTheLimit() {
         var clock = RecordingLimitClock(limit: 600)
         clock.start(at: 0)
         XCTAssertEqual(run(&clock, from: 0, to: 100), [])
-        XCTAssertEqual(run(&clock, from: 100, to: 5000, paused: true), [])
-        XCTAssertEqual(clock.active, 100, accuracy: 0.01)
+        clock.pause(at: 100)
+        XCTAssertEqual(run(&clock, from: 100, to: 5000), [])
+        XCTAssertEqual(clock.active(at: 5000), 100, accuracy: 0.001)
+        clock.resume(at: 5000)
         XCTAssertEqual(run(&clock, from: 5000, to: 5500), [.warning(remaining: 300), .reached])
     }
 
-    func testASleepGapIsNotCounted() {
+    func testSleepAndStallsCountBecauseTheLimitIsRealElapsedTime() {
         var clock = RecordingLimitClock(limit: 7200)
         clock.start(at: 0)
         _ = run(&clock, from: 0, to: 60)
         XCTAssertNil(clock.tick(at: 60 + 3600))
-        XCTAssertEqual(clock.active, 60, accuracy: 0.01)
-        _ = run(&clock, from: 3660, to: 3720)
-        XCTAssertEqual(clock.active, 120, accuracy: 0.01)
+        XCTAssertEqual(clock.active(at: 3660), 3660, accuracy: 0.001)
+        XCTAssertEqual(clock.tick(at: 7000), .warning(remaining: 200))
+        XCTAssertEqual(clock.tick(at: 7300), .reached)
+    }
+
+    func testAWakeAfterTheLimitStopsAtOnceWithoutAWarning() {
+        var clock = RecordingLimitClock(limit: 7200)
+        clock.start(at: 0)
+        XCTAssertEqual(clock.tick(at: 9000), .reached)
+        XCTAssertNil(clock.tick(at: 9001))
+    }
+
+    func testPausingTwiceOrResumingWithoutAPauseChangesNothing() {
+        var clock = RecordingLimitClock(limit: 7200)
+        clock.start(at: 0)
+        clock.resume(at: 10)
+        clock.pause(at: 20)
+        clock.pause(at: 50)
+        clock.resume(at: 60)
+        XCTAssertEqual(clock.active(at: 100), 60, accuracy: 0.001)
     }
 
     func testEachEventFiresOnceAndAShortLimitHasNoWarning() {
@@ -421,23 +449,124 @@ final class MeetingWebhookTests: XCTestCase {
         ])
     }
 
-    func testPayloadHasNoteMetricsAndActionsButNotTheTranscript() throws {
-        let note = "# T\n\n## Resumo\nOk.\n\n## Ações\n- [ ] Enviar — responsável: Você — prazo: sexta\n\n## Transcrição\n\n[0:00] Você: segredo da conversa\n"
-        let data = try MeetingWebhook.payload(
-            title: "T", startedAt: Date(timeIntervalSince1970: 1_800_000_000), durationSeconds: 60, note: note, metrics: MeetingMetrics(durationSeconds: 60)
+    private static let noteWithExtras = """
+    ---
+    tipo: reuniao
+    ---
+    # T
+
+    ## Resumo
+    Alinhamento do orçamento.
+    > Seção não gerada: x
+
+    ## Pontos principais
+    ### Orçamento
+    - Você: propôs fechar.
+    - Outros: envia a planilha.
+
+    ## Ações
+    - [ ] Enviar — responsável: Você — prazo: sexta
+
+    ## Métricas
+
+    - Tempo de fala: Você 25% · Outros 75%
+
+    ## Marcadores
+
+    ### 1:06
+    > [0:00] Você: segredo da conversa
+    > [1:05] Outros: outra frase privada
+
+    ## Checklist
+
+    - [x] item privado da checklist
+
+    ## Transcrição
+
+    [0:00] Você: segredo da conversa
+    """
+
+    func testContentIsAWhitelistOfOverviewKeyPointsActionsAndMetrics() throws {
+        let content = try MeetingWebhook.content(
+            title: "T", startedAt: Date(timeIntervalSince1970: 1_800_000_000), durationSeconds: 60, note: Self.noteWithExtras,
+            metrics: MeetingMetrics(durationSeconds: 60)
         )
-        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
-        XCTAssertEqual(object["event"] as? String, "meeting.finished")
-        XCTAssertEqual(object["title"] as? String, "T")
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: content.body) as? [String: Any])
+        XCTAssertEqual(Set(object.keys), ["event", "title", "started_at", "duration_s", "overview", "key_points", "action_items", "metrics"])
+        XCTAssertEqual(object["overview"] as? String, "Alinhamento do orçamento.")
+        XCTAssertEqual(object["key_points"] as? String, "### Orçamento\n- Você: propôs fechar.\n- Outros: envia a planilha.")
         XCTAssertEqual((object["metrics"] as? [String: Any])?["duration_s"] as? Double, 60)
         XCTAssertEqual((object["action_items"] as? [[String: Any]])?.first?["owner"] as? String, "Você")
-        XCTAssertFalse(String(decoding: data, as: UTF8.self).contains("segredo da conversa"))
-        XCTAssertNotNil(object["started_at"])
+    }
+
+    func testNoQuotedLineBookmarkChecklistMetricsTextOrTranscriptReachesTheBody() throws {
+        let content = try MeetingWebhook.content(
+            title: "T", startedAt: Date(), durationSeconds: 60, note: Self.noteWithExtras, metrics: nil
+        )
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: content.body) as? [String: Any])
+        for case let text as String in object.values {
+            for line in text.split(separator: "\n") { XCTAssertFalse(line.hasPrefix("> "), String(line)) }
+        }
+        let raw = String(decoding: content.body, as: UTF8.self)
+        for forbidden in ["segredo da conversa", "outra frase privada", "item privado", "Tempo de fala", "Marcadores", "Checklist", "Transcrição", "Seção não gerada"] {
+            XCTAssertFalse(raw.contains(forbidden), forbidden)
+        }
+    }
+
+    func testSectionStopsAtTheNextHeadingAndOnlyTheFirstOneCounts() {
+        let note = "## Resumo\nUm.\n\n## Ações\n- [ ] A\n\n## Resumo\nDois.\n"
+        XCTAssertEqual(MeetingWebhook.section("## Resumo", in: note), "Um.")
+        XCTAssertEqual(MeetingWebhook.section("## Pontos principais", in: note), "")
+    }
+
+    func testPreviewShowsTheOverviewAndTheCounts() throws {
+        let content = try MeetingWebhook.content(title: "T", startedAt: Date(), durationSeconds: 1, note: Self.noteWithExtras, metrics: nil)
+        XCTAssertEqual(content.preview, "Alinhamento do orçamento.\n1 tópico(s) · 1 ação(ões)")
+        let long = "## Resumo\n" + String(repeating: "a", count: 500) + "\n"
+        let cut = try MeetingWebhook.content(title: "T", startedAt: Date(), durationSeconds: 1, note: long, metrics: nil)
+        XCTAssertTrue(cut.preview.hasPrefix(String(repeating: "a", count: MeetingWebhook.previewLimit) + "…"))
+    }
+
+    func testSignatureIsHMACSHA256AsAHexHeaderValue() {
+        let value = MeetingWebhook.signature(body: Data("what do ya want for nothing?".utf8), secret: "Jefe")
+        XCTAssertEqual(value, "sha256=5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843")
+    }
+
+    func testRequestCarriesTheSignatureAndNeverInjectsHeaders() throws {
+        var pending = PendingWebhook(url: URL(string: "https://hooks.example.com:8443/in/abc?x=1")!, body: Data("{}".utf8), signature: "sha256=ab")
+        let text = String(decoding: try XCTUnwrap(MeetingWebhook.request(for: pending)), as: UTF8.self)
+        XCTAssertTrue(text.hasPrefix("POST /in/abc?x=1 HTTP/1.1\r\nHost: hooks.example.com:8443\r\n"))
+        XCTAssertTrue(text.contains("Content-Length: 2\r\n") && text.contains("X-Wisp-Signature: sha256=ab\r\n"))
+        XCTAssertTrue(text.hasSuffix("\r\n\r\n{}"))
+        pending.signature = nil
+        XCTAssertFalse(String(decoding: try XCTUnwrap(MeetingWebhook.request(for: pending)), as: UTF8.self).contains("X-Wisp-Signature"))
+        pending.signature = "x\r\nEvil: 1"
+        XCTAssertNil(MeetingWebhook.request(for: pending))
+        let bare = PendingWebhook(url: URL(string: "https://hooks.example.com")!, body: Data())
+        XCTAssertTrue(String(decoding: try XCTUnwrap(MeetingWebhook.request(for: bare)), as: UTF8.self).hasPrefix("POST / HTTP/1.1\r\nHost: hooks.example.com\r\n"))
+    }
+
+    func testStatusCodeComesFromTheFirstLineOnly() {
+        XCTAssertEqual(MeetingWebhook.statusCode(of: Data("HTTP/1.1 204 No Content\r\nX: y".utf8)), 204)
+        XCTAssertEqual(MeetingWebhook.statusCode(of: Data("HTTP/1.0 302 Found\r\n".utf8)), 302)
+        XCTAssertNil(MeetingWebhook.statusCode(of: Data("garbage".utf8)))
+        XCTAssertNil(MeetingWebhook.statusCode(of: Data("HTTP/1.1 20".utf8)))
+    }
+
+    func testIPv6TransitionRangesAreJudgedByTheirEmbeddedAddressOrRefused() {
+        XCTAssertFalse(MeetingWebhook.isPublic(host: "2002:7f00:1::1"))
+        XCTAssertFalse(MeetingWebhook.isPublic(host: "2002:0a00:0001::1"))
+        XCTAssertTrue(MeetingWebhook.isPublic(host: "2002:0808:0808::1"))
+        XCTAssertFalse(MeetingWebhook.isPublic(host: "2001:0:4136:e378:8000:63bf:3fff:fdd2"))
+        XCTAssertFalse(MeetingWebhook.isPublic(host: "2001:db8::1"))
+        XCTAssertTrue(MeetingWebhook.isPublic(host: "2606:4700::1111"))
     }
 
     func testPendingCardShowsHostAndSize() {
-        let pending = PendingWebhook(url: URL(string: "https://hooks.example.com/in")!, body: Data(count: 2048))
+        let pending = PendingWebhook(url: URL(string: "https://hooks.example.com/in/secret-token?k=v")!, body: Data(count: 2048))
         XCTAssertEqual(pending.host, "hooks.example.com")
+        XCTAssertEqual(pending.maskedURL, "https://hooks.example.com/•••")
+        XCTAssertEqual(PendingWebhook(url: URL(string: "https://hooks.example.com:8443/")!, body: Data()).maskedURL, "https://hooks.example.com:8443")
         XCTAssertEqual(pending.sizeText, "2.0 KB")
         XCTAssertEqual(PendingWebhook(url: pending.url, body: Data(count: 90)).sizeText, "90 B")
     }
@@ -475,16 +604,19 @@ final class MeetingSettingsAndPipelineTests: XCTestCase {
         let old = try JSONDecoder().decode(WispSettings.self, from: Data(#"{"theme":"lime","dashboardOrder":[]}"#.utf8))
         XCTAssertEqual(old.meetings, MeetingSettings())
         XCTAssertFalse(old.meetings.webhookEnabled)
+        XCTAssertFalse(old.meetings.webhookSigns)
         XCTAssertEqual(old.meetings.limitSeconds, 7200)
         var changed = old
         changed.meetings.webhookEnabled = true
-        changed.meetings.webhookURL = "https://hooks.example.com/in"
+        changed.meetings.webhookSigns = true
         changed.meetings.limitMinutes = 60
         let back = try JSONDecoder().decode(WispSettings.self, from: JSONEncoder().encode(changed))
         XCTAssertEqual(back.meetings, changed.meetings)
         let broken = try JSONDecoder().decode(WispSettings.self, from: Data(#"{"theme":"lime","meetings":{"limitMinutes":"x"}}"#.utf8))
         XCTAssertEqual(broken.meetings.limitMinutes, 120)
         XCTAssertEqual({ var s = MeetingSettings(); s.limitMinutes = 1; return s.limitSeconds }(), 900)
+        let encoded = String(decoding: try JSONEncoder().encode(changed), as: UTF8.self)
+        XCTAssertFalse(encoded.contains("webhookURL"))
     }
 
     private final class Capture: MeetingNoteWriter, @unchecked Sendable {
