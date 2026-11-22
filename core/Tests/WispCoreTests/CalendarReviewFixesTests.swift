@@ -427,3 +427,65 @@ final class HiddenTitleTests: XCTestCase {
         XCTAssertEqual(MeetingLinks.displayTitle("X", hidden: false), "X")
     }
 }
+
+final class SeriesSnapshotTests: XCTestCase {
+    private func counted(_ day: Int) -> CalEvent {
+        var e = makeEvent("s1", stamp(2026, 11, day, 9), stamp(2026, 11, day, 10), recurring: true, title: "Aula")
+        e.recurrence = CalRecurrence(frequency: .daily, end: .count(5))
+        return e
+    }
+
+    func testDeletingAllFromTheThirdOccurrenceRecreatesTheWholeSeries() async throws {
+        let backend = FakeCalendarBackend()
+        backend.master = counted(23)
+        let editor = CalendarEditor(backend: backend)
+        try await editor.delete(counted(25), scope: .all)
+        _ = try await editor.undo()
+        XCTAssertEqual(backend.created[0].start, stamp(2026, 11, 23, 9))
+        XCTAssertEqual(backend.created[0].recurrence?.end, .count(5))
+    }
+
+    func testDeletingThisAndFutureWithACountAdmitsTheCountRestarts() async throws {
+        let backend = FakeCalendarBackend()
+        let editor = CalendarEditor(backend: backend)
+        try await editor.delete(counted(25), scope: .thisAndFuture)
+        let result = try await editor.undo()
+        XCTAssertEqual(backend.created[0].start, stamp(2026, 11, 25, 9))
+        XCTAssertTrue(result?.caveat?.contains("recomeça") == true)
+    }
+
+    func testUndoOfThisAndFutureEditSaysTheSplitSeriesIsNotJoined() async throws {
+        let backend = FakeCalendarBackend()
+        let event = counted(25)
+        backend.events = [event]
+        let editor = CalendarEditor(backend: backend)
+        _ = try await editor.update(event, edit: EventEdit(title: "Novo"), scope: .thisAndFuture)
+        let result = try await editor.undo()
+        XCTAssertTrue(result?.caveat?.contains("não é juntada") == true)
+        let single = makeEvent("a", stamp(2026, 11, 23, 9), stamp(2026, 11, 23, 10))
+        backend.events.append(single)
+        _ = try await editor.update(single, edit: EventEdit(title: "X"), scope: nil)
+        let plain = try await editor.undo()
+        XCTAssertNotNil(plain)
+        XCTAssertNil(plain?.caveat)
+    }
+
+    func testEventWithSeveralRulesNeverHasItsRulesTouched() async throws {
+        let backend = FakeCalendarBackend()
+        var event = counted(25)
+        event.recurrenceRuleCount = 2
+        XCTAssertTrue(event.hasMultipleRules)
+        XCTAssertFalse(counted(25).hasMultipleRules)
+        backend.events = [event]
+        backend.master = event
+        let editor = CalendarEditor(backend: backend)
+        for scope in [RecurrenceScope.thisAndFuture, .all] {
+            _ = try await editor.update(event, edit: EventEdit(title: "Novo", recurrence: .remove), scope: scope)
+            XCTAssertEqual(backend.updates.last?.1.recurrence, .keep)
+            XCTAssertEqual(backend.updates.last?.1.title, "Novo")
+        }
+        let only = try await editor.update(event, edit: EventEdit(recurrence: .set(CalRecurrence(frequency: .weekly))), scope: .all)
+        XCTAssertEqual(only, event)
+        XCTAssertEqual(backend.updates.count, 2)
+    }
+}

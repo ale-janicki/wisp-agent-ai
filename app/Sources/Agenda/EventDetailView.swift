@@ -264,6 +264,8 @@ struct EventDetailView: View {
         Binding(get: { form.rec[keyPath: keyPath] }, set: { value in form.rec.edit { $0[keyPath: keyPath] = value } })
     }
 
+    private var recurrenceLocked: Bool { readOnly || (event?.hasMultipleRules ?? false) }
+
     private var recurrenceSection: some View {
         VStack(alignment: .leading, spacing: 6) {
             fieldRow("repeat", "Repetir") {
@@ -275,11 +277,11 @@ struct EventDetailView: View {
                     Text("Anualmente").tag(Optional(RecurrenceFrequency.yearly))
                 }
                 .labelsHidden()
-                .disabled(readOnly)
+                .disabled(recurrenceLocked)
             }
             if form.rec.frequency != nil {
                 HStack(spacing: 8) {
-                    Stepper("A cada \(form.rec.interval)", value: touching(\.interval), in: 1...30).font(Theme.Font.caption)
+                    Stepper("A cada \(form.rec.interval)", value: touching(\.interval), in: 1...max(30, form.rec.interval)).font(Theme.Font.caption)
                     Picker("", selection: touching(\.endMode)) {
                         Text("Sem fim").tag(RecurrenceForm.EndMode.never)
                         Text("Após N vezes").tag(RecurrenceForm.EndMode.count)
@@ -287,14 +289,16 @@ struct EventDetailView: View {
                     }
                     .labelsHidden()
                 }
-                .disabled(readOnly)
+                .disabled(recurrenceLocked)
                 if form.rec.endMode == .count {
-                    Stepper("Termina após \(form.rec.endCount) vezes", value: touching(\.endCount), in: 1...999).font(Theme.Font.caption).disabled(readOnly)
+                    Stepper("Termina após \(form.rec.endCount) vezes", value: touching(\.endCount), in: 1...max(999, form.rec.endCount)).font(Theme.Font.caption).disabled(recurrenceLocked)
                 }
                 if form.rec.endMode == .until {
-                    DatePicker("Termina em", selection: touching(\.endUntil), displayedComponents: [.date]).font(Theme.Font.caption).disabled(readOnly)
+                    DatePicker("Termina em", selection: touching(\.endUntil), displayedComponents: [.date]).font(Theme.Font.caption).disabled(recurrenceLocked)
                 }
-                if !form.rec.touched, form.rec.original?.hasDetail == true {
+                if event?.hasMultipleRules == true {
+                    Text("Regra personalizada mantida: este evento tem mais de uma regra de repetição e o Wisp não as altera.").font(Theme.Font.caption).foregroundStyle(Theme.textTertiary)
+                } else if !form.rec.touched, form.rec.original?.hasDetail == true {
                     Text("Regra personalizada (dias da semana ou do mês) mantida como está.").font(Theme.Font.caption).foregroundStyle(Theme.textTertiary)
                 }
             }
