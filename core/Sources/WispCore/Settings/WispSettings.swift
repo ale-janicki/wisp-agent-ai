@@ -123,7 +123,7 @@ public struct MeetingSettings: Codable, Equatable, Sendable {
     public static let limitChoices = [30, 60, 90, 120, 180, 240]
 
     public var webhookEnabled = false
-    public var webhookURL = ""
+    public var webhookSigns = false
     public var limitMinutes = defaultLimitMinutes
 
     public init() {}
@@ -131,13 +131,13 @@ public struct MeetingSettings: Codable, Equatable, Sendable {
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         webhookEnabled = (try? container.decodeIfPresent(Bool.self, forKey: .webhookEnabled)) ?? false
-        webhookURL = (try? container.decodeIfPresent(String.self, forKey: .webhookURL)) ?? ""
+        webhookSigns = (try? container.decodeIfPresent(Bool.self, forKey: .webhookSigns)) ?? false
         limitMinutes = (try? container.decodeIfPresent(Int.self, forKey: .limitMinutes)) ?? Self.defaultLimitMinutes
     }
 
     public var limitSeconds: Double { Double(min(max(limitMinutes, 15), 720) * 60) }
 
-    private enum CodingKeys: String, CodingKey { case webhookEnabled, webhookURL, limitMinutes }
+    private enum CodingKeys: String, CodingKey { case webhookEnabled, webhookSigns, limitMinutes }
 }
 
 public struct WispSettings: Codable, Equatable, Sendable {

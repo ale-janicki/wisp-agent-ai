@@ -6,6 +6,7 @@ public enum AppIdentity {
     /// The user's Telegram bot job, the label `wisp setup telegram` installs.
     public static let botLabel = "ai.wisp.bot"
     public static let spotifyKeychainService = "\(bundleID).spotify"
+    public static let webhookKeychainService = "\(bundleID).webhook"
 
     /// Builds before `ai.wisp.app` used the developer's own reverse-DNS prefix, `com.<login>.wisp`. Only that machine
     /// has data under it, so for anyone else the old domain is simply empty and the migration does nothing.

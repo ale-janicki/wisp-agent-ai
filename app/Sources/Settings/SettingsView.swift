@@ -242,7 +242,7 @@ struct SettingsView: View {
         ) {
             SettingsRow(
                 title: "Limite de gravação",
-                detail: "Para sozinho depois desse tempo de gravação ativa, com um aviso 5 min antes. Pausas e o Mac dormindo não contam."
+                detail: "Para sozinho depois desse tempo corrido desde o início, com um aviso 5 min antes. Só pausas explícitas ficam de fora; o Mac dormindo conta."
             ) {
                 Picker("Limite de gravação", selection: Binding(
                     get: { current.limitMinutes },
@@ -258,11 +258,29 @@ struct SettingsView: View {
             Divider().overlay(Theme.stroke)
             ToggleRow(
                 title: "Webhook ao terminar",
-                detail: "Quando a nota ficar pronta, o Wisp mostra um cartão com o destino e o tamanho e só envia quando você clicar em Permitir. Vai a nota, as métricas e as ações, sem a transcrição.",
+                detail: "Quando a nota ficar pronta, o Wisp mostra um cartão com o destino e o tamanho e só envia quando você clicar em Permitir. Vai o título, a data, a duração, o resumo, os pontos principais, as ações e as métricas em números. Não vai a transcrição, os marcadores, a checklist nem o texto das métricas. O endereço fica no Keychain.",
                 isOn: current.webhookEnabled
             ) { on in settings.setMeetings { $0.webhookEnabled = on } }
             if current.webhookEnabled {
                 WebhookURLField()
+                Divider().overlay(Theme.stroke)
+                ToggleRow(
+                    title: "Assinar o envio",
+                    detail: "Manda o cabeçalho X-Wisp-Signature: sha256=… (HMAC-SHA256 do corpo) com um segredo só seu, guardado no Keychain.",
+                    isOn: current.webhookSigns
+                ) { on in
+                    if on { _ = WebhookKeychain.ensureSecret() }
+                    settings.setMeetings { $0.webhookSigns = on }
+                } accessory: {
+                    if current.webhookSigns {
+                        Button("Copiar segredo") {
+                            guard let secret = WebhookKeychain.load(.secret) else { return }
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(secret, forType: .string)
+                        }
+                        .buttonStyle(CapsuleButtonStyle(kind: .ghost))
+                    }
+                }
             }
         }
     }
@@ -653,7 +671,6 @@ private struct MeetingsMoveRow: View {
 }
 
 private struct WebhookURLField: View {
-    private let settings = AppSettings.shared
     @State private var draft = ""
 
     private var problem: String? {
@@ -676,14 +693,14 @@ private struct WebhookURLField: View {
                 .padding(.horizontal, 10)
                 .frame(height: 26)
                 .background(Theme.surfaceHi, in: Capsule())
-                .onChange(of: draft) { _, text in settings.setMeetings { $0.webhookURL = text.trimmingCharacters(in: .whitespacesAndNewlines) } }
+                .onChange(of: draft) { _, text in WebhookKeychain.save(text.trimmingCharacters(in: .whitespacesAndNewlines), for: .url) }
             Text(problem ?? "Só https e só endereços públicos: localhost, IPs privados e redes locais são recusados.")
                 .font(Theme.Font.caption)
                 .foregroundStyle(problem == nil ? Theme.textSecondary : Theme.error)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(.bottom, Theme.Space.s)
-        .onAppear { draft = settings.settings.meetings.webhookURL }
+        .onAppear { draft = WebhookKeychain.load(.url) ?? "" }
     }
 }
 

@@ -51,6 +51,11 @@ public enum EntityDetector {
         return unique(found).prefix(maximum).map { $0 }
     }
 
+    public static func candidates(in segments: [MeetingSegment], includeOthers: Bool) -> [String] {
+        let spoken = segments.filter { $0.isFinal && (includeOthers || $0.channel == .mic) }
+        return candidates(in: spoken.map(\.text).joined(separator: ". "))
+    }
+
     public static func key(_ query: String) -> String {
         query.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: nil)
             .split(whereSeparator: \.isWhitespace).joined(separator: " ")

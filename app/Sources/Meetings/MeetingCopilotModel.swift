@@ -16,6 +16,10 @@ final class MeetingCopilotModel: ObservableObject {
     @Published private(set) var stats = MeetingStats(metrics: MeetingMetrics(), ongoing: nil, lastQuestionAt: nil)
     @Published private(set) var bookmarks: [MeetingBookmark] = []
     @Published private(set) var checklist: [ChecklistItem] = []
+    @Published var brainOn = false {
+        didSet { if !brainOn { brainHits = [] } }
+    }
+    @Published var brainOthersOn = false
     @Published private(set) var brainAvailable = false
     @Published private(set) var brainHits: [BrainHit] = []
     @Published private(set) var events: [MeetingEvent] = []
@@ -27,6 +31,11 @@ final class MeetingCopilotModel: ObservableObject {
     @Published private(set) var isLive = false
 
     private static let tick: Duration = .seconds(1)
+
+    private static func clock() -> Double {
+        Double(clock_gettime_nsec_np(CLOCK_MONOTONIC)) / 1_000_000_000
+    }
+
     private static let statsEvery = 2
     private static let hitLimit = 8
     private static let nudgeLife = 30.0
@@ -67,6 +76,8 @@ final class MeetingCopilotModel: ObservableObject {
         end()
         assistOn = false
         nudgesOn = false
+        brainOn = false
+        brainOthersOn = false
         startedAt = now
         segments = []
         checkedFinals = 0
@@ -82,7 +93,7 @@ final class MeetingCopilotModel: ObservableObject {
         nudgeEngine = NudgeEngine()
         lookupGate = LookupGate()
         limitClock = RecordingLimitClock(limit: limitSeconds)
-        limitClock.start(at: ProcessInfo.processInfo.systemUptime)
+        limitClock.start(at: Self.clock())
         brainRoot = root
         onLimit = stop
         isLive = true
@@ -130,13 +141,13 @@ final class MeetingCopilotModel: ObservableObject {
         guard isLive else { return }
         segments = updated
         let finals = updated.filter(\.isFinal)
-        guard finals.count > checkedFinals, brainAvailable else {
+        guard finals.count > checkedFinals, brainAvailable, brainOn else {
             checkedFinals = max(checkedFinals, finals.count)
             return
         }
-        let fresh = finals[checkedFinals...].map(\.text).joined(separator: ". ")
+        let fresh = Array(finals[checkedFinals...])
         checkedFinals = finals.count
-        lookup(EntityDetector.candidates(in: fresh))
+        lookup(EntityDetector.candidates(in: fresh, includeOthers: brainOthersOn))
     }
 
     func addBookmark() {
@@ -193,7 +204,7 @@ final class MeetingCopilotModel: ObservableObject {
 
     private func step(everyStats: Bool) {
         guard isLive else { return }
-        switch limitClock.tick(at: ProcessInfo.processInfo.systemUptime) {
+        switch limitClock.tick(at: Self.clock()) {
         case .warning(let remaining)?:
             limitNotice = "A gravação para sozinha em \(Int((remaining / 60).rounded())) min (limite de tempo ativo)."
         case .reached?:
