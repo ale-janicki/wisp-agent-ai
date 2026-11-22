@@ -310,7 +310,7 @@ final class ApprovalBrokerTests: XCTestCase {
     func testStopRacingWithManyPendingRequestsNeverTouchesAClosedDescriptor() async throws {
         for _ in 0..<5 {
             let seen = Seen()
-            let broker = try broker(seen)
+            let broker = try broker(seen, validity: 60)
             var clients: [Int32] = []
             for _ in 0..<12 {
                 let fd = try connect(broker.path)
@@ -318,10 +318,14 @@ final class ApprovalBrokerTests: XCTestCase {
                 clients.append(fd)
             }
             await waitFor { seen.allRequests.count == 12 }
+            XCTAssertEqual(seen.allRequests.count, 1, "the broker holds one pending request at a time")
+            let answered = clients.filter { reply($0, within: 1)?["decision"] == "deny" }.count
+            XCTAssertEqual(answered, 11, "every other connection was accepted and answered busy before stop")
             let stopper = Task.detached { broker.stop() }
             for request in seen.allRequests { broker.answer(id: request.id, allow: true) }
             await stopper.value
             try await Task.sleep(for: .milliseconds(100))
+            XCTAssertThrowsError(try connect(broker.path), "a stopped broker refuses new connections")
             clients.forEach { close($0) }
         }
     }
