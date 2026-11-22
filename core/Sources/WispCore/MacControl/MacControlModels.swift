@@ -103,31 +103,35 @@ public enum MacSafety {
 
     public static let freeRoles: Set<String> = ["AXTextField", "AXTextArea", "AXSearchField", "AXComboBox", "AXScrollArea", "AXScrollBar"]
 
-    static let browserWords: Set<String> = ["safari", "chrome", "firefox", "arc", "brave", "edge", "opera", "vivaldi", "orion"]
+    public static let webRole = "AXWebArea"
+    public static let lineageLimit = 64
 
-    public static func isBrowser(app: String, bundle: String = "") -> Bool {
-        if CallAppCatalog.browsers.contains(where: { $0.bundleID == bundle }) { return true }
-        let words = app.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: nil)
-            .split { !$0.isLetter && !$0.isNumber }.map { $0.lowercased() }
-        return words.contains { browserWords.contains($0) }
+    /// Tabs and tab-group radios are free only in native UI. Anything under an AXWebArea (a browser page, an Electron or
+    /// webview app) is page content, where role=tab runs the page's own handler. `lineage` is the whole chain of parents;
+    /// nil means it could not be read in full, and then nothing is exempt.
+    static func isNativeTab(_ element: MacElement, ancestors: [MacElement], lineage: [MacElement]?) -> Bool {
+        guard isTab(element, ancestors: ancestors), let lineage else { return false }
+        return !lineage.contains { $0.role == webRole }
     }
 
     static func isTab(_ element: MacElement, ancestors: [MacElement]) -> Bool {
         element.role == "AXTab" || (element.role == "AXRadioButton" && ancestors.prefix(ancestorLimit).contains { $0.role == "AXTabGroup" })
     }
 
-    static func asksCard(_ element: MacElement, ancestors: [MacElement], browser: Bool) -> Bool {
+    static func asksCard(_ element: MacElement, ancestors: [MacElement], lineage: [MacElement]?) -> Bool {
         if cardRoles.contains(element.role) { return true }
-        if browser, isTab(element, ancestors: ancestors) { return true }
-        return element.pressable && !freeRoles.contains(element.role) && !isTab(element, ancestors: ancestors)
+        if isTab(element, ancestors: ancestors) { return !isNativeTab(element, ancestors: ancestors, lineage: lineage) }
+        return element.pressable && !freeRoles.contains(element.role)
     }
 
-    /// `browser`: a web page can expose role=tab / tablist, so tabs are exempt only in native apps.
-    public static func requiresCard(_ element: MacElement, ancestors: [MacElement], strict: Bool, browser: Bool = false) -> Bool {
+    /// `lineage`: every parent of `element`, nearest first; nil when the chain is cut or unreadable (then tabs ask).
+    public static func requiresCard(_ element: MacElement, ancestors: [MacElement], strict: Bool, lineage: [MacElement]?) -> Bool {
         guard strict else { return false }
         let chain = Array(ancestors.prefix(ancestorLimit))
-        if asksCard(element, ancestors: chain, browser: browser) { return true }
-        return chain.indices.contains { asksCard(chain[$0], ancestors: Array(chain.dropFirst($0 + 1)), browser: browser) }
+        if asksCard(element, ancestors: chain, lineage: lineage) { return true }
+        return chain.indices.contains { index in
+            asksCard(chain[index], ancestors: Array(chain.dropFirst(index + 1)), lineage: lineage.map { Array($0.dropFirst(index + 1)) })
+        }
     }
 
     public static let ancestorLimit = 3
@@ -141,6 +145,24 @@ public enum MacSafety {
         var depth = elements[index].depth
         var cursor = index - 1
         while cursor >= 0, out.count < ancestorLimit, depth > 0 {
+            if elements[cursor].depth < depth {
+                out.append(elements[cursor])
+                depth = elements[cursor].depth
+            }
+            cursor -= 1
+        }
+        return out
+    }
+}
+
+extension MacSafety {
+    /// All parents of `elements[index]` up to depth 0; nil when the walk does not reach a root or passes `lineageLimit`.
+    public static func lineage(of index: Int, in elements: [MacElement]) -> [MacElement]? {
+        var out: [MacElement] = []
+        var depth = elements[index].depth
+        var cursor = index - 1
+        while depth > 0 {
+            guard cursor >= 0, out.count < lineageLimit else { return nil }
             if elements[cursor].depth < depth {
                 out.append(elements[cursor])
                 depth = elements[cursor].depth

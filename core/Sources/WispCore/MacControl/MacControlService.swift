@@ -56,11 +56,14 @@ public struct MacHit: Equatable, Sendable {
     public let element: MacElement
     public let ancestors: [MacElement]
     public let app: String
+    /// False when the parent chain was cut (limit reached, or it did not end at the AXApplication), so a tab cannot be proven native.
+    public let complete: Bool
 
-    public init(element: MacElement, ancestors: [MacElement] = [], app: String = "") {
+    public init(element: MacElement, ancestors: [MacElement] = [], app: String = "", complete: Bool = true) {
         self.element = element
         self.ancestors = ancestors
         self.app = app
+        self.complete = complete
     }
 }
 
@@ -211,14 +214,14 @@ public struct MacControlService {
         case .point(let x, let y):
             let found = driver.hit(x: x, y: y)
             if let found, MacSafety.blocks(found.element, ancestors: found.ancestors, pattern: block)
-                || MacSafety.requiresCard(found.element, ancestors: found.ancestors, strict: strict, browser: MacSafety.isBrowser(app: found.app)) {
+                || MacSafety.requiresCard(found.element, ancestors: found.ancestors, strict: strict, lineage: found.complete ? found.ancestors : nil) {
                 throw blocked(found.element)
             }
             if !resolveOnly { try driver.clickPoint(x: x, y: y) }
             guard let found else { return try json(["ponto": "\(x),\(y)"]) }
             var report = elementReport(found.element)
             report["app"] = found.app
-            report["ancestrais"] = found.ancestors.map(\.label)
+            report["ancestrais"] = found.ancestors.prefix(MacSafety.ancestorLimit).map(\.label)
             return try json(report)
         case .query(let title, let regex, let role, let index):
             let max = MacTree.defaultMax, depth = MacTree.defaultDepth
@@ -229,8 +232,7 @@ public struct MacControlService {
             }
             let target = elements[found[index]]
             let chain = MacSafety.ancestors(of: found[index], in: elements)
-            let browser = strict ? ((try? driver.focus(app: app)).map { MacSafety.isBrowser(app: $0.app, bundle: $0.bundle) } ?? true) : false
-            if MacSafety.blocks(target, ancestors: chain, pattern: block) || MacSafety.requiresCard(target, ancestors: chain, strict: strict, browser: browser) {
+            if MacSafety.blocks(target, ancestors: chain, pattern: block) || MacSafety.requiresCard(target, ancestors: chain, strict: strict, lineage: MacSafety.lineage(of: found[index], in: elements)) {
                 throw blocked(target)
             }
             if !resolveOnly { try driver.pressElement(app: app, max: max, depth: depth, at: found[index], expect: target, block: block) }

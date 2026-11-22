@@ -128,7 +128,9 @@ public final class AXMacDriver: MacDriver {
         guard AXUIElementCopyElementAtPosition(AXUIElementCreateSystemWide(), Float(x), Float(y), &found) == .success, let found else { return nil }
         var ancestors: [MacElement] = []
         var cursor = found
-        while ancestors.count < MacSafety.ancestorLimit, let parent = attribute(cursor, "AXParent") {
+        var complete = false
+        while ancestors.count < MacSafety.lineageLimit {
+            guard let parent = attribute(cursor, "AXParent") else { complete = ancestors.last?.role == "AXApplication"; break }
             let element = unsafeBitCast(parent, to: AXUIElement.self)
             ancestors.append(describe(element, depth: 0))
             cursor = element
@@ -136,7 +138,7 @@ public final class AXMacDriver: MacDriver {
         var pid: pid_t = 0
         AXUIElementGetPid(found, &pid)
         let name = NSRunningApplication(processIdentifier: pid).flatMap { $0.localizedName ?? $0.bundleIdentifier } ?? ""
-        return MacHit(element: describe(found, depth: 0), ancestors: ancestors, app: name)
+        return MacHit(element: describe(found, depth: 0), ancestors: ancestors, app: name, complete: complete)
     }
 
     public func clickPoint(x: Int, y: Int) throws {
