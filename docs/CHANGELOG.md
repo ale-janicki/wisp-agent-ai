@@ -16,6 +16,7 @@ Entries are in descending chronological order (newest first).
 
 ### Fixed
 
+- Reuniões: with IA local as the engine, meeting notes (overview, key points, actions, summary) and the Copiloto no longer go to Claude: they use the local model, and when it is not ready the note is skipped with "a IA local não está pronta: <motivo>" instead of sending the transcript to the hosted engine.
 - Local engine: Settings no longer wakes the model server. Turning "Pensar antes de responder" off (or any status check) used to start the MLX server and load 4.7 GB on a 16 GB Mac while the engine was Claude; `wisp local ready` now only checks that the runtime, the active model and its files are there, and the server starts on the first real request. The server also unloads after 10 idle minutes (was 15), removes its key file on exit, and `wisp local use` with another model stops the old server.
 - Local engine: today's date no longer goes after the user's words as `[Hoje é AAAA-MM-DD.]`, which the model echoed ("Hoje é 2026-11-22. Como posso ajudar…"); it is a `<contexto>` metadata line the system prompt tells the model never to mention.
 - Local engine: the history sent to the model has a per-size budget (about 2,500 / 5,000 / 10,000 tokens), cut in whole exchanges down to 60% so the prompt cache keeps working, and long replies from Claude or Codex in a resumed conversation are shortened to about 600 tokens, so a long conversation no longer re-reads ~8k tokens on every turn.
