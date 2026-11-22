@@ -83,8 +83,10 @@ def _linhas(path: Path) -> tuple[set[str], set[str]]:
     return sessoes, corpo
 
 
-def _orfaos(records: list[dict], topicos: dict[str, dict], transcripts: Transcripts) -> dict[str, list[str]]:
-    vivos = {_id(r) for r in records}
+def _orfaos(todos: list[dict], ativos: list[dict], topicos: dict[str, dict],
+            transcripts: Transcripts) -> dict[str, list[str]]:
+    vivos = {_id(r) for r in todos}
+    donos_possiveis = {_id(r) for r in ativos}
     convs = {str(t.get("conversation") or "") for t in topicos.values()}
     try:
         arquivos = {p.stem: p for p in transcripts.folder.glob("*.jsonl")}
@@ -96,7 +98,7 @@ def _orfaos(records: list[dict], topicos: dict[str, dict], transcripts: Transcri
         if stem.lower() in vivos or stem in convs:
             continue
         sessoes, corpo = dados[stem]
-        for dono in sorted(vivos & arquivos.keys()):
+        for dono in sorted(donos_possiveis & arquivos.keys()):
             if sessoes & dados[dono][0] and corpo <= dados[dono][1]:
                 saida.setdefault(dono, []).append(stem)
                 break
@@ -104,6 +106,7 @@ def _orfaos(records: list[dict], topicos: dict[str, dict], transcripts: Transcri
 
 
 def plano(records: list[dict], topicos: dict[str, dict], transcripts: Transcripts) -> list[Grupo]:
+    todos = records
     records = [r for r in records if not _pendente(r, transcripts)]
     pai = {("r", _id(r)): ("r", _id(r)) for r in records}
     pai.update({("t", k): ("t", k) for k in topicos})
@@ -181,7 +184,7 @@ def plano(records: list[dict], topicos: dict[str, dict], transcripts: Transcript
         mantidos = [r for r in perdedores if r.get("sessionId") in nao_importaveis]
         saida.append(Grupo(vencedor, perdedores, tops, sessoes, arquivos, importar, conversa,
                            nao_importaveis, mantidos, motivo.get(_raiz(pai, nos[0]), [])))
-    for dono, orfaos in _orfaos(records, topicos, transcripts).items():
+    for dono, orfaos in _orfaos(todos, records, topicos, transcripts).items():
         existente = next((g for g in saida if g.conversa == dono and not g.recusado), None)
         if existente is not None:
             existente.orfaos = orfaos
@@ -287,7 +290,7 @@ def assinatura(grupos: list[Grupo], transcripts: Transcripts) -> list:
         except OSError:
             return -1
     return sorted([g.conversa, sorted(_id(r) for r in g.perdedores), list(g.topicos), list(g.sessoes),
-                   [[a, tamanho(a)] for a in g.arquivos], list(g.importar), list(g.nao_importaveis), g.recusado, list(g.orfaos)]
+                   [[a, tamanho(a)] for a in g.arquivos], list(g.importar), list(g.nao_importaveis), g.recusado, [[o, tamanho(o)] for o in g.orfaos]]
                   for g in grupos)
 
 

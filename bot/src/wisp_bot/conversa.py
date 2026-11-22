@@ -1,5 +1,5 @@
 from __future__ import annotations
-import asyncio, html, json, logging
+import asyncio, hashlib, html, json, logging
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -101,9 +101,8 @@ def _corpo(troca: dict, resumir: bool) -> str:
     return "\n\n".join(partes)
 
 
-def _partes_enviadas(meta: dict, reply_at: str) -> int:
-    marca = meta.get(PARTE)
-    return int(marca.get("n", 0)) if isinstance(marca, dict) and marca.get("at") == reply_at else 0
+def _assinatura(partes: list[str]) -> str:
+    return hashlib.sha256("\0".join(partes).encode("utf-8")).hexdigest()[:16]
 
 
 async def alcancar(store, transcripts: Transcripts, key: str, enviar, agora: float | None = None) -> int:
@@ -143,14 +142,21 @@ async def alcancar(store, transcripts: Transcripts, key: str, enviar, agora: flo
                 continue
             if troca in omitidas:
                 continue
-            partes = tg_html.split(tg_html.sanitize(_corpo(troca, resumir)), LIMITE)
-            ja = _partes_enviadas(store.get(key).meta, troca["reply_at"])
+            marca = store.get(key).meta.get(PARTE)
+            if not (isinstance(marca, dict) and marca.get("at") == troca["reply_at"]):
+                marca = None
+            resumir_troca = bool(marca.get("resumir")) if marca else resumir
+            partes = tg_html.split(tg_html.sanitize(_corpo(troca, resumir_troca)), LIMITE)
+            assinatura = _assinatura(partes)
+            ja = int(marca.get("n", 0)) if marca and marca.get("total") == len(partes) \
+                and marca.get("hash") == assinatura else 0
             for indice, parte in enumerate(partes):
                 if indice < ja:
                     continue
                 await enviar(parte)
                 if indice + 1 < len(partes):
-                    store.set_meta(key, **{PARTE: {"at": troca["reply_at"], "n": indice + 1}})
+                    store.set_meta(key, **{PARTE: {"at": troca["reply_at"], "n": indice + 1, "total": len(partes),
+                                                   "hash": assinatura, "resumir": resumir_troca}})
             store.set_meta(key, **{CURSOR: troca["reply_at"], PARTE: None})
             enviadas += 1
         store.set_meta(key, **{CABECALHO_ENVIADO: None})

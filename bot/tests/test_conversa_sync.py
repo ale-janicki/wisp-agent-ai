@@ -427,7 +427,8 @@ def test_a_message_over_the_limit_is_split_and_a_retry_resumes_at_the_failed_par
     with pytest.raises(OSError):
         asyncio.run(conversa.alcancar(store, transcripts, KEY, flaky, agora=1795000000.0))
     assert len(sent) == 1 and sent[0].startswith("💻 longo")
-    assert store.get(KEY).meta[conversa.PARTE] == {"at": "2026-11-21T10:05:09.000Z", "n": 1}
+    marca = store.get(KEY).meta[conversa.PARTE]
+    assert marca["at"] == "2026-11-21T10:05:09.000Z" and marca["n"] == 1 and marca["total"] > 1 and marca["hash"]
     assert store.get(KEY).meta[conversa.CURSOR] == "2026-11-21T10:00:00.000Z"
     resto, enviar = sender()
     asyncio.run(conversa.alcancar(store, transcripts, KEY, enviar, agora=1795000000.0))
@@ -799,3 +800,82 @@ def test_an_orphan_with_content_the_winner_does_not_hold_is_never_listed_for_del
     ])
     left = json.loads((tmp / "idx.json").read_text())
     assert unir.plano(left, {}, Transcripts(tmp / "conversas", indice=tmp / "idx.json")) == []
+
+
+def test_a_split_turn_retried_after_the_clock_made_it_late_still_delivers_every_line(env):
+    store, transcripts, conversation = seeded_topic(env)
+    linhas = "\n".join(f"linha {n} " + "z" * 90 for n in range(120))
+    seed(transcripts, conversation, [
+        entry("2026-11-21T10:05:00.000Z", "user", "longo"), entry("2026-11-21T10:05:09.000Z", "assistant", linhas),
+    ])
+    inicio = conversa._epoch("2026-11-21T10:05:00.000Z")
+    sent = []
+    chamadas = {"n": 0}
+
+    async def flaky(texto):
+        chamadas["n"] += 1
+        if chamadas["n"] == 2:
+            raise OSError("fora")
+        sent.append(texto)
+    with pytest.raises(OSError):
+        asyncio.run(conversa.alcancar(store, transcripts, KEY, flaky, agora=inicio + 10))
+    assert len(sent) == 1
+    resto, enviar = sender()
+    asyncio.run(conversa.alcancar(store, transcripts, KEY, enviar, agora=inicio + 200))
+    juntas = "\n".join(sent + resto)
+    assert all(juntas.count(f"linha {n} ") == 1 for n in range(120))
+    assert store.get(KEY).meta[conversa.CURSOR] == "2026-11-21T10:05:09.000Z"
+    assert not store.get(KEY).meta.get(conversa.PARTE)
+
+
+def test_a_sub_cursor_whose_split_no_longer_matches_is_discarded_and_the_turn_is_resent_whole(env):
+    store, transcripts, conversation = seeded_topic(env)
+    seed(transcripts, conversation, [
+        entry("2026-11-21T10:05:00.000Z", "user", "oi"), entry("2026-11-21T10:05:09.000Z", "assistant", "resposta curta"),
+    ])
+    store.set_meta(KEY, **{conversa.PARTE: {"at": "2026-11-21T10:05:09.000Z", "n": 1, "total": 3, "hash": "x",
+                                            "resumir": False}})
+    sent, enviar = sender()
+    asyncio.run(conversa.alcancar(store, transcripts, KEY, enviar, agora=conversa._epoch("2026-11-21T10:05:10.000Z")))
+    assert sent == ["💻 oi\n\nresposta curta"]
+
+
+def test_a_pending_import_record_with_an_index_entry_is_never_an_orphan(env, monkeypatch):
+    _, transcripts, tmp = env
+    monkeypatch.setattr(sessao, "PROJETOS", tmp / "projects")
+    b, c = "bbbbbbbb-0000-4000-8000-000000000002", "cccccccc-0000-4000-8000-000000000003"
+    duplicado = entry("2026-11-18T10:00:02.000Z", "user", "linha do dono")
+    seed(transcripts, b, [
+        {"v": 1, "at": "2026-11-18T10:00:00.000Z", "kind": "session", "session": "s-two", "engine": "claude", "reason": "new"},
+        duplicado, entry("2026-11-18T10:00:03.000Z", "assistant", "resposta"),
+    ])
+    seed(transcripts, c, [
+        {"v": 1, "at": "2026-11-18T09:00:00.000Z", "kind": "session", "session": "s-three", "engine": "claude",
+         "reason": "pending-import"},
+        {"v": 1, "at": "2026-11-18T09:00:01.000Z", "kind": "session", "session": "s-two", "engine": "claude", "reason": "merged"},
+        duplicado,
+    ])
+    records = [
+        {"id": b.upper(), "sessionId": "s-two", "title": "dono", "updatedAt": "2026-11-18T10:00:03.000Z"},
+        {"id": c.upper(), "sessionId": "s-three", "title": "pendente", "updatedAt": "2026-11-18T09:00:01.000Z"},
+    ]
+    assert unir._pendente(records[1], transcripts)
+    grupos = unir.plano(records, {}, transcripts)
+    assert all(c not in g.orfaos for g in grupos)
+    assert all(c not in g.arquivos for g in grupos)
+    assert transcripts.path(c).exists()
+
+
+def test_a_grown_orphan_makes_the_plan_stale(env):
+    transcripts, records, a, b, tmp = shared_file_data(env)
+    unir.aplicar(unir.plano(records, {}, transcripts), tmp / "idx.json", tmp / "topics.json", transcripts, tmp,
+                 agora=1795300000)
+    seed(transcripts, a, transcripts.conversation_entries(b))
+    left = json.loads((tmp / "idx.json").read_text())
+    fresh = Transcripts(tmp / "conversas", indice=tmp / "idx.json")
+    plano = unir.plano(left, {}, fresh)
+    assert [g.orfaos for g in plano] == [[a]]
+    antes = unir.plano_id(plano, fresh)
+    with transcripts.path(a).open("a", encoding="utf-8") as f:
+        f.write(encode(entry("2026-11-19T00:00:00.000Z", "user", "novo")) + "\n")
+    assert unir.plano_id(plano, fresh) != antes
