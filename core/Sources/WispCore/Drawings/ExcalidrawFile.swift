@@ -278,6 +278,7 @@ public struct ExcalidrawFile: Equatable, Sendable {
         guard let anchor = try? NSRegularExpression(pattern: "\\s\\^([^\\s^]+)(?=\\n|$)") else { return }
         let ns = body as NSString
         var cursor = 0
+        var carried = ""
         for match in anchor.matches(in: body, range: NSRange(location: 0, length: ns.length)) {
             let id = ns.substring(with: match.range(at: 1))
             guard liveIDs.contains(id) || Self.looksLikePluginID(id), match.range.location >= cursor else { continue }
@@ -286,13 +287,16 @@ public struct ExcalidrawFile: Equatable, Sendable {
             if liveIDs.contains(id) {
                 let split = Self.splitStrayText(chunk, elementText: originals[id])
                 rawTexts[id] = split.raw
-                if !split.stray.isEmpty { textBefore[id] = split.stray }
+                if !(carried + split.stray).isEmpty { textBefore[id] = carried + split.stray }
+                carried = ""
                 textOrder.append(id)
+            } else {
+                carried += Self.splitStrayText(chunk, elementText: "").stray
             }
             cursor = match.range.location + match.range.length
             while cursor < ns.length, ns.character(at: cursor) == 10 { cursor += 1 }
         }
-        textTail = ns.substring(from: cursor)
+        textTail = carried + ns.substring(from: cursor)
     }
 
     static func looksLikePluginID(_ id: String) -> Bool {

@@ -73,3 +73,24 @@ public enum DrawingCloseWait {
         }
     }
 }
+
+@MainActor
+public final class DrawingClosingTracker {
+    public private(set) var isClosing = false
+    public private(set) var isFinished = false
+
+    public init() {}
+
+    public func begin() {
+        isClosing = true
+    }
+
+    public func finish() {
+        isClosing = true
+        isFinished = true
+    }
+
+    public func waitUntilFinished(timeout: Duration = .seconds(3)) async {
+        await DrawingCloseWait.until(timeout: timeout) { self.isFinished }
+    }
+}
