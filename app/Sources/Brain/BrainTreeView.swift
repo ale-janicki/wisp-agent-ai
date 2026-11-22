@@ -13,6 +13,14 @@ struct BrainTreeView: View {
                 Button { model.prompt = .newNote(folder: model.active.map { BrainText.parent(of: $0.path) } ?? "") } label: { Image(systemName: "square.and.pencil") }
                     .buttonStyle(CircleButtonStyle(size: 22))
                     .help("Nova nota")
+                Menu {
+                    Button("Novo desenho") { model.createDrawing(.excalidraw, in: model.active.map { BrainText.parent(of: $0.path) } ?? "") }
+                    Button("Novo canvas") { model.createDrawing(.canvas, in: model.active.map { BrainText.parent(of: $0.path) } ?? "") }
+                } label: { Image(systemName: "scribble") }
+                    .menuStyle(.button)
+                    .menuIndicator(.hidden)
+                    .buttonStyle(CircleButtonStyle(size: 22))
+                    .help("Novo desenho ou canvas")
                 Button { model.prompt = .newFolder(folder: "") } label: { Image(systemName: "folder.badge.plus") }
                     .buttonStyle(CircleButtonStyle(size: 22))
                     .help("Nova pasta")
@@ -114,6 +122,8 @@ private struct BrainTreeRowView: View {
         .contextMenu {
             if row.isFolder {
                 Button("Nova nota aqui") { model.prompt = .newNote(folder: row.path) }
+                Button("Novo desenho aqui") { model.createDrawing(.excalidraw, in: row.path) }
+                Button("Novo canvas aqui") { model.createDrawing(.canvas, in: row.path) }
                 Button("Nova subpasta") { model.prompt = .newFolder(folder: row.path) }
                 Divider()
             } else {
