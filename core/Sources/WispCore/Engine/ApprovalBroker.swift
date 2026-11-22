@@ -236,7 +236,7 @@ final class BrokerCore: @unchecked Sendable {
         let bound = withUnsafePointer(to: &address) {
             $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) }
         }
-        guard bound == 0, chmod(path, 0o600) == 0, Darwin.listen(fd, 8) == 0 else {
+        guard bound == 0, chmod(path, 0o600) == 0, Darwin.listen(fd, SOMAXCONN) == 0 else {
             let reason = String(cString: strerror(errno))
             close(fd)
             throw BrokerError.socket(reason)
