@@ -68,8 +68,28 @@ def clip(text: str, limit: int) -> str:
     return text if len(text) <= limit else text[:limit].rstrip() + "…"
 
 
+def after_reset(entries: Iterable[dict]) -> list[dict]:
+    entries = list(entries)
+    for index in range(len(entries) - 1, -1, -1):
+        if entries[index].get("kind") == "session" and entries[index].get("reason") == "reset":
+            return entries[index + 1:]
+    return entries
+
+
+def coverage(entries: Iterable[dict]) -> dict[str, int]:
+    owner = None
+    out: dict[str, int] = {}
+    for e in entries:
+        if e.get("kind") == "session" and (e.get("engine") or "claude") == "claude" and isinstance(e.get("session"), str):
+            owner = e["session"]
+            out.setdefault(owner, 0)
+        elif owner and e.get("kind") in LABELS and isinstance(e.get("text"), str) and e["text"].strip():
+            out[owner] += 1
+    return out
+
+
 def build_context(entries: Iterable[dict]) -> str | None:
-    messages = [e for e in entries if e.get("kind") in LABELS and isinstance(e.get("text"), str) and e["text"].strip()]
+    messages = [e for e in after_reset(entries) if e.get("kind") in LABELS and isinstance(e.get("text"), str) and e["text"].strip()]
     if not any(e["kind"] == "assistant" for e in messages):
         return None
     kept: list[str] = []
@@ -93,8 +113,9 @@ def prime(context: str | None, prompt: str) -> str:
 
 
 class Transcripts:
-    def __init__(self, folder: Path, secrets: Iterable[str] = ()):
+    def __init__(self, folder: Path, secrets: Iterable[str] = (), indice: Path | None = None):
         self.folder = folder
+        self.indice = indice
         self.secrets = [s for s in secrets if s]
         self.failed = False
         self.notice: str | None = None
@@ -105,11 +126,23 @@ class Transcripts:
             raise ValueError(f"invalid conversation id: {conversation!r}")
         return self.folder / f"{conversation}.jsonl"
 
+    def indexadas(self) -> set[str]:
+        if self.indice is None:
+            return set()
+        try:
+            registros = json.loads(self.indice.read_text("utf-8"))
+        except (OSError, ValueError):
+            return set()
+        return {str(r["id"]).lower() for r in registros if isinstance(r, dict) and r.get("id")} \
+            if isinstance(registros, list) else set()
+
     def find(self, session_id: str) -> str | None:
         if not ID.match(session_id or ""):
             return None
         if session_id in self.found and self.path(self.found[session_id]).exists():
             return self.found[session_id]
+        if self.indice is not None:
+            return self._find_indexada(session_id)
         if self.path(session_id).exists():
             return session_id
         needle = f'"session":"{session_id}"'
@@ -127,6 +160,32 @@ class Transcripts:
                 self.found[session_id] = candidate.stem
                 return candidate.stem
         return None
+
+    def _find_indexada(self, session_id: str) -> str | None:
+        achadas = []
+        if self.path(session_id).exists():
+            achadas.append(session_id)
+        needle = f'"session":"{session_id}"'
+        try:
+            candidates = sorted(self.folder.glob("*.jsonl"))
+        except OSError:
+            candidates = []
+        for candidate in candidates:
+            if candidate.stem == session_id:
+                continue
+            try:
+                raw = candidate.read_text("utf-8", errors="replace")
+            except OSError:
+                continue
+            if needle in raw and any(e.get("kind") == "session" and e.get("session") == session_id
+                                     for e in read_entries(candidate)):
+                achadas.append(candidate.stem)
+        if not achadas:
+            return None
+        vivas = self.indexadas()
+        escolhida = next((a for a in achadas if a.lower() in vivas), achadas[0])
+        self.found[session_id] = escolhida
+        return escolhida
 
     def entries(self, session_id: str) -> list[dict]:
         conversation = self.find(session_id)
@@ -159,6 +218,19 @@ class Transcripts:
     def assistant(self, session_id: str, text: str, surface: str, engine: str, model: str | None) -> None:
         self._write(session_id, {"kind": "assistant", "surface": surface, "text": text,
                                  "engine": engine, "model": model or ""})
+
+    def link(self, conversation: str, session_id: str, reason: str, engine: str = "claude") -> bool:
+        try:
+            append_line(self.path(conversation), encode({"v": VERSION, "at": stamp(), "kind": "session",
+                                                         "session": session_id, "engine": engine, "reason": reason}))
+            self.found[session_id] = conversation
+            return True
+        except (OSError, ValueError) as error:
+            log.error("could not link %s to %s: %s", session_id, conversation, error)
+            return False
+
+    def conversation_entries(self, conversation: str) -> list[dict]:
+        return read_entries(self.path(conversation))
 
     def rebuilt(self, old_session_id: str, new_session_id: str, engine: str) -> None:
         self._write(old_session_id, {"kind": "session", "session": new_session_id, "engine": engine,

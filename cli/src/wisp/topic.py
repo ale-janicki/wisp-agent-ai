@@ -8,10 +8,12 @@ import subprocess
 import sys
 import time
 import uuid
+from pathlib import Path
 
-from wisp_bot import ctl, hosting, sessao, store, topicos
+from wisp_bot import conversa, ctl, hosting, sessao, store, topicos, transcript, unir
 from wisp_bot.config import BotConfig, load_settings
 
+CONFIRMA_ENV = "WISP_UNIR_CONFIRM"
 COMPARTILHAR_S = 30.0
 POSTAR_S = 30.0
 ENVIAR_S = 100.0
@@ -46,8 +48,11 @@ def claim_json(d: dict) -> str:
     return json.dumps(d, ensure_ascii=False)
 
 
-def compartilhado_json(thread, name: str, session_id: str) -> str:
-    return json.dumps({"thread": thread, "name": name, "session_id": session_id}, ensure_ascii=False)
+def compartilhado_json(thread, name: str, session_id: str, conversation: str = "") -> str:
+    corpo = {"thread": thread, "name": name, "session_id": session_id}
+    if conversation:
+        corpo["conversation"] = conversation
+    return json.dumps(corpo, ensure_ascii=False)
 
 
 def pull_vault() -> None:
@@ -100,6 +105,7 @@ def _local_le() -> tuple[dict, int | None, bool]:
 
 def _do_store() -> dict[int, dict]:
     return {int(t.key.rsplit(":", 1)[-1]): {"name": t.name, "session_id": t.session_id,
+                                            "conversation": t.conversation,
                                             "cwd": os.path.expanduser(t.cwd), "started": t.started,
                                             "turns": t.turns, "last_used": t.last_used, "meta": t.meta}
             for t in store.Store(store.STORE).all()}
@@ -134,6 +140,8 @@ def topicos_do_bot() -> list[dict]:
         out.append({"thread": thread,
                     "name": b.get("name") or l.get("name") or sistema.get(thread) or n.get("name", ""),
                     "session_id": b.get("session_id") or n.get("session_id") or l.get("session_id", ""),
+                    "conversation": b.get("conversation") or l.get("conversation") or _conversa_legada(
+                        b.get("session_id") or n.get("session_id") or l.get("session_id", "")),
                     "cwd": _cwd_aqui(b.get("cwd", ""), l.get("cwd", ""), n.get("cwd", "")),
                     "started": bool((b or l)["started"]) if b or l else n.get("session_started", "false") != "false",
                     "turns": max(n.get("turnos", 0), int(b.get("turns") or 0)),
@@ -147,6 +155,12 @@ def topicos_do_bot() -> list[dict]:
                             "started": False, "turns": 0, "last_used": None, "host": reader,
                             "session_host": reader, "fixed": True})
     return sorted(out, key=lambda d: d["last_used"] or 0, reverse=True)
+
+
+def _conversa_legada(session_id: str) -> str:
+    if not sessao.valido(session_id):
+        return ""
+    return conversa.legado(session_id, transcript.Transcripts(cfg().wisp_dir / "conversas", indice=app_index()), app_index())
 
 
 def esperar(op: str, timeout: float, **args) -> dict:
@@ -221,13 +235,17 @@ def cmd_compartilhar(a) -> int:
     cwd = os.path.abspath(os.path.expanduser(a.cwd))
     if not a.nome.strip():
         return erro("nome vazio", 2)
+    if a.conversation and not transcript.ID.match(a.conversation):
+        return erro(f"conversation inválida: {a.conversation!r}", 2)
     if not _local_le()[2]:
         return erro(SEM_BOT)
     try:
-        d = esperar("compartilhar", COMPARTILHAR_S, session_id=a.session, cwd=topicos.portavel(cwd), nome=a.nome.strip())
+        extra = {"conversation": a.conversation} if a.conversation else {}
+        d = esperar("compartilhar", COMPARTILHAR_S, session_id=a.session, cwd=topicos.portavel(cwd), nome=a.nome.strip(),
+                    **extra)
     except (RuntimeError, OSError) as e:
         return erro(str(e))
-    print(compartilhado_json(d["thread_id"], d.get("name") or a.nome.strip(), a.session))
+    print(compartilhado_json(d["thread_id"], d.get("name") or a.nome.strip(), a.session, a.conversation or ""))
     return 0
 
 
@@ -236,6 +254,8 @@ def cmd_postar(a) -> int:
         corpo = json.loads(sys.stdin.read())
         thread, user, reply = int(corpo["thread"]), str(corpo["user"]), str(corpo["reply"])
         arquivos = corpo.get("arquivos") or []
+        conversation = str(corpo.get("conversation") or "")
+        turn_at = str(corpo.get("turn_at") or "")
         if not isinstance(arquivos, list) or not all(isinstance(f, str) for f in arquivos):
             raise ValueError
     except (ValueError, KeyError, TypeError, AttributeError):
@@ -243,6 +263,10 @@ def cmd_postar(a) -> int:
     if not _local_le()[2]:
         return erro(SEM_BOT)
     extra = {"arquivos": arquivos} if arquivos else {}
+    if conversation:
+        extra["conversation"] = conversation
+        if turn_at:
+            extra["turn_at"] = turn_at
     try:
         esperar("postar", POSTAR_S, thread=str(thread), user=user, reply=reply, **extra)
     except (RuntimeError, OSError) as e:
@@ -270,10 +294,65 @@ def cmd_enviar(a) -> int:
     return 0
 
 
+def app_index():
+    return Path(os.environ.get("WISP_APP_INDEX") or cfg().conversations_file)
+
+
+def bot_vivo() -> bool:
+    if subprocess.run(["pgrep", "-f", "bin/wisp-bot"], capture_output=True).returncode == 0:
+        return True
+    job = subprocess.run(["launchctl", "list", "ai.wisp.bot"], capture_output=True, text=True)
+    return job.returncode == 0 and '"PID"' in job.stdout
+
+
+def cmd_unir(a) -> int:
+    indice = app_index()
+    if not indice.is_file():
+        return erro(f"não achei o índice de conversas do app: {indice}")
+    wisp_dir = cfg().wisp_dir
+    transcritos = transcript.Transcripts(wisp_dir / "conversas", indice=indice)
+    try:
+        records = json.loads(indice.read_text("utf-8"))
+        topicos_ = json.loads(store.STORE.read_text("utf-8")) if store.STORE.exists() else {}
+    except (OSError, ValueError) as e:
+        return erro(f"não consegui ler os dados: {e}")
+    grupos = unir.plano(records, topicos_, transcritos)
+    if not grupos:
+        print("nada para juntar: cada conversa já tem um id só")
+        return 0
+    print("\n".join(unir.descrever(grupos, topicos_, transcritos)))
+    pid = unir.plano_id(grupos, transcritos)
+    acionaveis = [g for g in grupos if not g.recusado]
+    if not a.aplicar:
+        print(f"\nid do plano: {pid}")
+        print("(só o plano; nada foi gravado. Feche o app, pare o bot e rode de novo com --aplicar)")
+        return 0
+    if not acionaveis:
+        print("nada a aplicar: só há grupos recusados")
+        return 0
+    if not a.forcar and bot_vivo():
+        return erro("o bot do Telegram está rodando: pare o serviço antes de juntar (ou --forcar)")
+    if not a.forcar and subprocess.run(["pgrep", "-x", "Wisp"], capture_output=True).returncode == 0:
+        return erro("o app do Wisp está aberto: feche antes de juntar (ou --forcar)")
+    if sys.stdin.isatty():
+        digitado = input(f"digite o id do plano ({pid}) para aplicar: ").strip()
+    else:
+        digitado = os.environ.get(CONFIRMA_ENV, "").strip()
+    if digitado != pid:
+        return erro(f"confirmação ausente ou diferente do id do plano ({pid}): rode o plano e confirme "
+                    f"digitando o id num terminal, ou defina {CONFIRMA_ENV}={pid}")
+    try:
+        pasta = unir.aplicar(grupos, indice, store.STORE, transcritos, wisp_dir)
+    except unir.PlanoMudou as e:
+        return erro(str(e))
+    print(f"\njuntado. cópia de segurança e log em {pasta}")
+    return 0
+
+
 def add_parser(sub) -> argparse.ArgumentParser:
     topic = sub.add_parser("topic", help="topics of the Telegram bot")
     cmds = topic.add_subparsers(dest="topic_cmd", required=True)
-    pai = argparse.ArgumentParser(add_help=False)
+    pai = argparse.ArgumentParser(add_help=False, allow_abbrev=False)
     pai.add_argument("--sem-pull", action="store_true", help="do not pull the brain before reading the notes")
     for nome, f in (("listar", cmd_listar), ("status", cmd_status)):
         p = cmds.add_parser(nome, parents=[pai])
@@ -287,6 +366,7 @@ def add_parser(sub) -> argparse.ArgumentParser:
     p.add_argument("--session", required=True)
     p.add_argument("--cwd", required=True)
     p.add_argument("--nome", required=True)
+    p.add_argument("--conversation", help="the Wisp conversation id the app owns; the topic keys on it")
     p.add_argument("--json", action="store_true", help="accepted; the output is always JSON")
     p.set_defaults(f=cmd_compartilhar)
     p = cmds.add_parser("postar")
@@ -298,6 +378,11 @@ def add_parser(sub) -> argparse.ArgumentParser:
     p.add_argument("--json", action="store_true", help="accepted; the output is always JSON")
     p.add_argument("arquivos", nargs="+", metavar="FILE")
     p.set_defaults(f=cmd_enviar)
+    p = cmds.add_parser("unir", allow_abbrev=False,
+                        help="rejoin conversations split by a session id change (plan only without --aplicar)")
+    p.add_argument("--aplicar", action="store_true")
+    p.add_argument("--forcar", action="store_true", help="skip the app and bot running checks")
+    p.set_defaults(f=cmd_unir)
     p = cmds.add_parser("encerrar", parents=[pai])
     p.add_argument("thread")
     p.set_defaults(f=cmd_encerrar)

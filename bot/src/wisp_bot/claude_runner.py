@@ -47,7 +47,8 @@ WISP_BIN = str(Path(sys.executable).parent / "wisp")
 
 GUARD_MATCHER = "Bash|Read|Edit|MultiEdit|Write|NotebookEdit|Grep|Glob"
 GUARD_HOOKS = ("guard-secrets", "guard-telegram", "guard-destructive", "guard-lessons", "guard-agenda", "guard-outbound")
-ASK_RULES = ["Bash(*aprender add*)", "Bash(*aprender confirmar*)", "Bash(*aprender descartar*)"]
+ASK_RULES = ["Bash(*aprender add*)", "Bash(*aprender confirmar*)", "Bash(*aprender descartar*)",
+             "Bash(*topic unir*--aplicar*)", "Bash(*topic unir*--forcar*)"]
 RECALL_TIMEOUT = 5
 
 AGENDA_ASK = ("criar-evento", "editar-evento", "apagar-evento", "criar-lembrete", "concluir-lembrete", "permissao --pedir")
