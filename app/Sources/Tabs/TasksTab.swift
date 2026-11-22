@@ -3,6 +3,7 @@ import WispCore
 
 struct TasksTab: View {
     let profile: Profile
+    var openInBrain: (String, Int?) -> Void = { _, _ in }
 
     private var tasks: TasksModel { TabSources.shared.tasks }
     private var file: String? { profile.blocks?.tasks?.file }
@@ -17,6 +18,21 @@ struct TasksTab: View {
             }
         }
         .onAppear { if let file { tasks.refresh(file: file) } }
+    }
+
+    private func openSource(_ item: TaskItem) {
+        guard let file, !file.isEmpty else { return }
+        let url = URL(fileURLWithPath: expandTilde(file))
+        let brainRoot = profile.blocks?.memory?.root.flatMap { $0.isEmpty ? nil : $0 }
+        Task {
+            let text = await Task.detached { try? String(contentsOf: url, encoding: .utf8) }.value
+            let line = text.flatMap { TaskList.lineIndex(of: item, in: $0) }
+            if let brainRoot, let relative = MemorySearch.relativePath(ofFile: url.path, inRoot: brainRoot) {
+                openInBrain(relative, line)
+            } else {
+                NSWorkspace.shared.activateFileViewerSelecting([url])
+            }
+        }
     }
 
     @ViewBuilder
@@ -38,9 +54,9 @@ struct TasksTab: View {
                         ForEach(shown) { group in
                             if let title = group.title { SectionCaption(text: title) }
                             ForEach(group.items) { item in
-                                TaskRow(item: item, busy: tasks.completing == item.id) {
+                                TaskRow(item: item, busy: tasks.completing == item.id, done: {
                                     if let file { tasks.complete(item, file: file) }
-                                }
+                                }, open: { openSource(item) })
                             }
                         }
                     }
@@ -55,6 +71,7 @@ private struct TaskRow: View {
     let item: TaskItem
     let busy: Bool
     let done: () -> Void
+    let open: () -> Void
     @State private var hovering = false
 
     private var caption: String {
@@ -100,6 +117,7 @@ private struct TaskRow: View {
         }
         .contentShape(RoundedRectangle(cornerRadius: Theme.Radius.nav, style: .continuous))
         .onHover { hovering = $0 }
+        .onTapGesture(perform: open)
         .help(TaskList.plain(String(item.line.dropFirst(2))))
     }
 }

@@ -123,7 +123,7 @@ final class BrainModel {
     var prompt: BrainPrompt?
     var message: String?
     var showsSwitcher = false
-    var showsGraph = true
+    var showsGraph = AppSettings.shared.settings.brainShowsGraph
     var browsing = false
     private(set) var searchFocusTick = 0
     var showsTree = true
@@ -132,6 +132,7 @@ final class BrainModel {
     var searchQuery = ""
     var pendingInsert: String?
 
+    @ObservationIgnored private var pendingOpen: (path: String, line: Int?)?
     @ObservationIgnored private var treeIndex = BrainTree.Index(entries: [])
     @ObservationIgnored private var watcher: BrainWatcher?
     @ObservationIgnored private var recoveryLedger = BrainRecoveryLedger()
@@ -201,6 +202,10 @@ final class BrainModel {
             self.scanTick += 1
             self.phase = .ready
             if restoring { self.restoreTabs() }
+            if let pending = self.pendingOpen {
+                self.pendingOpen = nil
+                self.open(pending.path, line: pending.line)
+            }
             await self.checkOpenNotes()
             self.refreshSide()
         }
@@ -248,6 +253,15 @@ final class BrainModel {
         refreshTree()
     }
 
+
+    func openSource(_ path: String, line: Int?, inRoot rawRoot: String) {
+        load(root: rawRoot)
+        if phase == .ready {
+            open(path, line: line)
+        } else {
+            pendingOpen = (path, line)
+        }
+    }
 
     func open(_ path: String, line: Int? = nil, heading: String? = nil, newTab: Bool = false) {
         guard let files else { return }
@@ -934,6 +948,11 @@ final class BrainModel {
     func focusSearch() {
         browsing = true
         searchFocusTick += 1
+    }
+
+    func chooseBrowseMode(graph: Bool) {
+        showsGraph = graph
+        AppSettings.shared.setBrainShowsGraph(graph)
     }
 
     func searchTag(_ name: String) {

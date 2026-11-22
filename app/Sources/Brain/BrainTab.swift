@@ -206,7 +206,7 @@ struct BrainTab: View {
     private func modeButton(_ title: String, graph: Bool) -> some View {
         let chosen = showsBrowse && model.showsGraph == graph
         return Button {
-            model.showsGraph = graph
+            model.chooseBrowseMode(graph: graph)
             model.browsing = true
         } label: {
             Text(title)

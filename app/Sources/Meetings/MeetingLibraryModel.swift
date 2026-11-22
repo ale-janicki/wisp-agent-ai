@@ -19,6 +19,7 @@ struct WebhookOffer: Identifiable, Equatable {
 @MainActor
 final class MeetingLibraryModel: ObservableObject {
     @Published private(set) var entries: [MeetingEntry] = []
+    @Published private(set) var isLoading = true
     @Published private(set) var working: [String: MeetingStage] = [:]
     @Published private(set) var detail: MeetingDetail?
     @Published private(set) var notice: String?
@@ -73,6 +74,7 @@ final class MeetingLibraryModel: ObservableObject {
             let listed = await Task.detached { MeetingLibrary.list(root: base) }.value
             guard let self, token == self.reloadToken else { return }
             self.entries = listed
+            self.isLoading = false
             if let id { self.selectedID = id }
             if let current = self.selectedID, !listed.contains(where: { $0.id == current }) { self.selectedID = nil }
             self.loadDetail()

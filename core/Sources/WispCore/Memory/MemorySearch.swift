@@ -56,6 +56,13 @@ public enum MemorySearch {
         return resolved.count > 1 && resolved.hasSuffix("/") ? String(resolved.dropLast()) : resolved
     }
 
+    public static func relativePath(ofFile file: String, inRoot root: String) -> String? {
+        let base = resolvedRoot(root)
+        let path = resolvedRoot(file)
+        guard path.hasPrefix(base + "/"), path.count > base.count + 1 else { return nil }
+        return String(path.dropFirst(base.count + 1))
+    }
+
     public static func command(template: String, query: String, root: String) -> String? {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }

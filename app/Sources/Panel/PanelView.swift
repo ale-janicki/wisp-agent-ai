@@ -97,6 +97,7 @@ struct PanelView: View {
     }
 
     private var statusLabel: String {
+        if model.onboarding == .localChecking { return "Verificando…" }
         if model.inputBlocked { return "Configuração pendente" }
         switch controller.statusColor {
         case .ok: return "Pronto"
@@ -159,7 +160,12 @@ struct PanelView: View {
             } else {
                 ConversationCard(model: model, draft: $draft, submit: submit)
             }
-        case .tasks: TasksTab(profile: model.profile)
+        case .tasks:
+            TasksTab(profile: model.profile) { path, line in
+                guard let root = model.profile.blocks?.memory?.root else { return }
+                BrainModel.shared.openSource(path, line: line, inRoot: root)
+                controller.tab = .brain
+            }
         case .reminders: RemindersTab(profile: model.profile)
         case .agenda: AgendaTab(profile: model.profile)
         case .meetings: MeetingsTab(model: controller.meetings)
@@ -202,7 +208,19 @@ struct PanelView: View {
         .padding(.top, Theme.Space.xs)
     }
 
+    private func openModelSettings() {
+        SettingsSection.model.open()
+        controller.tab = .settings
+    }
+
     private var composer: some View {
+        VStack(spacing: 0) {
+            composerField
+            PendingSetupNote(model: model, openModelSettings: openModelSettings)
+        }
+    }
+
+    private var composerField: some View {
         ComposerView(
             text: $draft,
             placeholder: "Pergunte ao \(model.personaName)…",

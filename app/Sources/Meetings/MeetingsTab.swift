@@ -63,7 +63,9 @@ private struct MeetingListCard: View {
                 if model.phase != .idle {
                     liveRow
                 }
-                if library.rows.isEmpty {
+                if library.isLoading {
+                    SkeletonRows()
+                } else if library.rows.isEmpty {
                     TabMessage(text: "Nenhuma reunião ainda.\nGrave a primeira acima.")
                 } else {
                     ScrollView {
