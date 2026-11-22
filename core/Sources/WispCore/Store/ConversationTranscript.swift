@@ -84,8 +84,13 @@ public enum ConversationTranscript {
         }
     }
 
+    public static func afterReset(_ entries: [TranscriptEntry]) -> [TranscriptEntry] {
+        guard let index = entries.lastIndex(where: { $0.kind == .session && $0.reason == "reset" }) else { return entries }
+        return Array(entries[(index + 1)...])
+    }
+
     public static func context(_ entries: [TranscriptEntry]) -> String? {
-        let messages = entries.filter {
+        let messages = afterReset(entries).filter {
             ($0.kind == .user || $0.kind == .assistant) && !($0.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }
         guard messages.contains(where: { $0.kind == .assistant }) else { return nil }
@@ -192,8 +197,50 @@ public final class TranscriptStore: @unchecked Sendable {
         Set(entries(conversation: conversation).filter { $0.kind == .assistant }.compactMap(\.engine))
     }
 
+    public func sessions(conversation: String) -> [String] {
+        var seen: [String] = []
+        for entry in entries(conversation: conversation) where entry.kind == .session && (entry.engine ?? "claude") == "claude" {
+            if let session = entry.session, !seen.contains(session) { seen.append(session) }
+        }
+        return seen
+    }
+
+    public struct Segment: Equatable, Sendable {
+        public var session: String
+        public var messages: [ConversationMessage]
+    }
+
+    public func segments(conversation: String) -> [Segment] {
+        var out: [Segment] = []
+        for entry in entries(conversation: conversation) {
+            if entry.kind == .session, (entry.engine ?? "claude") == "claude", let session = entry.session {
+                if !out.contains(where: { $0.session == session }) { out.append(Segment(session: session, messages: [])) }
+                continue
+            }
+            guard !out.isEmpty, let text = entry.text, !text.isEmpty else { continue }
+            switch entry.kind {
+            case .user: out[out.count - 1].messages.append(ConversationMessage(role: .user, text: text))
+            case .assistant: out[out.count - 1].messages.append(ConversationMessage(role: .assistant, text: text))
+            case .session: break
+            }
+        }
+        return out
+    }
+
+    public func earlierMessages(
+        conversation: String, beforeSession session: String, claude: (String) -> [ConversationMessage]?
+    ) -> [ConversationMessage] {
+        let all = segments(conversation: conversation)
+        guard let index = all.firstIndex(where: { $0.session == session }) else { return [] }
+        return TranscriptHistory.join(Array(all[..<index]), claude: claude)
+    }
+
     public func messages(conversation: String) -> [ConversationMessage] {
-        entries(conversation: conversation).compactMap { entry in
+        Self.messages(of: entries(conversation: conversation))
+    }
+
+    static func messages(of entries: [TranscriptEntry]) -> [ConversationMessage] {
+        entries.compactMap { entry in
             guard let text = entry.text, !text.isEmpty else { return nil }
             switch entry.kind {
             case .user: return ConversationMessage(role: .user, text: text)
@@ -220,9 +267,10 @@ public final class TranscriptStore: @unchecked Sendable {
             conversation: conversation, openingSession: openingSession)
     }
 
+    @discardableResult
     public func appendAssistant(
         conversation: String, openingSession: String?, text: String, surface: String, engine: String, model: String?
-    ) throws {
+    ) throws -> String {
         try append(
             TranscriptEntry(
                 kind: .assistant, at: stamp(), surface: surface, text: text,
@@ -237,7 +285,8 @@ public final class TranscriptStore: @unchecked Sendable {
             conversation: conversation, openingSession: nil)
     }
 
-    private func append(_ entry: TranscriptEntry, conversation: String, openingSession: String?) throws {
+    @discardableResult
+    private func append(_ entry: TranscriptEntry, conversation: String, openingSession: String?) throws -> String {
         let path = try url(conversation: conversation)
         var lines: [String] = []
         if !FileManager.default.fileExists(atPath: path.path), let openingSession {
@@ -246,6 +295,7 @@ public final class TranscriptStore: @unchecked Sendable {
         }
         lines.append(try ConversationTranscript.encode(entry))
         try Self.appendLines(lines, to: path)
+        return entry.at
     }
 
     private static func appendLines(_ lines: [String], to path: URL) throws {
@@ -281,10 +331,24 @@ public enum TranscriptHistory {
         store: TranscriptStore, sessionId: String?, conversationKey: String,
         claude: (String) -> [ConversationMessage]?
     ) -> [ConversationMessage]? {
-        let key = store.find(session: sessionId) ?? store.find(session: conversationKey)
+        let key = store.find(session: conversationKey) ?? store.find(session: sessionId)
         let wisp = key.map { store.messages(conversation: $0) }.flatMap { $0.isEmpty ? nil : $0 }
         if let key, store.engines(conversation: key).contains(where: { $0 != "claude" }) { return wisp }
+        if let key, store.sessions(conversation: key).count > 1 {
+            let joined = join(store.segments(conversation: key), claude: claude)
+            return joined.isEmpty ? wisp : joined
+        }
         guard let sessionId else { return wisp }
         return claude(sessionId) ?? wisp
+    }
+
+    static func join(_ segments: [TranscriptStore.Segment], claude: (String) -> [ConversationMessage]?) -> [ConversationMessage] {
+        segments.flatMap { merge(claude: claude($0.session) ?? [], wisp: $0.messages) }
+    }
+
+    static func merge(claude: [ConversationMessage], wisp: [ConversationMessage]) -> [ConversationMessage] {
+        guard let first = wisp.first else { return claude }
+        guard let index = claude.firstIndex(where: { $0.role == first.role && $0.text == first.text }) else { return wisp }
+        return Array(claude[..<index]) + wisp
     }
 }

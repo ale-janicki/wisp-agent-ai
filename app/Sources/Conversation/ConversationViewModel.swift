@@ -281,7 +281,7 @@ final class ConversationViewModel {
             activate(existing)
             return
         }
-        if let topic = TelegramTopics.topic(forSession: record.sessionId, in: telegram.loadedTopics) {
+        if let topic = TelegramTopics.topic(forSession: record.sessionId, conversation: record.id, in: telegram.loadedTopics) {
             openLinked(topic: topic, title: record.title, id: record.id)
             return
         }
@@ -373,7 +373,7 @@ final class ConversationViewModel {
     }
 
     func open(_ entry: TelegramEntry) {
-        let id = entry.record?.id ?? UUID()
+        let id = entry.record?.id ?? entry.topic.conversation.flatMap { UUID(uuidString: $0) } ?? UUID(uuidString: entry.topic.sessionId) ?? UUID()
         if let existing = runtime(id: id, sessionId: entry.topic.sessionId) {
             activate(existing)
             return
@@ -415,22 +415,23 @@ final class ConversationViewModel {
 
     func share(_ record: ConversationRecord) {
         guard canShare(record), let sessionId = record.sessionId else { return }
-        share(sessionId: sessionId, cwd: record.cwd ?? profile.agent.cwd, name: record.title)
+        share(sessionId: sessionId, cwd: record.cwd ?? profile.agent.cwd, name: record.title, conversation: record.id)
     }
 
     func shareCurrent() {
         guard canShareCurrent, let sessionId = state.sessionId else { return }
-        share(sessionId: sessionId, cwd: current.cwd ?? profile.agent.cwd, name: currentTitle ?? "Conversa")
+        share(sessionId: sessionId, cwd: current.cwd ?? profile.agent.cwd, name: currentTitle ?? "Conversa", conversation: currentId)
     }
 
-    private func share(sessionId: String, cwd: String, name: String) {
+    private func share(sessionId: String, cwd: String, name: String, conversation: UUID) {
         sharingSession = sessionId
         let runtime = current
         runtime.telegramNotice = nil
         Task { [weak self] in
             guard let self else { return }
             let result = await self.telegram.share(
-                session: sessionId, cwd: expandTilde(cwd), name: String(name.prefix(Self.titleLimit)))
+                session: sessionId, cwd: expandTilde(cwd), name: String(name.prefix(Self.titleLimit)),
+                conversation: conversation)
             switch result {
             case .success: await self.refreshTelegram()
             case .failure(let failure): runtime.telegramNotice = failure.sentence
@@ -518,9 +519,9 @@ final class ConversationViewModel {
             guard let self else { return }
             defer { self.sharingSession = nil }
             await self.telegram.refreshTopicsIfStale(maxAge: 0)
-            var thread = TelegramTopics.topic(forSession: sessionId, in: self.telegram.loadedTopics)?.thread
+            var thread = TelegramTopics.topic(forSession: sessionId, conversation: id, in: self.telegram.loadedTopics)?.thread
             if thread == nil {
-                switch await self.telegram.share(session: sessionId, cwd: expandTilde(cwd), name: String(name.prefix(Self.titleLimit))) {
+                switch await self.telegram.share(session: sessionId, cwd: expandTilde(cwd), name: String(name.prefix(Self.titleLimit)), conversation: id) {
                 case .success(let shared):
                     thread = shared.thread
                     await self.refreshTelegram()

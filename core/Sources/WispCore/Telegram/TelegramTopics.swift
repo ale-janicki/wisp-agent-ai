@@ -9,6 +9,7 @@ public struct TelegramTopic: Decodable, Identifiable, Sendable, Equatable {
     public var lastUsed: Date?
     public var host: String?
     public var fixed: Bool
+    public var conversation: String?
 
     public var id: Int { thread }
 
@@ -20,8 +21,10 @@ public struct TelegramTopic: Decodable, Identifiable, Sendable, Equatable {
         turns: Int = 0,
         lastUsed: Date? = nil,
         host: String? = nil,
-        fixed: Bool = false
+        fixed: Bool = false,
+        conversation: String? = nil
     ) {
+        self.conversation = conversation?.lowercased()
         self.thread = thread
         self.name = name
         self.sessionId = sessionId
@@ -33,7 +36,7 @@ public struct TelegramTopic: Decodable, Identifiable, Sendable, Equatable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case thread, name, cwd, turns, host, fixed
+        case thread, name, cwd, turns, host, fixed, conversation
         case sessionId = "session_id"
         case lastUsed = "last_used"
     }
@@ -48,6 +51,13 @@ public struct TelegramTopic: Decodable, Identifiable, Sendable, Equatable {
         lastUsed = try container.decodeIfPresent(Double.self, forKey: .lastUsed).map(Date.init(timeIntervalSince1970:))
         host = try container.decodeIfPresent(String.self, forKey: .host)
         fixed = try container.decodeIfPresent(Bool.self, forKey: .fixed) ?? false
+        conversation = try container.decodeIfPresent(String.self, forKey: .conversation).flatMap { $0.isEmpty ? nil : $0.lowercased() }
+    }
+
+    public func matches(sessionId: String?, conversation id: UUID?) -> Bool {
+        if let conversation, let id, conversation == id.uuidString.lowercased() { return true }
+        guard let sessionId, !sessionId.isEmpty else { return false }
+        return self.sessionId == sessionId
     }
 }
 
@@ -79,17 +89,25 @@ public struct TelegramPost: Sendable, Equatable {
     public var user: String
     public var reply: String
     public var files: [String] = []
+    public var conversation: String?
+    public var turnAt: String?
 
-    public init(thread: Int, user: String, reply: String, files: [String] = []) {
+    public init(
+        thread: Int, user: String, reply: String, files: [String] = [], conversation: String? = nil, turnAt: String? = nil
+    ) {
+        self.turnAt = turnAt
         self.thread = thread
         self.user = user
         self.reply = reply
         self.files = files
+        self.conversation = conversation
     }
 
     public var payload: Data {
         var body: [String: Any] = ["thread": thread, "user": user, "reply": reply]
         if !files.isEmpty { body["arquivos"] = files }
+        if let conversation, !conversation.isEmpty { body["conversation"] = conversation }
+        if let turnAt, !turnAt.isEmpty { body["turn_at"] = turnAt }
         return (try? JSONSerialization.data(withJSONObject: body, options: [.sortedKeys])) ?? Data("{}".utf8)
     }
 }
@@ -119,15 +137,22 @@ public enum TelegramTopics {
         try JSONDecoder().decode(TelegramShared.self, from: data)
     }
 
-    public static func mirror(sessionId: String?, topics: [TelegramTopic]?, user: String, reply: String, files: [String] = []) -> TelegramPost? {
-        guard let topic = topic(forSession: sessionId, in: topics),
+    public static func mirror(
+        sessionId: String?, conversation: UUID? = nil, topics: [TelegramTopic]?, user: String, reply: String,
+        files: [String] = [], turnAt: String? = nil
+    ) -> TelegramPost? {
+        guard let topic = topic(forSession: sessionId, conversation: conversation, in: topics),
               !reply.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
-        return TelegramPost(thread: topic.thread, user: user, reply: reply, files: files)
+        return TelegramPost(
+            thread: topic.thread, user: user, reply: reply, files: files, conversation: conversation?.uuidString.lowercased(),
+            turnAt: turnAt)
     }
 
-    public static func topic(forSession sessionId: String?, in topics: [TelegramTopic]?) -> TelegramTopic? {
-        guard let sessionId, let topics else { return nil }
-        return topics.first { $0.sessionId == sessionId }
+    public static func topic(forSession sessionId: String?, conversation: UUID? = nil, in topics: [TelegramTopic]?) -> TelegramTopic? {
+        guard let topics else { return nil }
+        if let conversation, let hit = topics.first(where: { $0.matches(sessionId: nil, conversation: conversation) }) { return hit }
+        return topics.filter { $0.matches(sessionId: sessionId, conversation: nil) }
+            .max { ($0.lastUsed ?? .distantPast) < ($1.lastUsed ?? .distantPast) }
     }
 
     static func pinned(_ topics: [TelegramTopic]) -> [TelegramTopic] {
@@ -147,16 +172,19 @@ public enum TelegramTopics {
 
     public static func sections(records: [ConversationRecord], topics: [TelegramTopic]?, order: [Int] = []) -> ConversationSections {
         guard let topics else { return ConversationSections(wisp: records, telegram: []) }
-        let sessions = Set(topics.map(\.sessionId))
-        var linked: [String: ConversationRecord] = [:]
-        for record in records {
-            guard let sessionId = record.sessionId, sessions.contains(sessionId) else { continue }
-            if let current = linked[sessionId], current.updatedAt >= record.updatedAt { continue }
-            linked[sessionId] = record
+        var linked: [Int: ConversationRecord] = [:]
+        var taken = Set<UUID>()
+        for topic in topics {
+            let byConversation = records.filter { topic.matches(sessionId: nil, conversation: $0.id) }
+            let bySession = records.filter { topic.matches(sessionId: $0.sessionId, conversation: nil) }
+            guard let best = byConversation.max(by: { $0.updatedAt < $1.updatedAt })
+                ?? bySession.max(by: { $0.updatedAt < $1.updatedAt }) else { continue }
+            linked[topic.thread] = best
+            taken.formUnion((byConversation + bySession).map(\.id))
         }
         return ConversationSections(
-            wisp: records.filter { record in record.sessionId.map { !sessions.contains($0) } ?? true },
-            telegram: ordered(topics, saved: order).map { TelegramEntry(topic: $0, record: linked[$0.sessionId]) }
+            wisp: records.filter { !taken.contains($0.id) },
+            telegram: ordered(topics, saved: order).map { TelegramEntry(topic: $0, record: linked[$0.thread]) }
         )
     }
 }
@@ -206,6 +234,13 @@ public struct TelegramBlock: Codable, Sendable, Equatable {
             bin = String(bin.dropFirst().dropLast())
         }
         return bin.isEmpty ? nil : bin
+    }
+
+    public func shareCommand(session: String, cwd: String, name: String, conversation: String) -> String? {
+        guard let share, !share.isEmpty else { return nil }
+        let template = share.contains("{conversation}") || !share.contains(" compartilhar ")
+            ? share : share + " --conversation={conversation}"
+        return CommandTemplate.fill(template, ["session": session, "cwd": cwd, "name": name, "conversation": conversation])
     }
 
     public var canShare: Bool { !(share ?? "").isEmpty }
