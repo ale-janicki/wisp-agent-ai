@@ -37,14 +37,14 @@ public struct EngineLaunch: Sendable {
     public var addDirs: [String]
     public var environment: [String: String]
     public var wispBinary: String?
-    public var preflight: (@Sendable (String) -> String?)?
+    public var preflight: (@Sendable (String) -> CodexPreflight)?
 
     public init(
         kind: EngineKind, executable: URL, cwd: URL, model: String? = nil, resume: String? = nil,
         permission: PermissionChoice? = nil, claudePermissionMode: String? = nil, instructions: String = "",
         claudeSettingsPath: String? = nil, disallowedTools: [String] = [], addDirs: [String] = [],
         environment: [String: String] = [:], wispBinary: String? = nil,
-        preflight: (@Sendable (String) -> String?)? = nil
+        preflight: (@Sendable (String) -> CodexPreflight)? = nil
     ) {
         self.preflight = preflight
         self.wispBinary = wispBinary

@@ -105,17 +105,39 @@ def extra_dirs(root: Path, brain: Path, wisp_dir: Path) -> list[str]:
     return out
 
 
-def mcp_overrides(wisp_bin: str) -> list[str]:
-    fields = [
-        ("command", toml_string(wisp_bin)),
-        ("args", '["mcp", "email"]'),
-        ("env_vars", f'["WISP_TELEGRAM_THREAD", "{SOCKET_ENV}"]'),
-        ("default_tools_approval_mode", '"approve"'),
-        ("startup_timeout_sec", "30"),
-        ("tool_timeout_sec", "660"),
-        ("enabled", "true"),
-    ]
-    return [f"mcp_servers.wisp-email.{key}={value}" for key, value in fields]
+def mcp_overrides(wisp_bin: str, owned: frozenset[str] = frozenset()) -> list[str]:
+    servers = {
+        "wisp-email": [
+            ("command", toml_string(wisp_bin)),
+            ("args", '["mcp", "email"]'),
+            ("env_vars", f'["WISP_TELEGRAM_THREAD", "{SOCKET_ENV}"]'),
+            ("default_tools_approval_mode", '"approve"'),
+            ("startup_timeout_sec", "30"),
+            ("tool_timeout_sec", "660"),
+            ("enabled", "true"),
+        ],
+        "wisp-brain": [
+            ("command", toml_string(wisp_bin)),
+            ("args", '["mcp", "brain"]'),
+            ("env_vars", '["WISP_CONFIG", "XDG_CONFIG_HOME", "XDG_STATE_HOME"]'),
+            ("default_tools_approval_mode", '"approve"'),
+            ("startup_timeout_sec", "30"),
+            ("tool_timeout_sec", "60"),
+            ("enabled", "true"),
+        ],
+    }
+    return [f"mcp_servers.{name}.{key}={value}" for name, fields in servers.items() if name == "wisp-email" or name not in owned for key, value in fields]
+
+
+def user_owned_servers() -> frozenset[str]:
+    try:
+        text = (codex_home() / "config.toml").read_text("utf-8")
+        begin, end = text.find("# wisp:begin"), text.find("# wisp:end")
+        outside = text[:begin] + text[end + len("# wisp:end"):] if 0 <= begin < end else text
+        servers = tomllib.loads(outside).get("mcp_servers")
+    except (OSError, ValueError):
+        return frozenset()
+    return frozenset(name for name in ("wisp-email", "wisp-brain") if isinstance(servers, dict) and name in servers)
 
 
 def command(*, root: Path, mode: str, extra_prompt: str, session: str | None, wisp_bin: str | None = None) -> list[str]:
@@ -124,7 +146,7 @@ def command(*, root: Path, mode: str, extra_prompt: str, session: str | None, wi
         cmd += ["--add-dir", folder]
     instructions = "\n\n".join(x for x in (TELEGRAM_STYLE, CODEX_FILES_NOTE, extra_prompt) if x)
     cmd += ["-c", f"developer_instructions={toml_string(instructions)}"]
-    for override in mcp_overrides(wisp_bin or WISP_BIN):
+    for override in mcp_overrides(wisp_bin or WISP_BIN, user_owned_servers()):
         cmd += ["-c", override]
     if session:
         cmd += ["resume", session]

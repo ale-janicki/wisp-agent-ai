@@ -354,7 +354,7 @@ final class ConversationRuntime {
                         workspace: workspace, candidates: [wispDir, PathsModel.shared.url(.brain).path]),
                     environment: context.environment, wispBinary: wispBinary,
                     preflight: { [environment = CodexCommand.environment(executable: executable, overrides: context.environment)] workspace in
-                        CodexReadiness.projectProblem(wispBinary: wispBinary, environment: environment, workspace: workspace)
+                        CodexReadiness.preflight(wispBinary: wispBinary, environment: environment, workspace: workspace)
                     })
             }
             let next = EngineFactory.make(launch)

@@ -27,9 +27,11 @@ LISTING_LIMIT = 200
 PASS_THROUGH_ENV = ("XDG_CONFIG_HOME", "XDG_STATE_HOME", "XDG_DATA_HOME", "WISP_CONFIG", "WISP_RESOURCES")
 SERVER_KEYS = {"name", "command", "args", "env"}
 EMAIL_SERVER = "wisp-email"
+BRAIN_SERVER = "wisp-brain"
 EMAIL_TOOLS = frozenset({"email_list", "email_read", "email_search", "email_send"})
+BRAIN_TOOLS = frozenset({"brain_search", "brain_read", "brain_links"})
 BUILTIN_TOOLS = frozenset({"read_file", "list_files", "write_file", "run_shell"})
-RESERVED_TOOLS = EMAIL_TOOLS | BUILTIN_TOOLS
+RESERVED_TOOLS = EMAIL_TOOLS | BRAIN_TOOLS | BUILTIN_TOOLS
 CONTROL_FILES = frozenset({"guardrails.toml", "modelos.toml", "agente.md"})
 CONTROL_DIRS = frozenset({"ferramentas", "skills", "conversas"})
 INSTRUCTION_FILES = frozenset({"claude.md", "agents.md", "claude.local.md", "agents.override.md"})
@@ -258,12 +260,16 @@ def email_server() -> ServerSpec:
     return ServerSpec(EMAIL_SERVER, sys.executable, ("-m", "wisp", "mcp", "email"), trusted=True)
 
 
+def brain_server() -> ServerSpec:
+    return ServerSpec(BRAIN_SERVER, sys.executable, ("-m", "wisp", "mcp", "brain"), trusted=True)
+
+
 def with_approval_socket(server: ServerSpec, path: str) -> ServerSpec:
     return replace(server, env=(*server.env, (SOCKET_ENV, path))) if server.trusted else server
 
 
 def load_servers(folder: Path) -> tuple[list[ServerSpec], list[str]]:
-    servers, problems = [email_server()], []
+    servers, problems = [email_server(), brain_server()], []
     for path in sorted((folder / "ferramentas").glob("*.toml")):
         try:
             raw = tomllib.loads(path.read_text("utf-8"))
@@ -275,8 +281,8 @@ def load_servers(folder: Path) -> tuple[list[ServerSpec], list[str]]:
         except (OSError, ValueError, UnicodeDecodeError) as e:
             problems.append(f"ferramentas/{path.name} inválido ({e}); ignorei")
             continue
-        if raw["name"] == EMAIL_SERVER:
-            problems.append(f"ferramentas/{path.name} usa o nome {EMAIL_SERVER}, que é reservado; ignorei")
+        if raw["name"] in (EMAIL_SERVER, BRAIN_SERVER):
+            problems.append(f"ferramentas/{path.name} usa o nome {raw['name']}, que é reservado; ignorei")
             continue
         servers.append(ServerSpec(raw["name"], raw["command"], tuple(args), tuple(env.items())))
     return servers, problems
@@ -318,7 +324,7 @@ async def open_host(
                 continue
             stack.push_async_callback(guard.aclose)
             for tool in listed.tools:
-                if tool.name in RESERVED_TOOLS and not (server.trusted and tool.name in EMAIL_TOOLS):
+                if tool.name in RESERVED_TOOLS and not (server.trusted and tool.name in EMAIL_TOOLS | BRAIN_TOOLS):
                     host.problems.append(f"{server.name}: o nome {tool.name} é reservado do Wisp; ignorei")
                     continue
                 if tool.name in host.specs:

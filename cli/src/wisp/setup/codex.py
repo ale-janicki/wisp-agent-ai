@@ -12,7 +12,7 @@ from wisp.harness_merge import END, block_digest, find_block, merge_block
 from wisp.paths import WispPaths, resources_root
 from wisp.report import Detail
 from wisp.setup.folder import wisp_root
-from wisp.setup.harness import MANIFEST_NAME, MCP_NAME, _block, _file_mode, _load_manifest, _values
+from wisp.setup.harness import BRAIN_MCP_NAME, MANIFEST_NAME, MCP_NAME, _block, _file_mode, _load_manifest, _values
 
 AGENTS_KEY = "codex/AGENTS.md#block"
 CONFIG_KEY = "codex/config.toml#block"
@@ -67,6 +67,7 @@ def gate_problem_in(text: str | None) -> str | None:
     return None
 
 
+INLINE_LEFT_ALONE = "o config.toml do Codex tem uma tabela mcp_servers inline; o Wisp deixou o servidor do brain de fora (inline table)"
 PROJECT_DEFINES = ("o arquivo {file} define o servidor {name} do Codex; o Wisp não usa o Codex nesta pasta "
                    "enquanto ele existir (apague essa parte do arquivo ou use outra pasta)")
 PROJECT_UNREADABLE = ("não consegui ler {file} como TOML; o Wisp não usa o Codex nesta pasta enquanto ele estiver assim "
@@ -115,20 +116,33 @@ def server_fields(wisp_bin: str) -> list[tuple[str, str]]:
     ]
 
 
-def render_config_block(wisp_bin: str) -> str:
-    lines = [
-        TOML_BEGIN,
-        "# Managed by Wisp. Edit outside this block; changes inside it are replaced on the next sync.",
-        f"[mcp_servers.{MCP_NAME}]",
-        *(f"{key} = {value}" for key, value in server_fields(wisp_bin)),
-        TOML_END,
+def brain_fields(wisp_bin: str) -> list[tuple[str, str]]:
+    return [
+        ("command", json.dumps(wisp_bin, ensure_ascii=False)),
+        ("args", '["mcp", "brain"]'),
+        ("env_vars", '["WISP_CONFIG", "XDG_CONFIG_HOME", "XDG_STATE_HOME"]'),
+        ("default_tools_approval_mode", '"approve"'),
+        ("startup_timeout_sec", "30"),
+        ("tool_timeout_sec", "60"),
     ]
+
+
+def render_config_block(wisp_bin: str, *, email: bool = True, brain: bool = True) -> str:
+    lines = [TOML_BEGIN, "# Managed by Wisp. Edit outside this block; changes inside it are replaced on the next sync."]
+    for wanted, name, fields in ((email, MCP_NAME, server_fields(wisp_bin)), (brain, BRAIN_MCP_NAME, brain_fields(wisp_bin))):
+        if wanted:
+            lines += [f"[mcp_servers.{name}]", *(f"{key} = {value}" for key, value in fields)]
+    lines.append(TOML_END)
     return "\n".join(lines) + "\n"
 
 
-def mcp_overrides(wisp_bin: str) -> list[str]:
-    fields = [*server_fields(wisp_bin), ("enabled", "true")]
-    return [f"mcp_servers.{MCP_NAME}.{key}={value}" for key, value in fields]
+def mcp_overrides(wisp_bin: str, owned: frozenset[str] = frozenset()) -> list[str]:
+    out = []
+    for name, fields in ((MCP_NAME, server_fields(wisp_bin)), (BRAIN_MCP_NAME, brain_fields(wisp_bin))):
+        if name in owned and name != MCP_NAME:
+            continue
+        out += [f"mcp_servers.{name}.{key}={value}" for key, value in [*fields, ("enabled", "true")]]
+    return out
 
 
 def _read(path: Path) -> str | None:
@@ -169,16 +183,19 @@ def sync_codex(paths: WispPaths, cfg: WispConfig, *, dry_run: bool) -> CodexSync
     try:
         plans.append((agents_path, AGENTS_KEY, user_agents, _merged(
             user_agents, block, "<!-- wisp:begin -->", "<!-- wisp:end -->", "AGENTS.md", manifest.files.get(AGENTS_KEY))))
-        foreign = user_config is not None and _owns_server(_outside_block(user_config))
+        outside = _outside_block(user_config) if user_config is not None else None
+        foreign = outside is not None and _owns_server(outside)
+        brain_foreign = outside is not None and _owns_server(outside, BRAIN_MCP_NAME)
         if foreign:
             result.details.append(Detail("e-mail", 0, f"já existe outro servidor chamado {MCP_NAME} no Codex; o Wisp não mexeu nele"))
-        else:
-            wisp_bin = str(paths.runtime / "venv/bin/wisp")
-            plans.append((config_path, CONFIG_KEY, user_config, _merged(
-                user_config, render_config_block(wisp_bin), TOML_BEGIN, TOML_END, "config.toml", manifest.files.get(CONFIG_KEY))))
-        for path, _, _, (text, kind, _) in plans:
-            if path == config_path and kind != "conflict":
-                tomllib.loads(text)
+        if brain_foreign:
+            result.details.append(Detail("brain", 0, f"já existe outro servidor chamado {BRAIN_MCP_NAME} no Codex; o Wisp não mexeu nele"))
+        wisp_bin = str(paths.runtime / "venv/bin/wisp")
+        chosen = _config_plan(user_config, wisp_bin, manifest.files.get(CONFIG_KEY), foreign, brain_foreign)
+        if chosen is not None:
+            plans.append((config_path, CONFIG_KEY, user_config, chosen[0]))
+        if (chosen is None and not (foreign and brain_foreign)) or (chosen is not None and chosen[1] and not brain_foreign):
+            result.details.append(Detail("brain", 0, INLINE_LEFT_ALONE))
     except tomllib.TOMLDecodeError as e:
         return CodexSync("failed", [Detail("codex", 0, f"o config.toml do Codex não ficaria um TOML válido ({e}); nada foi alterado")])
     except ValueError as e:
@@ -207,9 +224,37 @@ def sync_codex(paths: WispPaths, cfg: WispConfig, *, dry_run: bool) -> CodexSync
     return result
 
 
-def _owns_server(outside: str) -> bool:
+def user_owned_servers(paths: WispPaths) -> frozenset[str]:
+    try:
+        text = _read(codex_home(paths) / "config.toml")
+        outside = _outside_block(text) if text is not None else ""
+        return frozenset(name for name in (MCP_NAME, BRAIN_MCP_NAME) if _owns_server(outside, name))
+    except (OSError, UnicodeDecodeError, ValueError):
+        return frozenset()
+
+
+def _config_plan(
+    user: str | None, wisp_bin: str, recorded: str | None, foreign: bool, brain_foreign: bool
+) -> tuple[tuple[str, str, str | None], bool] | None:
+    options = [(not foreign, not brain_foreign)]
+    if options[0] == (True, True):
+        options.append((True, False))
+    for email, brain in options:
+        if not (email or brain):
+            continue
+        merged = _merged(user, render_config_block(wisp_bin, email=email, brain=brain), TOML_BEGIN, TOML_END, "config.toml", recorded)
+        if merged[1] != "conflict":
+            try:
+                tomllib.loads(merged[0])
+            except tomllib.TOMLDecodeError:
+                continue
+        return merged, brain != options[0][1]
+    return None
+
+
+def _owns_server(outside: str, name: str = MCP_NAME) -> bool:
     servers = tomllib.loads(outside).get("mcp_servers")
-    return isinstance(servers, dict) and MCP_NAME in servers
+    return isinstance(servers, dict) and name in servers
 
 
 def _outside_block(text: str) -> str:

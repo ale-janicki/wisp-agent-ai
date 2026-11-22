@@ -1,8 +1,9 @@
 import json
 import os
-from dataclasses import asdict, dataclass, fields
+from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 
+from wisp.brain_index import LOG_MARKERS
 from wisp.fsops import atomic_write
 from wisp.paths import WispPaths
 
@@ -31,6 +32,8 @@ class WispConfig:
     claude_bin: str | None = None
     brain_learn: bool = True
     codex_bin: str | None = None
+    recall_tokens: int = 6000
+    brain_log_markers: list[str] = field(default_factory=lambda: list(LOG_MARKERS))
     telegram: TelegramConfig | None = None
     telegram_token_at: int | None = None
 

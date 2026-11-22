@@ -30,7 +30,7 @@ from wisp.recall import hook_recall
 from wisp.report import StepReport
 from wisp.runner import SubprocessRunner
 from wisp.setup.brain import setup_brain
-from wisp.setup.codex import gate_problem, project_config_problem, sync_codex
+from wisp.setup.codex import gate_problem, project_config_problem, sync_codex, user_owned_servers
 from wisp.setup.folder import UNREADABLE, seed_folder, setup_folder, wisp_root
 from wisp.setup.harness import setup_harness
 from wisp.setup.profile import setup_profile
@@ -418,7 +418,7 @@ def build_parser() -> argparse.ArgumentParser:
     codex_check = codex_steps.add_parser("check")
     codex_check.add_argument("--workspace")
     mcp = sub.add_parser("mcp")
-    mcp.add_argument("server", choices=["email"])
+    mcp.add_argument("server", choices=["email", "brain"])
     email = sub.add_parser("email")
     email_steps = email.add_subparsers(dest="action", required=True)
     email_list = email_steps.add_parser("list")
@@ -471,7 +471,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         problem = gate_problem(paths)
         project = project_config_problem(Path(args.workspace).expanduser(), paths.home) if args.workspace else None
         ready = problem is None and project is None
-        print(json.dumps({"ready": ready, "problem": problem, "project": project}, ensure_ascii=False))
+        print(json.dumps({"ready": ready, "problem": problem, "project": project, "owned": sorted(user_owned_servers(paths))}, ensure_ascii=False))
         return 0 if ready else 1
     if args.command == "config" and args.action == "set":
         return _config_set(args)
@@ -481,6 +481,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _brain_colher(args)
     if args.command == "email":
         return _email(args)
+    if args.command == "mcp" and args.server == "brain":
+        from wisp.brain_server import run_server as run_brain_server
+
+        return run_brain_server(_load_config_or_default()[0], WispPaths.current())
     if args.command == "mcp":
         from wisp.email.mail_app import MailApp      # lazy: the mcp package loads only for the server
         from wisp.email.server import run_server
