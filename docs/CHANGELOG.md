@@ -9,7 +9,10 @@ Entries are in descending chronological order (newest first).
 
 ## [Unreleased]
 
-- Meetings: a brain note that was renamed or moved is found again (by its `gravacao` and marker) and updated in place instead of duplicated; if it was deleted, the sync says so and only recreates it on an explicit "Salvar no brain". Event text can no longer inject lines into the note, concurrent writes to the meetings index and summary are serialized and re-checked, and the note stores `~`-relative paths instead of absolute ones.
+## [0.4.2] - 2026-11-22
+
+- Version 0.4.2 (build 9).
+
 ### Added
 
 - Each tab with settings (Conversa, Brain, Agenda, Reuniões, Música, My Mac) has a gear in its header that opens that tab's settings inside the tab, with "Voltar" and "Todos os ajustes"; Ajustes keeps everything.
@@ -18,6 +21,7 @@ Entries are in descending chronological order (newest first).
 - Meetings: the "Salvar no brain" button now runs the same sync instead of copying the note, and reads "Abrir no brain" once the synced note exists.
 - Meetings: new setting "Gerar resumo logo após a chamada" in Ajustes > Geral > Reuniões and on the Reuniões tab (on by default). Off writes the brain note with participants and the transcript link right away and the finished meeting shows "Gerar resumo", which fills the same brain note.
 - Ajustes > Geral > "Pasta do Wisp" is one compact row: the "Trocar o caminho não move nada" note moved into the "Trocar…" tooltip and the list of what is inside the folder sits behind a closed "O que tem dentro" disclosure.
+- `wisp local delete TAG` removes a downloaded model (and its partial download); `wisp local catalog` now also reports `downloading` and `resumable` tags.
 
 ### Changed
 
@@ -27,14 +31,11 @@ Entries are in descending chronological order (newest first).
 
 ### Fixed
 
+- Meetings: a brain note that was renamed or moved is found again (by its `gravacao` and marker) and updated in place instead of duplicated; if it was deleted, the sync says so and only recreates it on an explicit "Salvar no brain". Event text can no longer inject lines into the note, concurrent writes to the meetings index and summary are serialized and re-checked, and the note stores `~`-relative paths instead of absolute ones.
 - Local models: two downloads of one model can no longer both run after a status poll removes a stale lock at the wrong moment (the lock is re-checked after it is taken); deleting a model stops its server first; deleting a model whose folder is a symlink removes the link without following it, and a delete that fails is reported instead of "done".
 - Ajustes > Modelo: a model whose download finished is shown as downloaded ("Usar" / "Em uso" and "Apagar") even when an interrupted download left a stale `.baixando-<model>.lock` or `modelos.toml` never recorded it. The list reads the folder (config.json plus every shard of `model.safetensors.index.json`, or `model.safetensors`, all non-empty); a lock nobody holds is removed; an incomplete folder offers "Retomar download".
 - The "mlx-lm missing" message no longer tells the user to update the Wisp. It says the local AI component is still being installed (the install was interrupted), that it finishes by itself, and offers "Tentar de novo".
 - The runtime install no longer breaks when the bot is writing into the installed sources: the new `src` is copied beside the old one and swapped in by rename, the old folder is removed best-effort (leftovers are swept at launch), and runtime Python no longer writes `.pyc` files. Before, a half-deleted `src` made every launch fail with "Não consegui copiar os arquivos do Wisp".
-
-### Added
-
-- `wisp local delete TAG` removes a downloaded model (and its partial download); `wisp local catalog` now also reports `downloading` and `resumable` tags.
 
 ## [0.4.1] - 2026-11-22
 
