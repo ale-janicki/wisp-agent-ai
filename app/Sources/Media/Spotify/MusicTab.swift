@@ -35,7 +35,7 @@ private struct SpotifyPane: View {
     }
 
     var body: some View {
-        TabCard(title: "Spotify", icon: "music.note.list", trailing: trailing) {
+        TabCard(title: "Spotify", icon: "music.note.list", trailing: trailing, settingsTab: .music) {
             switch spotify.auth {
             case .unknown:
                 SkeletonRows(count: 3)

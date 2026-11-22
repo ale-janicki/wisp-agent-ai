@@ -29,7 +29,7 @@ struct BrainTab: View {
     }
 
     var body: some View {
-        TabCard(title: "Brain", icon: PanelTab.brain.icon, trailing: vaultName) {
+        TabCard(title: "Brain", icon: PanelTab.brain.icon, trailing: vaultName, settingsTab: .brain) {
             ZStack {
                 content
                 overlays
