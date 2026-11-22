@@ -2,7 +2,24 @@ import AppKit
 import SwiftUI
 import WispCore
 
+struct NavCover {
+    var isCovered = false
+    var set: (Bool) -> Void = { _ in }
+}
+
+private struct NavCoverKey: EnvironmentKey {
+    static var defaultValue: NavCover { NavCover() }
+}
+
+extension EnvironmentValues {
+    var navCover: NavCover {
+        get { self[NavCoverKey.self] }
+        set { self[NavCoverKey.self] = newValue }
+    }
+}
+
 struct MeetingsTab: View {
+    @Environment(\.navCover) private var navCover
     @ObservedObject var model: MeetingRecordingModel
     @ObservedObject private var library: MeetingLibraryModel
     @ObservedObject private var speech: SpeechModelModel
@@ -23,6 +40,10 @@ struct MeetingsTab: View {
             model.refreshPermissions()
             speech.refresh()
             library.reload(thenProcess: true)
+            navCover.set(library.selectedID != nil)
+        }
+        .onChange(of: library.selectedID) { _, id in
+            navCover.set(id != nil)
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             model.refreshPermissions()
@@ -37,11 +58,13 @@ private struct MeetingListCard: View {
     var body: some View {
         TabCard(title: "Reuniões", icon: "waveform", trailing: library.entries.isEmpty ? nil : "\(library.entries.count)", settingsTab: .meetings) {
             VStack(alignment: .leading, spacing: Theme.Space.xs) {
+                RecorderBar(model: model)
+                    .padding(.bottom, Theme.Space.xs)
                 if model.phase != .idle {
                     liveRow
                 }
                 if library.rows.isEmpty {
-                    TabMessage(text: "Nenhuma reunião ainda.\nGrave a primeira ao lado.")
+                    TabMessage(text: "Nenhuma reunião ainda.\nGrave a primeira acima.")
                 } else {
                     ScrollView {
                         LazyVStack(spacing: 2) {
@@ -110,6 +133,13 @@ private struct MeetingRow: View {
     }
 }
 
+private enum MeetingStatusText {
+    static func label(badge: MeetingStatusBadge, stage: MeetingStage?) -> String {
+        if case .transcribing(let fraction)? = stage, fraction > 0 { return "\(badge.label) \(Int(fraction * 100))%" }
+        return badge.label
+    }
+}
+
 private struct StatusBadge: View {
     let badge: MeetingStatusBadge
     let stage: MeetingStage?
@@ -122,10 +152,7 @@ private struct StatusBadge: View {
         }
     }
 
-    private var label: String {
-        if case .transcribing(let fraction)? = stage, fraction > 0 { return "\(badge.label) \(Int(fraction * 100))%" }
-        return badge.label
-    }
+    private var label: String { MeetingStatusText.label(badge: badge, stage: stage) }
 
     var body: some View {
         HStack(spacing: 4) {
@@ -152,7 +179,6 @@ private struct MeetingMainCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Space.m) {
-            RecorderPanel(model: model)
             ForEach(model.permissionCards) { card in
                 PermissionCardView(card: card)
             }
@@ -207,128 +233,112 @@ private struct MeetingMainCard: View {
         } else if model.phase != .idle || !model.liveLines.isEmpty {
             LiveSessionView(model: model, copilot: copilot)
         } else {
-            VStack(alignment: .leading, spacing: Theme.Space.m) {
+            VStack(spacing: Theme.Space.m) {
+                VStack(spacing: Theme.Space.m) {
+                    Spacer(minLength: 0)
+                    Text("Escolha uma reunião na lista ou grave uma nova.\nO que for dito aparece aqui em tempo real.")
+                        .font(Theme.Font.body)
+                        .foregroundStyle(Theme.textSecondary)
+                        .multilineTextAlignment(.center)
+                    RecordButton(model: model)
+                    Spacer(minLength: 0)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
                 PrepCard(copilot: copilot)
-                TabMessage(text: "Escolha uma reunião na lista ou clique em Gravar.\nO que for dito aparece aqui em tempo real.")
             }
         }
     }
 }
 
-private struct RecorderPanel: View {
+private struct RecordButton: View {
     @ObservedObject var model: MeetingRecordingModel
-    private let settings = AppSettings.shared
 
     var body: some View {
         let control = model.control
-        HStack(alignment: .center, spacing: Theme.Space.l) {
-            Button {
-                model.toggle()
-            } label: {
-                ZStack {
-                    Circle().fill(control.isRecording ? Theme.error : Theme.accent)
-                    Image(systemName: control.isRecording ? "stop.fill" : "mic.fill")
-                        .font(.system(size: 22, weight: .semibold))
-                        .foregroundStyle(Theme.onAccent)
-                }
-                .frame(width: 60, height: 60)
-                .opacity(control.isEnabled ? 1 : 0.5)
+        Button {
+            model.toggle()
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: control.isRecording ? "stop.fill" : "mic.fill")
+                Text(control.title)
+                    .lineLimit(1)
             }
-            .buttonStyle(.plain)
-            .pointerStyle(control.isEnabled ? .link : nil)
-            .disabled(!control.isEnabled)
-            .help("Grava só quando você clica. O áudio fica no seu Mac.")
-
-            VStack(alignment: .leading, spacing: Theme.Space.xs) {
-                HStack(alignment: .firstTextBaseline, spacing: Theme.Space.s) {
-                    if let startedAt = model.startedAt {
-                        TimelineView(.periodic(from: startedAt, by: 1)) { context in
-                            Text(ElapsedFormat.clock(context.date.timeIntervalSince(startedAt)))
-                                .font(.system(size: 26, weight: .semibold, design: .monospaced))
-                                .foregroundStyle(Theme.textPrimary)
-                        }
-                    } else {
-                        Text(control.timer)
-                            .font(.system(size: 26, weight: .semibold, design: .monospaced))
-                            .foregroundStyle(Theme.textTertiary)
-                    }
-                    Text(control.title)
-                        .font(Theme.Font.bodyMedium)
-                        .foregroundStyle(control.isRecording ? Theme.error : Theme.textSecondary)
-                }
-                SourcePicker(selection: $model.sources)
-                    .disabled(model.phase != .idle)
-                    .opacity(model.phase == .idle ? 1 : 0.6)
-                Toggle("Gerar resumo logo após a chamada", isOn: Binding(
-                    get: { settings.settings.meetings.autoSummary },
-                    set: { on in settings.setMeetings { $0.autoSummary = on } }
-                ))
-                .toggleStyle(.checkbox)
-                .font(Theme.Font.caption)
-                .foregroundStyle(Theme.textSecondary)
-                .help("Desligado: a nota entra no brain só com os participantes e o link da transcrição; o resumo vem pelo botão Gerar resumo.")
-            }
-
-            Spacer(minLength: Theme.Space.m)
-
-            VStack(alignment: .leading, spacing: 6) {
-                LevelRow(label: "Você", bar: LevelBar(level: model.micLevel, active: model.isRecording && model.sources.usesMic))
-                LevelRow(label: "Mac", bar: LevelBar(level: model.systemLevel, active: model.isRecording && model.sources.usesSystem))
-            }
-            .frame(width: 150)
+            .fixedSize()
         }
-        .padding(Theme.Space.m)
-        .background(Theme.surfaceHi.opacity(0.6), in: RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous))
+        .buttonStyle(CapsuleButtonStyle(kind: control.isRecording ? .error : .accent))
+        .disabled(!control.isEnabled)
+        .help("Grava só quando você clica. O áudio fica no seu Mac.")
     }
 }
 
-private struct SourcePicker: View {
-    @Binding var selection: RecordingSources
-
-    var body: some View {
-        HStack(spacing: 4) {
-            ForEach(RecordingSources.allCases) { option in
-                let chosen = selection == option
-                Button {
-                    selection = option
-                } label: {
-                    Text(option.shortLabel)
-                        .font(Theme.Font.caption)
-                        .foregroundStyle(chosen ? Theme.accentText : Theme.textSecondary)
-                        .padding(.horizontal, 10)
-                        .frame(height: 24)
-                        .background(Capsule().fill(chosen ? Theme.accentFill : Theme.surface))
-                        .contentShape(Capsule())
-                }
-                .buttonStyle(.plain)
-                .pointerStyle(.link)
-                .help(option.label)
-            }
-        }
-    }
-}
-
-private struct LevelRow: View {
-    let label: String
-    let bar: LevelBar
+private struct RecorderBar: View {
+    @ObservedObject var model: MeetingRecordingModel
 
     var body: some View {
         HStack(spacing: Theme.Space.s) {
-            Text(label)
-                .font(Theme.Font.caption)
-                .foregroundStyle(bar.active ? Theme.textSecondary : Theme.textTertiary)
-                .frame(width: 34, alignment: .leading)
-            GeometryReader { proxy in
-                ZStack(alignment: .leading) {
-                    Capsule().fill(Theme.surface)
-                    Capsule()
-                        .fill(bar.fraction > 0.85 ? Theme.busy : Theme.ok)
-                        .frame(width: max(0, proxy.size.width * bar.fraction))
-                        .animation(.linear(duration: 0.08), value: bar.fraction)
+            RecordButton(model: model)
+            if let startedAt = model.startedAt {
+                TimelineView(.periodic(from: startedAt, by: 1)) { context in
+                    Text(ElapsedFormat.clock(context.date.timeIntervalSince(startedAt)))
+                        .font(Theme.Font.captionMono)
+                        .foregroundStyle(Theme.textPrimary)
+                        .lineLimit(1)
+                        .fixedSize()
+                }
+                LevelMeter(bar: LevelBar(level: max(model.micLevel, model.systemLevel), active: model.isRecording))
+            } else {
+                Spacer(minLength: 0)
+                if model.phase == .idle {
+                    SourceMenu(selection: $model.sources)
                 }
             }
-            .frame(height: 6)
         }
+    }
+}
+
+private struct SourceMenu: View {
+    @Binding var selection: RecordingSources
+
+    var body: some View {
+        Menu {
+            ForEach(RecordingSources.allCases) { option in
+                Button {
+                    selection = option
+                } label: {
+                    if selection == option {
+                        Label(option.label, systemImage: "checkmark")
+                    } else {
+                        Text(option.label)
+                    }
+                }
+            }
+        } label: {
+            Text(selection.shortLabel)
+                .font(Theme.Font.caption)
+                .lineLimit(1)
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .help("Fonte do áudio")
+    }
+}
+
+private struct LevelMeter: View {
+    let bar: LevelBar
+
+    var body: some View {
+        GeometryReader { proxy in
+            ZStack(alignment: .leading) {
+                Capsule().fill(Theme.surface)
+                Capsule()
+                    .fill(bar.fraction > 0.85 ? Theme.busy : Theme.ok)
+                    .frame(width: max(0, proxy.size.width * bar.fraction))
+                    .animation(.linear(duration: 0.08), value: bar.fraction)
+            }
+        }
+        .frame(minWidth: 30, maxWidth: .infinity)
+        .frame(height: 6)
+        .help("Nível do áudio")
     }
 }
 
@@ -433,56 +443,143 @@ private struct SectionTitle: View {
 
 private struct MeetingDetailView: View {
     enum Page { case note, transcript }
+    private enum Primary { case generate, cancel, brain }
+
+    private static let readableWidth: CGFloat = 720
 
     let entry: MeetingEntry
     @ObservedObject var library: MeetingLibraryModel
+    @Environment(\.navCover) private var navCover
     @State private var page: Page = .note
 
     private var row: MeetingRowModel { MeetingRowModel(entry: entry, working: library.stage(of: entry.id) != nil) }
     private var detail: MeetingDetail? { library.detail?.id == entry.id ? library.detail : nil }
+    private var stage: MeetingStage? { library.stage(of: entry.id) }
+    private var brain: MeetingBrainButton { library.brainButton(entry) }
+
+    private var primary: Primary? {
+        if stage == .writingNote { return .cancel }
+        if stage != nil { return nil }
+        if entry.hasTranscript, !entry.hasNote || entry.meta.status == .failed { return .generate }
+        if entry.hasNote || entry.hasTranscript { return .brain }
+        return nil
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Theme.Space.s) {
-            HStack(alignment: .firstTextBaseline, spacing: Theme.Space.s) {
-                SectionTitle(text: row.title)
-                    .lineLimit(1)
-                StatusBadge(badge: row.badge, stage: library.stage(of: entry.id))
-                Spacer(minLength: 0)
-                Text("\(row.dateText) · \(row.durationText)")
-                    .font(Theme.Font.captionMono)
-                    .foregroundStyle(Theme.textTertiary)
+        VStack(spacing: Theme.Space.s) {
+            controls
+            VStack(alignment: .leading, spacing: Theme.Space.m) {
+                header
+                if let failure = entry.meta.failure {
+                    IssueLine(text: Self.humanFailure(failure), help: failure, actionTitle: "Tentar de novo") {
+                        if entry.meta.status == .failed { library.retry(entry) } else { library.regenerateNote(entry) }
+                    }
+                }
+                if let brainError = entry.meta.brainError {
+                    IssueLine(text: "Não gravei a nota no brain.", help: brainError, actionTitle: "Tentar de novo") {
+                        library.brainAction(entry)
+                    }
+                }
+                pagePicker
+                pageContent
             }
-            if let failure = entry.meta.failure {
-                InlineError(text: failure)
-            }
-            if let brainError = entry.meta.brainError {
-                InlineError(text: "Não gravei a nota no brain: \(brainError)")
-            }
-            actions
-            pagePicker
-            pageContent
+            .padding(.horizontal, Theme.Space.l)
+            .frame(maxWidth: Self.readableWidth, maxHeight: .infinity, alignment: .topLeading)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
-    private var actions: some View {
+    private static func humanFailure(_ failure: String) -> String {
+        failure.contains("comando de nota falhou") ? "A nota não foi gerada. Tente de novo." : failure
+    }
+
+    private var controls: some View {
         HStack(spacing: Theme.Space.s) {
-            Button("Abrir nota") { library.openNote(entry) }
-                .disabled(!entry.hasNote)
+            Button { library.select(nil) } label: {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Theme.textSecondary)
+                    .frame(width: 26, height: 22)
+            }
+            .buttonStyle(RowButtonStyle())
+            .help("Voltar às reuniões")
+            Spacer(minLength: 0)
+            Button { navCover.set(!navCover.isCovered) } label: {
+                Image(systemName: "sidebar.left")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Theme.textSecondary)
+                    .frame(width: 26, height: 22)
+            }
+            .buttonStyle(RowButtonStyle())
+            .help(navCover.isCovered ? "Mostrar menu" : "Esconder menu")
+        }
+    }
+
+    private var header: some View {
+        HStack(alignment: .top, spacing: Theme.Space.s) {
+            VStack(alignment: .leading, spacing: 2) {
+                SectionTitle(text: row.title)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Text("\(row.dateText) · \(row.durationText) · \(MeetingStatusText.label(badge: row.badge, stage: stage))")
+                    .font(Theme.Font.caption)
+                    .foregroundStyle(Theme.textTertiary)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: Theme.Space.s)
+            primaryButton
+            moreMenu
+        }
+    }
+
+    @ViewBuilder
+    private var primaryButton: some View {
+        switch primary {
+        case .generate:
+            Button("Gerar nota") { library.regenerateNote(entry) }
+                .buttonStyle(CompactCapsuleStyle(accent: true))
+                .lineLimit(1)
+                .fixedSize()
+        case .cancel:
+            Button("Cancelar nota") { library.cancelNote(entry.id) }
+                .buttonStyle(CompactCapsuleStyle(accent: false))
+                .lineLimit(1)
+                .fixedSize()
+        case .brain:
+            Button(brain.label) { library.brainAction(entry) }
+                .buttonStyle(CompactCapsuleStyle(accent: true))
+                .lineLimit(1)
+                .fixedSize()
+        case nil:
+            EmptyView()
+        }
+    }
+
+    private var moreMenu: some View {
+        Menu {
             Button("Copiar") { library.copy(entry) }
                 .disabled(entry.hasNote ? false : !entry.hasTranscript)
-            Button(library.brainButton(entry).label) { library.brainAction(entry) }
-                .disabled(!entry.hasNote && !entry.hasTranscript)
-            if entry.meta.status == .failed {
-                Button("Tentar de novo") { library.retry(entry) }
-            } else if library.stage(of: entry.id) == .writingNote {
-                Button("Cancelar nota") { library.cancelNote(entry.id) }
-            } else if entry.hasTranscript, library.stage(of: entry.id) == nil {
-                Button(entry.hasNote ? "Gerar nota de novo" : "Gerar resumo") { library.regenerateNote(entry) }
+            if entry.hasNote {
+                Button("Abrir nota") { library.openNote(entry) }
             }
+            if primary != .brain, entry.hasNote || entry.hasTranscript {
+                Button(brain.label) { library.brainAction(entry) }
+            }
+            if entry.hasTranscript, stage == nil, primary != .generate {
+                Button("Gerar nota de novo") { library.regenerateNote(entry) }
+            }
+            Divider()
             Button("Mostrar no Finder") { library.reveal(entry) }
-            Spacer(minLength: 0)
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(Theme.textSecondary)
+                .frame(width: 24, height: 24)
         }
-        .buttonStyle(CompactCapsuleStyle(accent: false))
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help("Mais ações")
     }
 
     private var pagePicker: some View {
@@ -498,6 +595,8 @@ private struct MeetingDetailView: View {
             Text(title)
                 .font(Theme.Font.caption)
                 .foregroundStyle(chosen ? Theme.accentText : Theme.textSecondary)
+                .lineLimit(1)
+                .fixedSize()
                 .padding(.horizontal, 10)
                 .frame(height: 24)
                 .background(Capsule().fill(chosen ? Theme.accentFill : Theme.surface))
@@ -522,6 +621,30 @@ private struct MeetingDetailView: View {
             } else {
                 TabMessage(text: library.stage(of: entry.id) != nil ? "Transcrevendo…" : "Sem transcrição.")
             }
+        }
+    }
+}
+
+private struct IssueLine: View {
+    let text: String
+    let help: String
+    let actionTitle: String
+    let action: () -> Void
+
+    var body: some View {
+        HStack(spacing: Theme.Space.s) {
+            Circle().fill(Theme.error).frame(width: 6, height: 6)
+            Text(text)
+                .font(Theme.Font.caption)
+                .foregroundStyle(Theme.textSecondary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .help(help)
+            Button(actionTitle, action: action)
+                .buttonStyle(CompactCapsuleStyle(accent: false))
+                .lineLimit(1)
+                .fixedSize()
+            Spacer(minLength: 0)
         }
     }
 }
