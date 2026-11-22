@@ -245,6 +245,13 @@ final class ConversationViewModel {
         }
     }
 
+    @discardableResult
+    func send(_ question: String, context: String) -> Bool {
+        let text = question.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty, !inputBlocked else { return false }
+        return submit(prompt: context + "\n\n" + text, caption: text, files: [])
+    }
+
     private func submit(prompt text: String, caption: String, files: [String]) -> Bool {
         current.submit(prompt: text, caption: caption)
         return true

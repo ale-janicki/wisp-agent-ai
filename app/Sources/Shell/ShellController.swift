@@ -336,6 +336,7 @@ final class ShellController: ObservableObject {
         if let m = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: { [weak self] event in
             let handled = MainActor.assumeIsolated { () -> Bool in
                 guard let self, event.keyCode == 53, self.state != .rest else { return false }
+                if self.state == .panel, BrainModel.shared.dismissOverlay() { return true }
                 self.show(self.state == .panel ? self.restTarget() : .rest)
                 return true
             }

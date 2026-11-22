@@ -39,6 +39,8 @@ struct TabCard<Content: View>: View {
 struct SearchField: View {
     @Binding var text: String
     var placeholder: String
+    var autofocus = false
+    @FocusState private var focused: Bool
 
     var body: some View {
         HStack(spacing: Theme.Space.s) {
@@ -49,6 +51,7 @@ struct SearchField: View {
                 .textFieldStyle(.plain)
                 .font(Theme.Font.body)
                 .foregroundStyle(Theme.textPrimary)
+                .focused($focused)
             if !text.isEmpty {
                 Button { text = "" } label: { Image(systemName: "xmark") }
                     .buttonStyle(CircleButtonStyle(size: 20))
@@ -60,6 +63,7 @@ struct SearchField: View {
         .frame(height: 30)
         .background(Capsule().fill(Theme.surfaceHi))
         .overlay(Capsule().strokeBorder(Theme.stroke, lineWidth: 1))
+        .onAppear { if autofocus { focused = true } }
     }
 }
 

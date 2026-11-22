@@ -1,6 +1,7 @@
 import hashlib
 import math
 import os
+import posixpath
 import re
 import sqlite3
 import stat
@@ -293,6 +294,12 @@ class Graph:
             found = _find(table, key)
             if found:
                 return self._closest(found, source)
+        if "/" in key and source:
+            relative = posixpath.normpath(posixpath.join(posixpath.dirname(source), key))
+            if relative != ".." and not relative.startswith("../"):
+                found = _find(self._path, relative)
+                if found:
+                    return self._closest(found, source)
         return None
 
     def resolve_rel(self, rel: str) -> str | None:
