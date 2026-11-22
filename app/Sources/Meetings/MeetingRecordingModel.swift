@@ -33,6 +33,7 @@ final class MeetingRecordingModel: ObservableObject {
     let speech = SpeechModelModel()
     let library: MeetingLibraryModel
     let copilot = MeetingCopilotModel()
+    var contextResolver: (@MainActor (Date) async -> MeetingEventContext?)?
 
     private static let sourcesKey = "meetings.sources"
     private static let systemKey = "meetings.systemAudioPermission"
@@ -48,6 +49,7 @@ final class MeetingRecordingModel: ObservableObject {
     private var recordingSources: RecordingSources = .both
     private var systemWatch = SystemAudioWatch()
     private var pendingLink: MeetingEventContext?
+    private var recordingEvent: MeetingEventInfo?
 
     var isRecording: Bool { phase == .recording }
     var isBusy: Bool { phase == .starting || phase == .finishing }
@@ -98,6 +100,7 @@ final class MeetingRecordingModel: ObservableObject {
     func start(linkedTo context: MeetingEventContext? = nil) {
         guard phase == .idle else { return }
         pendingLink = context
+        recordingEvent = nil
         phase = .starting
         message = nil
         warnings = []
@@ -193,12 +196,8 @@ final class MeetingRecordingModel: ObservableObject {
         case .success(let folder):
             recorder = next
             lastFolder = folder
-            if let context = pendingLink {
-                if (try? context.links.recordRecording(event: context.event, calendarTitle: context.calendarTitle, folder: folder)) == nil {
-                    log.error("could not link recording to event")
-                }
-                pendingLink = nil
-            }
+            attachEvent(pendingLink, folder: folder, startedAt: now)
+            pendingLink = nil
             startedAt = now
             phase = .recording
             library.select(nil)
@@ -215,6 +214,25 @@ final class MeetingRecordingModel: ObservableObject {
             message = error.localizedDescription
             refreshPermissions()
             log.error("recording refused: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    private func attachEvent(_ explicit: MeetingEventContext?, folder: URL, startedAt now: Date) {
+        if let explicit {
+            link(explicit, folder: folder)
+            return
+        }
+        guard let resolver = contextResolver else { return }
+        Task { [weak self] in
+            guard let context = await resolver(now), let self, self.phase == .recording, self.lastFolder == folder else { return }
+            self.link(context, folder: folder)
+        }
+    }
+
+    private func link(_ context: MeetingEventContext, folder: URL) {
+        recordingEvent = MeetingEventInfo(event: context.event, calendarTitle: context.calendarTitle)
+        if (try? context.links.recordRecording(event: context.event, calendarTitle: context.calendarTitle, folder: folder)) == nil {
+            log.error("could not link recording to event")
         }
     }
 
@@ -262,11 +280,17 @@ final class MeetingRecordingModel: ObservableObject {
             let process = result.failure == nil
             let snapshot = copilot.takeSnapshot()
             let recorded = result.folder
+            let event = recordingEvent
+            recordingEvent = nil
+            let deferSummary = !AppSettings.shared.settings.meetings.autoSummary
             Task { [weak self] in
                 await Task.detached {
                     _ = try? RecordingFolder.update(in: recorded) {
                         $0.bookmarks = snapshot.bookmarks.isEmpty ? nil : snapshot.bookmarks
                         $0.checklist = snapshot.checklist.isEmpty ? nil : snapshot.checklist
+                        $0.event = event
+                        $0.title = event?.title ?? $0.title
+                        $0.summaryDeferred = deferSummary ? true : nil
                     }
                 }.value
                 await self?.speech.releaseLive()

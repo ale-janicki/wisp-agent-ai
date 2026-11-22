@@ -35,6 +35,7 @@ final class MeetingsCoordinator: NSObject, NSMenuDelegate, UNUserNotificationCen
                 intentIdentifiers: [])
         ])
         CalendarModel.shared.meetings = shell.meetings
+        shell.meetings.contextResolver = { await CalendarModel.shared.meetingContext(at: $0) }
         CalendarModel.shared.start()
         ticker = Task { [weak self] in
             while !Task.isCancelled {
