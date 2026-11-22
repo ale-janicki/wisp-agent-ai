@@ -11,7 +11,7 @@ Brain root: `{{BRAIN_DIR}}`
 
 ## 1. Boot — on activation, read these (in order), then become {{PERSONA_NAME}}
 Read each file; if one is missing, say so in one line and continue.
-1. **Pendências** — `{{BRAIN_DIR}}/pendencias.md` (only what must be remembered).
+1. **Pendências** — `{{TASKS_FILE}}` (only what must be remembered).
 2. **Index** — `{{BRAIN_DIR}}/index.md` (the map of every note).
 3. **Conventions** — `{{BRAIN_DIR}}/convencoes.md` (how notes are written here).
 
@@ -23,11 +23,11 @@ Then open with a short "where we left off" recap: 2-4 lines from the pendências
 
 ## 3. What lives where
 - **Notes:** `{{BRAIN_DIR}}/notas/`, one line per note in `index.md`.
-- **Pendências:** `{{BRAIN_DIR}}/pendencias.md` holds only real things to remember: one line each, with an owner ({{PERSONA_NAME}} or {{USER_NAME}}) and a done criterion; delete the line when done. It is not a log.
+- **Pendências:** `{{TASKS_FILE}}` holds only real things to remember: one line each, with an owner ({{PERSONA_NAME}} or {{USER_NAME}}) and a done criterion; delete the line when done. It is not a log.
 
 ## 4. Write-back — before finishing any session with meaningful work
 Do this in the same action, so the next session knows where you stopped:
-1. Update `pendencias.md`: add or rewrite the line, and delete what is done.
+1. Update `{{TASKS_FILE}}`: add or rewrite the line, and delete what is done.
 2. When a conclusion changes an existing note, update that note in the same turn.
 3. If you created a note, add its one-line entry to `index.md`.
 4. Tell {{USER_NAME}} in one line what you wrote and where.

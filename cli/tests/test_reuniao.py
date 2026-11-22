@@ -412,6 +412,16 @@ def test_local_active_not_ready_skips_the_note_with_the_reason_and_never_falls_b
     assert runner.calls == []
 
 
+def test_local_problem_reports_the_readiness_failure_of_the_active_model(world):
+    folder, wisp_dir, cfg = world
+    modelos.write(wisp_dir, modelos.LocalState("qwen3:8b", ("qwen3:8b",)))
+    with FakeLLM(tags={"outro:1b": 1}) as fake:
+        client = fake.client()
+        expected = client.readiness("qwen3:8b")
+        assert expected == "o servidor não oferece o modelo qwen3:8b"
+        assert reuniao.local_problem(cfg, client) == expected
+
+
 def test_local_active_without_any_client_skips_the_note_and_never_runs_the_hosted_engine(world, monkeypatch):
     folder, wisp_dir, cfg = world
     use_engine(wisp_dir, "local")
