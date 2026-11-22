@@ -121,7 +121,7 @@ final class MeetingRecordingModel: ObservableObject {
         let bridge = bridge
         let next = MeetingRecorder(
             mic: MicrophoneSource(), system: ProcessTapSource(), root: { [base = recordingsRoot] in base },
-            makeSink: { try StereoFileSink(url: $0, container: .pcm16) }, converter: M4AFileConverter(),
+            makeSink: { try LiveEncodedSink(rawURL: $0) }, converter: LiveEncodedConverter(),
             sources: chosen, onAudio: { bridge.push($1, channel: $0, time: $2) }
         )
         Task { [weak self] in
@@ -187,7 +187,7 @@ final class MeetingRecordingModel: ObservableObject {
         let active: Set<String> = phase == .idle ? [] : Set([lastFolder?.lastPathComponent].compactMap { $0 })
         Task { [weak self] in
             let found = await Task.detached {
-                RecordingRecovery.recover(root: base, converter: M4AFileConverter(), excluding: active)
+                RecordingRecovery.recover(root: base, converter: LiveEncodedConverter(), excluding: active)
             }.value
             guard let self else { return }
             self.speech.refresh()

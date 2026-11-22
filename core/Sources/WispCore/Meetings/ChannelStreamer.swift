@@ -32,20 +32,6 @@ public enum SignalLevel {
 
     public static func rms(_ samples: [Float]) -> Float { rms(samples[...]) }
 
-    public static func hasSpeech(_ samples: ArraySlice<Float>, threshold: Float, frame: Int = 320, minimumFrames: Int = 3) -> Bool {
-        var active = 0
-        var index = samples.startIndex
-        while index < samples.endIndex {
-            let end = min(index + frame, samples.endIndex)
-            if rms(samples[index..<end]) >= threshold {
-                active += 1
-                if active >= minimumFrames { return true }
-            }
-            index = end
-        }
-        return false
-    }
-
     public static func normalized(rms: Float, floorDecibels: Float = -60) -> Float {
         guard rms > 0 else { return 0 }
         let decibels = 20 * log10(rms)
@@ -54,129 +40,46 @@ public enum SignalLevel {
 }
 
 public struct StreamJob: Equatable, Sendable {
-    public enum Kind: Equatable, Sendable { case partial, final }
+    public enum Kind: Equatable, Sendable { case typing, final, noise }
 
     public var channel: AudioChannel
     public var kind: Kind
     public var startSample: Int
     public var samples: [Float]
+    public var endSample: Int?
 
     public var startSeconds: Double { Double(startSample) / Double(SpeechAudio.sampleRate) }
+
+    public var endSeconds: Double { Double(endSample ?? startSample) / Double(SpeechAudio.sampleRate) }
 }
 
-public struct ChannelStreamerConfig: Equatable, Sendable {
-    public var windowSeconds: Double
-    public var overlapSeconds: Double
-    public var partialIntervalSeconds: Double
-    public var emitsPartials: Bool
-    public var silenceRMS: Float
-    public var minimumFlushSeconds: Double
-
-    public init(
-        windowSeconds: Double = 5, overlapSeconds: Double = 1, partialIntervalSeconds: Double = 2.75,
-        emitsPartials: Bool = true, silenceRMS: Float = 0.003, minimumFlushSeconds: Double = 0.6
-    ) {
-        self.windowSeconds = windowSeconds
-        self.overlapSeconds = overlapSeconds
-        self.partialIntervalSeconds = partialIntervalSeconds
-        self.emitsPartials = emitsPartials
-        self.silenceRMS = silenceRMS
-        self.minimumFlushSeconds = minimumFlushSeconds
-    }
-
-    public static let live = ChannelStreamerConfig()
-    public static let finalPass = ChannelStreamerConfig(windowSeconds: 30, overlapSeconds: 2, emitsPartials: false)
-}
+public typealias ChannelStreamerConfig = SpeechSegmenterConfig
 
 public struct ChannelStreamer: Sendable {
     public let channel: AudioChannel
-    private let config: ChannelStreamerConfig
-    private var buffer: [Float] = []
-    private var bufferStart = 0
-    private var windowStart = 0
-    private var lastPartialEnd = 0
-    private var lastPartialSample = 0
-    private var total = 0
+    private var segmenter: SpeechSegmenter
 
-    public init(channel: AudioChannel, config: ChannelStreamerConfig = .live) {
+    public init(channel: AudioChannel, config: ChannelStreamerConfig = .default) {
         self.channel = channel
-        self.config = config
+        segmenter = SpeechSegmenter(config: config)
     }
 
-    private var rate: Double { Double(SpeechAudio.sampleRate) }
-    private var windowSamples: Int { Int(config.windowSeconds * rate) }
-    private var strideSamples: Int { max(1, Int((config.windowSeconds - config.overlapSeconds) * rate)) }
-    private var partialSamples: Int { max(1, Int(config.partialIntervalSeconds * rate)) }
-    public var totalSamples: Int { total }
+    public var totalSamples: Int { segmenter.totalSamples }
 
-    public mutating func append(_ samples: [Float]) -> [StreamJob] {
-        buffer.append(contentsOf: samples)
-        total += samples.count
-        var jobs: [StreamJob] = []
-        while total - windowStart >= windowSamples {
-            let end = windowStart + windowSamples
-            if let job = job(.final, from: windowStart, to: end) { jobs.append(job) }
-            windowStart += strideSamples
-            lastPartialEnd = windowStart
-            lastPartialSample = max(lastPartialSample, end)
-        }
-        if config.emitsPartials, total - lastPartialEnd >= partialSamples, total - windowStart >= partialSamples {
-            lastPartialEnd = total
-            if hasNewSpeech(since: max(lastPartialSample, windowStart)), let job = job(.partial, from: windowStart, to: total) {
-                jobs.append(job)
+    public mutating func append(_ samples: [Float]) -> [StreamJob] { jobs(segmenter.append(samples)) }
+
+    public mutating func flush() -> [StreamJob] { jobs(segmenter.flush()) }
+
+    public mutating func skipGap(samples: Int) -> [StreamJob] { jobs(segmenter.skipGap(samples: samples)) }
+
+    private func jobs(_ events: [SegmenterEvent]) -> [StreamJob] {
+        events.map { event in
+            switch event {
+            case .opened(let start): StreamJob(channel: channel, kind: .typing, startSample: start, samples: [])
+            case .segment(let start, let samples): StreamJob(channel: channel, kind: .final, startSample: start, samples: samples)
+            case .dropped: StreamJob(channel: channel, kind: .final, startSample: 0, samples: [])
+            case .noise(let start, let end): StreamJob(channel: channel, kind: .noise, startSample: start, samples: [], endSample: end)
             }
-            lastPartialSample = total
         }
-        trim()
-        return jobs
-    }
-
-    public mutating func flush() -> [StreamJob] {
-        defer {
-            windowStart = total
-            lastPartialEnd = total
-            lastPartialSample = total
-            trim()
-        }
-        let remaining = total - windowStart
-        let coveredByLastWindow = windowStart > 0 && Double(remaining) <= config.overlapSeconds * rate
-        guard Double(remaining) >= config.minimumFlushSeconds * rate, !coveredByLastWindow else { return [] }
-        return job(.final, from: windowStart, to: total).map { [$0] } ?? []
-    }
-
-    public mutating func skipGap(samples: Int) -> [StreamJob] {
-        let jobs = flush()
-        total += samples
-        windowStart = total
-        lastPartialEnd = total
-        lastPartialSample = total
-        bufferStart = total
-        buffer = []
-        return jobs
-    }
-
-    private func hasNewSpeech(since start: Int) -> Bool {
-        let lower = max(start, bufferStart) - bufferStart
-        guard lower < buffer.count else { return false }
-        return SignalLevel.hasSpeech(buffer[lower..<buffer.count], threshold: config.silenceRMS)
-    }
-
-    private func job(_ kind: StreamJob.Kind, from start: Int, to end: Int) -> StreamJob? {
-        let lower = max(start, bufferStart) - bufferStart
-        let upper = end - bufferStart
-        guard lower < upper, upper <= buffer.count else { return nil }
-        let slice = Array(buffer[lower..<upper])
-        let first = max(start, bufferStart)
-        guard SignalLevel.rms(slice) >= config.silenceRMS else {
-            return kind == .final ? StreamJob(channel: channel, kind: .final, startSample: first, samples: []) : nil
-        }
-        return StreamJob(channel: channel, kind: kind, startSample: first, samples: slice)
-    }
-
-    private mutating func trim() {
-        let drop = windowStart - bufferStart
-        guard drop > 0 else { return }
-        buffer.removeFirst(min(drop, buffer.count))
-        bufferStart += drop
     }
 }
