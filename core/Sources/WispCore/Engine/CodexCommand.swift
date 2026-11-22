@@ -68,28 +68,43 @@ public enum CodexCommand {
 
     public static let emailServer = "wisp-email"
     public static let brainServer = "wisp-brain"
+    public static let macServer = "wisp-mac"
 
-    public static func mcpOverrides(wispBinary: String, ownedByUser: Set<String> = []) -> [String] {
-        let fields: [(String, String)] = [
-            ("command", tomlString(wispBinary)),
-            ("args", #"["mcp", "email"]"#),
-            ("env_vars", #"["WISP_TELEGRAM_THREAD", "\#(ApprovalBroker.socketEnvironment)"]"#),
-            ("default_tools_approval_mode", #""approve""#),
-            ("startup_timeout_sec", "30"),
-            ("tool_timeout_sec", "660"),
-            ("enabled", "true"),
-        ]
-        let brain: [(String, String)] = [
-            ("command", tomlString(wispBinary)),
-            ("args", #"["mcp", "brain"]"#),
-            ("env_vars", #"["WISP_CONFIG", "XDG_CONFIG_HOME", "XDG_STATE_HOME"]"#),
-            ("default_tools_approval_mode", #""approve""#),
-            ("startup_timeout_sec", "30"),
-            ("tool_timeout_sec", "60"),
-            ("enabled", "true"),
-        ]
-        let ours = fields.map { "mcp_servers.\(emailServer).\($0.0)=\($0.1)" }
-        return ownedByUser.contains(brainServer) ? ours : ours + brain.map { "mcp_servers.\(brainServer).\($0.0)=\($0.1)" }
+    public static let macReadOnlyTools = [
+        "mac_apps", "mac_battery", "mac_dnd_status", "mac_screenshot", "mac_shortcuts_list", "mac_ui_tree", "mac_wifi", "mac_windows",
+    ]
+    public static let macAllTools = [
+        "mac_app", "mac_apps", "mac_battery", "mac_brightness", "mac_dark_mode", "mac_dnd_status", "mac_media", "mac_notify",
+        "mac_open", "mac_open_url", "mac_screenshot", "mac_script", "mac_send", "mac_settings_pane", "mac_shortcut",
+        "mac_shortcuts_list", "mac_ui_click", "mac_ui_key", "mac_ui_menu", "mac_ui_scroll", "mac_ui_tree", "mac_ui_type",
+        "mac_volume", "mac_wifi", "mac_windows",
+    ]
+
+    public static func changesAllowed(_ choice: PermissionChoice?) -> Bool {
+        choice == .auto || choice == .bypass
+    }
+
+    public static func mcpOverrides(wispBinary: String, ownedByUser: Set<String> = [], allowChanges: Bool = true) -> [String] {
+        let macTools = "[" + (allowChanges ? macAllTools : macReadOnlyTools).map { "\"\($0)\"" }.joined(separator: ", ") + "]"
+        func fields(_ server: String, env: String, timeout: String = "660", tools: String? = nil) -> [(String, String)] {
+            [
+                ("command", tomlString(wispBinary)),
+                ("args", #"["mcp", "\#(server)"]"#),
+                ("env_vars", env),
+                ("default_tools_approval_mode", #""approve""#),
+                ("startup_timeout_sec", "30"),
+                ("tool_timeout_sec", timeout),
+            ] + (tools.map { [("enabled_tools", $0)] } ?? []) + [("enabled", "true")]
+        }
+        let socket = ApprovalBroker.socketEnvironment
+        var out = fields("email", env: #"["WISP_TELEGRAM_THREAD", "\#(socket)"]"#).map { "mcp_servers.\(emailServer).\($0.0)=\($0.1)" }
+        if !ownedByUser.contains(brainServer) {
+            out += fields("brain", env: #"["WISP_CONFIG", "XDG_CONFIG_HOME", "XDG_STATE_HOME"]"#, timeout: "60").map { "mcp_servers.\(brainServer).\($0.0)=\($0.1)" }
+        }
+        if !ownedByUser.contains(macServer) {
+            out += fields("mac", env: #"["WISP_TELEGRAM_THREAD", "\#(socket)"]"#, tools: macTools).map { "mcp_servers.\(macServer).\($0.0)=\($0.1)" }
+        }
+        return out
     }
 
     public static func environment(
@@ -115,7 +130,7 @@ public enum CodexCommand {
         var args = ["exec", "--json", "--skip-git-repo-check", "-C", workspace] + sandboxArguments(permission)
         for directory in addDirs { args += ["--add-dir", directory] }
         if !instructions.isEmpty { args += ["-c", "developer_instructions=\(tomlString(instructions))"] }
-        for override in mcpOverrides(wispBinary: wispBinary, ownedByUser: ownedByUser) { args += ["-c", override] }
+        for override in mcpOverrides(wispBinary: wispBinary, ownedByUser: ownedByUser, allowChanges: changesAllowed(permission)) { args += ["-c", override] }
         if let resume { args += ["resume", resume] }
         return args + ["-"]
     }

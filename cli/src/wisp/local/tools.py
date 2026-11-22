@@ -15,6 +15,10 @@ import anyio.to_thread
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import get_default_environment, stdio_client
 
+from wisp.mac import Falha
+from wisp.mac_control import TOOLS as MAC_TOOLS, Ctx as MacCtx, call as mac_call
+from wisp.paths import WispPaths
+from wisp.runner import SubprocessRunner
 from wisp.secrets_scan import scan_text
 from wisp.send_gate import SOCKET_ENV
 
@@ -30,7 +34,7 @@ EMAIL_SERVER = "wisp-email"
 BRAIN_SERVER = "wisp-brain"
 EMAIL_TOOLS = frozenset({"email_list", "email_read", "email_search", "email_send"})
 BRAIN_TOOLS = frozenset({"brain_search", "brain_read", "brain_links"})
-BUILTIN_TOOLS = frozenset({"read_file", "list_files", "write_file", "run_shell"})
+BUILTIN_TOOLS = frozenset({"read_file", "list_files", "write_file", "run_shell"}) | frozenset(MAC_TOOLS)
 RESERVED_TOOLS = EMAIL_TOOLS | BRAIN_TOOLS | BUILTIN_TOOLS
 CONTROL_FILES = frozenset({"guardrails.toml", "modelos.toml", "agente.md"})
 CONTROL_DIRS = frozenset({"ferramentas", "skills", "conversas"})
@@ -253,7 +257,17 @@ def builtins(roots: list[Path], workdir: Path) -> tuple[dict[str, ToolSpec], dic
         "read_file": files.read, "list_files": files.list, "write_file": files.write,
         "run_shell": lambda args: run_shell(workdir, args),
     }
+    mac = MacCtx(SubprocessRunner(), WispPaths.current(), gate=lambda request: None)
+    specs += [ToolSpec(t.name, t.description, t.schema) for t in MAC_TOOLS.values()]
+    runs.update({name: lambda args, name=name: _mac_call(mac, name, args) for name in MAC_TOOLS})
     return {s.name: s for s in specs}, runs
+
+
+def _mac_call(ctx: MacCtx, name: str, args: dict) -> str:
+    try:
+        return mac_call(ctx, name, args)
+    except Falha as e:
+        raise ToolFailure(str(e)) from None
 
 
 def email_server() -> ServerSpec:

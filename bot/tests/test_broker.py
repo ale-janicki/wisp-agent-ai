@@ -375,9 +375,29 @@ def _ask(mail):
 
 
 def test_the_hash_matches_the_contract_vector_and_treats_a_missing_cc_as_empty():
-    assert broker.huella(TICKET["input"]) == TICKET["sha256"]
-    assert broker.huella(TICKET["same_without_cc"]) == TICKET["sha256"]
-    assert broker.huella(_mail(to="ana@exemplo.com")) is None and broker.huella(_mail(subject=None)) is None
+    assert broker.huella("email_send", TICKET["input"]) == TICKET["sha256"]
+    assert broker.huella("email_send", TICKET["same_without_cc"]) == TICKET["sha256"]
+    assert broker.huella("email_send", _mail(to="ana@exemplo.com")) is None and broker.huella("email_send", _mail(subject=None)) is None
+
+
+def test_the_hash_covers_the_tool_name_and_the_app_as_the_contract_vector_says():
+    mac = CONTRACT["ticket_mac"]
+    assert broker.huella("mac_send", mac["input"]) == mac["sha256"]
+    assert broker.huella("mac_send", {**mac["input"], "app": "Mail"}) == mac["other_app_sha256"] != mac["sha256"]
+    assert broker.huella("email_send", mac["input"]) == mac["other_tool_sha256"] != mac["sha256"]
+
+
+def test_a_ticket_minted_for_one_tool_or_app_is_not_accepted_for_another():
+    mac = CONTRACT["ticket_mac"]["input"]
+
+    async def body(b):
+        assert b.autorizar(mac, "mac_send")
+        other_tool = await talk(b.path, line({"op": "request", "tool": "email_send", "input": mac}))
+        other_app = await talk(b.path, line({"op": "request", "tool": "mac_send", "input": {**mac, "app": "Mail"}}))
+        right = await talk(b.path, line({"op": "request", "tool": "mac_send", "input": mac}))
+        return other_tool, other_app, right
+    other_tool, other_app, right = with_broker(None, body)
+    assert other_tool == other_app == {"decision": "deny", "message": broker.SEM_BILHETE} and right == CONTRACT["allow"]
 
 
 def test_a_claude_ticket_is_consumed_once_and_a_second_send_is_refused():

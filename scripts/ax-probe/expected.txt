@@ -1,0 +1,16 @@
+== readonly
+com.apple.tccd -> kr=1100 (blocked)
+com.apple.dock.server -> kr=1100 (blocked)
+com.apple.windowserver.active -> kr=1100 (blocked)
+com.apple.coreservices.appleevents -> kr=1100 (blocked)
+com.apple.cfprefsd.daemon -> kr=0 (REACHABLE)
+com.apple.system.opendirectoryd.libinfo -> kr=0 (REACHABLE)
+com.apple.nonexistent.wisp.probe -> kr=1100 (blocked)
+== workspace
+com.apple.tccd -> kr=1100 (blocked)
+com.apple.dock.server -> kr=1100 (blocked)
+com.apple.windowserver.active -> kr=1100 (blocked)
+com.apple.coreservices.appleevents -> kr=1100 (blocked)
+com.apple.cfprefsd.daemon -> kr=0 (REACHABLE)
+com.apple.system.opendirectoryd.libinfo -> kr=0 (REACHABLE)
+com.apple.nonexistent.wisp.probe -> kr=1100 (blocked)

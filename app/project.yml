@@ -46,6 +46,33 @@ targets:
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         NSCalendarsFullAccessUsageDescription: "O Wisp lê e cria os compromissos da sua agenda quando você pede."
         NSRemindersFullAccessUsageDescription: "O Wisp lê e cria os seus lembretes quando você pede."
+  wisp-mac:
+    type: tool
+    platform: macOS
+    sources:
+      - MacControl
+    dependencies:
+      - package: WispCore
+        product: WispCore
+    configFiles:
+      Debug: Signing.xcconfig
+      Release: Signing.xcconfig
+    settings:
+      base:
+        PRODUCT_NAME: wisp-mac
+        PRODUCT_BUNDLE_IDENTIFIER: ai.wisp.mac
+        SWIFT_VERSION: "6.0"
+        SWIFT_STRICT_CONCURRENCY: complete
+        MACOSX_DEPLOYMENT_TARGET: "15.0"
+        CREATE_INFOPLIST_SECTION_IN_BINARY: YES
+        ENABLE_HARDENED_RUNTIME: YES
+    info:
+      path: MacControl/Info.plist
+      properties:
+        CFBundleName: wisp-mac
+        CFBundleIdentifier: ai.wisp.mac
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
   Wisp:
     type: application
     platform: macOS
@@ -64,6 +91,12 @@ targets:
       - package: FluidAudio
         product: FluidAudio
       - target: wisp-agenda
+        embed: true
+        codeSign: true
+        copy:
+          destination: wrapper
+          subpath: Contents/Helpers
+      - target: wisp-mac
         embed: true
         codeSign: true
         copy:
@@ -107,4 +140,4 @@ targets:
         NSRemindersFullAccessUsageDescription: "O Wisp lê e cria os seus lembretes quando você pede."
         NSMicrophoneUsageDescription: "O Wisp grava o seu microfone quando você clica em gravar uma reunião."
         NSAudioCaptureUsageDescription: "O Wisp grava o áudio do Mac (a outra ponta da call) quando você clica em gravar uma reunião."
-        NSAppleEventsUsageDescription: "O Wisp mostra e controla a música que está tocando no Spotify ou no Music."
+        NSAppleEventsUsageDescription: "O Wisp controla a música (Spotify, Music) e os apps do Mac, como o navegador, quando você pede."

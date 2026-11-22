@@ -15,6 +15,11 @@ SERVER_MESSAGE = (
     "Use the email_send tool, which asks the user first. Best-effort defense in depth"
 )
 
+HELPER_MESSAGE = (
+    GUARD_PREFIX + " blocked, calling the wisp-mac helper directly skips the check that keeps messages from being sent without the user's approval. "
+    "Use `wisp mac ...` or the mac_* tools. Best-effort defense in depth"
+)
+
 SQUASH = re.compile(r"[\"'`\\+\s,\[\]()]")
 TOKEN_SPLIT = re.compile(r"[\s;|&<>(){}\"'`=,:]+")
 MAIL_APP = re.compile(r"application(id)?(com\.apple\.)?mail|com\.apple\.mail")
@@ -22,6 +27,13 @@ PYTHON_LAUNCHER = re.compile(r"\bpython[\d.]*\b|\bpypy\d*\b|\bipython\b", re.I)
 WISP_EMAIL = re.compile(r"wisp\.?email|fromwispimportemail|mailapp")
 LIGHT = re.compile(r"[\"'`\\]")
 MCP_SERVER = re.compile(r"(^|[\s/;&|(])wisp(\.exe)?\s+(-\S+\s+)*mcp(?=\s|$)|\s-m\s+wisp\b.*\smcp(?=\s|$)")
+HELPER_DIRS = ("contents/helpers",)
+SINGLE_VARIABLE = re.compile(r"\$\{?(\w+)\}?")
+UI_SCRIPT = re.compile(r"(systemevents.*(click|keystroke|keycode))|objc\.import|cgevent")
+UI_MESSAGE = (
+    GUARD_PREFIX + " blocked, driving the screen with osascript, System Events or CGEvent from a shell can send without the user's approval. "
+    "Use the mac_* tools. Best-effort defense in depth, not a lock"
+)
 OPEN_MAILTO = re.compile(r"(^|[\s/;&|(])open\s.*mailto:")
 HEREDOC = re.compile(r"<<-?\s*[\"']?(\w+)[\"']?([^\n]*)\n.*?(\n\s*\1\s*(?=\n|$)|$)", re.S)
 OPERATORS = {";", "&", "&&", "|", "||", "(", ")", "\n", "|&", ";;"}
@@ -65,6 +77,24 @@ def _script_contents(command: str, cwd: Path, home: Path) -> str:
     chunks: list[str] = []
     for token in _tokens(command):
         if Path(token).suffix.lower() not in SCRIPT_SUFFIXES:
+            continue
+        path = Path(home / token[2:] if token.startswith("~/") else token)
+        path = path if path.is_absolute() else cwd / path
+        try:
+            if path.is_file() and path.stat().st_size <= SCRIPT_READ_LIMIT:
+                chunks.append(path.read_bytes().decode("utf-8", errors="replace"))
+        except OSError:
+            continue
+    return "\n".join(chunks)
+
+
+SHELL_SUFFIXES = {".sh", ".command", ".bash", ".zsh"}
+
+
+def _shell_script_contents(command: str, cwd: Path, home: Path) -> str:
+    chunks: list[str] = []
+    for token in _tokens(command):
+        if Path(token).suffix.lower() not in SHELL_SUFFIXES:
             continue
         path = Path(home / token[2:] if token.startswith("~/") else token)
         path = path if path.is_absolute() else cwd / path
@@ -254,6 +284,91 @@ def _starts_server(text: str) -> bool:
     return bool(MCP_SERVER.search(plain) or MCP_SERVER.search(listed) or "wisp_approval_socket" in plain or "wisp_approval_socket" in squashed)
 
 
+def _helper_path(word: str) -> bool:
+    lowered = word.lower()
+    return Path(word).name == "wisp-mac" or any(d in lowered for d in HELPER_DIRS)
+
+
+def _shell_code(args: list[str]) -> str | None:
+    for index, word in enumerate(args):
+        if re.fullmatch(r"-[A-Za-z]*c[A-Za-z]*", word) and index + 1 < len(args):
+            return args[index + 1]
+    return None
+
+
+def _helper_in_words(words: list[str], depth: int) -> bool:
+    tainted: set[str] = set()
+    in_helpers = False
+    for segment, _ in _segments(words):
+        for word in segment:
+            if ASSIGNMENT.match(word) and _helper_path(word.split("=", 1)[1]):
+                tainted.add(word.split("=", 1)[0])
+        start = _command_index(segment)
+        if start is None:
+            continue
+        word = segment[start]
+        name = Path(word).name
+        if name in {"cd", "pushd"} and len(segment) > start + 1:
+            in_helpers = in_helpers or _helper_path(segment[start + 1].rstrip("/") + "/x")
+            continue
+        if _helper_path(word) or (in_helpers and not word.startswith("-")):
+            return True
+        if "$" in word:
+            single = SINGLE_VARIABLE.fullmatch(word)
+            if not single or single.group(1) in tainted or "mac" in single.group(1).lower():
+                return True
+        if "*" in word or "?" in word:
+            return True
+        if name in SHELLS and depth < 3:
+            code = _shell_code(segment[start + 1:])
+            if code is not None and _calls_helper(code, depth + 1):
+                return True
+    return False
+
+
+def _calls_helper(text: str, depth: int = 0) -> bool:
+    def words_of(chunk: str) -> list[str] | None:
+        lexer = shlex.shlex(chunk.replace("\n", " ; "), posix=True, punctuation_chars=True)
+        lexer.whitespace_split = True
+        lexer.commenters = ""
+        try:
+            return list(lexer)
+        except ValueError:
+            return None
+
+    words = words_of(text)
+    if words is not None:
+        return _helper_in_words(words, depth)
+    return any(_helper_in_words(w, depth) for w in (words_of(line) for line in text.splitlines()) if w is not None)
+
+
+def _osascript_in_command_position(command: str, depth: int = 0) -> bool:
+    flat = HEREDOC.sub(lambda m: " " + m.group(2), command).replace("\n", " ; ")
+    lexer = shlex.shlex(flat, posix=True, punctuation_chars=True)
+    lexer.whitespace_split = True
+    lexer.commenters = ""
+    try:
+        words = list(lexer)
+    except ValueError:
+        return "osascript" in command
+    for segment, _ in _segments(words):
+        start = _command_index(segment)
+        if start is None:
+            continue
+        name = Path(segment[start]).name
+        if name == "osascript":
+            return True
+        if name in SHELLS and depth < 3:
+            code = _shell_code(segment[start + 1:])
+            if code is not None and _osascript_in_command_position(code, depth + 1):
+                return True
+    return False
+
+
+def _drives_ui(command: str, combined: str) -> bool:
+    return _osascript_in_command_position(command) and bool(UI_SCRIPT.search(SQUASH.sub("", combined).casefold()))
+
+
 def _sends_mail(command: str, combined: str) -> bool:
     if OPEN_MAILTO.search(re.sub(r"\s+", " ", LIGHT.sub("", command)).casefold()):
         return True
@@ -265,7 +380,7 @@ def _sends_mail(command: str, combined: str) -> bool:
     return bool(PYTHON_LAUNCHER.search(combined) and WISP_EMAIL.search(squashed))
 
 
-def hook_guard_outbound(payload: dict, paths: WispPaths) -> str | None:
+def hook_guard_outbound(payload: dict, paths: WispPaths, ui_scripts: bool = True) -> str | None:
     tool_input = payload.get("tool_input")
     if not isinstance(tool_input, dict) or payload.get("tool_name") != "Bash":
         return None
@@ -279,4 +394,8 @@ def hook_guard_outbound(payload: dict, paths: WispPaths) -> str | None:
     combined = command + "\n" + _script_contents(command, cwd, paths.home) + "\n" + file_text
     if _starts_server(combined):
         return SERVER_MESSAGE
+    if _calls_helper(command + "\n" + _shell_script_contents(command, cwd, paths.home)):
+        return HELPER_MESSAGE
+    if ui_scripts and _drives_ui(command, combined):
+        return UI_MESSAGE
     return MAIL_MESSAGE if _sends_mail(command, combined) else None

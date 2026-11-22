@@ -440,7 +440,7 @@ def build_parser() -> argparse.ArgumentParser:
     codex_check = codex_steps.add_parser("check")
     codex_check.add_argument("--workspace")
     mcp = sub.add_parser("mcp")
-    mcp.add_argument("server", choices=["email", "brain"])
+    mcp.add_argument("server", choices=["email", "brain", "mac"])
     email = sub.add_parser("email")
     email_steps = email.add_subparsers(dest="action", required=True)
     email_list = email_steps.add_parser("list")
@@ -510,6 +510,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         from wisp.brain_server import run_server as run_brain_server
 
         return run_brain_server(_load_config_or_default()[0], WispPaths.current())
+    if args.command == "mcp" and args.server == "mac":
+        from wisp.mac_server import run_server as run_mac_server
+
+        run_mac_server()
+        return 0
     if args.command == "mcp":
         from wisp.email.mail_app import MailApp      # lazy: the mcp package loads only for the server
         from wisp.email.server import run_server

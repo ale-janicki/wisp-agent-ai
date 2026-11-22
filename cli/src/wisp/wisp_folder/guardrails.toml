@@ -4,11 +4,13 @@
 # max_steps  how many model replies one turn may take; 0 means no cap
 # tools      the only tools the model can call at this size
 # approve    tools that always wait for your approval card at this size
+# remove     optional: built-in mac_ tools Wisp adds to this size on its own (you do not need to list them) that you
+#            do not want here, for example remove = ["mac_script"]
 
 [irreversible]
-# Always behind the approval card, in every permission mode. Wisp already includes email_send and
+# Always behind the approval card, in every permission mode. Wisp already includes email_send, mac_send and
 # run_shell itself; this list can only add tools, never remove them.
-tools = ["email_send", "run_shell"]
+tools = ["email_send", "mac_send", "run_shell"]
 
 [loop]
 # The same call (same tool, same arguments) this many times in one turn stops the turn.
@@ -16,15 +18,15 @@ repeat_limit = 3
 
 [pequeno]
 max_steps = 6
-tools = ["read_file", "list_files", "write_file", "email_list", "email_read", "email_search", "email_send"]
+tools = ["read_file", "list_files", "write_file", "email_list", "email_read", "email_search", "email_send", "mac_apps", "mac_windows", "mac_battery", "mac_wifi", "mac_screenshot", "mac_open", "mac_open_url", "mac_volume", "mac_media"]
 approve = ["write_file"]
 
 [medio]
 max_steps = 12
-tools = ["read_file", "list_files", "write_file", "email_list", "email_read", "email_search", "email_send"]
+tools = ["read_file", "list_files", "write_file", "email_list", "email_read", "email_search", "email_send", "mac_apps", "mac_windows", "mac_battery", "mac_wifi", "mac_screenshot", "mac_open", "mac_open_url", "mac_volume", "mac_media", "mac_dnd_status", "mac_shortcuts_list", "mac_app", "mac_brightness", "mac_dark_mode", "mac_settings_pane", "mac_notify", "mac_shortcut", "mac_ui_tree", "mac_ui_click", "mac_ui_type", "mac_ui_key", "mac_ui_scroll", "mac_ui_menu"]
 approve = []
 
 [grande]
 max_steps = 40
-tools = ["read_file", "list_files", "write_file", "run_shell", "email_list", "email_read", "email_search", "email_send"]
+tools = ["read_file", "list_files", "write_file", "run_shell", "email_list", "email_read", "email_search", "email_send", "mac_apps", "mac_windows", "mac_battery", "mac_wifi", "mac_screenshot", "mac_open", "mac_open_url", "mac_volume", "mac_media", "mac_dnd_status", "mac_shortcuts_list", "mac_app", "mac_brightness", "mac_dark_mode", "mac_settings_pane", "mac_notify", "mac_shortcut", "mac_ui_tree", "mac_ui_click", "mac_ui_type", "mac_ui_key", "mac_ui_scroll", "mac_ui_menu", "mac_script", "mac_send"]
 approve = []
