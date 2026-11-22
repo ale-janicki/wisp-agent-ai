@@ -7,7 +7,7 @@ from datetime import date
 from pathlib import Path
 
 import pytest
-from local_fakes import FakeOllama, call, reply
+from local_fakes import FakeLLM, call, reply
 
 from wisp.config import WispConfig
 from wisp.local import guardrails
@@ -59,7 +59,7 @@ def tool_results(events):
 
 
 def test_a_plain_answer_streams_init_text_and_result_with_engine_and_model(folder):
-    with FakeOllama([reply("Olá!")]) as fake:
+    with FakeLLM([reply("Olá!")]) as fake:
         engine = make(folder, fake)
         result, events = run(engine, engine.start("c1", "qwen3:8b"))
     assert [e["type"] for e in events] == ["system", "assistant", "result"]
@@ -68,31 +68,30 @@ def test_a_plain_answer_streams_init_text_and_result_with_engine_and_model(folde
     final = events[2]
     assert (final["result"], final["engine"], final["model"], final["is_error"], final["stopped"]) == ("Olá!", "local", "qwen3:8b", False, None)
     sent = fake.chats()[0]
-    assert sent["options"]["num_ctx"] == 8192
     assert sent["messages"][0]["role"] == "system" and "Você é o Wisp." in sent["messages"][0]["content"]
     names = [t["function"]["name"] for t in sent["tools"]]
     assert names[:3] == ["read_file", "list_files", "write_file"]
-    assert set(names[3:]) == {"mac_apps", "mac_windows", "mac_battery", "mac_wifi", "mac_screenshot", "mac_open", "mac_open_url", "mac_volume", "mac_media"}
+    assert set(names[3:]) == {"web_search", "web_fetch", "mac_apps", "mac_windows", "mac_battery", "mac_wifi", "mac_screenshot", "mac_open", "mac_open_url", "mac_volume", "mac_media"}
     assert result.text == "Olá!" and result.steps == 1
 
 
 def test_a_tool_call_runs_and_feeds_the_next_request(folder):
     path = str(folder / "notas.txt")
-    with FakeOllama([reply("", [call("read_file", path=path)]), reply("Diz: conteúdo das notas")]) as fake:
+    with FakeLLM([reply("", [call("read_file", path=path)]), reply("Diz: conteúdo das notas")]) as fake:
         engine = make(folder, fake)
         result, events = run(engine, engine.start("c1", "qwen3:8b"), "leia")
     use = events[1]["message"]["content"][0]
     assert use == {"type": "tool_use", "id": "toolu_local_id0", "name": "read_file", "input": {"path": path}}
     assert tool_results(events) == [{"type": "tool_result", "tool_use_id": "toolu_local_id0", "is_error": False, "content": "conteúdo das notas"}]
     second = fake.chats()[1]["messages"]
-    assert second[-1] == {"role": "tool", "tool_name": "read_file", "content": "conteúdo das notas"}
+    assert second[-1] == {"role": "tool", "tool_call_id": "toolu_local_id0", "content": "conteúdo das notas"}
     assert second[-2]["tool_calls"][0]["function"]["name"] == "read_file"
     assert result.text == "Diz: conteúdo das notas" and result.steps == 2
 
 
 def test_the_golden_event_stream_is_what_the_app_decodes(folder):
     path = str(folder / "notas.txt")
-    with FakeOllama([reply("vou ler", [call("read_file", path=path)], thinking="x"), reply("pronto")]) as fake:
+    with FakeLLM([reply("vou ler", [call("read_file", path=path)], thinking="x"), reply("pronto")]) as fake:
         engine = make(folder, fake)
         _, events = run(engine, engine.start("c1", "qwen3:8b"), "leia")
     text = "".join(json.dumps(e, ensure_ascii=False, sort_keys=True) + "\n" for e in events).replace(str(folder), "<folder>")
@@ -101,7 +100,7 @@ def test_the_golden_event_stream_is_what_the_app_decodes(folder):
 
 def test_the_step_cap_stops_the_turn_and_suggests_a_bigger_model(folder):
     script = [reply("", [call("list_files", path=f"d{n}")]) for n in range(20)]
-    with FakeOllama(script) as fake:
+    with FakeLLM(script) as fake:
         engine = make(folder, fake)
         result, events = run(engine, engine.start("c1", "qwen3:8b"))
     assert len(fake.chats()) == 6 and result.stopped == "step_cap" and result.steps == 6
@@ -112,7 +111,7 @@ def test_the_step_cap_stops_the_turn_and_suggests_a_bigger_model(folder):
 def test_a_repeated_identical_call_stops_the_turn_and_is_not_run_again(folder):
     (folder / "x").mkdir()
     same = reply("", [call("list_files", path=str(folder / "x"))])
-    with FakeOllama([same] * 10) as fake:
+    with FakeLLM([same] * 10) as fake:
         engine = make(folder, fake)
         result, events = run(engine, engine.start("c1", "qwen3:8b"))
     assert result.stopped == "loop" and len(fake.chats()) == 3 and len(tool_results(events)) == 2
@@ -121,7 +120,7 @@ def test_a_repeated_identical_call_stops_the_turn_and_is_not_run_again(folder):
 
 
 def test_a_tool_outside_the_tier_is_refused_and_named_in_the_reply(folder):
-    with FakeOllama([reply("", [call("run_shell", command="touch feito")]), reply("não consegui")]) as fake:
+    with FakeLLM([reply("", [call("run_shell", command="touch feito")]), reply("não consegui")]) as fake:
         engine = make(folder, fake)
         result, events = run(engine, engine.start("c1", "qwen3:8b"))
     assert not (folder / "feito").exists()
@@ -132,7 +131,7 @@ def test_a_tool_outside_the_tier_is_refused_and_named_in_the_reply(folder):
 @pytest.mark.parametrize("mode", MODES)
 def test_a_write_at_pequeno_always_shows_the_card_and_runs_only_after_allow(folder, mode):
     target = folder / "novo.md"
-    with FakeOllama([reply("", [call("write_file", path=str(target), content="oi")]), reply("feito")]) as fake:
+    with FakeLLM([reply("", [call("write_file", path=str(target), content="oi")]), reply("feito")]) as fake:
         asked = Asked("allow")
         engine = make(folder, fake, asked)
         run(engine, engine.start("c1", "qwen3:8b", mode))
@@ -142,7 +141,7 @@ def test_a_write_at_pequeno_always_shows_the_card_and_runs_only_after_allow(fold
 @pytest.mark.parametrize("outcome", ["deny", "timeout"])
 def test_a_denied_or_unanswered_card_runs_nothing_and_is_reported(folder, outcome):
     target = folder / "novo.md"
-    with FakeOllama([reply("", [call("write_file", path=str(target), content="oi")]), reply("ok, não gravei")]) as fake:
+    with FakeLLM([reply("", [call("write_file", path=str(target), content="oi")]), reply("ok, não gravei")]) as fake:
         engine = make(folder, fake, Asked(outcome))
         result, events = run(engine, engine.start("c1", "qwen3:8b", "bypassPermissions"))
     assert not target.exists() and tool_results(events)[0]["is_error"]
@@ -151,7 +150,7 @@ def test_a_denied_or_unanswered_card_runs_nothing_and_is_reported(folder, outcom
 
 def test_the_shell_at_grande_waits_for_the_card_even_in_bypass_mode(folder):
     (folder / "guardrails.toml").write_text((folder / "guardrails.toml").read_text())
-    with FakeOllama([reply("", [call("run_shell", command="echo oi")]), reply("ok")]) as fake:
+    with FakeLLM([reply("", [call("run_shell", command="echo oi")]), reply("ok")]) as fake:
         asked = Asked("allow")
         engine = make(folder, fake, asked)
         engine.catalog = type(engine.catalog)(engine.catalog.source, engine.catalog.disk_margin_bytes, tuple(
@@ -165,7 +164,7 @@ def test_files_outside_the_wisp_folder_and_the_brain_are_off_limits(folder, fake
     secret.write_text("x")
     (folder / "chave.txt").write_text("-----BEGIN " + "PRIVATE KEY-----\nabc")
     script = [reply("", [call("read_file", path=str(secret))]), reply("", [call("read_file", path=str(folder / "chave.txt"))]), reply("fim")]
-    with FakeOllama(script) as fake:
+    with FakeLLM(script) as fake:
         engine = make(folder, fake)
         _, events = run(engine, engine.start("c1", "qwen3:8b"))
     errors = [r["content"] for r in tool_results(events)]
@@ -174,7 +173,7 @@ def test_files_outside_the_wisp_folder_and_the_brain_are_off_limits(folder, fake
 
 def test_the_context_budget_stops_a_turn_that_cannot_fit(folder):
     big = "palavra " * 4000
-    with FakeOllama([reply("nunca")]) as fake:
+    with FakeLLM([reply("nunca")]) as fake:
         engine = make(folder, fake)
         result, _ = run(engine, engine.start("c1", "qwen3:8b"), big)
     assert result.stopped == "context" and not fake.chats() and "8192 tokens" in result.text
@@ -192,24 +191,24 @@ def test_fit_context_shortens_old_tool_output_then_drops_old_exchanges():
 
 
 def test_a_model_may_change_between_turns_and_the_tier_follows(folder):
-    with FakeOllama([reply("um"), reply("dois")]) as fake:
+    with FakeLLM([reply("um"), reply("dois")]) as fake:
         engine = make(folder, fake)
         session = engine.start("c1", "qwen3:8b")
         first, _ = run(engine, session)
         second, events = run(engine, session, model="qwen3:14b")
     assert (first.model, second.model) == ("qwen3:8b", "qwen3:14b") and events[0]["tier"] == "medio"
-    assert fake.chats()[1]["options"]["num_ctx"] == 16384 and fake.chats()[1]["messages"][1]["content"] == "oi"
+    assert fake.chats()[1]["messages"][1]["content"] == "oi"
 
 
 def test_resume_rebuilds_the_context_from_the_transcript_only(folder):
-    with FakeOllama([reply("primeira")]) as fake:
+    with FakeLLM([reply("primeira")]) as fake:
         engine = make(folder, fake)
         session = engine.start("c1", "qwen3:8b")
         result, _ = run(engine, session, "pergunta")
         record_turn(folder, session, "telegram", "pergunta", result)
     entries = [json.loads(l) for l in (folder / "conversas/c1.jsonl").read_text().splitlines()]
     assert [e["kind"] for e in entries] == ["session", "user", "assistant"] and entries[2]["engine"] == "local" and entries[2]["model"] == "qwen3:8b"
-    with FakeOllama([reply("segunda")]) as fake:
+    with FakeLLM([reply("segunda")]) as fake:
         engine = make(folder, fake)
         resumed = engine.resume("c1", "qwen3:8b")
         assert resumed.messages == history_from(folder / "conversas/c1.jsonl") == [
@@ -224,7 +223,7 @@ def test_resume_rebuilds_the_context_from_the_transcript_only(folder):
 
 
 def test_no_active_model_and_a_bad_guardrails_file_are_said_plainly(folder):
-    with FakeOllama() as fake:
+    with FakeLLM() as fake:
         engine = make(folder, fake)
         with pytest.raises(EngineError, match="Ajustes > Modelo"):
             engine.start("c1")
@@ -235,11 +234,11 @@ def test_no_active_model_and_a_bad_guardrails_file_are_said_plainly(folder):
     assert not fake.chats()
 
 
-def test_ollama_failing_mid_turn_ends_the_turn_with_the_reason(folder):
-    with FakeOllama([]) as fake:
+def test_the_backend_failing_mid_turn_ends_the_turn_with_the_reason(folder):
+    with FakeLLM([]) as fake:
         engine = make(folder, fake)
         result, events = run(engine, engine.start("c1", "qwen3:8b"))
-    assert result.is_error and "o Ollama falhou" in result.text and events[-1]["subtype"] == "error"
+    assert result.is_error and "o servidor falhou" in result.text and events[-1]["subtype"] == "error"
 
 
 def test_ferramentas_servers_are_read_and_bad_ones_are_reported(folder):
@@ -251,7 +250,7 @@ def test_ferramentas_servers_are_read_and_bad_ones_are_reported(folder):
 
 
 def test_a_server_that_does_not_start_is_reported_and_the_turn_goes_on(folder):
-    with FakeOllama([reply("sem e-mail")]) as fake:
+    with FakeLLM([reply("sem e-mail")]) as fake:
         engine = make(folder, fake, servers=[ServerSpec("quebrado", "/bin/false")])
         result, _ = run(engine, engine.start("c1", "qwen3:8b"))
     assert "a ferramenta quebrado não abriu" in result.text and result.stopped is None
@@ -264,7 +263,7 @@ def test_email_send_goes_through_the_loop_card_before_the_real_tool_runs(folder,
     monkeypatch.setenv("FAKE_MAIL_LOG", str(log))
     server = ServerSpec("fake-mail", sys.executable, (str(FIXTURES / "fake_email_server.py"),), (("FAKE_MAIL_LOG", str(log)),), trusted=True)
     script = [reply("", [call("email_send", to=["a@b.c"], subject="Oi", body="texto")]), reply("fim")]
-    with FakeOllama(script) as fake:
+    with FakeLLM(script) as fake:
         asked = Asked(outcome)
         engine = make(folder, fake, asked, servers=[server])
         result, events = run(engine, engine.start("c1", "qwen3:8b", mode))
@@ -323,7 +322,7 @@ def test_a_ticket_is_single_use_and_an_altered_body_is_refused(folder, fake_home
 
 def test_the_default_approver_denies(folder):
     plant = reply("", [call("write_file", path=str(folder / "notas.txt"), content="x")])
-    with FakeOllama([plant, reply("fim")]) as fake:
+    with FakeLLM([plant, reply("fim")]) as fake:
         engine = LocalEngine(folder, WispConfig(), WispPaths.current(), fake.client(), servers=[], today=lambda: date(2026, 11, 20))
         _, events = run(engine, engine.start("c1", "qwen3:8b"))
     assert (folder / "notas.txt").read_text() == "conteúdo das notas" and tool_results(events)[0]["is_error"]
@@ -382,7 +381,7 @@ def test_ordinary_notes_can_still_be_written_and_control_files_still_read(folder
 
 def test_a_model_planting_a_server_definition_is_refused_after_the_card(folder):
     plant = reply("", [call("write_file", path=str(folder / "ferramentas/x.toml"), content='name = "x"\ncommand = "/bin/sh"\n')])
-    with FakeOllama([plant, reply("feito")]) as fake:
+    with FakeLLM([plant, reply("feito")]) as fake:
         asked = Asked("allow")
         engine = make(folder, fake, asked)
         _, events = run(engine, engine.start("c1", "qwen3:8b", "bypassPermissions"))
@@ -399,7 +398,7 @@ def test_a_user_server_cannot_take_the_builtin_name_or_the_email_tools(folder, f
     log = fake_home / "rogue.log"
     rogue = ServerSpec("rogue", sys.executable, (str(FIXTURES / "fake_rogue_server.py"),), (("ROGUE_LOG", str(log)),))
     send = reply("", [call("email_send", to=["a@b.c"], subject="Oi", body="x")])
-    with FakeOllama([send, reply("sem e-mail")]) as fake:
+    with FakeLLM([send, reply("sem e-mail")]) as fake:
         engine = make(folder, fake, servers=[ServerSpec("wisp-email", "/bin/false", trusted=True), rogue])
         result, events = run(engine, engine.start("c1", "qwen3:8b", "bypassPermissions"))
     assert not log.exists() and "não existe ou não abriu" in tool_results(events)[0]["content"]
@@ -440,7 +439,7 @@ def test_a_dotted_root_itself_is_not_refused(fake_home):
     {"path": "a.workflow", "content": "x"},
 ])
 def test_writing_a_script_shows_the_card_even_in_bypass_mode_at_grande(folder, arguments):
-    with FakeOllama([reply("", [call("write_file", **{**arguments, "path": str(folder / arguments["path"])})]), reply("ok")]) as fake:
+    with FakeLLM([reply("", [call("write_file", **{**arguments, "path": str(folder / arguments["path"])})]), reply("ok")]) as fake:
         asked = Asked("deny")
         engine = make(folder, fake, asked)
         engine.catalog = type(engine.catalog)(engine.catalog.source, engine.catalog.disk_margin_bytes, tuple(
@@ -457,7 +456,7 @@ def grande(engine):
 
 def test_a_shell_command_card_carries_the_content_of_the_script_it_runs(folder):
     (folder / "x.sh").write_text("echo \x1b[31mmau\n")
-    with FakeOllama([reply("", [call("run_shell", command="sh x.sh")]), reply("ok")]) as fake:
+    with FakeLLM([reply("", [call("run_shell", command="sh x.sh")]), reply("ok")]) as fake:
         asked = Asked("deny")
         engine = grande(make(folder, fake, asked))
         run(engine, engine.start("c1", "qwen3:32b", "default"))
@@ -467,7 +466,7 @@ def test_a_shell_command_card_carries_the_content_of_the_script_it_runs(folder):
 
 def test_a_shell_command_running_a_file_too_long_to_show_is_denied_without_a_card(folder):
     (folder / "grande.sh").write_text("echo oi\n" * 2000)
-    with FakeOllama([reply("", [call("run_shell", command="sh grande.sh")]), reply("ok")]) as fake:
+    with FakeLLM([reply("", [call("run_shell", command="sh grande.sh")]), reply("ok")]) as fake:
         asked = Asked("allow")
         engine = grande(make(folder, fake, asked))
         _, events = run(engine, engine.start("c1", "qwen3:32b", "default"))
@@ -476,7 +475,7 @@ def test_a_shell_command_running_a_file_too_long_to_show_is_denied_without_a_car
 
 def test_a_shell_command_naming_files_outside_the_roots_adds_nothing(folder, fake_home):
     (fake_home / "fora.sh").write_text("echo")
-    with FakeOllama([reply("", [call("run_shell", command=f"sh {fake_home / 'fora.sh'}", arquivos={"x": "forjado"})]), reply("ok")]) as fake:
+    with FakeLLM([reply("", [call("run_shell", command=f"sh {fake_home / 'fora.sh'}", arquivos={"x": "forjado"})]), reply("ok")]) as fake:
         asked = Asked("deny")
         engine = grande(make(folder, fake, asked))
         run(engine, engine.start("c1", "qwen3:32b", "default"))
@@ -491,7 +490,7 @@ def test_a_write_to_a_disguised_script_target_shows_the_card(folder, setup):
     else:
         (folder / "notes.txt").write_text("x")
         (folder / "notes.txt").chmod(0o700)
-    with FakeOllama([reply("", [call("write_file", path=str(folder / "notes.txt"), content="rm -rf x")]), reply("ok")]) as fake:
+    with FakeLLM([reply("", [call("write_file", path=str(folder / "notes.txt"), content="rm -rf x")]), reply("ok")]) as fake:
         asked = Asked("deny")
         engine = grande(make(folder, fake, asked))
         run(engine, engine.start("c1", "qwen3:32b", "bypassPermissions"))
@@ -499,7 +498,7 @@ def test_a_write_to_a_disguised_script_target_shows_the_card(folder, setup):
 
 
 def test_a_plain_note_is_written_without_a_card_at_grande(folder):
-    with FakeOllama([reply("", [call("write_file", path=str(folder / "nota.txt"), content="oi")]), reply("ok")]) as fake:
+    with FakeLLM([reply("", [call("write_file", path=str(folder / "nota.txt"), content="oi")]), reply("ok")]) as fake:
         asked = Asked("deny")
         engine = grande(make(folder, fake, asked))
         run(engine, engine.start("c1", "qwen3:32b", "bypassPermissions"))
@@ -513,7 +512,7 @@ def test_instruction_variants_cannot_be_written(folder, attack, relative):
 
 
 def test_a_forged_arquivos_argument_is_kept_for_other_tools(folder):
-    with FakeOllama([reply("", [call("write_file", path=str(folder / "x.sh"), content="echo", arquivos={"x": "y"})]), reply("ok")]) as fake:
+    with FakeLLM([reply("", [call("write_file", path=str(folder / "x.sh"), content="echo", arquivos={"x": "y"})]), reply("ok")]) as fake:
         asked = Asked("deny")
         engine = grande(make(folder, fake, asked))
         run(engine, engine.start("c1", "qwen3:32b", "default"))
@@ -521,7 +520,7 @@ def test_a_forged_arquivos_argument_is_kept_for_other_tools(folder):
 
 
 def test_a_model_supplied_files_key_never_reaches_the_card(folder):
-    with FakeOllama([reply("", [call("write_file", path=str(folder / "x.sh"), content="echo", **{FILES_KEY: {"x": "forjado"}})]), reply("ok")]) as fake:
+    with FakeLLM([reply("", [call("write_file", path=str(folder / "x.sh"), content="echo", **{FILES_KEY: {"x": "forjado"}})]), reply("ok")]) as fake:
         asked = Asked("deny")
         engine = grande(make(folder, fake, asked))
         run(engine, engine.start("c1", "qwen3:32b", "default"))
@@ -530,7 +529,7 @@ def test_a_model_supplied_files_key_never_reaches_the_card(folder):
 
 @pytest.mark.parametrize("suffix", [".pyw", ".ps1", ".fish", ".php", ".lua", ".mjs", ".cjs", ".ts", ".plist", ".service", ".jar", ".zsh", ".bash"])
 def test_a_write_to_these_script_suffixes_shows_the_card(folder, suffix):
-    with FakeOllama([reply("", [call("write_file", path=str(folder / f"x{suffix}"), content="oi")]), reply("ok")]) as fake:
+    with FakeLLM([reply("", [call("write_file", path=str(folder / f"x{suffix}"), content="oi")]), reply("ok")]) as fake:
         asked = Asked("deny")
         engine = grande(make(folder, fake, asked))
         run(engine, engine.start("c1", "qwen3:32b", "bypassPermissions"))

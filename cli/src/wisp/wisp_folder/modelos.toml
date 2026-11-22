@@ -1,7 +1,10 @@
 # Which model runs the agent.
 ativo = "claude"
 
-# The local models on this Mac (Ollama). Written by the Wisp app; one file per machine.
+# The local engine on this machine. Written by the Wisp app; one file per machine.
+# backend = "mlx" runs the downloaded Qwen model with mlx-lm (Apple silicon); backend = "openai" talks to any
+# OpenAI-compatible server with tool calling (LM Studio, llama.cpp server, vLLM) at url, and ativo is the model name it serves.
+# pensar = true lets Qwen3 think before it answers (slower to start, sometimes better); the default, off, answers right away. MLX only.
 [local]
 ativo = ""
 instalados = []

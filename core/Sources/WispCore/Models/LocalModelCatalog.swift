@@ -10,13 +10,15 @@ public struct LocalModel: Codable, Equatable, Identifiable, Sendable {
     public var contextTokens: Int
     public var speed: String
     public var limitations: String
+    public var toolsReliable: Bool
 
     public var id: String { tag }
 
     public init(
         tag: String, name: String, params: String, sizeBytes: UInt64, memoryBytes: UInt64, tier: String,
-        contextTokens: Int, speed: String, limitations: String
+        contextTokens: Int, speed: String, limitations: String, toolsReliable: Bool = true
     ) {
+        self.toolsReliable = toolsReliable
         self.tag = tag
         self.name = name
         self.params = params
@@ -33,6 +35,21 @@ public struct LocalModel: Codable, Equatable, Identifiable, Sendable {
         case sizeBytes = "size_bytes"
         case memoryBytes = "memory_bytes"
         case contextTokens = "context_tokens"
+        case toolsReliable = "tools_reliable"
+    }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        tag = try values.decode(String.self, forKey: .tag)
+        name = try values.decode(String.self, forKey: .name)
+        params = try values.decode(String.self, forKey: .params)
+        sizeBytes = try values.decode(UInt64.self, forKey: .sizeBytes)
+        memoryBytes = try values.decode(UInt64.self, forKey: .memoryBytes)
+        tier = try values.decode(String.self, forKey: .tier)
+        contextTokens = try values.decode(Int.self, forKey: .contextTokens)
+        speed = try values.decode(String.self, forKey: .speed)
+        limitations = try values.decode(String.self, forKey: .limitations)
+        toolsReliable = try values.decodeIfPresent(Bool.self, forKey: .toolsReliable) ?? true
     }
 
     public var tierLabel: String {
@@ -54,34 +71,52 @@ public struct LocalModel: Codable, Equatable, Identifiable, Sendable {
     }
 }
 
-public struct OllamaStatus: Codable, Equatable, Sendable {
-    public var installed: Bool
+public struct BackendStatus: Codable, Equatable, Sendable {
+    public var kind: String
+    public var available: Bool
     public var running: Bool
+    public var url: String
 
-    public init(installed: Bool, running: Bool) {
-        self.installed = installed
+    public init(kind: String, available: Bool, running: Bool, url: String = "") {
+        self.kind = kind
+        self.available = available
         self.running = running
+        self.url = url
     }
+
+    public var isMlx: Bool { kind == "mlx" }
 }
 
 public struct LocalModelStatus: Codable, Equatable, Sendable {
     public var models: [LocalModel]
     public var diskMarginBytes: UInt64
-    public var ollama: OllamaStatus
+    public var backend: BackendStatus
     public var installed: [String]
     public var active: String
+    public var pensar: Bool
 
-    public init(models: [LocalModel], diskMarginBytes: UInt64, ollama: OllamaStatus, installed: [String], active: String) {
+    public init(models: [LocalModel], diskMarginBytes: UInt64, backend: BackendStatus, installed: [String], active: String, pensar: Bool = false) {
+        self.pensar = pensar
         self.models = models
         self.diskMarginBytes = diskMarginBytes
-        self.ollama = ollama
+        self.backend = backend
         self.installed = installed
         self.active = active
     }
 
     enum CodingKeys: String, CodingKey {
-        case models, ollama, installed, active
+        case models, backend, installed, active, pensar
         case diskMarginBytes = "disk_margin_bytes"
+    }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        models = try values.decode([LocalModel].self, forKey: .models)
+        diskMarginBytes = try values.decode(UInt64.self, forKey: .diskMarginBytes)
+        backend = try values.decode(BackendStatus.self, forKey: .backend)
+        installed = try values.decode([String].self, forKey: .installed)
+        active = try values.decode(String.self, forKey: .active)
+        pensar = try values.decodeIfPresent(Bool.self, forKey: .pensar) ?? false
     }
 
     public static func decode(_ data: Data) -> LocalModelStatus? {

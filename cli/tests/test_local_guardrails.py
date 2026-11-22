@@ -166,13 +166,13 @@ def test_an_existing_file_without_mac_tools_gets_the_shipped_mac_defaults_at_loa
     assert not any(t.startswith("mac_") for t in rails().tier("grande").tools), "parse alone adds nothing"
 
 
-def test_the_merge_adds_only_mac_tools_and_changes_nothing_else(tmp_path):
+def test_the_merge_adds_only_mac_and_default_tools_and_changes_nothing_else(tmp_path):
     text = GOOD + '\n[irreversible]\ntools = ["x"]\n[loop]\nrepeat_limit = 5\n'
     plain, merged = rails(text), _loaded(tmp_path, text)
     for name in guardrails.TIERS:
         a, b = plain.tier(name), merged.tier(name)
         assert (a.max_steps, a.approve) == (b.max_steps, b.approve)
-        assert a.tools <= b.tools and all(t.startswith("mac_") for t in b.tools - a.tools)
+        assert a.tools <= b.tools and all(t.startswith("mac_") or t in guardrails.DEFAULT_TOOLS for t in b.tools - a.tools)
     assert (plain.irreversible, plain.repeat_limit) == (merged.irreversible, merged.repeat_limit)
     assert needs_card(merged, merged.tier("grande"), "auto", "mac_send")
 

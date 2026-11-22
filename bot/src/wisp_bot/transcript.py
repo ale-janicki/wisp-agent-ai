@@ -17,11 +17,11 @@ HEADER = ("[Wisp conversation memory: this conversation continues from Wisp's ow
           "engine session was not available. Older messages are shortened.]")
 FOOTER = "[end of Wisp conversation memory]"
 REBUILT_NOTE = "<i>↻ a sessão do Claude não estava aqui; retomei pela conversa guardada no Wisp.</i>"
-ENGINE_NAMES = {"claude": "Claude", "codex": "Codex"}
+ENGINE_NAMES = {"claude": "o Claude", "codex": "o Codex", "local": "a IA local"}
 
 
 def switched_note(engine: str) -> str:
-    return f"<i>↻ agora quem responde é o {ENGINE_NAMES.get(engine, engine)}; ele retomou pela conversa guardada no Wisp.</i>"
+    return f"<i>↻ agora quem responde é {ENGINE_NAMES.get(engine, 'o ' + engine)}; ele retomou pela conversa guardada no Wisp.</i>"
 
 
 def stamp(moment: datetime | None = None) -> str:
