@@ -8,6 +8,8 @@ from wisp.local import guardrails
 from wisp.local.catalog import ModelEntry
 from wisp.setup.harness import _values
 
+CONTEXT_TAG = re.compile(r"<(/?)contexto", re.IGNORECASE)
+
 LEFTOVER_PLACEHOLDER = re.compile(r"\{\{[A-Z_]+\}\}")
 SKILL_HEADER = re.compile(r"^(name|description):\s*(.+)$", re.MULTILINE)
 NO_BRAIN = "(sem brain configurado)"
@@ -85,3 +87,7 @@ def system_prompt(folder: Path, cfg: WispConfig, tier: guardrails.Tier, tools: l
 
 def today_note(today: date) -> str:
     return f"<contexto>data de hoje: {today.isoformat()} (não mencione a data a menos que perguntem)</contexto>"
+
+
+def neutralize_context(text: str) -> str:
+    return CONTEXT_TAG.sub(lambda m: "‹" + m.group(1) + "contexto", text)
