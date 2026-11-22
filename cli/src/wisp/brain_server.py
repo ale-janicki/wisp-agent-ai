@@ -1,5 +1,6 @@
 import json
 import sqlite3
+import time
 from collections.abc import Callable
 from pathlib import Path
 
@@ -12,12 +13,14 @@ from wisp.paths import WispPaths
 
 SERVER_NAME = "wisp-brain"
 TOOLS = ("brain_search", "brain_read", "brain_links")
+SYNC_SECONDS = 45.0
 DEFAULT_LIMIT = 10
 MAX_LIMIT = 30
 MAX_DEPTH = 3
 MAX_NODES = 100
 MAX_BROKEN = 50
 SUGGESTIONS = 5
+PARTIAL_NOTE = "o índice do brain ainda está sendo construído; estes resultados vêm de uma parte das notas, tente de novo em instantes"
 DB_FAILURE = "o índice do brain está ocupado ou danificado agora; tente de novo em instantes"
 
 
@@ -32,9 +35,9 @@ def open_index(cfg: WispConfig, paths: WispPaths) -> BrainIndex:
     return BrainIndex(root, index_path(paths.state, root), log_markers=tuple(cfg.brain_log_markers))
 
 
-def _fresh(index: BrainIndex) -> None:
+def _fresh(index: BrainIndex) -> bool:
     try:
-        _guard(index.sync)
+        return _guard(lambda: index.sync(deadline=time.monotonic() + SYNC_SECONDS)).partial
     except OSError as e:
         raise ToolFailure(f"não consegui atualizar o índice do brain: {e.strerror or type(e).__name__}") from None
 
@@ -52,12 +55,17 @@ def _clamp(value: int, low: int, high: int) -> int:
     return max(low, min(high, int(value)))
 
 
-def brain_search(index: BrainIndex, query: str, limit: int = DEFAULT_LIMIT) -> list[dict]:
-    _fresh(index)
+def _search(index: BrainIndex, query: str, limit: int) -> tuple[list[dict], bool]:
+    partial = _fresh(index)
     hits = _guard(lambda: index.search(query, _clamp(limit, 1, MAX_LIMIT)))
-    return [
+    results = [
         {"path": h.rel, "link": f"[[{h.link}]]", "title": h.title, "snippet": h.snippet, "score": h.score} for h in hits
     ]
+    return results, partial
+
+
+def brain_search(index: BrainIndex, query: str, limit: int = DEFAULT_LIMIT) -> list[dict]:
+    return _search(index, query, limit)[0]
 
 
 def _missing(index: BrainIndex, ref: str) -> ToolFailure:
@@ -124,9 +132,12 @@ def _failure(e: ToolFailure) -> CallToolResult:
     return CallToolResult(content=[TextContent(type="text", text=str(e))], is_error=True)
 
 
-def _reply(call: Callable) -> CallToolResult:
+def _reply(call: Callable, note: Callable[[], str | None] = lambda: None) -> CallToolResult:
     try:
-        return CallToolResult(content=[TextContent(type="text", text=json.dumps(call(), ensure_ascii=False))])
+        content = [TextContent(type="text", text=json.dumps(call(), ensure_ascii=False))]
+        if text := note():
+            content.append(TextContent(type="text", text=text))
+        return CallToolResult(content=content)
     except ToolFailure as e:
         return _failure(e)
     except sqlite3.Error:
@@ -141,8 +152,15 @@ def build_server(open_brain: Callable[[], BrainIndex]) -> MCPServer:
         description="Busca no brain do usuário (título, apelidos, títulos de seção e texto, com reforço pelos wikilinks). "
         "Devolve caminho, título, trecho e nota de relevância; use [[link]] para citar",
     )
-    def _search(query: str, limit: int = DEFAULT_LIMIT) -> CallToolResult:
-        return _reply(lambda: brain_search(open_brain(), query, limit))
+    def _search_tool(query: str, limit: int = DEFAULT_LIMIT) -> CallToolResult:
+        partial: list[bool] = []
+
+        def call() -> list[dict]:
+            results, was_partial = _search(open_brain(), query, limit)
+            partial.append(was_partial)
+            return results
+
+        return _reply(call, lambda: PARTIAL_NOTE if partial and partial[0] else None)
 
     @server.tool(
         name="brain_read",
