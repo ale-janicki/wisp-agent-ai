@@ -1,0 +1,247 @@
+---
+
+excalidraw-plugin: parsed
+tags: [excalidraw, exemplo]
+
+---
+==⚠  Switch to EXCALIDRAW VIEW in the MORE OPTIONS menu of this document. ⚠== You can decompress Drawing data with the command palette: 'Decompress current Excalidraw file'. For more info check in plugin settings under 'Saving'
+
+Texto livre antes dos dados, preservado.
+
+# Excalidraw Data
+
+## Text Elements
+Caixa um ^EeFfGgH2
+
+Veja [[nota-exemplo]]
+segunda linha ^IiJjKkL3
+
+## Element Links
+AaBbCcD1: [[nota-exemplo]]
+
+## Embedded Files
+f00dcafe: [[pixel.png]]
+
+latex01: $$\frac{a}{b}$$
+
+%%
+## Drawing
+```json
+{
+	"type": "excalidraw",
+	"version": 2,
+	"source": "https://github.com/zsviczian/obsidian-excalidraw-plugin/releases/tag/2.25.3",
+	"elements": [
+		{
+			"angle": 0,
+			"strokeColor": "#1e1e1e",
+			"backgroundColor": "#a5d8ff",
+			"fillStyle": "solid",
+			"strokeWidth": 1,
+			"strokeStyle": "solid",
+			"roughness": 1,
+			"opacity": 100,
+			"groupIds": [],
+			"frameId": null,
+			"roundness": {
+				"type": 3
+			},
+			"seed": 1,
+			"version": 2,
+			"versionNonce": 3,
+			"isDeleted": false,
+			"boundElements": [],
+			"updated": 1,
+			"link": "[[nota-exemplo]]",
+			"locked": false,
+			"id": "AaBbCcD1",
+			"type": "rectangle",
+			"x": 0,
+			"y": 0,
+			"width": 200,
+			"height": 80
+		},
+		{
+			"angle": 0,
+			"strokeColor": "#1e1e1e",
+			"backgroundColor": "transparent",
+			"fillStyle": "solid",
+			"strokeWidth": 1,
+			"strokeStyle": "solid",
+			"roughness": 1,
+			"opacity": 100,
+			"groupIds": [],
+			"frameId": null,
+			"roundness": null,
+			"seed": 1,
+			"version": 2,
+			"versionNonce": 3,
+			"isDeleted": false,
+			"boundElements": [],
+			"updated": 1,
+			"link": null,
+			"locked": false,
+			"id": "EeFfGgH2",
+			"type": "text",
+			"x": 20,
+			"y": 25,
+			"width": 160,
+			"height": 25,
+			"fontSize": 20,
+			"fontFamily": 5,
+			"text": "Caixa um",
+			"rawText": "Caixa um",
+			"originalText": "Caixa um",
+			"textAlign": "left",
+			"verticalAlign": "top",
+			"containerId": null,
+			"lineHeight": 1.25
+		},
+		{
+			"angle": 0,
+			"strokeColor": "#1e1e1e",
+			"backgroundColor": "transparent",
+			"fillStyle": "solid",
+			"strokeWidth": 1,
+			"strokeStyle": "solid",
+			"roughness": 1,
+			"opacity": 100,
+			"groupIds": [],
+			"frameId": null,
+			"roundness": null,
+			"seed": 1,
+			"version": 2,
+			"versionNonce": 3,
+			"isDeleted": false,
+			"boundElements": [],
+			"updated": 1,
+			"link": null,
+			"locked": false,
+			"id": "IiJjKkL3",
+			"type": "text",
+			"x": 0,
+			"y": 140,
+			"width": 220,
+			"height": 50,
+			"fontSize": 20,
+			"fontFamily": 5,
+			"text": "Veja nota-exemplo\nsegunda linha",
+			"rawText": "",
+			"originalText": "Veja nota-exemplo\nsegunda linha",
+			"textAlign": "left",
+			"verticalAlign": "top",
+			"containerId": null,
+			"lineHeight": 1.25,
+			"hasTextLink": true
+		},
+		{
+			"angle": 0,
+			"strokeColor": "#1e1e1e",
+			"backgroundColor": "transparent",
+			"fillStyle": "solid",
+			"strokeWidth": 1,
+			"strokeStyle": "solid",
+			"roughness": 1,
+			"opacity": 100,
+			"groupIds": [],
+			"frameId": null,
+			"roundness": null,
+			"seed": 1,
+			"version": 2,
+			"versionNonce": 3,
+			"isDeleted": false,
+			"boundElements": [],
+			"updated": 1,
+			"link": null,
+			"locked": false,
+			"id": "MmNnOoP4",
+			"type": "arrow",
+			"x": 100,
+			"y": 80,
+			"width": 0,
+			"height": 60,
+			"points": [
+				[
+					0,
+					0
+				],
+				[
+					0,
+					60
+				]
+			],
+			"startArrowhead": null,
+			"endArrowhead": "arrow"
+		},
+		{
+			"angle": 0,
+			"strokeColor": "#1e1e1e",
+			"backgroundColor": "transparent",
+			"fillStyle": "solid",
+			"strokeWidth": 1,
+			"strokeStyle": "solid",
+			"roughness": 1,
+			"opacity": 100,
+			"groupIds": [],
+			"frameId": null,
+			"roundness": null,
+			"seed": 1,
+			"version": 2,
+			"versionNonce": 3,
+			"isDeleted": false,
+			"boundElements": [],
+			"updated": 1,
+			"link": null,
+			"locked": false,
+			"id": "QqRrSsT5",
+			"type": "image",
+			"x": 300,
+			"y": 0,
+			"width": 64,
+			"height": 64,
+			"fileId": "f00dcafe",
+			"status": "saved",
+			"scale": [
+				1,
+				1
+			]
+		},
+		{
+			"angle": 0,
+			"strokeColor": "#1e1e1e",
+			"backgroundColor": "transparent",
+			"fillStyle": "solid",
+			"strokeWidth": 1,
+			"strokeStyle": "solid",
+			"roughness": 1,
+			"opacity": 100,
+			"groupIds": [],
+			"frameId": null,
+			"roundness": null,
+			"seed": 1,
+			"version": 2,
+			"versionNonce": 3,
+			"isDeleted": true,
+			"boundElements": [],
+			"updated": 1,
+			"link": null,
+			"locked": false,
+			"id": "UuVvWwX6",
+			"type": "ellipse",
+			"x": 400,
+			"y": 10,
+			"width": 80,
+			"height": 60
+		}
+	],
+	"appState": {
+		"gridSize": null,
+		"viewBackgroundColor": "#ffffff"
+	},
+	"files": {}
+}
+```
+%%
+
+## Mudanças
+- 2026-01-01 00:00 · Desenho de exemplo

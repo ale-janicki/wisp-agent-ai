@@ -14,3 +14,4 @@ scripts/leak-patterns.local.txt
 build/
 dist/
 app/Local.xcconfig
+app/Resources/Excalidraw/

@@ -46,6 +46,12 @@ Entries are in descending chronological order (newest first).
 - Brain: "Criar nota da reunião" writes `meetings/YYYY-MM-DD-HHhMMm-<title>.md` in the brain and puts `[[note]]` in the event notes; `[[note]]` links in events open in Obsidian. Search by title, location and notes; a side list of today's and late Reminders with check-off.
 - Access and sync: a card with one button when Calendar access is missing, a hint to add a Google account in System Settings > Internet Accounts, and live refresh when the Calendar database changes.
 
+- Drawings: `BrainDrawingView(url:)` opens Obsidian Excalidraw drawings (`.excalidraw.md`, compressed or plain, and plain `.excalidraw`) and JSON Canvas files (`.canvas`). The Excalidraw editor ships inside the app and runs offline in a web view with a strict content security policy (no remote origin); the interface is in Portuguese. View and edit modes, autosave, reload when the file changes on disk (a prompt when you have unsaved edits), export to PNG and SVG, and `[[note]]` links inside drawings that open the note.
+- Drawings keep the plugin's file format: frontmatter, the "Text Elements" section (regenerated with ` ^id` anchors, raw wikilinks kept), Element Links, Embedded Files and everything after the drawing are preserved, the drawing stays compressed or plain as it was, and writes are atomic, so the files stay openable in Obsidian. New drawings are created in the folder and with the name pattern of the Excalidraw plugin's settings.
+- Canvas: native viewer and editor (pan, zoom, text, note, link and group nodes, edges with labels, move, resize, connect, delete) that round-trips the file byte for byte when untouched.
+- `BrainDrawingEmbedView(url:)`: a light read-only SVG preview of a drawing for embeds in notes, cached by the content hash of the file.
+- `scripts/build-excalidraw.sh` builds the editor (pinned npm lockfile, `npm audit` clean) and runs from `xcodegen` and `scripts/build-release.sh`; building the app needs `node` and `npm`.
+
 ### Changed
 
 - Recall no longer stops at 3 notes. It hands the agent the strong head of the matches (notes whose title or aliases match the message, up to 8, stopping at a clear score drop) and, within the token budget, notes one wikilink away from them. Small talk injects nothing. The agent is told to call `brain_search`, `brain_read` and `brain_links` freely and to cite the notes it used as `[[wikilinks]]`. The brain-scope guard, once-per-session offering and fail-open behavior are unchanged.
