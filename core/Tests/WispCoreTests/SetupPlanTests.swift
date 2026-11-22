@@ -125,7 +125,7 @@ import Testing
     @Test func providerLineFollowsTheLogin() {
         let result = offer(hardware: hardware(), status: status(), readiness: SetupReadiness(claudeLoggedIn: true))
         #expect(result.providerLine(.claude) == "Conectado")
-        #expect(result.providerLine(.codex) == "Conecte depois em Ajustes > Modelo")
+        #expect(result.providerLine(.codex) == "Conecte em Ajustes > Modelo")
         #expect(result.providerLine(.local) == nil)
     }
 

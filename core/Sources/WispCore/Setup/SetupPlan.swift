@@ -67,7 +67,7 @@ public struct SetupOffer: Equatable, Sendable {
 
     public static let noLocalNote = "Este Mac não roda a IA local. Conecte o Claude ou o Codex em Ajustes > Modelo."
     public static let connected = "Conectado"
-    public static let connectLater = "Conecte depois em Ajustes > Modelo"
+    public static let connectLater = "Conecte em Ajustes > Modelo"
 
     public struct Current: Equatable, Sendable {
         public var engine: EngineKind
