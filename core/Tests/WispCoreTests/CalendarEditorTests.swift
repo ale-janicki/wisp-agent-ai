@@ -126,9 +126,10 @@ final class CalendarEditorTests: XCTestCase {
         let editor = CalendarEditor(backend: backend)
         _ = try await editor.update(single, edit: EventEdit(start: stamp(2026, 11, 23, 11), end: stamp(2026, 11, 23, 12)), scope: nil)
         let label = try await editor.undo()
-        XCTAssertEqual(label, "alterar \"E\"")
+        XCTAssertEqual(label?.label, "Desfeito: alterar \"E\"")
         XCTAssertEqual(backend.updates.count, 2)
         XCTAssertEqual(backend.updates[1].1.start, stamp(2026, 11, 23, 9))
+        XCTAssertNil(backend.updates[1].1.title)
         XCTAssertEqual(backend.updates[1].1.end, stamp(2026, 11, 23, 10))
     }
 
@@ -171,10 +172,10 @@ final class CalendarEditorTests: XCTestCase {
         for n in 1...3 {
             _ = try await editor.create(EventDraft(title: "e\(n)", start: stamp(2026, 11, 23, 9), end: stamp(2026, 11, 23, 10)))
         }
-        let first = try await editor.undo()
-        let second = try await editor.undo()
+        let first = try await editor.undo()?.label
+        let second = try await editor.undo()?.label
         let third = try await editor.undo()
-        XCTAssertEqual([first, second], ["criar \"e3\"", "criar \"e2\""])
+        XCTAssertEqual([first, second], ["Desfeito: criar \"e3\"", "Desfeito: criar \"e2\""])
         XCTAssertNil(third)
     }
 
@@ -217,11 +218,12 @@ final class CalendarEditorTests: XCTestCase {
         e.notes = "N"
         e.alarmOffsets = [-600]
         e.recurrence = CalRecurrence(frequency: .weekly, interval: 2, end: .count(4))
-        let edit = EventEdit.restoring(e)
+        let full = EventEdit(title: "x", start: Date(), end: Date(), allDay: true, calendarID: "c", timeZoneID: "z", location: "l", url: "u", notes: "n", alarmOffsets: [], recurrence: .remove)
+        let edit = EventEdit.restoring(e, matching: full)
         XCTAssertEqual(edit.location, "L")
         XCTAssertEqual(edit.notes, "N")
         XCTAssertEqual(edit.alarmOffsets, [-600])
         XCTAssertEqual(edit.recurrence, .set(CalRecurrence(frequency: .weekly, interval: 2, end: .count(4))))
-        XCTAssertEqual(EventEdit.restoring(makeEvent("b", Date(), Date())).recurrence, .remove)
+        XCTAssertEqual(EventEdit.restoring(makeEvent("b", Date(), Date()), matching: full).recurrence, .remove)
     }
 }

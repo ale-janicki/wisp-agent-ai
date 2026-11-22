@@ -46,37 +46,50 @@ public enum GridMath {
         Int((minutes / Double(snapMinutes)).rounded(.down)) * snapMinutes
     }
 
+    public static func minuteOfDay(_ date: Date, calendar: Calendar, roundingUp: Bool = false) -> Int {
+        let parts = calendar.dateComponents([.hour, .minute, .second], from: date)
+        return (parts.hour ?? 0) * 60 + (parts.minute ?? 0) + (roundingUp && (parts.second ?? 0) > 0 ? 1 : 0)
+    }
+
+    public static func date(onDayOf day: Date, minute: Int, calendar: Calendar) -> Date {
+        let origin = calendar.startOfDay(for: day)
+        let days = Int((Double(minute) / Double(minutesPerDay)).rounded(.down))
+        let rest = minute - days * minutesPerDay
+        guard let target = calendar.date(byAdding: .day, value: days, to: origin) else { return origin }
+        if rest == 0 { return target }
+        return calendar.date(bySettingHour: rest / 60, minute: rest % 60, second: 0, of: target) ?? target
+    }
+
+    private static func elapsedMinutes(from origin: Date, to date: Date, calendar: Calendar) -> Int {
+        let days = calendar.dateComponents([.day], from: calendar.startOfDay(for: origin), to: calendar.startOfDay(for: date)).day ?? 0
+        return days * minutesPerDay + minuteOfDay(date, calendar: calendar)
+    }
+
     public static func move(_ span: TimeSpan, deltaMinutes: Double, deltaDays: Int, calendar: Calendar) -> TimeSpan {
         let duration = span.end.timeIntervalSince(span.start)
-        let originDay = calendar.startOfDay(for: span.start)
-        let startMinute = span.start.timeIntervalSince(originDay) / 60
-        var minute = snap(startMinute + deltaMinutes)
+        let startMinute = minuteOfDay(span.start, calendar: calendar)
+        var minute = snap(Double(startMinute) + deltaMinutes)
         let durationMinutes = Int((duration / 60).rounded())
         if durationMinutes < minutesPerDay {
             minute = min(max(minute, 0), minutesPerDay - durationMinutes)
         }
-        guard let day = calendar.date(byAdding: .day, value: deltaDays, to: originDay),
-              let start = calendar.date(byAdding: .minute, value: minute, to: day) else { return span }
+        guard let day = calendar.date(byAdding: .day, value: deltaDays, to: calendar.startOfDay(for: span.start)) else { return span }
+        let start = date(onDayOf: day, minute: minute, calendar: calendar)
         return TimeSpan(start: start, end: start.addingTimeInterval(duration))
     }
 
     public static func resizeEnd(_ span: TimeSpan, deltaMinutes: Double, calendar: Calendar) -> TimeSpan {
-        let startDay = calendar.startOfDay(for: span.start)
-        let endMinute = span.end.timeIntervalSince(startDay) / 60 + deltaMinutes
-        var snapped = snap(endMinute)
-        let startMinute = Int((span.start.timeIntervalSince(startDay) / 60).rounded())
-        snapped = max(snapped, startMinute + minimumMinutes)
-        guard let end = calendar.date(byAdding: .minute, value: snapped, to: startDay) else { return span }
-        return TimeSpan(start: span.start, end: end)
+        let endMinute = elapsedMinutes(from: span.start, to: span.end, calendar: calendar)
+        let startMinute = minuteOfDay(span.start, calendar: calendar)
+        let snapped = max(snap(Double(endMinute) + deltaMinutes), startMinute + minimumMinutes)
+        return TimeSpan(start: span.start, end: date(onDayOf: span.start, minute: snapped, calendar: calendar))
     }
 
     public static func resizeStart(_ span: TimeSpan, deltaMinutes: Double, calendar: Calendar) -> TimeSpan {
-        let startDay = calendar.startOfDay(for: span.start)
-        let startMinute = span.start.timeIntervalSince(startDay) / 60 + deltaMinutes
-        let endMinute = Int((span.end.timeIntervalSince(startDay) / 60).rounded())
-        let snapped = min(max(snap(startMinute), 0), endMinute - minimumMinutes)
-        guard let start = calendar.date(byAdding: .minute, value: snapped, to: startDay) else { return span }
-        return TimeSpan(start: start, end: span.end)
+        let endMinute = elapsedMinutes(from: span.start, to: span.end, calendar: calendar)
+        let startMinute = minuteOfDay(span.start, calendar: calendar)
+        let snapped = min(max(snap(Double(startMinute) + deltaMinutes), 0), endMinute - minimumMinutes)
+        return TimeSpan(start: date(onDayOf: span.start, minute: snapped, calendar: calendar), end: span.end)
     }
 
     public static func dayDelta(forTranslation x: Double, columnWidth: Double) -> Int {
@@ -85,9 +98,6 @@ public enum GridMath {
     }
 
     public static func span(onDay day: Date, startMinute: Int, endMinute: Int, calendar: Calendar) -> TimeSpan? {
-        let origin = calendar.startOfDay(for: day)
-        guard let start = calendar.date(byAdding: .minute, value: startMinute, to: origin),
-              let end = calendar.date(byAdding: .minute, value: endMinute, to: origin) else { return nil }
-        return TimeSpan(start: start, end: end)
+        TimeSpan(start: date(onDayOf: day, minute: startMinute, calendar: calendar), end: date(onDayOf: day, minute: endMinute, calendar: calendar))
     }
 }

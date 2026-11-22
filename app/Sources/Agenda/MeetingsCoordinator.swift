@@ -78,14 +78,14 @@ final class MeetingsCoordinator: NSObject, NSMenuDelegate, UNUserNotificationCen
             item.button?.imagePosition = .imageLeading
             statusItem = item
         }
-        statusItem?.button?.title = " " + MeetingLinks.menuBarTitle(title: next.title, start: next.start, end: next.end, now: now)
+        statusItem?.button?.title = " " + MeetingLinks.menuBarTitle(title: next.title, start: next.start, end: next.end, now: now, hideTitle: prefs.hideTitlesInAlerts)
     }
 
     func menuNeedsUpdate(_ menu: NSMenu) {
         menu.removeAllItems()
         let now = Date()
         guard let next = events.filter({ !$0.allDay && !$0.declined && $0.end > now }).sorted(by: { $0.start < $1.start }).first else { return }
-        let header = NSMenuItem(title: next.title, action: nil, keyEquivalent: "")
+        let header = NSMenuItem(title: MeetingLinks.displayTitle(next.title, hidden: prefs.hideTitlesInAlerts), action: nil, keyEquivalent: "")
         header.isEnabled = false
         menu.addItem(header)
         if let link = MeetingLinks.detect(next) {
@@ -128,8 +128,8 @@ final class MeetingsCoordinator: NSObject, NSMenuDelegate, UNUserNotificationCen
             scheduledKeys = []
             return
         }
-        let plan = MeetingLinks.alerts(for: events, now: Date(), leadMinutes: prefs.alertLeadMinutes)
-        let signature = plan.map { "\($0.key)|\($0.fireDate.timeIntervalSince1970)" }
+        let plan = MeetingLinks.alerts(for: events, now: Date(), leadMinutes: prefs.alertLeadMinutes, hideTitles: prefs.hideTitlesInAlerts)
+        let signature = plan.map { "\($0.key)|\($0.fireDate.timeIntervalSince1970)|\($0.title)" }
         guard signature != scheduledKeys else { return }
         guard await ensureAuthorization() else { return }
         center.removePendingNotificationRequests(withIdentifiers: existing)

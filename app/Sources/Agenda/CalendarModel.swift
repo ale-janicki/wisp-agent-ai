@@ -48,6 +48,7 @@ final class CalendarModel {
     var selection: String?
     var detail: Detail?
     var pendingScope: PendingScope?
+    var pendingDelete: CalEvent?
     var searchOpen = false
     var searchQuery = ""
     var quickOpen = false
@@ -514,15 +515,29 @@ final class CalendarModel {
         }
     }
 
+    func requestDelete(_ event: CalEvent) {
+        guard event.writable else {
+            message = "\"\(calendarInfo(event.calendarID)?.title ?? event.title)\" é somente leitura."
+            return
+        }
+        pendingDelete = event
+    }
+
+    func confirmDelete() {
+        guard let event = pendingDelete else { return }
+        pendingDelete = nil
+        delete(event)
+    }
+
     func deleteSelected() {
         guard case .event(let event)? = detail else { return }
-        delete(event)
+        requestDelete(event)
     }
 
     func undo() {
         Task {
             do {
-                if let label = try await editor.undo() { message = "Desfeito: \(label)" }
+                if let result = try await editor.undo() { message = result.message }
             } catch {
                 message = "Não consegui desfazer: \(error.localizedDescription)"
             }

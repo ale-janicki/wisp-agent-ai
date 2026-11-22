@@ -12,9 +12,7 @@ struct EventForm: Equatable {
     var url = ""
     var notes = ""
     var alarm: Int?
-    var frequency: RecurrenceFrequency?
-    var interval = 1
-    var endsAfter: Int?
+    var rec = RecurrenceForm(original: nil)
 
     init() {}
 
@@ -29,16 +27,12 @@ struct EventForm: Equatable {
         url = draft.url?.absoluteString ?? ""
         notes = draft.notes ?? ""
         alarm = draft.alarmOffsets.first
-        frequency = draft.recurrence?.frequency
-        interval = draft.recurrence?.interval ?? 1
-        if case .count(let count)? = draft.recurrence?.end { endsAfter = count }
+        rec = RecurrenceForm(original: draft.recurrence, fallbackUntil: draft.start)
     }
 
     init(event: CalEvent) { self.init(draft: EventDraft(event)) }
 
-    var recurrence: CalRecurrence? {
-        frequency.map { CalRecurrence(frequency: $0, interval: interval, end: endsAfter.map(RecurrenceEnd.count) ?? .never) }
-    }
+    var recurrence: CalRecurrence? { rec.resolved }
 
     func draft() -> EventDraft {
         EventDraft(title: title, start: start, end: max(end, start), allDay: allDay, calendarID: calendarID.isEmpty ? nil : calendarID,
@@ -58,9 +52,7 @@ struct EventForm: Equatable {
         if url != (event.url?.absoluteString ?? "") { change.url = url }
         if notes != (event.notes ?? "") { change.notes = notes }
         if (alarm.map { [$0] } ?? []) != event.alarmOffsets { change.alarmOffsets = alarm.map { [$0] } ?? [] }
-        if recurrence != event.recurrence {
-            change.recurrence = recurrence.map(RecurrenceChange.set) ?? .remove
-        }
+        change.recurrence = rec.change()
         return change
     }
 }
@@ -268,10 +260,14 @@ struct EventDetailView: View {
         }
     }
 
+    private func touching<T>(_ keyPath: WritableKeyPath<RecurrenceForm, T>) -> Binding<T> {
+        Binding(get: { form.rec[keyPath: keyPath] }, set: { value in form.rec.edit { $0[keyPath: keyPath] = value } })
+    }
+
     private var recurrenceSection: some View {
         VStack(alignment: .leading, spacing: 6) {
             fieldRow("repeat", "Repetir") {
-                Picker("", selection: $form.frequency) {
+                Picker("", selection: touching(\.frequency)) {
                     Text("Nunca").tag(Optional<RecurrenceFrequency>.none)
                     Text("Diariamente").tag(Optional(RecurrenceFrequency.daily))
                     Text("Semanalmente").tag(Optional(RecurrenceFrequency.weekly))
@@ -281,19 +277,26 @@ struct EventDetailView: View {
                 .labelsHidden()
                 .disabled(readOnly)
             }
-            if form.frequency != nil {
+            if form.rec.frequency != nil {
                 HStack(spacing: 8) {
-                    Stepper("A cada \(form.interval)", value: $form.interval, in: 1...30).font(Theme.Font.caption)
-                    Picker("", selection: $form.endsAfter) {
-                        Text("Sem fim").tag(Optional<Int>.none)
-                        Text("Após 5").tag(Optional(5))
-                        Text("Após 10").tag(Optional(10))
-                        Text("Após 20").tag(Optional(20))
-                        if let n = form.endsAfter, ![5, 10, 20].contains(n) { Text("Após \(n)").tag(Optional(n)) }
+                    Stepper("A cada \(form.rec.interval)", value: touching(\.interval), in: 1...30).font(Theme.Font.caption)
+                    Picker("", selection: touching(\.endMode)) {
+                        Text("Sem fim").tag(RecurrenceForm.EndMode.never)
+                        Text("Após N vezes").tag(RecurrenceForm.EndMode.count)
+                        Text("Até a data").tag(RecurrenceForm.EndMode.until)
                     }
                     .labelsHidden()
                 }
                 .disabled(readOnly)
+                if form.rec.endMode == .count {
+                    Stepper("Termina após \(form.rec.endCount) vezes", value: touching(\.endCount), in: 1...999).font(Theme.Font.caption).disabled(readOnly)
+                }
+                if form.rec.endMode == .until {
+                    DatePicker("Termina em", selection: touching(\.endUntil), displayedComponents: [.date]).font(Theme.Font.caption).disabled(readOnly)
+                }
+                if !form.rec.touched, form.rec.original?.hasDetail == true {
+                    Text("Regra personalizada (dias da semana ou do mês) mantida como está.").font(Theme.Font.caption).foregroundStyle(Theme.textTertiary)
+                }
             }
         }
     }
@@ -373,7 +376,7 @@ struct EventDetailView: View {
                 .disabled(readOnly || !dirty)
                 .keyboardShortcut(.return, modifiers: .command)
             if let event {
-                Button("Apagar") { model.delete(event) }
+                Button("Apagar") { model.requestDelete(event) }
                     .buttonStyle(CapsuleButtonStyle(kind: .ghost))
                     .disabled(readOnly)
             }

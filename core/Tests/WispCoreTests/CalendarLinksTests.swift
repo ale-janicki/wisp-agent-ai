@@ -14,7 +14,7 @@ final class CalendarLinksTests: XCTestCase {
     }
 
     private func event() -> CalEvent {
-        var e = makeEvent("ev1", stamp(2026, 11, 23, 15, 30), stamp(2026, 11, 23, 16, 30), title: "Revisão da Sprint: acme-client!")
+        var e = makeEvent("ev1", stamp(2026, 11, 23, 15, 30), stamp(2026, 11, 23, 16, 30), title: "Sprint Review")
         e.attendees = [CalAttendee(name: "Ana"), CalAttendee(name: "Eu", isMe: true)]
         e.location = "https://meet.google.com/aaa-bbbb-ccc"
         return e
@@ -24,12 +24,12 @@ final class CalendarLinksTests: XCTestCase {
         let store = EventLinkStore(url: dir.appendingPathComponent("links.json"))
         let folder = dir.appendingPathComponent("2026-11-23_15-30-00", isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        let link = try store.recordRecording(event: event(), calendarTitle: "acme", folder: folder, now: stamp(2026, 11, 23, 15, 31))
-        XCTAssertEqual(link.title, "Revisão da Sprint: acme-client!")
+        let link = try store.recordRecording(event: event(), calendarTitle: "Trabalho", folder: folder, now: stamp(2026, 11, 23, 15, 31))
+        XCTAssertEqual(link.title, "Sprint Review")
         XCTAssertEqual(store.link(for: "ev1")?.recordingFolder, "2026-11-23_15-30-00")
-        XCTAssertEqual(store.link(for: "ev1")?.calendar, "acme")
+        XCTAssertEqual(store.link(for: "ev1")?.calendar, "Trabalho")
         let sidecar = EventLinkStore.readSidecar(in: folder)
-        XCTAssertEqual(sidecar?.title, "Revisão da Sprint: acme-client!")
+        XCTAssertEqual(sidecar?.title, "Sprint Review")
         XCTAssertEqual(sidecar?.key, "ev1")
         let mode = try FileManager.default.attributesOfItem(atPath: store.url.path)[.posixPermissions] as? Int
         XCTAssertEqual(mode, 0o600)
@@ -68,7 +68,7 @@ final class CalendarLinksTests: XCTestCase {
     }
 
     func testNoteFileNameFollowsTheBrainConvention() {
-        XCTAssertEqual(MeetingNote.fileName(for: event(), zone: saoPaulo), "2026-11-23-15h30m-revisao-da-sprint-acme-client")
+        XCTAssertEqual(MeetingNote.fileName(for: event(), zone: saoPaulo), "2026-11-23-15h30m-sprint-review")
         XCTAssertEqual(MeetingNote.slug("  ***  "), "reuniao")
         XCTAssertEqual(MeetingNote.slug("Reunião de Ação 2.0"), "reuniao-de-acao-2-0")
         XCTAssertLessThanOrEqual(MeetingNote.slug(String(repeating: "a", count: 200)).count, 60)
@@ -76,26 +76,26 @@ final class CalendarLinksTests: XCTestCase {
 
     func testNoteFileNameUsesTheGivenZone() {
         let tokyo = TimeZone(identifier: "Asia/Tokyo")!
-        XCTAssertEqual(MeetingNote.fileName(for: event(), zone: tokyo), "2026-11-24-03h30m-revisao-da-sprint-acme-client")
+        XCTAssertEqual(MeetingNote.fileName(for: event(), zone: tokyo), "2026-11-24-03h30m-sprint-review")
     }
 
     func testCreateNoteWritesFrontmatterAndNeverOverwrites() throws {
         let root = dir.appendingPathComponent("brain", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        let first = try MeetingNote.create(for: event(), calendarTitle: "acme", brainRoot: root.path, zone: saoPaulo,
+        let first = try MeetingNote.create(for: event(), calendarTitle: "Trabalho", brainRoot: root.path, zone: saoPaulo,
                                            recordingFolder: "2026-11-23_15-30-00", now: stamp(2026, 11, 23, 15, 40))
         XCTAssertTrue(first.created)
-        XCTAssertEqual(first.relativePath, "meetings/2026-11-23-15h30m-revisao-da-sprint-acme-client.md")
+        XCTAssertEqual(first.relativePath, "meetings/2026-11-23-15h30m-sprint-review.md")
         let body = try String(contentsOf: first.url, encoding: .utf8)
         XCTAssertTrue(body.hasPrefix("---\ndate: 2026-11-23 15:30\n"))
         XCTAssertTrue(body.contains("attendees: [Ana]"))
-        XCTAssertTrue(body.contains("# Meeting — 2026-11-23 15:30 — Revisão da Sprint: acme-client!"))
-        XCTAssertTrue(body.contains("- Calendar: acme"))
+        XCTAssertTrue(body.contains("# Meeting — 2026-11-23 15:30 — Sprint Review"))
+        XCTAssertTrue(body.contains("- Calendar: Trabalho"))
         XCTAssertTrue(body.contains("- Link: https://meet.google.com/aaa-bbbb-ccc"))
         XCTAssertTrue(body.contains("- Recording: 2026-11-23_15-30-00"))
         XCTAssertTrue(body.contains("created: 2026-11-23 15:40"))
         try "editado".write(to: first.url, atomically: true, encoding: .utf8)
-        let second = try MeetingNote.create(for: event(), calendarTitle: "acme", brainRoot: root.path, zone: saoPaulo)
+        let second = try MeetingNote.create(for: event(), calendarTitle: "Trabalho", brainRoot: root.path, zone: saoPaulo)
         XCTAssertFalse(second.created)
         XCTAssertEqual(try String(contentsOf: second.url, encoding: .utf8), "editado")
     }

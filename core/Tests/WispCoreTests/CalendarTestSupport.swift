@@ -24,9 +24,13 @@ final class FakeCalendarBackend: CalendarBackend, @unchecked Sendable {
     var created: [EventDraft] = []
     var updates: [(EventRef, EventEdit, RecurrenceScope)] = []
     var deletes: [(EventRef, RecurrenceScope)] = []
+    var expectations: [Date?] = []
+    var storedModified: [String: Date] = [:]
+    var missing: Set<String> = []
     var failNext: AgendaError?
     var access = AgendaAccess.granted
     var fetches: [(Date, Date)] = []
+    var nextID: String?
 
     func eventsAccess() -> AgendaAccess { access }
     func requestEventsAccess() async -> Bool { true }
@@ -39,21 +43,29 @@ final class FakeCalendarBackend: CalendarBackend, @unchecked Sendable {
 
     func event(ref: EventRef) async throws -> CalEvent {
         if ref.start == nil, let master { return master }
-        guard let found = events.first(where: { $0.id == ref.id && (ref.start == nil || $0.start == ref.start) }) else {
-            throw AgendaError("não achei o evento \(ref.id)")
+        guard !missing.contains(ref.id),
+              let found = events.first(where: { $0.id == ref.id && (ref.start == nil || $0.start == ref.start) }) else {
+            throw CalendarBackendError.notFound(ref.id)
         }
         return found
+    }
+
+    private func check(_ ref: EventRef, _ expected: Date?) throws {
+        expectations.append(expected)
+        if missing.contains(ref.id) { throw CalendarBackendError.notFound(ref.id) }
+        if let expected, let current = storedModified[ref.id], current != expected { throw CalendarBackendError.modifiedExternally(ref.id) }
     }
 
     func create(_ draft: EventDraft) async throws -> CalEvent {
         if let failNext { self.failNext = nil; throw failNext }
         created.append(draft)
-        return CalEvent(id: "new\(created.count)", calendarID: draft.calendarID ?? "c1", title: draft.title, start: draft.start, end: draft.end,
+        return CalEvent(id: nextID ?? "new\(created.count)", calendarID: draft.calendarID ?? "c1", title: draft.title, start: draft.start, end: draft.end,
                         allDay: draft.allDay, recurrence: draft.recurrence, isRecurring: draft.recurrence != nil)
     }
 
-    func update(ref: EventRef, edit: EventEdit, scope: RecurrenceScope) async throws -> CalEvent {
+    func update(ref: EventRef, edit: EventEdit, scope: RecurrenceScope, expectedModified: Date?) async throws -> CalEvent {
         if let failNext { self.failNext = nil; throw failNext }
+        try check(ref, expectedModified)
         updates.append((ref, edit, scope))
         var base = try await event(ref: ref)
         if let start = edit.start { base.start = start }
@@ -61,8 +73,9 @@ final class FakeCalendarBackend: CalendarBackend, @unchecked Sendable {
         return base
     }
 
-    func delete(ref: EventRef, scope: RecurrenceScope) async throws {
+    func delete(ref: EventRef, scope: RecurrenceScope, expectedModified: Date?) async throws {
         if let failNext { self.failNext = nil; throw failNext }
+        try check(ref, expectedModified)
         deletes.append((ref, scope))
     }
 

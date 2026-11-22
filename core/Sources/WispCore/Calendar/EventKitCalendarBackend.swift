@@ -76,8 +76,9 @@ public final class EventKitCalendarBackend: CalendarBackend, @unchecked Sendable
         }
     }
 
-    public func update(ref: EventRef, edit: EventEdit, scope: RecurrenceScope) async throws -> CalEvent {
+    public func update(ref: EventRef, edit: EventEdit, scope: RecurrenceScope, expectedModified: Date?) async throws -> CalEvent {
         try await run { [self] in
+            try verifyUnchanged(ref, expected: expectedModified)
             let target = scope == .all ? EventRef(id: ref.id) : ref
             let event = try ekEvent(target)
             guard event.calendar.allowsContentModifications else { throw AgendaError("\"\(event.calendar.title)\" é somente leitura") }
@@ -94,18 +95,21 @@ public final class EventKitCalendarBackend: CalendarBackend, @unchecked Sendable
                 event.calendar = chosen
             }
             if let offsets = edit.alarmOffsets { event.alarms = offsets.map { EKAlarm(relativeOffset: TimeInterval($0)) } }
-            switch edit.recurrence {
-            case .keep: break
-            case .remove: event.recurrenceRules = nil
-            case .set(let rule): event.recurrenceRules = [Self.rule(rule)]
+            if scope != .thisOnly {
+                switch edit.recurrence {
+                case .keep: break
+                case .remove: event.recurrenceRules = nil
+                case .set(let rule): event.recurrenceRules = [Self.rule(rule)]
+                }
             }
             try save(event, span: scope == .thisOnly ? .thisEvent : .futureEvents)
             return Self.event(event)
         }
     }
 
-    public func delete(ref: EventRef, scope: RecurrenceScope) async throws {
+    public func delete(ref: EventRef, scope: RecurrenceScope, expectedModified: Date?) async throws {
         try await run { [self] in
+            try verifyUnchanged(ref, expected: expectedModified)
             let event = try ekEvent(scope == .all ? EventRef(id: ref.id) : ref)
             guard event.calendar.allowsContentModifications else { throw AgendaError("\"\(event.calendar.title)\" é somente leitura") }
             do {
@@ -134,14 +138,23 @@ public final class EventKitCalendarBackend: CalendarBackend, @unchecked Sendable
         }
     }
 
+    private func verifyUnchanged(_ ref: EventRef, expected: Date?) throws {
+        guard let expected else { return }
+        let probe = try ekEvent(ref)
+        guard probe.refresh() else { throw CalendarBackendError.notFound(ref.id) }
+        if let current = probe.lastModifiedDate, abs(current.timeIntervalSince(expected)) > 0.5 {
+            throw CalendarBackendError.modifiedExternally(probe.title ?? "Evento")
+        }
+    }
+
     private func ekEvent(_ ref: EventRef) throws -> EKEvent {
         guard let start = ref.start else {
-            guard let found = store.event(withIdentifier: ref.id) else { throw AgendaError("não achei o evento \(ref.id)") }
+            guard let found = store.event(withIdentifier: ref.id) else { throw CalendarBackendError.notFound(ref.id) }
             return found
         }
         let predicate = store.predicateForEvents(withStart: start.addingTimeInterval(-86_400), end: start.addingTimeInterval(86_400), calendars: nil)
         guard let found = store.events(matching: predicate).first(where: { $0.eventIdentifier == ref.id && abs($0.startDate.timeIntervalSince(start)) < 1 }) else {
-            throw AgendaError("não achei a ocorrência de \(ref.id) que começa nesse horário")
+            throw CalendarBackendError.notFound(ref.id)
         }
         return found
     }
@@ -158,7 +171,16 @@ public final class EventKitCalendarBackend: CalendarBackend, @unchecked Sendable
         case .count(let count): EKRecurrenceEnd(occurrenceCount: count)
         case .until(let date): EKRecurrenceEnd(end: date)
         }
-        return EKRecurrenceRule(recurrenceWith: frequency, interval: recurrence.interval, end: end)
+        func numbers(_ list: [Int]) -> [NSNumber]? { list.isEmpty ? nil : list.map { NSNumber(value: $0) } }
+        let days = recurrence.daysOfWeek.compactMap { day in
+            EKWeekday(rawValue: day.weekday).map { EKRecurrenceDayOfWeek(dayOfTheWeek: $0, weekNumber: day.weekNumber) }
+        }
+        if !recurrence.hasDetail { return EKRecurrenceRule(recurrenceWith: frequency, interval: recurrence.interval, end: end) }
+        return EKRecurrenceRule(
+            recurrenceWith: frequency, interval: recurrence.interval, daysOfTheWeek: days.isEmpty ? nil : days,
+            daysOfTheMonth: numbers(recurrence.daysOfMonth), monthsOfTheYear: numbers(recurrence.monthsOfYear),
+            weeksOfTheYear: numbers(recurrence.weeksOfYear), daysOfTheYear: numbers(recurrence.daysOfYear),
+            setPositions: numbers(recurrence.setPositions), end: end)
     }
 
     private static func recurrence(_ rule: EKRecurrenceRule) -> CalRecurrence? {
@@ -176,7 +198,12 @@ public final class EventKitCalendarBackend: CalendarBackend, @unchecked Sendable
         } else {
             end = .never
         }
-        return CalRecurrence(frequency: frequency, interval: rule.interval, end: end)
+        func list(_ numbers: [NSNumber]?) -> [Int] { (numbers ?? []).map(\.intValue) }
+        return CalRecurrence(
+            frequency: frequency, interval: rule.interval, end: end,
+            daysOfWeek: (rule.daysOfTheWeek ?? []).map { RecurrenceDay(weekday: $0.dayOfTheWeek.rawValue, weekNumber: $0.weekNumber) },
+            daysOfMonth: list(rule.daysOfTheMonth), monthsOfYear: list(rule.monthsOfTheYear), weeksOfYear: list(rule.weeksOfTheYear),
+            daysOfYear: list(rule.daysOfTheYear), setPositions: list(rule.setPositions))
     }
 
     private static func calendar(_ calendar: EKCalendar) -> CalCalendar {
@@ -223,7 +250,7 @@ public final class EventKitCalendarBackend: CalendarBackend, @unchecked Sendable
             alarmOffsets: (event.alarms ?? []).compactMap { $0.absoluteDate == nil ? Int($0.relativeOffset) : nil },
             recurrence: event.recurrenceRules?.first.flatMap(recurrence), isRecurring: event.hasRecurrenceRules,
             writable: event.calendar?.allowsContentModifications ?? false, busy: event.availability != .free,
-            declined: me?.participantStatus == .declined)
+            declined: me?.participantStatus == .declined, modified: event.lastModifiedDate)
     }
 
     private static func nonEmpty(_ text: String?) -> String? {

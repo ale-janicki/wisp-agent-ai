@@ -16,12 +16,13 @@ public struct AgendaPreferences: Codable, Equatable, Sendable {
     public var menuBarNext = true
     public var googleHintDismissed = false
     public var showSidebar = false
+    public var hideTitlesInAlerts = false
 
     public init() {}
 
     private enum CodingKeys: String, CodingKey {
         case mode, hiddenCalendars, hiddenSources, secondaryZones, workingHours, availabilityLanguage, alertLeadMinutes
-        case meetingAlerts, menuBarNext, googleHintDismissed, showSidebar
+        case meetingAlerts, menuBarNext, googleHintDismissed, showSidebar, hideTitlesInAlerts
     }
 
     public init(from decoder: Decoder) throws {
@@ -37,6 +38,7 @@ public struct AgendaPreferences: Codable, Equatable, Sendable {
         menuBarNext = (try? c.decodeIfPresent(Bool.self, forKey: .menuBarNext)) ?? true
         googleHintDismissed = (try? c.decodeIfPresent(Bool.self, forKey: .googleHintDismissed)) ?? false
         showSidebar = (try? c.decodeIfPresent(Bool.self, forKey: .showSidebar)) ?? false
+        hideTitlesInAlerts = (try? c.decodeIfPresent(Bool.self, forKey: .hideTitlesInAlerts)) ?? false
     }
 
     public func isVisible(_ calendar: CalCalendar) -> Bool {
