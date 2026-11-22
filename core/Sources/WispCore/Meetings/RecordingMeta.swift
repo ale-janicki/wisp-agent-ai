@@ -38,6 +38,10 @@ public struct RecordingMeta: Codable, Equatable, Sendable {
     public var noteFile: String?
     public var noteState: NoteState?
     public var brainNote: String?
+    public var metrics: MeetingMetrics?
+    public var bookmarks: [MeetingBookmark]?
+    public var checklist: [ChecklistItem]?
+    public var webhookSentAt: Date?
 
     public init(
         mode: RecordingMode = .call, startedAt: Date, durationSeconds: Double? = nil, devices: Devices,
@@ -56,10 +60,11 @@ public struct RecordingMeta: Codable, Equatable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case version, mode, devices, status, failure, sources, title
+        case version, mode, devices, status, failure, sources, title, metrics, bookmarks, checklist
         case noteFile = "note_file"
         case noteState = "note_state"
         case brainNote = "brain_note"
+        case webhookSentAt = "webhook_sent_at"
         case startedAt = "started_at"
         case durationSeconds = "duration_s"
         case detectedApp = "detected_app"

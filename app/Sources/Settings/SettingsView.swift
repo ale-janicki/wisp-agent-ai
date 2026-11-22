@@ -116,6 +116,7 @@ struct SettingsView: View {
             IntegrationsPane(media: media)
         case .general:
             general
+            meetings
             brain
             agenda
             macControl
@@ -231,6 +232,43 @@ struct SettingsView: View {
             login.refresh()
             PathsModel.shared.refresh()
         }
+    }
+
+    private var meetings: some View {
+        let current = settings.settings.meetings
+        return SettingsGroup(
+            title: "Reuniões",
+            caption: "O áudio e a transcrição ficam no seu Mac. O webhook é opcional e só envia depois do seu clique."
+        ) {
+            SettingsRow(
+                title: "Limite de gravação",
+                detail: "Para sozinho depois desse tempo de gravação ativa, com um aviso 5 min antes. Pausas e o Mac dormindo não contam."
+            ) {
+                Picker("Limite de gravação", selection: Binding(
+                    get: { current.limitMinutes },
+                    set: { value in settings.setMeetings { $0.limitMinutes = value } }
+                )) {
+                    ForEach(MeetingSettings.limitChoices, id: \.self) { minutes in
+                        Text(Self.limitLabel(minutes)).tag(minutes)
+                    }
+                }
+                .labelsHidden()
+                .frame(width: 110)
+            }
+            Divider().overlay(Theme.stroke)
+            ToggleRow(
+                title: "Webhook ao terminar",
+                detail: "Quando a nota ficar pronta, o Wisp mostra um cartão com o destino e o tamanho e só envia quando você clicar em Permitir. Vai a nota, as métricas e as ações, sem a transcrição.",
+                isOn: current.webhookEnabled
+            ) { on in settings.setMeetings { $0.webhookEnabled = on } }
+            if current.webhookEnabled {
+                WebhookURLField()
+            }
+        }
+    }
+
+    private static func limitLabel(_ minutes: Int) -> String {
+        minutes % 60 == 0 ? "\(minutes / 60) h" : "\(minutes) min"
     }
 
     private var brain: some View {
@@ -611,6 +649,41 @@ private struct MeetingsMoveRow: View {
         case .failed(let message): "\(message) Dá para tentar de novo: o que já foi movido fica."
         case .idle: "\(model.pendingMeetings) reuniões ficaram em ~/Wisp/reunioes. Mover leva as gravações para a pasta nova."
         }
+    }
+}
+
+private struct WebhookURLField: View {
+    private let settings = AppSettings.shared
+    @State private var draft = ""
+
+    private var problem: String? {
+        let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return nil }
+        do {
+            _ = try MeetingWebhook.validate(text)
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Theme.Space.xs) {
+            TextField("", text: $draft, prompt: Text("https://…").foregroundStyle(Theme.textTertiary))
+                .textFieldStyle(.plain)
+                .font(Theme.Font.tool)
+                .foregroundStyle(Theme.textPrimary)
+                .padding(.horizontal, 10)
+                .frame(height: 26)
+                .background(Theme.surfaceHi, in: Capsule())
+                .onChange(of: draft) { _, text in settings.setMeetings { $0.webhookURL = text.trimmingCharacters(in: .whitespacesAndNewlines) } }
+            Text(problem ?? "Só https e só endereços públicos: localhost, IPs privados e redes locais são recusados.")
+                .font(Theme.Font.caption)
+                .foregroundStyle(problem == nil ? Theme.textSecondary : Theme.error)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.bottom, Theme.Space.s)
+        .onAppear { draft = settings.settings.meetings.webhookURL }
     }
 }
 

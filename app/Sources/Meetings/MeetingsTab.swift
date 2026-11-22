@@ -141,6 +141,14 @@ private struct MeetingMainCard: View {
     @ObservedObject var model: MeetingRecordingModel
     @ObservedObject var library: MeetingLibraryModel
     @ObservedObject var speech: SpeechModelModel
+    @ObservedObject var copilot: MeetingCopilotModel
+
+    init(model: MeetingRecordingModel, library: MeetingLibraryModel, speech: SpeechModelModel) {
+        _model = ObservedObject(wrappedValue: model)
+        _library = ObservedObject(wrappedValue: library)
+        _speech = ObservedObject(wrappedValue: speech)
+        _copilot = ObservedObject(wrappedValue: model.copilot)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Space.m) {
@@ -177,6 +185,9 @@ private struct MeetingMainCard: View {
                         .buttonStyle(CircleButtonStyle(size: 20))
                 }
             }
+            ForEach(library.webhookOffers) { offer in
+                WebhookCard(offer: offer, allow: { library.allowWebhook(offer.id) }, dismiss: { library.dismissWebhook(offer.id) })
+            }
             content
         }
         .padding(Theme.Space.l)
@@ -194,9 +205,12 @@ private struct MeetingMainCard: View {
         if let entry = library.selected {
             MeetingDetailView(entry: entry, library: library)
         } else if model.phase != .idle || !model.liveLines.isEmpty {
-            LiveTranscriptView(model: model)
+            LiveSessionView(model: model, copilot: copilot)
         } else {
-            TabMessage(text: "Escolha uma reunião na lista ou clique em Gravar.\nO que for dito aparece aqui em tempo real.")
+            VStack(alignment: .leading, spacing: Theme.Space.m) {
+                PrepCard(copilot: copilot)
+                TabMessage(text: "Escolha uma reunião na lista ou clique em Gravar.\nO que for dito aparece aqui em tempo real.")
+            }
         }
     }
 }
@@ -398,36 +412,6 @@ private struct ModelCard: View {
     }
 }
 
-private struct LiveTranscriptView: View {
-    @ObservedObject var model: MeetingRecordingModel
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: Theme.Space.s) {
-            HStack(spacing: Theme.Space.s) {
-                SectionTitle(text: "Transcrição ao vivo")
-                if model.isRecording { Circle().fill(Theme.error).frame(width: 6, height: 6) }
-            }
-            if model.liveLagging {
-                Text("Transcrição atrasada: o Mac está sobrecarregado. Nada se perde; eu alcanço e refaço tudo quando você parar.")
-                    .font(Theme.Font.caption)
-                    .foregroundStyle(Theme.busy)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            if let notice = model.liveNotice {
-                Text(notice)
-                    .font(Theme.Font.caption)
-                    .foregroundStyle(Theme.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            if model.liveLines.isEmpty {
-                TabMessage(text: model.isRecording ? "Esperando alguém falar…" : "Nada transcrito ainda.")
-            } else {
-                TranscriptListView(lines: model.liveLines)
-            }
-        }
-    }
-}
-
 private struct SectionTitle: View {
     let text: String
 
@@ -591,6 +575,26 @@ private struct TranscriptLineView: View {
     let line: TranscriptLine
 
     var body: some View {
+        if line.isBookmark {
+            HStack(spacing: Theme.Space.s) {
+                Text(line.time)
+                    .font(Theme.Font.captionMono)
+                    .foregroundStyle(Theme.textTertiary)
+                    .frame(width: 44, alignment: .trailing)
+                Image(systemName: "bookmark.fill")
+                    .font(.system(size: 10))
+                    .foregroundStyle(Theme.accent)
+                Text(line.text)
+                    .font(Theme.Font.caption)
+                    .foregroundStyle(Theme.accentText)
+                Rectangle().fill(Theme.stroke).frame(height: 1)
+            }
+        } else {
+            lineBody
+        }
+    }
+
+    private var lineBody: some View {
         HStack(alignment: .firstTextBaseline, spacing: Theme.Space.s) {
             Text(line.time)
                 .font(Theme.Font.captionMono)
