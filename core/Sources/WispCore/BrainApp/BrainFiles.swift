@@ -125,34 +125,40 @@ public struct BrainFiles: Sendable {
         try Self.replace(Data(text.utf8), at: destination, root: root, label: rel)
     }
 
+    nonisolated(unsafe) static var failSystemStaging = false
+    nonisolated(unsafe) static var exdevFromSystemStaging = false
+    nonisolated(unsafe) static var lastStaging = ""
+
     static func replace(_ data: Data, at destination: URL, root: URL, label: String) throws {
-        var failures: [String] = []
-        for staging in try stagingFolders(for: destination, root: root) {
+        var failure = "sem pasta para o arquivo temporário"
+        for staging in stagingFolders(for: destination, root: root) {
             let temporary = staging.folder.appendingPathComponent(staging.name)
             defer { if staging.disposable { try? FileManager.default.removeItem(at: staging.folder) } else { try? FileManager.default.removeItem(at: temporary) } }
             do {
                 try stage(data, at: temporary, attributesFrom: destination)
+                if staging.kind == "system", exdevFromSystemStaging { throw NSError(domain: NSPOSIXErrorDomain, code: Int(EXDEV)) }
                 try rename(temporary, destination)
+                lastStaging = staging.kind
                 syncFolder(destination.deletingLastPathComponent())
                 return
             } catch {
-                failures.append(error.localizedDescription)
-                if (error as NSError).code != Int(EXDEV), staging.disposable == false { break }
+                failure = error.localizedDescription
             }
         }
-        throw BrainFilesError.failed("não consegui salvar \(label): \(failures.last ?? "sem pasta para o arquivo temporário")")
+        throw BrainFilesError.failed("não consegui salvar \(label): \(failure)")
     }
 
     private struct Staging {
         var folder: URL
         var name: String
         var disposable: Bool
+        var kind: String
     }
 
-    private static func stagingFolders(for destination: URL, root: URL) throws -> [Staging] {
+    private static func stagingFolders(for destination: URL, root: URL) -> [Staging] {
         var options: [Staging] = []
-        if let system = try? FileManager.default.url(for: .itemReplacementDirectory, in: .userDomainMask, appropriateFor: destination, create: true) {
-            options.append(Staging(folder: system, name: "note", disposable: true))
+        if !failSystemStaging, let system = try? FileManager.default.url(for: .itemReplacementDirectory, in: .userDomainMask, appropriateFor: destination, create: true) {
+            options.append(Staging(folder: system, name: "note", disposable: true, kind: "system"))
         }
         let git = root.appendingPathComponent(".git", isDirectory: true)
         var isFolder: ObjCBool = false
@@ -162,15 +168,35 @@ public struct BrainFiles: Sendable {
            stat(git.path, &gitInfo) == 0, stat(parent.path, &destinationInfo) == 0, gitInfo.st_dev == destinationInfo.st_dev {
             let inside = git.appendingPathComponent("wisp-tmp", isDirectory: true)
             if (try? FileManager.default.createDirectory(at: inside, withIntermediateDirectories: true)) != nil {
-                options.append(Staging(folder: inside, name: "note-\(UUID().uuidString.prefix(8))", disposable: false))
+                options.append(Staging(folder: inside, name: "note-\(UUID().uuidString.prefix(8))", disposable: false, kind: "git"))
             }
         }
-        options.append(Staging(folder: parent, name: ".wisp-tmp-\(UUID().uuidString.prefix(8))", disposable: false))
+        options.append(Staging(folder: parent, name: ".wisp-tmp-\(UUID().uuidString.prefix(8))", disposable: false, kind: "sibling"))
         return options
     }
 
-    static func stagingFoldersForTesting(_ destination: URL, root: URL) throws -> [String] {
-        try stagingFolders(for: destination, root: root).map(\.name)
+    static func stagingFoldersForTesting(_ destination: URL, root: URL) -> [String] {
+        stagingFolders(for: destination, root: root).map(\.name)
+    }
+
+    @discardableResult
+    public static func removeStaleTemps(root: String, olderThan age: TimeInterval = 60, now: Date = Date()) -> Int {
+        let base = URL(fileURLWithPath: BrainScanner.canonical(MemorySearch.resolvedRoot(root)), isDirectory: true)
+        var removed = 0
+        func sweep(_ url: URL) {
+            guard let modified = (try? FileManager.default.attributesOfItem(atPath: url.path))?[.modificationDate] as? Date,
+                  now.timeIntervalSince(modified) > age else { return }
+            if (try? FileManager.default.removeItem(at: url)) != nil { removed += 1 }
+        }
+        let gitTemps = base.appendingPathComponent(".git/wisp-tmp", isDirectory: true)
+        for name in (try? FileManager.default.contentsOfDirectory(atPath: gitTemps.path)) ?? [] { sweep(gitTemps.appendingPathComponent(name)) }
+        let enumerator = FileManager.default.enumerator(at: base, includingPropertiesForKeys: nil)
+        while let url = enumerator?.nextObject() as? URL {
+            let name = url.lastPathComponent
+            if name == ".git" || name == ".obsidian" || name == ".trash" { enumerator?.skipDescendants(); continue }
+            if name.hasPrefix(".wisp-tmp-") { sweep(url) }
+        }
+        return removed
     }
 
     static func syncFolder(_ folder: URL) {
