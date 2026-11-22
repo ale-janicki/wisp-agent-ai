@@ -11,6 +11,7 @@ final class EngineModel {
     private(set) var local: LocalReadiness?
     private(set) var busy = false
     private(set) var error: String?
+    private(set) var notice: String?
 
     @ObservationIgnored private let layout = RuntimeLayout(
         bundle: Bundle.main.bundleURL, home: FileManager.default.homeDirectoryForCurrentUser)
@@ -41,6 +42,7 @@ final class EngineModel {
         guard !busy, kind != active, AppSettings.shared.persists else { return }
         busy = true
         error = nil
+        notice = nil
         let executable = layout.wisp
         let environment = environment
         Task {
@@ -59,6 +61,7 @@ final class EngineModel {
                 let report = try? JSONDecoder().decode(SetupReport.self, from: output.stdout)
                 if let report, report.status != .failed {
                     error = nil
+                    notice = report.data["harness"] == "managed_elsewhere" ? report.summary : nil
                 } else {
                     error = report?.summary ?? (output.timedOut ? "O wisp demorou demais." : "O wisp não respondeu.")
                 }

@@ -152,6 +152,79 @@ def test_config_set_reports_sync_failure(fake_home, monkeypatch, capsys):
     assert _saved(fake_home)["wisp_dir"] == str(fake_home / "W")
 
 
+def test_config_set_path_managed_elsewhere_is_a_neutral_success(fake_home, monkeypatch, capsys):
+    from wisp import cli
+
+    _fake_runner(monkeypatch)
+    monkeypatch.setattr(
+        cli, "setup_harness", lambda *a, **k: cli.StepReport("harness", "failed", "harness gerenciado fora do Wisp", data={"harness": "managed_elsewhere"})
+    )
+    code, out = _set("wisp_dir", str(fake_home / "W"), capsys)
+    assert code == 0
+    assert out["status"] == "done"
+    assert out["summary"] == "caminho salvo; o harness é gerenciado fora do Wisp, então ele não foi alterado"
+    assert out["data"]["harness"] == "managed_elsewhere"
+    assert _saved(fake_home)["wisp_dir"] == str(fake_home / "W")
+
+
+def test_config_set_engine_managed_elsewhere_is_a_neutral_success(fake_home, monkeypatch, capsys):
+    from wisp import cli
+
+    _fake_runner(monkeypatch)
+    monkeypatch.setattr(
+        cli, "setup_harness", lambda *a, **k: cli.StepReport("harness", "failed", "harness gerenciado fora do Wisp", data={"harness": "managed_elsewhere"})
+    )
+    code, out = _set("engine", "claude", capsys)
+    assert code == 0
+    assert out["status"] == "done"
+    assert out["summary"] == "motor salvo; o harness é gerenciado fora do Wisp, então ele não foi alterado"
+    assert out["data"]["harness"] == "managed_elsewhere"
+
+
+def test_config_set_engine_managed_elsewhere_still_syncs_codex(fake_home, monkeypatch, capsys):
+    from wisp import cli
+    from wisp.setup.codex import CodexSync
+
+    _fake_runner(monkeypatch)
+    monkeypatch.setattr(
+        cli, "setup_harness", lambda *a, **k: cli.StepReport("harness", "failed", "harness gerenciado fora do Wisp", data={"harness": "managed_elsewhere"})
+    )
+    calls = []
+    monkeypatch.setattr(cli, "sync_codex", lambda *a, **k: calls.append(1) or CodexSync("updated"))
+    code, out = _set("engine", "codex", capsys)
+    assert code == 0
+    assert calls == [1]
+    assert out["status"] == "done"
+    assert out["data"]["codex"] == "updated"
+    assert out["data"]["harness"] == "managed_elsewhere"
+
+
+def test_config_set_engine_managed_elsewhere_codex_failure_is_failed(fake_home, monkeypatch, capsys):
+    from wisp import cli
+    from wisp.setup.codex import CodexSync
+
+    _fake_runner(monkeypatch)
+    monkeypatch.setattr(
+        cli, "setup_harness", lambda *a, **k: cli.StepReport("harness", "failed", "harness gerenciado fora do Wisp", data={"harness": "managed_elsewhere"})
+    )
+    monkeypatch.setattr(cli, "sync_codex", lambda *a, **k: CodexSync("failed"))
+    code, out = _set("engine", "codex", capsys)
+    assert code == 1
+    assert out["status"] == "failed"
+    assert out["data"]["codex"] == "failed"
+    assert "o Codex não sincronizou" in out["summary"]
+
+
+def test_config_set_engine_real_harness_failure_stays_failed(fake_home, monkeypatch, capsys):
+    from wisp import cli
+
+    _fake_runner(monkeypatch)
+    monkeypatch.setattr(cli, "setup_harness", lambda *a, **k: cli.StepReport("harness", "failed", "falta criar o cérebro antes"))
+    code, out = _set("engine", "claude", capsys)
+    assert code == 1
+    assert out["summary"] == "motor salvo, mas o harness não sincronizou: falta criar o cérebro antes"
+
+
 def test_config_set_brain_existing_dir_untouched(fake_home, monkeypatch, capsys):
     _fake_runner(monkeypatch)
     vault = fake_home / "Vault"

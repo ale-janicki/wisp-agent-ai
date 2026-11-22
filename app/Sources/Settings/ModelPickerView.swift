@@ -3,6 +3,8 @@ import WispCore
 
 struct ModelPickerCard: View {
     private let model = ModelPickerModel.shared
+    private let engine = EngineModel.shared
+    @State private var localOpen = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Space.m) {
@@ -14,6 +16,27 @@ struct ModelPickerCard: View {
                     .font(Theme.Font.caption)
                     .foregroundStyle(Theme.textSecondary)
             }
+            if engine.active == .local {
+                localContent
+            } else {
+                collapsedLocal
+            }
+            if let error = model.error {
+                Text(error)
+                    .font(Theme.Font.caption)
+                    .foregroundStyle(Theme.error)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(Theme.Space.l)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .card()
+        .onAppear { model.refresh() }
+    }
+
+    @ViewBuilder
+    private var localContent: some View {
+        VStack(alignment: .leading, spacing: Theme.Space.m) {
             if let status = model.status, status.backend.isMlx, let advice = model.recommendation {
                 RecommendationBlock(advice: advice, status: status)
             }
@@ -68,17 +91,41 @@ struct ModelPickerCard: View {
             } else {
                 ProgressView().controlSize(.small)
             }
-            if let error = model.error {
-                Text(error)
-                    .font(Theme.Font.caption)
-                    .foregroundStyle(Theme.error)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
         }
-        .padding(Theme.Space.l)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .card()
-        .onAppear { model.refresh() }
+    }
+
+    private var collapsedLocal: some View {
+        VStack(alignment: .leading, spacing: Theme.Space.s) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("IA local neste Mac")
+                    .font(Theme.Font.bodyMedium)
+                    .foregroundStyle(Theme.textPrimary)
+                Text(localSummary)
+                    .font(Theme.Font.caption)
+                    .foregroundStyle(Theme.textSecondary)
+            }
+            Button {
+                localOpen.toggle()
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: localOpen ? "chevron.down" : "chevron.right").font(.system(size: 9, weight: .semibold))
+                    Text("Ver modelos locais")
+                }
+                .font(Theme.Font.caption)
+                .foregroundStyle(Theme.textTertiary)
+            }
+            .buttonStyle(.plain)
+            if localOpen { localContent }
+        }
+    }
+
+    private var localSummary: String {
+        guard let status = model.status else { return "Conferindo os modelos…" }
+        var parts: [String] = []
+        if status.backend.isMlx, let best = model.recommendation?.best { parts.append("\(best.name) recomendado") }
+        let count = status.installed.count
+        parts.append(count == 1 ? "1 baixado" : count == 0 ? "nenhum baixado" : "\(count) baixados")
+        return parts.joined(separator: " · ")
     }
 
     private var machineLine: String {
