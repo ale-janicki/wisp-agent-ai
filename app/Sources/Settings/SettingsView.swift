@@ -358,9 +358,9 @@ struct SettingsView: View {
                     .foregroundStyle(Theme.textSecondary)
             }
             Divider().overlay(Theme.stroke)
-            SettingsRow(title: "Avisos de terceiros", detail: "Licenças do SwiftTerm e do Sparkle, que vêm dentro do Wisp.") {
+            SettingsRow(title: "Avisos de terceiros", detail: "Licenças do SwiftTerm, do Sparkle e do FluidAudio, que vêm dentro do Wisp.") {
                 Button("Abrir avisos") {
-                    for name in ["SwiftTerm-LICENSE", "Sparkle-LICENSE"] {
+                    for name in ["SwiftTerm-LICENSE", "Sparkle-LICENSE", "FluidAudio-LICENSE"] {
                         if let notice = Bundle.main.url(forResource: name, withExtension: "txt", subdirectory: "ThirdParty") {
                             NSWorkspace.shared.open(notice)
                         }

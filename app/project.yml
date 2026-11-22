@@ -14,7 +14,7 @@ packages:
     exactVersion: 2.10.1
   FluidAudio:
     url: https://github.com/FluidInference/FluidAudio
-    exactVersion: 0.18.4
+    revision: e0c6103bc87a88d25276cad491c86e757f58c865
 targets:
   wisp-agenda:
     type: tool

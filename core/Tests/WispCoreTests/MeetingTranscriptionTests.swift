@@ -473,6 +473,20 @@ final class MeetingTranscriptionTests: XCTestCase {
         return (spec, MemoryFetcher(contents: ["weight.bin": a, "vocab.json": b]))
     }
 
+    private func gitOnlyPinnedSpec() -> (SpeechModelSpec, MemoryFetcher) {
+        let b = Data("{\"vocab\":1}".utf8)
+        var hasher = Insecure.SHA1()
+        hasher.update(data: Data("blob \(b.count)\0".utf8))
+        hasher.update(data: b)
+        let git = hasher.finalize().map { String(format: "%02x", $0) }.joined()
+        let sha = SHA256.hash(data: b).map { String(format: "%02x", $0) }.joined()
+        let spec = SpeechModelSpec(
+            name: "Fake", repo: "owner/fake", revision: "abc123", folderName: "fake-model", license: "MIT",
+            files: [SpeechModelFile(path: "vocab.json", size: Int64(b.count), hash: .gitBlobSHA1(git), sha256: sha)]
+        )
+        return (spec, MemoryFetcher(contents: ["vocab.json": b]))
+    }
+
     func testDownloadVerifiesHashesReportsProgressAndMarksTheModelInstalled() async throws {
         let (spec, fetcher) = smallSpec()
         let progress = UpdateLog()
@@ -547,7 +561,9 @@ final class MeetingTranscriptionTests: XCTestCase {
             case .sha256(let value): XCTAssertEqual(value.count, 64)
             case .gitBlobSHA1(let value): XCTAssertEqual(value.count, 40)
             }
+            XCTAssertEqual(file.expectedSHA256?.count, 64, file.path)
         }
+        XCTAssertEqual(spec.files.filter { if case .gitBlobSHA1 = $0.hash { true } else { false } }.count, 8)
     }
 
     // MARK: brain export and presentation
@@ -913,6 +929,104 @@ final class MeetingTranscriptionTests: XCTestCase {
             } catch {}
         }
         XCTAssertNoThrow(try SpeechModelSpec.parakeetV3.validate())
+    }
+
+    func testAGitPinnedFileMustAlsoMatchItsPinnedSHA256() async throws {
+        var (spec, fetcher) = gitOnlyPinnedSpec()
+        let downloader = SpeechModelDownloader(fetcher: fetcher, diskSpace: FixedDisk(bytes: 100_000_000_000))
+        try await downloader.download(spec, wispDir: root, progress: { _, _ in })
+        XCTAssertTrue(SpeechModelLocation.verify(spec, at: SpeechModelLocation.directory(for: spec, wispDir: root)))
+        spec.files[0].sha256 = String(repeating: "0", count: 64)
+        XCTAssertFalse(SpeechModelLocation.verify(spec, at: SpeechModelLocation.directory(for: spec, wispDir: root)))
+        let other = root.appendingPathComponent("other")
+        do {
+            try await downloader.download(spec, wispDir: other, progress: { _, _ in })
+            XCTFail("sha256 mismatch must be refused")
+        } catch let error as SpeechModelError {
+            XCTAssertEqual(error, .hashMismatch(path: "vocab.json"))
+        }
+        fetcher = MemoryFetcher(contents: [:])
+    }
+
+    func testABusyNoteIsNotTurnedIntoARawNoteAndTheMeetingStaysWaiting() async throws {
+        struct Busy: MeetingNoteWriter {
+            func writeNote(folder: URL) async throws -> NoteOutcome { throw MeetingNoteBusy() }
+        }
+        let folder = try makeRecording(status: .transcribing)
+        do {
+            try await pipeline(notes: Busy()).process(folder: folder)
+            XCTFail("busy must surface")
+        } catch is MeetingNoteBusy {}
+        XCTAssertFalse(FileManager.default.fileExists(atPath: RecordingFolder.noteURL(in: folder).path))
+        let meta = try RecordingFolder.read(in: folder)
+        XCTAssertEqual(meta.status, .transcribed)
+        XCTAssertNil(meta.failure)
+    }
+
+    func testCancellingARunningCommandKillsTheWholeProcessGroupAndReportsIt() async throws {
+        let marker = root.appendingPathComponent("child-alive")
+        let script = "sleep 30 & echo $! > '\(marker.path)'; wait"
+        let token = CommandCancellation()
+        let started = Task.detached {
+            CommandRunner.run(executable: URL(fileURLWithPath: "/bin/sh"), arguments: ["-c", script], timeout: 60, cancellation: token)
+        }
+        for _ in 0..<100 where !FileManager.default.fileExists(atPath: marker.path) { try await Task.sleep(for: .milliseconds(50)) }
+        let child = Int32(try String(contentsOf: marker, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0
+        XCTAssertGreaterThan(child, 0)
+        XCTAssertEqual(kill(child, 0), 0)
+        token.cancel()
+        let finished = await started.value
+        let result = try finished.get()
+        XCTAssertEqual(result.status, -2)
+        try await Task.sleep(for: .milliseconds(200))
+        XCTAssertEqual(kill(child, 0), -1)
+    }
+
+    func testACommandCancelledBeforeItStartedIsStoppedAsSoonAsItRegisters() throws {
+        let token = CommandCancellation()
+        token.cancel()
+        let result = try CommandRunner.run(
+            executable: URL(fileURLWithPath: "/bin/sleep"), arguments: ["30"], timeout: 60, cancellation: token
+        ).get()
+        XCTAssertEqual(result.status, -2)
+    }
+
+    private final class UnloadCounter: SpeechRecognizer, @unchecked Sendable {
+        let engineName = "u"
+        private let lock = NSLock()
+        private(set) var unloads = 0
+        func transcribe(_ samples: [Float], language: String?) async throws -> [RecognizedSpan] { [] }
+        func unload() async { lock.withLock { unloads += 1 } }
+    }
+
+    private final class Flag: @unchecked Sendable {
+        private let lock = NSLock()
+        private var on = true
+        var value: Bool { lock.withLock { on } }
+        func clear() { lock.withLock { on = false } }
+    }
+
+    func testThePauseGateReleasesTheFinalPassModelOnceWhileARecordingRuns() async throws {
+        let recognizer = UnloadCounter()
+        let flag = Flag()
+        let gate = MeetingPauseGate(recognizer: recognizer, interval: .milliseconds(20), isRecording: { flag.value })
+        Task { try? await Task.sleep(for: .milliseconds(120)); flag.clear() }
+        try await gate.wait()
+        XCTAssertEqual(recognizer.unloads, 1)
+        try await gate.wait()
+        XCTAssertEqual(recognizer.unloads, 1)
+    }
+
+    func testThePauseGateStopsWaitingWhenCancelled() async {
+        let recognizer = UnloadCounter()
+        let gate = MeetingPauseGate(recognizer: recognizer, interval: .milliseconds(20), isRecording: { true })
+        let waiting = Task { try await gate.wait() }
+        try? await Task.sleep(for: .milliseconds(80))
+        waiting.cancel()
+        do {
+            try await waiting.value
+            XCTFail("should cancel")
+        } catch is CancellationError {} catch { XCTFail("\(error)") }
     }
 
     func testAttributionNamesTheAuthorTheLicenseAndTheChange() {

@@ -23,6 +23,10 @@ final class ParakeetRecognizer: SpeechRecognizer, @unchecked Sendable {
         return Self.spans(from: result, sampleCount: samples.count)
     }
 
+    func unload() async {
+        await loader.unload()
+    }
+
     static func spans(from result: ASRResult, sampleCount: Int) -> [RecognizedSpan] {
         let text = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return [] }
@@ -59,6 +63,10 @@ final class ParakeetRecognizer: SpeechRecognizer, @unchecked Sendable {
 
     private actor Loader {
         private var loaded: AsrManager?
+
+        func unload() {
+            loaded = nil
+        }
 
         func manager(from directory: URL) async throws -> AsrManager {
             if let loaded { return loaded }

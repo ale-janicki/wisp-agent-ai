@@ -478,6 +478,8 @@ private struct MeetingDetailView: View {
                 .disabled(!entry.hasNote)
             if entry.meta.status == .failed {
                 Button("Tentar de novo") { library.retry(entry) }
+            } else if library.stage(of: entry.id) == .writingNote {
+                Button("Cancelar nota") { library.cancelNote(entry.id) }
             } else if entry.hasTranscript, library.stage(of: entry.id) == nil {
                 Button(entry.hasNote ? "Gerar nota de novo" : "Gerar nota") { library.regenerateNote(entry) }
             }
