@@ -30,6 +30,7 @@ Entries are in descending chronological order (newest first).
 - Local models: two downloads of one model can no longer both run after a status poll removes a stale lock at the wrong moment (the lock is re-checked after it is taken); deleting a model stops its server first; deleting a model whose folder is a symlink removes the link without following it, and a delete that fails is reported instead of "done".
 - Ajustes > Modelo: a model whose download finished is shown as downloaded ("Usar" / "Em uso" and "Apagar") even when an interrupted download left a stale `.baixando-<model>.lock` or `modelos.toml` never recorded it. The list reads the folder (config.json plus every shard of `model.safetensors.index.json`, or `model.safetensors`, all non-empty); a lock nobody holds is removed; an incomplete folder offers "Retomar download".
 - The "mlx-lm missing" message no longer tells the user to update the Wisp. It says the local AI component is still being installed (the install was interrupted), that it finishes by itself, and offers "Tentar de novo".
+- The runtime install no longer breaks when the bot is writing into the installed sources: the new `src` is copied beside the old one and swapped in by rename, the old folder is removed best-effort (leftovers are swept at launch), and runtime Python no longer writes `.pyc` files. Before, a half-deleted `src` made every launch fail with "Não consegui copiar os arquivos do Wisp".
 
 ### Added
 
