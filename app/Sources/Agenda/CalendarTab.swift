@@ -128,7 +128,8 @@ struct CalendarTab: View {
                     .font(Theme.Font.title)
                     .foregroundStyle(Theme.textPrimary)
                     .lineLimit(1)
-                if model.loading { ProgressView().controlSize(.small) }
+                    .minimumScaleFactor(0.8)
+                    .layoutPriority(1)
             }
             Spacer(minLength: Theme.Space.xs)
             if let next = model.upcoming, MeetingLinks.detect(next.event) != nil {

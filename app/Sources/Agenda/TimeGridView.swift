@@ -219,6 +219,15 @@ struct DayColumnView: View {
             }
             .allowsHitTesting(false)
 
+            if model.isPending(day: day) {
+                ForEach(Array(SkeletonPattern.spans(seed: day).enumerated()), id: \.offset) { _, span in
+                    Skeleton(cornerRadius: 6)
+                        .frame(width: width - 6, height: CGFloat(span.length) * hourH)
+                        .offset(x: 2, y: CGFloat(span.start) * hourH)
+                        .allowsHitTesting(false)
+                }
+            }
+
             ForEach(slots(on: date), id: \.start) { slot in
                 slotView(slot, on: date)
             }
@@ -326,7 +335,10 @@ struct EventBlock: View {
                 .fontWeight(.semibold)
                 .foregroundStyle(event.declined ? Theme.textTertiary : Theme.textPrimary)
                 .strikethrough(event.declined)
-                .lineLimit(height > 40 ? 2 : 1)
+                .lineLimit(height > 40 && width >= 90 ? 2 : 1)
+                .truncationMode(.tail)
+                .allowsTightening(true)
+                .minimumScaleFactor(0.9)
             if height > 34 {
                 Text(timeLabel)
                     .font(Theme.Font.caption)

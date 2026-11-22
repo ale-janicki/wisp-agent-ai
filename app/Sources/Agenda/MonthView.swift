@@ -101,6 +101,11 @@ private struct MonthCell: View {
                 .pointerStyle(.link)
                 Spacer(minLength: 0)
             }
+            if model.isPending(day: day) {
+                ForEach(0..<min(maxChips - 1, SkeletonPattern.chips(seed: day)), id: \.self) { _ in
+                    Skeleton(cornerRadius: 4).frame(height: 16)
+                }
+            }
             ForEach(shown, id: \.uid) { event in
                 MonthChip(model: model, event: event)
             }
@@ -175,8 +180,19 @@ struct ScheduleView: View {
                         .id(day)
                     }
                     Color.clear.frame(height: 1).onAppear { if ready { extend(back: false, proxy: proxy) } }
-                    if days.count <= 1 && !model.loading {
-                        TabMessage(text: "Nenhum evento neste período").frame(height: 120)
+                    if days.count <= 1 {
+                        if model.isPending(day: model.anchorDay) {
+                            VStack(spacing: 0) {
+                                ForEach(0..<4, id: \.self) { _ in
+                                    Skeleton(cornerRadius: Theme.Radius.nav)
+                                        .frame(height: 38)
+                                        .padding(.horizontal, Theme.Space.m)
+                                        .padding(.vertical, 4)
+                                }
+                            }
+                        } else if !model.loading {
+                            TabMessage(text: "Nenhum evento neste período").frame(height: 120)
+                        }
                     }
                 }
             }

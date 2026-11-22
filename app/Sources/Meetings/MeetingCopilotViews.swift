@@ -369,51 +369,53 @@ private struct BrainCard: View {
 
 struct PrepCard: View {
     @ObservedObject var copilot: MeetingCopilotModel
+    @State private var open = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Space.s) {
-            CardTitle(text: "Preparar a reunião", icon: "list.bullet.clipboard")
-            HStack(spacing: Theme.Space.s) {
-                CapsuleMenu(title: eventTitle, help: "Evento da agenda") {
-                    Button {
-                        copilot.selectedEventID = nil
-                    } label: {
-                        Self.eventLabel("Sem evento da agenda", chosen: copilot.selectedEventID == nil)
-                    }
-                    ForEach(copilot.events) { event in
+            header
+            if open {
+                HStack(spacing: 0) {
+                    CapsuleMenu(title: eventTitle, help: "Evento da agenda") {
                         Button {
-                            copilot.selectedEventID = event.id
+                            copilot.selectedEventID = nil
                         } label: {
-                            Self.eventLabel("\(Self.time(event.start)) \(event.title)", chosen: copilot.selectedEventID == event.id)
+                            Self.eventLabel("Sem evento da agenda", chosen: copilot.selectedEventID == nil)
                         }
+                        ForEach(copilot.events) { event in
+                            Button {
+                                copilot.selectedEventID = event.id
+                            } label: {
+                                Self.eventLabel("\(Self.time(event.start)) \(event.title)", chosen: copilot.selectedEventID == event.id)
+                            }
+                        }
+                        Divider()
+                        Button("Atualizar lista") { copilot.loadEvents() }
                     }
+                    Spacer(minLength: 0)
                 }
-                .frame(maxWidth: 260)
-                Button("Atualizar") { copilot.loadEvents() }
-                    .buttonStyle(CapsuleButtonStyle(kind: .ghost))
-            }
-            TextField("", text: $copilot.prepText, prompt: Text("ou descreva a reunião").foregroundStyle(Theme.textTertiary), axis: .vertical)
-                .textFieldStyle(.plain)
-                .font(Theme.Font.body)
-                .foregroundStyle(Theme.textPrimary)
-                .lineLimit(1...3)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .background(Theme.surfaceHi, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-            HStack(spacing: Theme.Space.s) {
-                if copilot.prepBusy {
-                    ProgressView().controlSize(.small)
-                    Button("Cancelar") { copilot.cancelPrep() }
-                        .buttonStyle(CapsuleButtonStyle(kind: .ghost))
-                } else {
-                    Button(copilot.checklist.isEmpty ? "Gerar checklist" : "Gerar de novo") { copilot.generatePrep() }
-                        .buttonStyle(CapsuleButtonStyle(kind: .accent))
-                        .disabled(!copilot.hasPrep)
+                TextField("", text: $copilot.prepText, prompt: Text("ou descreva a reunião").foregroundStyle(Theme.textTertiary), axis: .vertical)
+                    .textFieldStyle(.plain)
+                    .font(Theme.Font.body)
+                    .foregroundStyle(Theme.textPrimary)
+                    .lineLimit(1...3)
+                    .padding(.horizontal, Theme.Space.m)
+                    .padding(.vertical, 6)
+                    .frame(maxWidth: .infinity, minHeight: Theme.Control.height, alignment: .leading)
+                    .background(Theme.surfaceHi, in: RoundedRectangle(cornerRadius: Theme.Radius.nav, style: .continuous))
+                HStack(spacing: Theme.Space.s) {
+                    if copilot.prepBusy {
+                        ProgressView().controlSize(.small)
+                        Button("Cancelar") { copilot.cancelPrep() }
+                            .buttonStyle(CapsuleButtonStyle(kind: .ghost))
+                    } else {
+                        Button(copilot.checklist.isEmpty ? "Gerar checklist" : "Gerar de novo") { copilot.generatePrep() }
+                            .buttonStyle(CapsuleButtonStyle(kind: .accent))
+                            .disabled(!copilot.hasPrep)
+                            .help("Usa o motor ativo (Claude ou modelo local), sem ferramentas e nunca o Codex. Título, notas e participantes do evento vão ao motor.")
+                    }
+                    Spacer(minLength: 0)
                 }
-                Text("Usa o motor ativo (Claude ou modelo local), sem ferramentas e nunca o Codex. Título, notas e participantes do evento vão ao motor.")
-                    .font(Theme.Font.caption)
-                    .foregroundStyle(Theme.textTertiary)
-                    .fixedSize(horizontal: false, vertical: true)
             }
             if let message = copilot.prepMessage {
                 Text(message)
@@ -428,6 +430,24 @@ struct PrepCard: View {
         .padding(Theme.Space.m)
         .background(Theme.surfaceHi.opacity(0.6), in: RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous))
         .onAppear { copilot.loadEvents() }
+    }
+
+    private var header: some View {
+        Button {
+            withAnimation(.easeOut(duration: 0.15)) { open.toggle() }
+        } label: {
+            HStack(spacing: Theme.Space.s) {
+                CardTitle(text: "Preparar a reunião", icon: "list.bullet.clipboard")
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(Theme.textTertiary)
+                    .rotationEffect(.degrees(open ? 90 : 0))
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .pointerStyle(.link)
     }
 
     private var eventTitle: String {
