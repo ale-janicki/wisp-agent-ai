@@ -26,6 +26,7 @@ public enum BrainMerge {
         var out: [String] = []
         var conflicted = false
         var previous = (base: -1, mine: -1, theirs: -1)
+        let carriage = mine.contains("\r\n") || theirs.contains("\r\n") || base.contains("\r\n") ? "\r" : ""
 
         func chunk(upToBase i: Int, mine mi: Int, theirs ti: Int) {
             let originalPart = Array(baseLines[(previous.base + 1)..<i])
@@ -37,7 +38,7 @@ public enum BrainMerge {
                 out += minePart
             } else {
                 conflicted = true
-                out += [mineMarker] + minePart + [divider] + theirPart + [theirsMarker]
+                out += [mineMarker + carriage] + minePart + [divider + carriage] + theirPart + [theirsMarker + carriage]
             }
         }
 

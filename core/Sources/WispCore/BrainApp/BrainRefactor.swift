@@ -28,7 +28,7 @@ public enum BrainRefactor {
         try files.validateNew(to)
         guard let source = scan.entries.first(where: { $0.path == from }) else { throw BrainFilesError.missing(from) }
         if to == from || to.hasPrefix(from + "/") { throw BrainFilesError.outside(to) }
-        if files.exists(to), !files.sameFile(from, to) { throw BrainFilesError.exists(to) }
+        if files.exists(to), !files.isCaseOnlyRename(from, to) { throw BrainFilesError.exists(to) }
 
         func relocated(_ path: String) -> String {
             if path == from { return to }
@@ -140,7 +140,7 @@ public enum BrainRefactor {
     public static func apply(_ plan: BrainMovePlan, root: String) throws {
         let files = BrainFiles(root: root)
         for edit in plan.edits where try files.readStrict(edit.oldPath) != edit.oldText { throw BrainFilesError.stale(edit.oldPath) }
-        if files.exists(plan.to), !files.sameFile(plan.from, plan.to) { throw BrainFilesError.exists(plan.to) }
+        if files.exists(plan.to), !files.isCaseOnlyRename(plan.from, plan.to) { throw BrainFilesError.exists(plan.to) }
 
         func relocated(_ path: String) -> String {
             if path == plan.from { return plan.to }
