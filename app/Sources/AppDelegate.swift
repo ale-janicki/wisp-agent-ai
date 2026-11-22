@@ -23,7 +23,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         runtime.cancel()
         brainColher?.stop()
         shell?.meetings.stopForQuit()
-        setup?.session.model?.cancelPolling(blocking: true)
         AppSettings.shared.flush()
     }
 
@@ -62,12 +61,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             Task { await runtime.ensure() }
             return
         }
-        if let step = SetupAutorun.forcedStep(from: ProcessInfo.processInfo.arguments) {
-            presentSetup(homeOverride: nil, existingInstall: true)
-            if let controller = setup { Task { await SetupAutorun.open(step, controller: controller) } }
-            Task { await runtime.ensure() }
-            return
-        }
         #endif
         UpdateModel.shared.start()
         if Self.setupNeeded() {
@@ -80,6 +73,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func retryRuntime() async {
         await runtime.ensure()
+    }
+
+    func reloadProfile() {
+        shell?.conversation.reloadProfile()
     }
 
     func showSetup() {

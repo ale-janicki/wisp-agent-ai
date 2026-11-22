@@ -1,9 +1,5 @@
 import Foundation
 
-public enum SetupStepID: String, CaseIterable, Sendable {
-    case system, login, brain, harness, telegram, spotify, profile, done
-}
-
 public struct SetupDetail: Decodable, Sendable, Equatable {
     public var command: String
     public var exit: Int32

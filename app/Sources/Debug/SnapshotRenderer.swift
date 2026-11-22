@@ -15,6 +15,10 @@ enum SnapshotRenderer {
             await renderApproval(to: directory)
             return
         }
+        if ProcessInfo.processInfo.arguments.contains("-WispSnapshotSetup") {
+            await renderSetup(to: directory)
+            return
+        }
         let shell = ShellController()
         shell.media.start()
         shell.media.refresh()
@@ -113,6 +117,39 @@ enum SnapshotRenderer {
     }
 
     private static let margin: CGFloat = 24
+
+    private static func renderSetup(to directory: URL) async {
+        let size = CGSize(width: 720, height: 520)
+        let gb: UInt64 = 1_000_000_000
+        let hardware = HardwareProfile(chip: "Apple M4", totalMemory: 16 * (1 << 30), availableMemory: 0, freeDisk: 210 * gb)
+        let catalog = [
+            LocalModel(tag: "small", name: "Qwen3 4B", params: "4B", sizeBytes: 3 * gb, memoryBytes: 4 * gb, tier: "pequeno", contextTokens: 8192, speed: "rapido", limitations: ""),
+            LocalModel(tag: "mid", name: "Qwen3 8B", params: "8B", sizeBytes: 5 * gb, memoryBytes: 7 * gb, tier: "medio", contextTokens: 8192, speed: "medio", limitations: ""),
+            LocalModel(tag: "big", name: "Qwen3 14B", params: "14B", sizeBytes: 9 * gb, memoryBytes: 12 * gb, tier: "grande", contextTokens: 8192, speed: "lento", limitations: ""),
+            LocalModel(tag: "huge", name: "Qwen3 32B", params: "32B", sizeBytes: 20 * gb, memoryBytes: 26 * gb, tier: "grande", contextTokens: 8192, speed: "lento", limitations: ""),
+        ]
+        let status = LocalModelStatus(
+            models: catalog, diskMarginBytes: 10 * gb, backend: BackendStatus(kind: "mlx", available: true, running: false),
+            installed: ["small"], active: "")
+        let advice = LocalAdvisor.recommend(hardware: hardware, models: catalog, diskMargin: status.diskMarginBytes)
+        let cases: [(String, RuntimeInstaller.Phase, SetupReadiness, EngineKind?)] = [
+            ("setup-1-preparing", .installing("Instalando o ambiente"), SetupReadiness(), nil),
+            ("setup-2-recommended-local", .ready(URL(fileURLWithPath: "/")), SetupReadiness(), .local),
+            ("setup-3-claude-connected", .ready(URL(fileURLWithPath: "/")), SetupReadiness(claudeLoggedIn: true), .claude),
+            ("setup-4-codex-not-connected", .ready(URL(fileURLWithPath: "/")), SetupReadiness(), .codex),
+        ]
+        for (name, phase, readiness, engine) in cases {
+            var model: SetupModel?
+            if let engine {
+                let preview = SetupModel(wisp: URL(fileURLWithPath: "/"), homeOverride: nil, existingInstall: true)
+                let offer = SetupOffer.make(hardware: hardware, recommendation: advice, status: status, readiness: readiness)
+                preview.preview(offer: offer, hardware: hardware)
+                preview.engine = engine
+                model = preview
+            }
+            await renderView(SetupScreen(phase: phase, model: model, retry: {}, finish: {}), size: size, to: directory, name: name)
+        }
+    }
 
     private static func renderApproval(to directory: URL) async {
         let command = "mkdir -p ~/projetos/novo && cd ~/projetos/novo && git init && git remote add origin "
