@@ -556,6 +556,9 @@ private struct MeetingDetailView: View {
             if entry.hasTranscript, stage == nil, primary != .generate {
                 Button("Gerar nota de novo") { library.regenerateNote(entry) }
             }
+            if entry.hasTranscript, stage == nil {
+                Button("Melhorar transcrição") { library.improveTranscript(entry) }
+            }
             Divider()
             Button("Mostrar no Finder") { library.reveal(entry) }
         }

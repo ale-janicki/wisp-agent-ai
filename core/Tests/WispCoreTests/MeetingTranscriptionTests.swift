@@ -110,9 +110,10 @@ final class MeetingTranscriptionTests: XCTestCase {
     func testStreamerEmitsAtMostOnePartialPerIntervalAndNoneWithoutEnoughAudio() {
         var streamer = ChannelStreamer(channel: .system)
         XCTAssertEqual(streamer.append(tone(seconds: 1.0)), [])
+        XCTAssertEqual(streamer.append(tone(seconds: 1.0)), [])
         let jobs = streamer.append(tone(seconds: 1.0))
         XCTAssertEqual(jobs.map(\.kind), [.partial])
-        XCTAssertEqual(jobs.first?.samples.count, 32_000)
+        XCTAssertEqual(jobs.first?.samples.count, 48_000)
         XCTAssertEqual(streamer.append(tone(seconds: 0.5)), [])
     }
 
@@ -695,6 +696,100 @@ final class MeetingTranscriptionTests: XCTestCase {
         XCTAssertEqual(notes.calls, before.1 + 1)
     }
 
+    private func inferenceCalls(
+        seconds: Int, config: ChannelStreamerConfig = .live, audio: (Int) -> [Float]
+    ) -> (partials: Int, finals: Int) {
+        var streamer = ChannelStreamer(channel: .mic, config: config)
+        var jobs: [StreamJob] = []
+        for second in 0..<seconds { jobs += streamer.append(audio(second)) }
+        jobs += streamer.flush()
+        let sent = jobs.filter { !$0.samples.isEmpty }
+        return (sent.filter { $0.kind == .partial }.count, sent.filter { $0.kind == .final }.count)
+    }
+
+    func testSilentChannelRunsZeroInferencesOverTenMinutes() {
+        let calls = inferenceCalls(seconds: 600) { _ in [Float](repeating: 0.0005, count: 16_000) }
+        XCTAssertEqual(calls.partials + calls.finals, 0)
+    }
+
+    func testContinuousSpeechRunsPartialsAtTheSlowerCadence() {
+        let calls = inferenceCalls(seconds: 60) { _ in self.tone(seconds: 1) }
+        let before = inferenceCalls(seconds: 60, config: ChannelStreamerConfig(partialIntervalSeconds: 1.5)) { _ in self.tone(seconds: 1) }
+        XCTAssertEqual(calls.finals, 15)
+        XCTAssertEqual(calls.partials, 15)
+        XCTAssertEqual(before.partials, 30)
+        XCTAssertLessThan(calls.partials + calls.finals, before.partials + before.finals)
+    }
+
+    func testPartialIsNotRerunWhenNothingNewWasSpokenInTheWindow() {
+        var streamer = ChannelStreamer(channel: .mic)
+        var jobs = streamer.append(tone(seconds: 3))
+        XCTAssertEqual(jobs.map(\.kind), [.partial])
+        for _ in 0..<3 { jobs += streamer.append([Float](repeating: 0, count: 16_000)) }
+        XCTAssertEqual(jobs.filter { $0.kind == .partial }.count, 1)
+    }
+
+    func testSpeechAfterSilenceTriggersOnePartialAgain() {
+        var streamer = ChannelStreamer(channel: .mic)
+        _ = streamer.append([Float](repeating: 0, count: 16_000))
+        let jobs = streamer.append(tone(seconds: 3))
+        XCTAssertEqual(jobs.map(\.kind), [.partial])
+    }
+
+    func testPipelineKeepsTheLiveTranscriptForLongRecordingsAndSkipsTheFinalPass() async throws {
+        let folder = try makeRecording(status: .transcribing)
+        _ = try RecordingFolder.update(in: folder) { $0.durationSeconds = 3_600 }
+        let live = MeetingTranscriptDocument(
+            startedAt: t0, durationSeconds: 3_600, language: "auto", engine: "live-asr",
+            segments: [MeetingSegment(start: 1, end: 3, speaker: "eu", text: "ao vivo")]
+        )
+        try MeetingTranscriptFile.write(live, in: folder, live: true)
+        let recognizer = ScriptedRecognizer()
+        try await pipeline(recognizer).process(folder: folder)
+        XCTAssertEqual(recognizer.seen.count, 0)
+        let document = try MeetingTranscriptFile.read(in: folder)
+        XCTAssertEqual(document.engine, "live-asr")
+        XCTAssertEqual(document.segments.map(\.text), ["ao vivo"])
+        XCTAssertFalse(FileManager.default.fileExists(atPath: MeetingTranscriptFile.url(in: folder, live: true).path))
+        XCTAssertEqual(try RecordingFolder.read(in: folder).status, .noted)
+    }
+
+    func testPipelineRunsTheFinalPassForShortRecordingsEvenWithALiveTranscript() async throws {
+        let folder = try makeRecording(status: .transcribing)
+        let live = MeetingTranscriptDocument(
+            startedAt: t0, durationSeconds: 9, language: "auto", engine: "live-asr",
+            segments: [MeetingSegment(start: 1, end: 3, speaker: "eu", text: "ao vivo")]
+        )
+        try MeetingTranscriptFile.write(live, in: folder, live: true)
+        let recognizer = ScriptedRecognizer()
+        try await pipeline(recognizer).process(folder: folder)
+        XCTAssertGreaterThan(recognizer.seen.count, 0)
+        XCTAssertEqual(try MeetingTranscriptFile.read(in: folder).engine, "fake-asr")
+    }
+
+    func testImproveTranscriptRerunsTheFinalPassOnALongRecording() async throws {
+        let folder = try makeRecording(status: .noted)
+        _ = try RecordingFolder.update(in: folder) { $0.durationSeconds = 3_600 }
+        let recognizer = ScriptedRecognizer()
+        try await pipeline(recognizer).improveTranscript(folder: folder)
+        XCTAssertGreaterThan(recognizer.seen.count, 0)
+        XCTAssertEqual(try MeetingTranscriptFile.read(in: folder).engine, "fake-asr")
+    }
+
+    func testConverterReportsProgressAndOnlyKeepsAnOutputThatCoversTheInput() throws {
+        let wav = root.appendingPathComponent("p.wav")
+        try writeWAV(to: wav, seconds: 9, micRange: 0...6, systemRange: 3...9)
+        let reports = UpdateLog()
+        let seconds = try M4AFileConverter().convert(from: wav, to: root.appendingPathComponent("p.m4a"), progress: { reports.note("\($0)") })
+        XCTAssertEqual(seconds, 9, accuracy: 0.01)
+        XCTAssertEqual(reports.notes.last, "1.0")
+    }
+
+    func testRecordControlShowsSavingProgress() {
+        XCTAssertEqual(RecordControl(phase: .finishing, elapsed: 0, canRecord: true, savingProgress: 0.426).title, "Salvando 42%")
+        XCTAssertEqual(RecordControl(phase: .finishing, elapsed: 0, canRecord: true).title, "Salvando…")
+    }
+
     func testFinalPassWaitsOnThePauseGateBeforeEveryRecognizerCall() async throws {
         let folder = try makeRecording(status: .transcribing)
         let gate = UpdateLog()
@@ -1077,4 +1172,18 @@ private final class CallCounter: @unchecked Sendable {
     private let lock = NSLock()
     private var count = 0
     func next() -> Int { lock.withLock { count += 1; return count } }
+}
+
+final class ConvertedCoverageTests: XCTestCase {
+    func testALongRecordingOnePercentShortKeepsTheOriginal() {
+        let total = 66 * 60 * 48_000
+        XCTAssertFalse(M4AFileConverter.covers(written: total - total / 100, total: total))
+    }
+
+    func testEncoderPaddingWithinTheFixedSlackPasses() {
+        let total = 66 * 60 * 48_000
+        XCTAssertTrue(M4AFileConverter.covers(written: total - 2_112, total: total))
+        XCTAssertTrue(M4AFileConverter.covers(written: total + 1_024, total: total))
+        XCTAssertFalse(M4AFileConverter.covers(written: total - 8_193, total: total))
+    }
 }

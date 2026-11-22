@@ -51,11 +51,13 @@ final class MeetingRecordingModel: ObservableObject {
     private var pendingLink: MeetingEventContext?
     private var recordingEvent: MeetingEventInfo?
 
+    private(set) var savingProgress: Double?
+
     var isRecording: Bool { phase == .recording }
     var isBusy: Bool { phase == .starting || phase == .finishing }
 
     var control: RecordControl {
-        RecordControl(phase: controlPhase, elapsed: startedAt.map { Date().timeIntervalSince($0) } ?? 0, canRecord: true)
+        RecordControl(phase: controlPhase, elapsed: startedAt.map { Date().timeIntervalSince($0) } ?? 0, canRecord: true, savingProgress: savingProgress)
     }
 
     var permissionCards: [PermissionCard] {
@@ -140,13 +142,30 @@ final class MeetingRecordingModel: ObservableObject {
         bridge.detach()
         copilot.end()
         let ending = live
+        let lagging = liveLagging
         live = nil
         liveLagging = false
+        savingProgress = nil
         systemWatch.startRecording()
         systemSilent = false
         Task { [weak self] in
-            let outcome = await Task.detached { Result { try recorder.stop() } }.value
-            await ending?.stopAndWait()
+            var liveComplete = false
+            if let ending {
+                if lagging {
+                    await ending.stopAndWait()
+                } else {
+                    _ = await ending.finish()
+                    liveComplete = !ending.hasFailed
+                }
+            }
+            let report: @Sendable (Double) -> Void = { fraction in
+                Task { @MainActor in self?.savingProgress = fraction }
+            }
+            let outcome = await Task.detached(priority: .utility) { Result { try recorder.stop(progress: report) } }.value
+            if !liveComplete, case .success(let result) = outcome {
+                try? FileManager.default.removeItem(at: MeetingTranscriptFile.url(in: result.folder, live: true))
+            }
+            self?.savingProgress = nil
             self?.finished(outcome, reason: reason)
         }
     }
