@@ -11,6 +11,7 @@ import sys
 import tempfile
 import threading
 import time
+from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -39,21 +40,22 @@ class UnixConnection(http.client.HTTPConnection):
 
 
 class Gate:
-    def __init__(self, model: str, key: str, child_path: str, idle_seconds: float):
+    def __init__(self, model: str, key: str, child_path: str, idle_seconds: float, clock: Callable[[], float] = time.monotonic):
         self.model, self.key, self.child_path, self.idle_seconds = model, key, child_path, idle_seconds
+        self.clock = clock
         self.lock = threading.Lock()
         self.active = 0
         self.ready = False
-        self.last = time.monotonic()
+        self.last = self.clock()
 
     def touch(self, delta: int) -> None:
         with self.lock:
             self.active += delta
-            self.last = time.monotonic()
+            self.last = self.clock()
 
     def idle(self) -> bool:
         with self.lock:
-            return self.active == 0 and time.monotonic() - self.last > self.idle_seconds
+            return self.active == 0 and self.clock() - self.last > self.idle_seconds
 
 
 def handler_for(gate: Gate):
@@ -205,5 +207,6 @@ def serve(*, model: str, port: int, key: str, idle_minutes: float, info_path: Pa
             child.kill()
             child.wait()
     info_path.unlink(missing_ok=True)
+    (info_path.parent / "server.key").unlink(missing_ok=True)
     shutil.rmtree(sockets, ignore_errors=True)
     return 0

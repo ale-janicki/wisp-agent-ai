@@ -126,6 +126,8 @@ def _use(folder: Path, backend: backends.Backend, state: modelos.LocalState, cat
         emit({"type": "error", "message": f"{tag} não está instalado neste Mac"})
         return 1
     modelos.write(folder, modelos.with_active(state, tag))
+    if tag != state.ativo:
+        backends.stop_server()
     emit({"type": "done", "tag": tag})
     return 0
 
