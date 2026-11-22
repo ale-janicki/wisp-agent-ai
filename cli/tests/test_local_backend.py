@@ -103,6 +103,8 @@ def install(tmp_path, tag="qwen3:4b"):
         target.parent.mkdir(parents=True, exist_ok=True)
         with target.open("wb") as out:
             out.truncate(item["size"])
+    shards = {item["path"]: item["path"] for item in catalogs.load().find(tag).files if item["path"].endswith(".safetensors")}
+    (fetch.model_dir(tmp_path, tag) / "model.safetensors.index.json").write_text(json.dumps({"weight_map": shards}))
 
 
 def alive(pid: int) -> bool:
@@ -275,7 +277,7 @@ def test_a_server_that_dies_while_starting_is_reported_with_its_exit_code(mlx):
 
 
 def test_without_the_runtime_nothing_is_started(mlx):
-    with pytest.raises(BackendError, match="mlx-lm"):
+    with pytest.raises(BackendError, match="componente de IA local"):
         mlx(runtime_ok=lambda: False).ensure_running("qwen3:4b")
 
 

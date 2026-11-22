@@ -87,15 +87,26 @@ public struct BackendStatus: Codable, Equatable, Sendable {
     public var isMlx: Bool { kind == "mlx" }
 }
 
+public enum LocalModelPresence: Equatable, Sendable {
+    case absent, resumable, downloading, downloaded, inUse
+}
+
 public struct LocalModelStatus: Codable, Equatable, Sendable {
     public var models: [LocalModel]
     public var diskMarginBytes: UInt64
     public var backend: BackendStatus
     public var installed: [String]
+    public var downloading: [String]
+    public var resumable: [String]
     public var active: String
     public var pensar: Bool
 
-    public init(models: [LocalModel], diskMarginBytes: UInt64, backend: BackendStatus, installed: [String], active: String, pensar: Bool = false) {
+    public init(
+        models: [LocalModel], diskMarginBytes: UInt64, backend: BackendStatus, installed: [String], active: String, pensar: Bool = false,
+        downloading: [String] = [], resumable: [String] = []
+    ) {
+        self.downloading = downloading
+        self.resumable = resumable
         self.pensar = pensar
         self.models = models
         self.diskMarginBytes = diskMarginBytes
@@ -105,7 +116,7 @@ public struct LocalModelStatus: Codable, Equatable, Sendable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case models, backend, installed, active, pensar
+        case models, backend, installed, downloading, resumable, active, pensar
         case diskMarginBytes = "disk_margin_bytes"
     }
 
@@ -116,7 +127,15 @@ public struct LocalModelStatus: Codable, Equatable, Sendable {
         backend = try values.decode(BackendStatus.self, forKey: .backend)
         installed = try values.decode([String].self, forKey: .installed)
         active = try values.decode(String.self, forKey: .active)
+        downloading = try values.decodeIfPresent([String].self, forKey: .downloading) ?? []
+        resumable = try values.decodeIfPresent([String].self, forKey: .resumable) ?? []
         pensar = try values.decodeIfPresent(Bool.self, forKey: .pensar) ?? false
+    }
+
+    public func presence(of tag: String) -> LocalModelPresence {
+        if downloading.contains(tag) { return .downloading }
+        if installed.contains(tag) { return active == tag ? .inUse : .downloaded }
+        return resumable.contains(tag) ? .resumable : .absent
     }
 
     public static func decode(_ data: Data) -> LocalModelStatus? {

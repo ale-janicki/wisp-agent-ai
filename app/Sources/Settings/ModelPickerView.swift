@@ -35,24 +35,35 @@ struct ModelPickerCard: View {
             Text("Neste Mac")
                 .font(Theme.Font.bodyMedium)
                 .foregroundStyle(Theme.textPrimary)
-            Text("Modelos que rodam aqui pelo MLX, sem internet e sem assinatura. Os menores erram mais ao usar ferramentas: o Wisp limita o que eles podem fazer e avisa na resposta quando passam do limite.")
+            Text("Rodam aqui pelo MLX, sem internet e sem assinatura.")
                 .font(Theme.Font.caption)
                 .foregroundStyle(Theme.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
             if let status = model.status {
-                ForEach(status.models) { local in
-                    LocalModelRow(local: local, status: status)
+                VStack(spacing: 0) {
+                    ForEach(Array(status.models.enumerated()), id: \.element.id) { index, local in
+                        if index > 0 { Divider().overlay(Theme.stroke) }
+                        LocalModelRow(local: local, status: status)
+                    }
                 }
+                .padding(.horizontal, Theme.Space.m)
+                .background(Theme.surfaceHi.opacity(0.35), in: RoundedRectangle(cornerRadius: Theme.Radius.bubble, style: .continuous))
                 if !status.backend.isMlx {
                     Text("A IA local usa o servidor compatível com OpenAI em \(status.backend.url) (modelo \(status.active.isEmpty ? "não escolhido" : status.active)). Para voltar aos modelos do Wisp: wisp local backend mlx.")
                         .font(Theme.Font.caption)
                         .foregroundStyle(Theme.textTertiary)
                         .fixedSize(horizontal: false, vertical: true)
-                } else if !status.backend.available {
-                    Text("Este Wisp não inclui o mlx-lm (o que roda os modelos); atualize o Wisp para baixar um modelo.")
+                } else if !status.backend.available, LocalAdvisor.appleSilicon(model.hardware.chip) {
+                    Text(ModelPickerModel.runtimeNote)
                         .font(Theme.Font.caption)
                         .foregroundStyle(Theme.busy)
                         .fixedSize(horizontal: false, vertical: true)
+                    Button("Tentar de novo") {
+                        Task {
+                            await (NSApp.delegate as? AppDelegate)?.retryRuntime()
+                            model.refresh()
+                        }
+                    }
+                    .buttonStyle(CapsuleButtonStyle(kind: .ghost))
                 }
             } else {
                 ProgressView().controlSize(.small)
@@ -80,52 +91,60 @@ private struct LocalModelRow: View {
     let local: LocalModel
     let status: LocalModelStatus
     private let model = ModelPickerModel.shared
+    @State private var detailsOpen = false
+    @State private var confirmingDelete = false
 
     var body: some View {
         let fit = model.fit(local)
-        let installed = status.installed.contains(local.tag)
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: Theme.Space.s) {
-                Text(local.name)
-                    .font(Theme.Font.bodyMedium)
-                    .foregroundStyle(Theme.textPrimary)
-                badge(fit.level)
-                ForEach(marks, id: \.self) { mark in
-                    Text(mark)
+        let presence = status.presence(of: local.tag)
+        VStack(alignment: .leading, spacing: Theme.Space.xs) {
+            HStack(alignment: .center, spacing: Theme.Space.m) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(local.name)
+                        .font(Theme.Font.bodyMedium)
+                        .foregroundStyle(Theme.textPrimary)
+                    Text(summary(presence))
                         .font(Theme.Font.caption)
-                        .foregroundStyle(Theme.accent)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 1)
-                        .background(Capsule().fill(Theme.accent.opacity(0.15)))
+                        .foregroundStyle(Theme.textSecondary)
+                    chips(fit: fit, presence: presence)
                 }
                 Spacer(minLength: 0)
-                action(fit: fit, installed: installed)
-            }
-            Text("\(ModelFit.gigabytes(local.sizeBytes)) para baixar · nível \(local.tierLabel) · \(local.speedLabel) · \(fit.note)")
-                .font(Theme.Font.caption)
-                .foregroundStyle(Theme.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-            Text(local.limitations)
-                .font(Theme.Font.caption)
-                .foregroundStyle(Theme.textTertiary)
-                .fixedSize(horizontal: false, vertical: true)
-            if let short = fit.diskShortBy, !installed {
-                Text("Falta espaço em disco: faltam \(ModelFit.gigabytes(short)) livres (tamanho do modelo mais a folga).")
-                    .font(Theme.Font.caption)
-                    .foregroundStyle(Theme.busy)
+                action(fit: fit, presence: presence)
             }
             progress
+            detailsToggle
+            if detailsOpen { details(fit: fit, presence: presence) }
+        }
+        .padding(.vertical, Theme.Space.m)
+        .confirmationDialog("Apagar o \(local.name)?", isPresented: $confirmingDelete) {
+            Button("Apagar", role: .destructive) { model.remove(local) }
+            Button("Cancelar", role: .cancel) {}
+        } message: {
+            Text("Libera \(ModelFit.gigabytes(local.sizeBytes)) no disco. Dá para baixar de novo depois.")
         }
     }
 
-    private var marks: [String] {
-        guard status.backend.isMlx, let advice = model.recommendation else { return [] }
-        return (advice.best?.tag == local.tag ? ["Melhor para este Mac"] : []) + (advice.fastest?.tag == local.tag ? ["Mais rápido"] : [])
+    private func summary(_ presence: LocalModelPresence) -> String {
+        let size = presence == .absent || presence == .resumable
+            ? "\(ModelFit.gigabytes(local.sizeBytes)) para baixar" : ModelFit.gigabytes(local.sizeBytes)
+        return "\(size) · usa ~\(ModelFit.gigabytes(local.memoryBytes)) de memória · \(local.speedLabel)"
     }
 
-    private func badge(_ level: FitLevel) -> some View {
-        let color = level == .fits ? Theme.ok : level == .tight ? Theme.busy : Theme.error
-        return Text(level.label)
+    private func chips(fit: ModelFit, presence: LocalModelPresence) -> some View {
+        HStack(spacing: Theme.Space.xs) {
+            if status.backend.isMlx, model.recommendation?.best?.tag == local.tag { chip("Recomendado", Theme.accent) }
+            switch presence {
+            case .inUse: chip("Em uso", Theme.ok)
+            case .downloaded: chip("Já baixado", Theme.ok)
+            case .absent, .resumable, .downloading:
+                if fit.level == .tight { chip("Apertado", Theme.busy) }
+                if fit.level == .doesNotFit { chip("Não cabe", Theme.error) }
+            }
+        }
+    }
+
+    private func chip(_ text: String, _ color: Color) -> some View {
+        Text(text)
             .font(Theme.Font.caption)
             .foregroundStyle(color)
             .padding(.horizontal, 6)
@@ -133,25 +152,70 @@ private struct LocalModelRow: View {
             .background(Capsule().fill(color.opacity(0.15)))
     }
 
-    @ViewBuilder
-    private func action(fit: ModelFit, installed: Bool) -> some View {
-        if case .pulling(let tag, _, _) = model.job, tag == local.tag {
-            Button("Cancelar") { model.cancel() }
-                .buttonStyle(CapsuleButtonStyle(kind: .ghost))
-        } else if installed {
-            if status.active == local.tag {
-                Text("Em uso")
+    private var detailsToggle: some View {
+        Button {
+            detailsOpen.toggle()
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: detailsOpen ? "chevron.down" : "chevron.right").font(.system(size: 9, weight: .semibold))
+                Text("Detalhes")
+            }
+            .font(Theme.Font.caption)
+            .foregroundStyle(Theme.textTertiary)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func details(fit: ModelFit, presence: LocalModelPresence) -> some View {
+        VStack(alignment: .leading, spacing: Theme.Space.xs) {
+            Text("Nível \(local.tierLabel) · \(fit.note)")
+                .font(Theme.Font.caption)
+                .foregroundStyle(Theme.textSecondary)
+            Text(local.limitations)
+                .font(Theme.Font.caption)
+                .foregroundStyle(Theme.textTertiary)
+            if let short = fit.diskShortBy, presence == .absent || presence == .resumable {
+                Text("Falta espaço em disco: faltam \(ModelFit.gigabytes(short)) livres (tamanho do modelo mais a folga).")
                     .font(Theme.Font.caption)
-                    .foregroundStyle(Theme.ok)
-            } else {
-                Button("Usar") { model.use(local) }
+                    .foregroundStyle(Theme.busy)
+            }
+            if presence == .downloaded || presence == .inUse || presence == .resumable {
+                Button("Apagar") { confirmingDelete = true }
                     .buttonStyle(CapsuleButtonStyle(kind: .ghost))
                     .disabled(model.busy)
             }
+        }
+        .fixedSize(horizontal: false, vertical: true)
+    }
+
+    @ViewBuilder
+    private func action(fit: ModelFit, presence: LocalModelPresence) -> some View {
+        if case .pulling(let tag, _, _) = model.job, tag == local.tag {
+            Button("Cancelar") { model.cancel() }
+                .buttonStyle(CapsuleButtonStyle(kind: .ghost))
         } else {
-            Button("Baixar") { model.install(local) }
-                .buttonStyle(CapsuleButtonStyle(kind: .accent))
-                .disabled(model.busy || !fit.canInstall)
+            switch presence {
+            case .inUse:
+                Text("Em uso")
+                    .font(Theme.Font.bodyMedium)
+                    .foregroundStyle(Theme.ok)
+            case .downloaded:
+                Button("Usar") { model.useLocalAI(local) }
+                    .buttonStyle(CapsuleButtonStyle(kind: .accent))
+                    .disabled(model.busy)
+            case .downloading:
+                Button("Baixando…") {}
+                    .buttonStyle(CapsuleButtonStyle(kind: .ghost))
+                    .disabled(true)
+            case .resumable:
+                Button("Retomar download") { model.install(local) }
+                    .buttonStyle(CapsuleButtonStyle(kind: .accent))
+                    .disabled(model.busy || !fit.canInstall)
+            case .absent:
+                Button("Baixar") { model.install(local) }
+                    .buttonStyle(CapsuleButtonStyle(kind: .accent))
+                    .disabled(model.busy || !fit.canInstall)
+            }
         }
     }
 
@@ -224,6 +288,14 @@ struct RecommendationBlock: View {
         }
     }
 
+    private func useLabel(_ local: LocalModel, _ presence: LocalModelPresence) -> String {
+        switch presence {
+        case .downloaded, .inUse: "Usar \(local.name) (já baixado)"
+        case .resumable: "Retomar download e usar IA local"
+        case .absent, .downloading: "Usar IA local"
+        }
+    }
+
     @ViewBuilder
     private func useButton(_ pick: LocalPick) -> some View {
         if model.usingLocalAI, case .pulling(_, let completed, let total) = model.job {
@@ -243,7 +315,7 @@ struct RecommendationBlock: View {
                 }
             }
         } else if let local = status.models.first(where: { $0.tag == pick.tag }) {
-            Button("Usar IA local") { model.useLocalAI(local) }
+            Button(useLabel(local, status.presence(of: local.tag))) { model.useLocalAI(local) }
                 .buttonStyle(CapsuleButtonStyle(kind: .accent))
                 .disabled(model.busy)
         }

@@ -107,6 +107,18 @@ final class LocalWiringTests: XCTestCase {
         XCTAssertNil(LocalReadiness.parse(Data("nope".utf8)))
     }
 
+    func testStatusSaysWhichModelsAreOnDiskResumableOrBeingDownloaded() throws {
+        let json = #"{"models":[],"disk_margin_bytes":1,"backend":{"kind":"mlx","available":true,"running":false,"url":""},"installed":["a","b"],"downloading":["c"],"resumable":["d"],"active":"b"}"#
+        let status = try XCTUnwrap(LocalModelStatus.decode(Data(json.utf8)))
+        XCTAssertEqual(status.presence(of: "a"), .downloaded)
+        XCTAssertEqual(status.presence(of: "b"), .inUse)
+        XCTAssertEqual(status.presence(of: "c"), .downloading)
+        XCTAssertEqual(status.presence(of: "d"), .resumable)
+        XCTAssertEqual(status.presence(of: "e"), .absent)
+        let old = try XCTUnwrap(LocalModelStatus.decode(Data(#"{"models":[],"disk_margin_bytes":1,"backend":{"kind":"mlx","available":true,"running":false,"url":""},"installed":[],"active":""}"#.utf8)))
+        XCTAssertEqual(old.presence(of: "a"), .absent)
+    }
+
     func testReadinessWithoutTheWispBinaryIsNotReady() {
         XCTAssertFalse(LocalReadiness.check(wispBinary: nil, environment: [:]).ready)
     }

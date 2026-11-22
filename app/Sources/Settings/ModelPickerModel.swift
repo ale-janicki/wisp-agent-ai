@@ -11,6 +11,7 @@ final class ModelPickerModel {
     }
 
     static let shared = ModelPickerModel()
+    static let runtimeNote = "O componente de IA local ainda está sendo instalado (a instalação foi interrompida). Ele termina sozinho; se não, toque em Tentar de novo."
 
     private(set) var status: LocalModelStatus?
     private(set) var hardware = HardwareProfile.read()
@@ -63,7 +64,7 @@ final class ModelPickerModel {
             return
         }
         guard status.backend.available else {
-            error = "Este Wisp não tem o mlx-lm: atualize o Wisp para baixar modelos."
+            error = Self.runtimeNote
             return
         }
         error = nil
@@ -84,7 +85,7 @@ final class ModelPickerModel {
             return
         }
         guard status.backend.available else {
-            error = "Este Wisp não tem o mlx-lm: atualize o Wisp para usar a IA local."
+            error = Self.runtimeNote
             return
         }
         error = nil
@@ -128,9 +129,15 @@ final class ModelPickerModel {
         stream?.cancel()
     }
 
-    func use(_ model: LocalModel) {
+    func remove(_ model: LocalModel) {
+        guard !busy else { return }
         Task {
-            _ = await simple(["local", "use", model.tag], only: true)
+            if await simple(["local", "delete", model.tag], only: true) {
+                error = nil
+                if status?.active == model.tag { EngineModel.shared.refresh() }
+            } else {
+                error = "Não consegui apagar o \(model.name)."
+            }
             refresh()
         }
     }

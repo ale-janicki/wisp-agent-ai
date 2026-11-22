@@ -212,7 +212,7 @@ class LocalEngine:
 
     async def status(self) -> Status:
         ready, missing = await readiness()
-        installed = not (missing or "").startswith("o mlx-lm não está instalado")
+        installed = not (missing or "").startswith("o componente de IA local ainda está sendo instalado")
         return Status(installed=installed, logged_in=True, problem=None if ready else (missing or "não está pronta"))
 
 

@@ -1,6 +1,7 @@
 import fcntl
 import hashlib
 import http.client
+import json
 import os
 import shutil
 import signal
@@ -77,6 +78,62 @@ def is_complete(folder: Path, entry) -> bool:
     root = model_dir(folder, entry.tag)
     return bool(entry.files) and all(
         (root / f["path"]).is_file() and (root / f["path"]).stat().st_size == f["size"] for f in entry.files)
+
+
+def _filled(path: Path) -> bool:
+    try:
+        return path.is_file() and path.stat().st_size > 0
+    except OSError:
+        return False
+
+
+def has_content(root: Path) -> bool:
+    if not _filled(root / "config.json"):
+        return False
+    index = root / "model.safetensors.index.json"
+    if not index.is_file():
+        return _filled(root / "model.safetensors")
+    try:
+        shards = set(json.loads(index.read_text("utf-8"))["weight_map"].values())
+    except (OSError, ValueError, KeyError, AttributeError, TypeError):
+        return False
+    return bool(shards) and all(isinstance(s, str) and "/" not in s and _filled(root / s) for s in shards)
+
+
+def lock_is_live(folder: Path, tag: str) -> bool:
+    path = lock_path(folder, tag)
+    try:
+        guard = os.open(path, os.O_RDWR)
+    except OSError:
+        return False
+    try:
+        try:
+            fcntl.flock(guard, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            return True
+        path.unlink(missing_ok=True)
+        return False
+    finally:
+        os.close(guard)
+
+
+def state_of(folder: Path, tag: str) -> str:
+    if lock_is_live(folder, tag):
+        return "downloading"
+    root = model_dir(folder, tag)
+    if has_content(root):
+        return "downloaded"
+    if root.exists() or partial_dir(folder, tag).exists():
+        return "partial"
+    return "absent"
+
+
+def remove(folder: Path, tag: str) -> None:
+    if lock_is_live(folder, tag):
+        raise FetchError(f"o download de {tag} está em andamento; cancele antes de apagar")
+    for target in (model_dir(folder, tag), partial_dir(folder, tag), backup_dir(folder, tag)):
+        shutil.rmtree(target, ignore_errors=True)
+    lock_path(folder, tag).unlink(missing_ok=True)
 
 
 def _git_blob_sha1(path: Path) -> str:

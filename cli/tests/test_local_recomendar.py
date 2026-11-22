@@ -105,6 +105,8 @@ def install_qwen4b(folder):
         target.parent.mkdir(parents=True, exist_ok=True)
         with target.open("wb") as out:
             out.truncate(item["size"])
+    shards = {item["path"]: item["path"] for item in catalogs.load().find("qwen3:4b").files if item["path"].endswith(".safetensors")}
+    (fetch.model_dir(folder, "qwen3:4b") / "model.safetensors.index.json").write_text(json.dumps({"weight_map": shards}))
 
 
 def test_ready_names_what_is_missing_in_order(folder, capsys, monkeypatch):
