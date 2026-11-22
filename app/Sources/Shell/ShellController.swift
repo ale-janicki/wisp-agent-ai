@@ -384,7 +384,7 @@ final class ShellController: ObservableObject {
     func openPanelFromArguments() {
         let args = ProcessInfo.processInfo.arguments
         guard let index = args.firstIndex(of: "-WispOpenPanel"), args.indices.contains(index + 1),
-              let tab = PanelTab(rawValue: args[index + 1])
+              let tab = PanelTab.decoded(args[index + 1])
         else { return }
         pinnedOpen = true
         self.tab = tab

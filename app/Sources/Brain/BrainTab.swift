@@ -6,6 +6,21 @@ struct BrainTab: View {
     var ask: (String, String) -> Bool
     private let model = BrainModel.shared
     @State private var asking = false
+    @State private var showsHome = false
+    @State private var graphQuery = Self.initialGraphQuery
+    private let memory = MemoryModel.shared
+
+    #if DEBUG
+    static var snapshotGraphQuery = ""
+    #endif
+
+    private static var initialGraphQuery: String {
+        #if DEBUG
+        return snapshotGraphQuery
+        #else
+        return ""
+        #endif
+    }
 
     private var root: String? { profile.blocks?.memory?.root }
 
@@ -14,7 +29,7 @@ struct BrainTab: View {
     }
 
     var body: some View {
-        TabCard(title: "Brain", icon: "books.vertical", trailing: vaultName) {
+        TabCard(title: "Brain", icon: PanelTab.brain.icon, trailing: vaultName) {
             ZStack {
                 content
                 overlays
@@ -22,7 +37,13 @@ struct BrainTab: View {
             .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.nav, style: .continuous))
         }
         .background { shortcuts }
-        .onAppear { if let root { model.load(root: root) } }
+        .onAppear {
+            if let root {
+                model.load(root: root)
+                memory.refreshRecents(root: root)
+            }
+        }
+        .onChange(of: model.activeID) { _, _ in showsHome = false }
         .onDisappear {
             model.flush()
             model.closeOverlays()
@@ -66,11 +87,24 @@ struct BrainTab: View {
     @ViewBuilder
     private var main: some View {
         if model.showsGraph, let root {
-            MemoryGraphView(root: root, query: "", recent: model.active?.path) { path in
-                model.showsGraph = false
-                model.open(path)
+            VStack(alignment: .leading, spacing: Theme.Space.s) {
+                SearchField(text: $graphQuery, placeholder: "Buscar nota no grafo")
+                    .padding(.horizontal, Theme.Space.s)
+                MemoryGraphView(root: root, query: graphQuery, recent: model.active?.path ?? recentPath) { path in
+                    model.showsGraph = false
+                    model.open(path)
+                }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if showsHome || model.active == nil {
+            BrainHomeView(block: profile.blocks?.memory) { path in
+                showsHome = false
+                model.open(path)
+            } openDaily: {
+                showsHome = false
+                model.openDaily()
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         } else if let tab = model.active {
             VStack(alignment: .leading, spacing: Theme.Space.s) {
                 Text(tab.title)
@@ -95,17 +129,12 @@ struct BrainTab: View {
                 noteBody(tab)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        } else {
-            VStack(spacing: Theme.Space.m) {
-                Image(systemName: "books.vertical").font(.system(size: 26)).foregroundStyle(Theme.textTertiary)
-                Text("Abra uma nota na árvore, ou use ⌘O para buscar pelo nome.")
-                    .font(Theme.Font.body)
-                    .foregroundStyle(Theme.textSecondary)
-                    .multilineTextAlignment(.center)
-                Button("Nota de hoje") { model.openDaily() }.buttonStyle(CapsuleButtonStyle(kind: .accent))
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+    }
+
+    private var recentPath: String? {
+        if case .loaded(let notes) = memory.recents { return notes.first?.path }
+        return nil
     }
 
     @ViewBuilder
@@ -139,7 +168,11 @@ struct BrainTab: View {
             iconButton("chevron.left", help: "Voltar (⌘[)", enabled: model.active?.history.canGoBack == true) { model.goBack() }
             iconButton("chevron.right", help: "Avançar (⌘])", enabled: model.active?.history.canGoForward == true) { model.goForward() }
             Spacer(minLength: 0)
-            if let tab = model.active, tab.kind == .note, !model.showsGraph {
+            iconButton("house", help: "Visão geral: recentes e busca", on: showsHome || (model.active == nil && !model.showsGraph)) {
+                model.showsGraph = false
+                showsHome.toggle()
+            }
+            if let tab = model.active, tab.kind == .note, !model.showsGraph, !showsHome {
                 iconButton(tab.editing ? "book" : "pencil", help: tab.readOnly != nil ? "Somente leitura" : (tab.editing ? "Ler (⌘E)" : "Editar (⌘E)"), on: tab.editing, enabled: tab.readOnly == nil) { model.toggleEditing() }
                 iconButton(model.bookmarks.contains(tab.path) ? "star.fill" : "star", help: "Favoritar", on: model.bookmarks.contains(tab.path)) { model.toggleBookmark(tab.path) }
                 iconButton("sidebar.right", help: "Backlinks, links, tópicos e tags", on: model.sidePanel != nil) {

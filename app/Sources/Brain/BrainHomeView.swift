@@ -1,18 +1,12 @@
 import SwiftUI
 import WispCore
 
-struct MemoryTab: View {
-    enum Mode: String {
-        case list, graph
-    }
-
-    let profile: Profile
+struct BrainHomeView: View {
+    let block: MemoryBlock?
     var openNote: (String) -> Void
+    var openDaily: () -> Void
     @State private var query = Self.initialQuery
-    @State private var mode = Self.lastMode
     private let memory = MemoryModel.shared
-
-    @MainActor static var lastMode: Mode = .graph
 
     #if DEBUG
     static var snapshotQuery = ""
@@ -26,67 +20,25 @@ struct MemoryTab: View {
         #endif
     }
 
-    private var block: MemoryBlock? { profile.blocks?.memory }
-    private var root: String? { block?.root }
-
-    private var vaultName: String? {
-        root.map { (expandTilde($0) as NSString).lastPathComponent }
-    }
-
     var body: some View {
-        TabCard(title: "Memória", icon: "brain.head.profile", trailing: vaultName) {
-            VStack(alignment: .leading, spacing: Theme.Space.s) {
-                HStack(spacing: Theme.Space.s) {
-                    if block?.search != nil || mode == .graph {
-                        SearchField(text: $query, placeholder: mode == .graph ? "Buscar nota no grafo" : "Buscar nas notas")
-                    } else {
-                        Spacer(minLength: 0)
-                    }
-                    modePicker
+        VStack(alignment: .leading, spacing: Theme.Space.s) {
+            HStack(spacing: Theme.Space.s) {
+                if block?.search != nil {
+                    SearchField(text: $query, placeholder: "Buscar nas notas")
+                } else {
+                    Spacer(minLength: 0)
                 }
-                switch mode {
-                case .list: list
-                case .graph:
-                    if let root {
-                        MemoryGraphView(root: root, query: query, recent: recentPath, open: open)
-                    }
-                }
+                Button("Nota de hoje", action: openDaily).buttonStyle(CompactCapsuleStyle(accent: true))
+            }
+            if query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                recents
+            } else {
+                results
             }
         }
-        .onAppear {
-            if let root { memory.refreshRecents(root: root) }
-        }
-        .task(id: "\(mode.rawValue)|\(query)") {
-            if mode == .list, let block { await memory.search(query, block: block) }
-        }
-    }
-
-    private var recentPath: String? {
-        if case .loaded(let notes) = memory.recents { return notes.first?.path }
-        return nil
-    }
-
-    private var modePicker: some View {
-        HStack(spacing: 2) {
-            ForEach([Mode.list, .graph], id: \.self) { option in
-                Button(option == .list ? "Lista" : "Grafo") {
-                    mode = option
-                    Self.lastMode = option
-                }
-                .buttonStyle(CompactCapsuleStyle(accent: mode == option))
-            }
-        }
-        .padding(3)
-        .background(Theme.surfaceHi, in: Capsule())
-        .fixedSize()
-    }
-
-    @ViewBuilder
-    private var list: some View {
-        if query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            recents
-        } else {
-            results
+        .padding(.horizontal, Theme.Space.s)
+        .task(id: query) {
+            if let block { await memory.search(query, block: block) }
         }
     }
 
@@ -103,7 +55,7 @@ struct MemoryTab: View {
                     SectionCaption(text: "Recentes")
                     ForEach(notes) { note in
                         NoteRow(title: note.title, folder: MemoryNote.folder(of: note.path), age: AlertList.age(of: note.modifiedAt)) {
-                            open(note.path)
+                            openNote(note.path)
                         }
                     }
                 }
@@ -125,7 +77,7 @@ struct MemoryTab: View {
                     SectionCaption(text: Self.count(hits.count))
                     ForEach(hits) { hit in
                         NoteRow(title: hit.title, folder: MemoryNote.folder(of: hit.path), snippet: hit.text) {
-                            open(hit.path)
+                            openNote(hit.path)
                         }
                     }
                 }
@@ -139,10 +91,6 @@ struct MemoryTab: View {
     private static func count(_ n: Int) -> String {
         if n >= MemorySearch.resultLimit { return "As primeiras \(n) notas" }
         return n == 1 ? "1 nota" : "\(n) notas"
-    }
-
-    private func open(_ path: String) {
-        openNote(path)
     }
 }
 
