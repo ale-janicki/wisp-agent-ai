@@ -4,7 +4,7 @@ import re
 from wisp.paths import resources_root
 
 HARNESS = resources_root() / "harness"
-PLACEHOLDERS = {"PERSONA_NAME", "USER_NAME", "BRAIN_DIR", "LANGUAGE", "WISP_DIR"}
+PLACEHOLDERS = {"PERSONA_NAME", "USER_NAME", "BRAIN_DIR", "LANGUAGE", "WISP_DIR", "TASKS_FILE"}
 
 
 def _shipped_files():
@@ -64,7 +64,7 @@ def test_settings_ask_before_every_agenda_change():
         assert f'Bash("$WISP_AGENDA_BIN" {sub}:*)' in ask
 
 
-def test_placeholders_are_only_the_five_known():
+def test_placeholders_are_only_the_known_ones():
     found = set()
     for path in _shipped_files():
         found |= set(re.findall(r"\{\{([^}]*)\}\}", path.read_text()))

@@ -1,6 +1,6 @@
 # Harness manifest
 
-What Wisp installs into a new user's `~/.claude`, and what it leaves out. Sources are real files only (no symlinks) in the author's harness and in the author's mini-agent kit. Placeholders rendered at install: `{{PERSONA_NAME}}`, `{{USER_NAME}}`, `{{BRAIN_DIR}}`, `{{LANGUAGE}}`, `{{WISP_DIR}}`.
+What Wisp installs into a new user's `~/.claude`, and what it leaves out. Sources are real files only (no symlinks) in the author's harness and in the author's mini-agent kit. Placeholders rendered at install: `{{PERSONA_NAME}}`, `{{USER_NAME}}`, `{{BRAIN_DIR}}`, `{{LANGUAGE}}`, `{{WISP_DIR}}`, `{{TASKS_FILE}}` (the profile's tasks file, `{{BRAIN_DIR}}/pendencias.md` by default).
 
 ## Included
 

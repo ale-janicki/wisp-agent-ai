@@ -44,6 +44,7 @@ def render_agent(text: str, cfg: WispConfig) -> str:
     values["PERSONA_NAME"] = values["PERSONA_NAME"] or "Wisp"
     values["LANGUAGE"] = values["LANGUAGE"] or "pt-BR"
     values["BRAIN_DIR"] = values["BRAIN_DIR"] or NO_BRAIN
+    values["TASKS_FILE"] = values["TASKS_FILE"] or f"{NO_BRAIN}/pendencias.md"
     return LEFTOVER_PLACEHOLDER.sub("", render_agente(text, values)).strip()
 
 
