@@ -110,8 +110,7 @@ public enum MacSafety {
     /// webview app) is page content, where role=tab runs the page's own handler. `lineage` is the whole chain of parents;
     /// nil means it could not be read in full, and then nothing is exempt.
     static func isNativeTab(_ element: MacElement, ancestors: [MacElement], lineage: [MacElement]?) -> Bool {
-        guard isTab(element, ancestors: ancestors), let lineage else { return false }
-        return !lineage.contains { $0.role == webRole }
+        isTab(element, ancestors: ancestors) && isNativeLineage(lineage)
     }
 
     static func isTab(_ element: MacElement, ancestors: [MacElement]) -> Bool {
@@ -121,7 +120,15 @@ public enum MacSafety {
     static func asksCard(_ element: MacElement, ancestors: [MacElement], lineage: [MacElement]?) -> Bool {
         if cardRoles.contains(element.role) { return true }
         if isTab(element, ancestors: ancestors) { return !isNativeTab(element, ancestors: ancestors, lineage: lineage) }
-        return element.pressable && !freeRoles.contains(element.role)
+        guard element.pressable else { return false }
+        if freeRoles.contains(element.role) { return !isNativeLineage(lineage) }
+        return true
+    }
+
+    /// ARIA role=textbox/searchbox/combobox/scrollbar on a div becomes a free AX role too, so those are free only in native UI.
+    static func isNativeLineage(_ lineage: [MacElement]?) -> Bool {
+        guard let lineage else { return false }
+        return !lineage.contains { $0.role == webRole }
     }
 
     /// `lineage`: every parent of `element`, nearest first; nil when the chain is cut or unreadable (then tabs ask).

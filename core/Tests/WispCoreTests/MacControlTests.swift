@@ -14,7 +14,7 @@ private final class FakeDriver: MacDriver, @unchecked Sendable {
     var expected: [MacElement] = []
     var blocks: [String?] = []
     var hits: [MacHit] = []
-    func pressElement(app: String?, max: Int, depth: Int, at index: Int, expect: MacElement, block: String?) throws {
+    func pressElement(app: String?, max: Int, depth: Int, at index: Int, expect: MacElement, block: String?, strict: Bool) throws {
         calls.append("press \(index)")
         expected.append(expect)
         blocks.append(block)
@@ -386,7 +386,11 @@ private final class FakeDriver: MacDriver, @unchecked Sendable {
         #expect(card(radio, [group], lineage: nil), "an unreadable or cut chain asks")
         #expect(card(tab, [], lineage: nil))
         #expect(!MacSafety.requiresCard(tab, ancestors: [], strict: false, lineage: nil))
-        #expect(!card(MacElement(role: "AXTextField", pressable: true), [], lineage: nil), "text fields stay free")
+        let field = MacElement(role: "AXSearchField", pressable: true)
+        #expect(!card(MacElement(role: "AXTextField", pressable: true), [], lineage: [window]), "a native text field stays free")
+        #expect(card(field, [], lineage: [web, window]), "a div with role=searchbox under a web area asks")
+        #expect(card(MacElement(role: "AXScrollBar", pressable: true), [], lineage: [window, window, window, window, web]))
+        #expect(card(field, [], lineage: nil), "an unreadable chain asks for a free role too")
     }
 
     @Test func lineageIsTheWholeChainAndNilWhenItDoesNotReachARoot() {
