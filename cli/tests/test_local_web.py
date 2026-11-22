@@ -1,6 +1,9 @@
 import asyncio
+import dataclasses
+import json
 import shutil
 import ssl
+import stat
 import threading
 from datetime import date
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -189,7 +192,7 @@ def test_remove_in_the_shipped_list_also_wins_and_only_default_tools_can_be_remo
 def test_the_comment_in_the_shipped_file_says_what_the_code_does():
     text = (WISP_FOLDER / "guardrails.toml").read_text()
     assert "Wisp adds web_search, web_fetch, brain_search, brain_read and brain_links to every size in code" in text
-    assert "remove" in text and "allowed at every size" not in text
+    assert "remove" in text and "allowed at every size" not in text and "web_search made after the conversation ran any tool" in text
 
 
 def test_the_connection_goes_to_the_address_that_was_checked_with_the_original_name_in_the_host_header(site):
@@ -491,10 +494,14 @@ class FakeHost:
         from wisp.local.tools import ToolSpec
 
         self.specs = {n: ToolSpec(n, "x", {"type": "object", "properties": {}}) for n in names}
-        self.trusted_urls, self.read_private, self.authorize, self.ran = set(), False, None, []
+        self.trusted_urls, self.authorize, self.ran, self.fail = set(), None, [], set()
 
     async def call(self, name, arguments):
+        from wisp.local.tools import ToolFailure
+
         self.ran.append(name)
+        if name in self.fail:
+            raise ToolFailure("falhou")
         return "ok"
 
 
@@ -502,7 +509,7 @@ def leak_engine(folder, approver):
     return LocalEngine(folder, WispConfig(), WispPaths.current(), None or Backend(OpenAIClient("http://127.0.0.1:1")), servers=[], approver=approver)
 
 
-def run_calls(fake_home, mode, calls, outcome="allow"):
+def run_calls(fake_home, mode, calls, outcome="allow", fail=frozenset(), session=None):
     from wisp.local.guardrails import TurnGuard
 
     folder = fake_home / "Wisp"
@@ -513,9 +520,11 @@ def run_calls(fake_home, mode, calls, outcome="allow"):
     asked = Asked(outcome)
     engine = leak_engine(folder, asked)
     rails = guardrails.load(folder)
-    guard = TurnGuard(rails.tier("grande"), rails.repeat_limit)
-    host = FakeHost(["read_file", "list_files", "web_search", "web_fetch", "brain_search", "brain_read", "brain_links", "email_list", "email_read"])
-    session = engine.start("c1", "qwen3:8b", mode)
+    tier = rails.tier("grande")
+    guard = TurnGuard(dataclasses.replace(tier, tools=tier.tools | {"agenda_list", "notion_page"}), rails.repeat_limit)
+    host = FakeHost(["read_file", "list_files", "write_file", "run_shell", "web_search", "web_fetch", "brain_search", "brain_read", "brain_links", "email_list", "email_read", "agenda_list", "notion_page"])
+    host.fail = fail
+    session = session or engine.start("c1", "qwen3:8b", mode)
     results = []
     for name, arguments in calls:
         results.append(asyncio.run(engine._execute(session, rails, guard, host, name, arguments, [], "t")))
@@ -559,3 +568,111 @@ def test_a_denied_search_after_a_read_sends_nothing_and_listing_files_taints_not
 def test_a_search_with_a_query_that_is_not_text_asks_instead_of_crashing(fake_home):
     asked, host, results = run_calls(fake_home, "auto", [("web_search", {"query": ["a"]})])
     assert len(asked.calls) == 1
+
+
+@pytest.mark.parametrize("mode", ["default", "auto", "bypassPermissions"])
+@pytest.mark.parametrize("worker,arguments", [
+    ("run_shell", {"command": "cat nota.txt"}), ("agenda_list", {}), ("notion_page", {"id": "1"}),
+])
+def test_any_tool_that_ran_marks_the_turn_so_a_short_search_asks(fake_home, mode, worker, arguments):
+    asked, host, _ = run_calls(fake_home, mode, [(worker, arguments), ("web_search", {"query": "curta"})])
+    assert [c for c in asked.calls if c[0] == "web_search"] == [("web_search", {"query": "curta"})]
+    assert host.ran == [worker, "web_search"]
+
+
+def test_only_search_listing_and_writing_leave_the_turn_clean_and_a_failed_tool_marks_nothing(fake_home):
+    clean = [("web_search", {"query": "a"}), ("list_files", {}), ("write_file", {"path": "x", "content": "y"}), ("web_search", {"query": "b"})]
+    asked, host, _ = run_calls(fake_home, "bypassPermissions", clean)
+    assert [c[0] for c in asked.calls if c[0] == "web_search"] == []
+    asked, host, results = run_calls(fake_home, "bypassPermissions", [("read_file", {"path": "x"}), ("web_search", {"query": "curta"})], fail={"read_file"})
+    assert results[0][0] is True and [c[0] for c in asked.calls] == []
+
+
+def conversation(fake_home):
+    folder = fake_home / "Wisp"
+    for sub in ("skills", "ferramentas", "conversas"):
+        (folder / sub).mkdir(parents=True, exist_ok=True)
+    for name in ("guardrails.toml", "modelos.toml"):
+        shutil.copy(WISP_FOLDER / name, folder / name)
+    return folder
+
+
+def test_a_private_read_in_one_turn_still_marks_the_next_turn_of_the_same_session(fake_home):
+    folder = conversation(fake_home)
+    asked = Asked("allow")
+    engine = leak_engine(folder, asked)
+    session = engine.start("c1", "qwen3:8b", "bypassPermissions")
+    rails = guardrails.load(folder)
+    from wisp.local.guardrails import TurnGuard
+
+    def call(name, arguments, session):
+        host = FakeHost(["read_file", "web_search"])
+        guard = TurnGuard(rails.tier("grande"), rails.repeat_limit)
+        return asyncio.run(engine._execute(session, rails, guard, host, name, arguments, [], "t"))
+
+    call("read_file", {"path": "x"}, session)
+    assert session.private is True
+    call("web_search", {"query": "curta"}, session)
+    assert [c[0] for c in asked.calls] == ["web_search"]
+
+
+def test_the_mark_survives_a_new_process_through_the_conversation_and_clears_with_it(fake_home):
+    folder = conversation(fake_home)
+    (folder / "conversas/c9.jsonl").write_text(json.dumps({"v": 1, "at": "2026-11-21T10:00:00.000Z", "kind": "user", "surface": "app", "text": "oi"}) + "\n")
+    first = leak_engine(folder, Asked("allow"))
+    session = first.resume("c9", "qwen3:8b")
+    assert session.private is False
+    rails = guardrails.load(folder)
+    from wisp.local.guardrails import TurnGuard
+
+    asyncio.run(first._execute(session, rails, TurnGuard(rails.tier("grande"), 3), FakeHost(["run_shell"]), "run_shell", {"command": "cat n"}, [], "t"))
+    mark = folder / "conversas/c9.private"
+    assert mark.is_file() and stat.S_IMODE(mark.stat().st_mode) == 0o600
+    asked = Asked("allow")
+    second = leak_engine(folder, asked)
+    later = second.resume("c9", "qwen3:8b")
+    assert later.private is True
+    asyncio.run(second._execute(later, rails, TurnGuard(rails.tier("grande"), 3), FakeHost(["web_search"]), "web_search", {"query": "curta"}, [], "t"))
+    assert [c[0] for c in asked.calls] == ["web_search"]
+    fresh = second.start("c9", "qwen3:8b")
+    assert fresh.private is False and not mark.exists()
+    assert second.resume("c9", "qwen3:8b").private is False
+
+
+def test_a_conversation_with_no_private_read_never_gets_a_mark(fake_home):
+    folder = conversation(fake_home)
+    asked, host, _ = run_calls(fake_home, "default", [("web_search", {"query": "curta"}), ("list_files", {})])
+    assert not list((folder / "conversas").glob("*.private")) and asked.calls == []
+
+
+def test_remove_takes_mac_tools_and_default_tools_and_the_error_names_both(tmp_path):
+    shipped = (WISP_FOLDER / "guardrails.toml").read_text()
+    rails = write_rails(tmp_path / "a", shipped.replace("[medio]\n", '[medio]\nremove = ["mac_apps", "web_fetch"]\n'))
+    assert not ({"mac_apps", "web_fetch"} & rails.tier("medio").tools) and {"mac_battery", "web_search"} <= rails.tier("medio").tools
+    assert "mac_apps" in rails.tier("grande").tools and "web_fetch" in rails.tier("grande").tools
+    with pytest.raises(guardrails.GuardrailsError) as caught:
+        write_rails(tmp_path / "b", shipped.replace("[medio]\n", '[medio]\nremove = ["read_file"]\n'))
+    assert "mac_" in str(caught.value) and "web_fetch" in str(caught.value) and "brain_read" in str(caught.value)
+
+
+def test_an_old_file_gets_both_the_mac_defaults_per_size_and_the_web_and_brain_tools(tmp_path):
+    old = '[pequeno]\nmax_steps = 1\ntools = ["read_file"]\n[medio]\nmax_steps = 1\ntools = ["read_file"]\n[grande]\nmax_steps = 1\ntools = ["read_file"]\n'
+    rails = write_rails(tmp_path / "a", old)
+    from wisp.mac_control import READ_ONLY as MAC_READ_ONLY, TOOLS as MAC_TOOLS
+
+    shipped = guardrails.parse((WISP_FOLDER / "guardrails.toml").read_text())
+    for tier in TIERS:
+        assert guardrails.DEFAULT_TOOLS <= rails.tier(tier).tools
+        assert {t for t in shipped.tier(tier).tools if t in MAC_TOOLS} <= rails.tier(tier).tools
+    assert guardrails.READ_ONLY >= MAC_READ_ONLY | guardrails.DEFAULT_TOOLS
+
+
+def test_a_mac_tool_that_is_not_read_only_never_runs_without_a_card(tmp_path):
+    from wisp.mac_control import READ_ONLY as MAC_READ_ONLY, TOOLS as MAC_TOOLS
+
+    rails = write_rails(tmp_path / "a", (WISP_FOLDER / "guardrails.toml").read_text())
+    writers = [t for t in MAC_TOOLS if t not in MAC_READ_ONLY]
+    assert writers
+    for tool in writers:
+        assert guardrails.needs_card(rails, rails.tier("grande"), "default", tool) or tool in rails.irreversible
+        assert not guardrails.needs_card(rails, rails.tier("grande"), "auto", tool) or tool in rails.irreversible or tool in rails.tier("grande").approve

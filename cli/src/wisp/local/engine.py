@@ -1,4 +1,5 @@
 import json
+import os
 import re
 import uuid
 from collections.abc import Callable
@@ -27,8 +28,8 @@ OLD_RESULT_CHARS = 300
 RESULT_CHARS = 8000
 FILES_KEY = "conteúdo dos arquivos que o comando executa"
 QUERY_FREE_CHARS = 120
-READS_PRIVATE = frozenset({"read_file", "web_fetch"})
-READS_PRIVATE_PREFIXES = ("brain_", "email_")
+LEAVES_TURN_CLEAN = frozenset({"web_search", "list_files", "write_file"})
+PRIVATE_MARK = ".private"
 URL = re.compile(r"https?://[^\s<>\"']+")
 URL_TAIL = ".,;:!?)]}"
 SKILL_HEADER = re.compile(r"^(name|description):\s*(.+)$", re.MULTILINE)
@@ -46,6 +47,7 @@ class Session:
     model: str
     mode: str
     messages: list[dict] = field(default_factory=list)
+    private: bool = False
 
 
 @dataclass
@@ -171,14 +173,30 @@ class LocalEngine:
 
     def start(self, conversation: str | None = None, model: str | None = None, mode: str = "default") -> Session:
         guardrails.load(self.folder)
-        return Session(conversation or str(uuid.uuid4()), self._model(model), self._mode(mode))
+        session = Session(conversation or str(uuid.uuid4()), self._model(model), self._mode(mode))
+        self._mark_path(session.conversation).unlink(missing_ok=True)
+        return session
 
     def resume(self, conversation: str, model: str | None = None, mode: str = "default") -> Session:
         guardrails.load(self.folder)
         path = self.folder / "conversas" / f"{conversation}.jsonl"
         if not transcript.ID.match(conversation) or not path.is_file():
             raise EngineError(f"não achei a conversa {conversation} em conversas/")
-        return Session(conversation, self._model(model), self._mode(mode), history_from(path))
+        return Session(conversation, self._model(model), self._mode(mode), history_from(path), self._mark_path(conversation).exists())
+
+    def _mark_path(self, conversation: str) -> Path:
+        return self.folder / "conversas" / f"{conversation}{PRIVATE_MARK}"
+
+    def _mark_private(self, session: Session) -> None:
+        session.private = True
+        if not transcript.ID.match(session.conversation):
+            return
+        path = self._mark_path(session.conversation)
+        try:
+            path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+            os.close(os.open(path, os.O_WRONLY | os.O_CREAT, 0o600))
+        except OSError:
+            pass
 
     @staticmethod
     def _mode(mode: str) -> str:
@@ -338,7 +356,7 @@ class LocalEngine:
         url = arguments.get("url")
         unvouched = name == "web_fetch" and not (isinstance(url, str) and url in host.trusted_urls)
         query = arguments.get("query")
-        leaky = name == "web_search" and (host.read_private or not isinstance(query, str) or len(query) > QUERY_FREE_CHARS)
+        leaky = name == "web_search" and (session.private or not isinstance(query, str) or len(query) > QUERY_FREE_CHARS)
         if scripted or unvouched or leaky or guardrails.needs_card(rails, guard.tier, session.mode, name):
             shown = dict(arguments)
             if name == "run_shell":
@@ -355,14 +373,15 @@ class LocalEngine:
                 return True, "o usuário negou a ação" if outcome == "deny" else "não executei: ninguém aprovou a tempo"
             if name == "email_send" and host.authorize:
                 host.authorize(arguments)
-        if name in READS_PRIVATE or name.startswith(READS_PRIVATE_PREFIXES):
-            host.read_private = True
         try:
-            return False, await host.call(name, arguments)
+            result = await host.call(name, arguments)
         except ToolFailure as e:
             return True, str(e)
         except Exception as e:
             return True, f"a ferramenta {name} falhou ({type(e).__name__})"
+        if name not in LEAVES_TURN_CLEAN:
+            self._mark_private(session)
+        return False, result
 
 
 def record_turn(folder: Path, session: Session, surface: str, text: str, result: TurnResult) -> None:

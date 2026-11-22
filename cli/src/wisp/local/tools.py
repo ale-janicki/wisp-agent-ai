@@ -80,7 +80,6 @@ class ToolHost:
     _sessions: dict[str, ClientSession] = field(default_factory=dict)
     authorize: Callable[[dict], bool] | None = None
     trusted_urls: set[str] = field(default_factory=set)
-    read_private: bool = False
 
     async def call(self, name: str, arguments: dict) -> str:
         if name in self._builtin:
