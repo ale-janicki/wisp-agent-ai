@@ -10,7 +10,9 @@ struct MonthView: View {
     }
 
     private var weekdayNames: [String] {
-        let symbols = model.calendar.shortStandaloneWeekdaySymbols
+        var names = Calendar(identifier: .gregorian)
+        names.locale = Locale(identifier: "pt_BR")
+        let symbols = names.shortStandaloneWeekdaySymbols
         let first = model.calendar.firstWeekday - 1
         return (0..<7).map { symbols[(first + $0) % 7].replacingOccurrences(of: ".", with: "").uppercased() }
     }
@@ -26,17 +28,23 @@ struct MonthView: View {
                 }
                 .frame(height: 22)
                 Divider().overlay(Theme.stroke)
-                ScrollView(.vertical) {
-                    LazyVStack(spacing: 0) {
-                        ForEach(weeks, id: \.self) { week in
-                            WeekRowView(model: model, firstDay: week, height: rowH).id(week)
+                ScrollViewReader { proxy in
+                    ScrollView(.vertical) {
+                        LazyVStack(spacing: 0) {
+                            ForEach(weeks, id: \.self) { week in
+                                WeekRowView(model: model, firstDay: week, height: rowH).id(week)
+                            }
                         }
+                        .scrollTargetLayout()
                     }
-                    .scrollTargetLayout()
+                    .scrollPosition(id: $model.topWeek, anchor: .top)
+                    .scrollTargetBehavior(.viewAligned)
+                    .scrollIndicators(.hidden)
+                    .onAppear {
+                        let target = model.topWeek ?? model.weekStart(of: model.todayNumber)
+                        Task { @MainActor in proxy.scrollTo(target, anchor: .top) }
+                    }
                 }
-                .scrollPosition(id: $model.topWeek, anchor: .top)
-                .scrollTargetBehavior(.viewAligned)
-                .scrollIndicators(.hidden)
             }
         }
         .onChange(of: model.topWeek) { _, week in
