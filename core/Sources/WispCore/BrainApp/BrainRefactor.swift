@@ -28,8 +28,7 @@ public enum BrainRefactor {
         try files.validateNew(to)
         guard let source = scan.entries.first(where: { $0.path == from }) else { throw BrainFilesError.missing(from) }
         if to == from || to.hasPrefix(from + "/") { throw BrainFilesError.outside(to) }
-        let taken = scan.entries.contains { $0.path.lowercased() == to.lowercased() }
-        if taken, from.lowercased() != to.lowercased() { throw BrainFilesError.exists(to) }
+        if files.exists(to), !files.sameFile(from, to) { throw BrainFilesError.exists(to) }
 
         func relocated(_ path: String) -> String {
             if path == from { return to }
@@ -75,7 +74,7 @@ public enum BrainRefactor {
 
         var edits: [BrainFileEdit] = []
         for path in candidates.sorted() {
-            if bySize[path]?.isSymlink == true {
+            if bySize[path]?.isSymlink == true || files.isHardLinked(path) {
                 skipped.append(path)
                 continue
             }
@@ -141,7 +140,7 @@ public enum BrainRefactor {
     public static func apply(_ plan: BrainMovePlan, root: String) throws {
         let files = BrainFiles(root: root)
         for edit in plan.edits where try files.readStrict(edit.oldPath) != edit.oldText { throw BrainFilesError.stale(edit.oldPath) }
-        if files.exists(plan.to), plan.from.lowercased() != plan.to.lowercased() { throw BrainFilesError.exists(plan.to) }
+        if files.exists(plan.to), !files.sameFile(plan.from, plan.to) { throw BrainFilesError.exists(plan.to) }
 
         func relocated(_ path: String) -> String {
             if path == plan.from { return plan.to }
@@ -156,8 +155,7 @@ public enum BrainRefactor {
         do {
             for (index, edit) in plan.edits.enumerated() {
                 let temporary = staging.appendingPathComponent("edit-\(index)")
-                try Data(edit.newText.utf8).write(to: temporary)
-                BrainFiles.copyAttributes(from: try files.url(edit.oldPath), to: temporary)
+                try BrainFiles.stage(Data(edit.newText.utf8), at: temporary, attributesFrom: files.url(edit.oldPath))
                 temporaries.append((temporary, edit))
             }
             try files.move(plan.from, to: plan.to)

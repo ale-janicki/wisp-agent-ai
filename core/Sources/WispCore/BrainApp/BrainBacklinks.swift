@@ -19,12 +19,12 @@ public enum BrainBacklinks {
     public static func find(for target: String, catalog: BrainCatalog, files: BrainFiles) -> [BrainBacklink] {
         catalog.incoming(of: target).compactMap { source in
             guard let text = try? files.read(source) else { return nil }
-            let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
+            let lines = BrainText.lines(text)
             var seen = Set<Int>()
             var contexts: [BrainBacklinkContext] = []
             for occurrence in BrainLinkScanner.scan(text) where !occurrence.isAttachment && catalog.resolve(occurrence.name, from: source) == target {
                 guard seen.insert(occurrence.line).inserted, lines.indices.contains(occurrence.line) else { continue }
-                contexts.append(BrainBacklinkContext(line: occurrence.line, text: String(lines[occurrence.line].trimmingCharacters(in: .whitespaces).prefix(contextLimit))))
+                contexts.append(BrainBacklinkContext(line: occurrence.line, text: String(lines[occurrence.line].trimmingCharacters(in: .whitespacesAndNewlines).prefix(contextLimit))))
             }
             return BrainBacklink(path: source, title: catalog.notes[source]?.title ?? BrainText.stem(of: source), contexts: contexts)
         }

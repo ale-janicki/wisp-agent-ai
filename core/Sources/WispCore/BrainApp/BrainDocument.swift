@@ -26,7 +26,7 @@ public struct BrainDocument: Sendable, Equatable {
     public private(set) var body: String
 
     public init(_ text: String) {
-        let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
+        let lines = BrainText.lines(text)
         guard lines.count > 1, Self.isFence(lines[0], opening: true),
               let end = lines.indices.dropFirst().first(where: { Self.isFence(lines[$0], opening: false) })
         else {
@@ -35,13 +35,13 @@ public struct BrainDocument: Sendable, Equatable {
         }
         opening = String(lines[0])
         closing = String(lines[end])
-        front = lines[1..<end].map(String.init)
+        front = Array(lines[1..<end])
         closingEnd = end == lines.count - 1 ? "" : "\n"
         body = end == lines.count - 1 ? "" : lines[(end + 1)...].joined(separator: "\n")
     }
 
-    private static func isFence(_ line: Substring, opening: Bool) -> Bool {
-        let trimmed = line.trimmingCharacters(in: .whitespaces)
+    private static func isFence(_ line: String, opening: Bool) -> Bool {
+        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed == "---" || (!opening && trimmed == "...")
     }
 
@@ -78,8 +78,8 @@ public struct BrainDocument: Sendable, Equatable {
                 i += 1
                 continue
             }
-            let key = String(line[..<colon]).trimmingCharacters(in: .whitespaces)
-            let rest = String(line[line.index(after: colon)...]).trimmingCharacters(in: .whitespaces)
+            let key = String(line[..<colon]).trimmingCharacters(in: .whitespacesAndNewlines)
+            let rest = String(line[line.index(after: colon)...]).trimmingCharacters(in: .whitespacesAndNewlines)
             var end = i + 1
             while end < front.count, Self.continues(front[end], key: rest.isEmpty) { end += 1 }
             let extra = front[(i + 1)..<end]
@@ -96,13 +96,13 @@ public struct BrainDocument: Sendable, Equatable {
     }
 
     private static func value(_ rest: String, extra: [String]) -> BrainProperty.Value {
-        let content = extra.filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+        let content = extra.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
         if rest.hasPrefix("["), rest.hasSuffix("]"), content.isEmpty {
             return .list(splitInline(String(rest.dropFirst().dropLast())))
         }
         if rest.isEmpty {
             if content.isEmpty { return .text("") }
-            let items = content.map { $0.trimmingCharacters(in: .whitespaces) }
+            let items = content.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             if items.allSatisfy({ $0.hasPrefix("-") }) {
                 return .list(items.map { unquote(String($0.dropFirst())) }.filter { !$0.isEmpty })
             }
@@ -135,7 +135,7 @@ public struct BrainDocument: Sendable, Equatable {
     }
 
     private static func unquote(_ value: String) -> String {
-        var text = value.trimmingCharacters(in: .whitespaces)
+        var text = value.trimmingCharacters(in: .whitespacesAndNewlines)
         if text.count >= 2, let first = text.first, first == "\"" || first == "'", text.last == first {
             text = String(text.dropFirst().dropLast())
         }
@@ -144,7 +144,7 @@ public struct BrainDocument: Sendable, Equatable {
 
     private static func render(_ value: String) -> String {
         let plain = value.isEmpty || value.first.map { !"[{&*!|>%@`'\"#-?:,".contains($0) } == true
-        if plain, !value.contains(": "), !value.contains(" #"), value == value.trimmingCharacters(in: .whitespaces) { return value }
+        if plain, !value.contains(": "), !value.contains(" #"), value == value.trimmingCharacters(in: .whitespacesAndNewlines) { return value }
         return "\"" + value.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") + "\""
     }
 
@@ -166,9 +166,10 @@ public struct BrainDocument: Sendable, Equatable {
 
     public mutating func set(_ key: String, to value: BrainProperty.Value) {
         var lines = front ?? []
+        let carriage = front?.first?.hasSuffix("\r") == true ? "\r" : ""
         let existing = entries().first { $0.key == key }
         let block = existing.map { !$0.inline } ?? true
-        let rendered: [String]
+        var rendered: [String]
         switch value {
         case .text(let text):
             rendered = [text.isEmpty ? "\(key):" : "\(key): \(Self.render(text))"]
@@ -178,12 +179,13 @@ public struct BrainDocument: Sendable, Equatable {
             rendered = ["\(key): [" + items.map(Self.render).joined(separator: ", ") + "]"]
         case .list(let items):
             let indent = existing.flatMap { entry in
-                lines[entry.range].dropFirst().first { $0.trimmingCharacters(in: .whitespaces).hasPrefix("-") }.map { String($0.prefix { $0 == " " || $0 == "\t" }) }
+                lines[entry.range].dropFirst().first { $0.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("-") }.map { String($0.prefix { $0 == " " || $0 == "\t" }) }
             } ?? "  "
             rendered = ["\(key):"] + items.map { "\(indent)- \(Self.render($0))" }
         case .complex(let raw):
-            rendered = ["\(key):"] + raw.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+            rendered = ["\(key):"] + BrainText.lines(raw)
         }
+        rendered = rendered.map { $0.hasSuffix("\r") || carriage.isEmpty ? $0 : $0 + carriage }
         if let existing {
             lines.replaceSubrange(existing.range, with: rendered)
         } else {

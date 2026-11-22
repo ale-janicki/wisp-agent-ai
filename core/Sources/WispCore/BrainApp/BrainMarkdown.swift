@@ -4,11 +4,11 @@ public enum BrainMarkdown {
     public static func parse(_ text: String) -> BrainRenderModel {
         let document = BrainDocument(text)
         let skipped = document.frontmatterLineCount
-        let all = text.split(separator: "\n", omittingEmptySubsequences: false)
+        let all = BrainText.lines(text)
         var lines: [BrainLine] = []
         lines.reserveCapacity(all.count)
         for (number, raw) in all.enumerated() where number >= skipped {
-            lines.append(BrainLine(number: number, text: expandTabs(raw)))
+            lines.append(BrainLine(number: number, text: expandTabs(Substring(BrainText.withoutCarriageReturn(raw)))))
         }
         var parser = BrainBlockParser()
         var nodes = parser.blocks(lines)
