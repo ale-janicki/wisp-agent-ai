@@ -12,7 +12,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard !QuitFlush.shared.isEmpty else { return .terminateNow }
         Task { @MainActor in
-            await QuitFlush.shared.flushAll(timeout: .seconds(3))
+            await QuitFlush.shared.flushAll(timeout: QuitDeadline.flushTimeout)
             NSApp.reply(toApplicationShouldTerminate: true)
         }
         return .terminateLater
@@ -31,7 +31,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         TerminationSignal.routeToHandler()
         let source = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
         source.setEventHandler {
-            DispatchQueue.global().asyncAfter(deadline: .now() + 5) { exit(0) }
+            DispatchQueue.global().asyncAfter(deadline: .now() + QuitDeadline.sigtermFallbackSeconds) { exit(0) }
             NSApp.terminate(nil)
         }
         source.resume()
