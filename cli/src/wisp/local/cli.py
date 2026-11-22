@@ -12,7 +12,7 @@ from wisp.local.approver import clean
 from wisp.local import catalog as catalogs
 from wisp.local import arch
 from wisp.local import backend as backends
-from wisp.local import fetch, modelos, proxy, recomendar, storage
+from wisp.local import fetch, mlxchild, modelos, proxy, recomendar, storage
 from wisp.local.guardrails import MODES, GuardrailsError
 from wisp.local.modelos import ModelosError
 from wisp.paths import WispPaths
@@ -57,6 +57,9 @@ def add_parser(sub) -> None:
     serve.add_argument("--state-dir", required=True)
     serve.add_argument("--marker", default="")
     serve.add_argument("--child-json")
+    child = steps.add_parser("mlx-child")
+    child.add_argument("--model-dir", required=True)
+    child.add_argument("--socket", required=True)
     use = steps.add_parser("use")
     use.add_argument("tag")
     where = steps.add_parser("backend")
@@ -180,6 +183,8 @@ def run(args: argparse.Namespace, make: Callable | None = None, servers: list | 
     try:
         folder = wisp_root(load_config())
         catalog = catalogs.load()
+        if args.action == "mlx-child":
+            return mlxchild.serve(args.model_dir, args.socket)
         if args.action == "serve":
             return proxy.serve(
                 model=args.model_dir, port=args.port, key=Path(args.key_file).read_text("utf-8").strip(), idle_minutes=args.idle_minutes,

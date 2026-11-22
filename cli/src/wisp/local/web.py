@@ -1,8 +1,11 @@
+import codecs
 import http.client
 import ipaddress
 import os
 import re
 import socket
+import threading
+import time
 from collections.abc import Callable
 from html.parser import HTMLParser
 from urllib.parse import parse_qs, quote_plus, urljoin, urlsplit
@@ -13,6 +16,8 @@ SEARCH_URL = "https://html.duckduckgo.com/html/"
 USER_AGENT = "Mozilla/5.0 (Macintosh; Apple silicon) Wisp"
 TIMEOUT = 20.0
 MAX_BYTES = 1_000_000
+CHUNK = 65536
+TOTAL_DEADLINE = 30.0
 MAX_REDIRECTS = 3
 TEXT_LIMIT = 6000
 RESULT_LIMIT = 5
@@ -118,6 +123,15 @@ def public_address(text: str) -> bool:
     return address.is_global and all(item.is_global for item in embedded)
 
 
+def _abort(connection) -> None:
+    sock = getattr(connection, "sock", None)
+    if sock is not None:
+        try:
+            sock.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            pass
+
+
 class _PinnedHTTP(http.client.HTTPConnection):
     def __init__(self, host: str, port: int, ip: str, timeout: float):
         super().__init__(host, port, timeout=timeout)
@@ -137,16 +151,25 @@ class _PinnedHTTPS(http.client.HTTPSConnection):
         self.sock = self._context.wrap_socket(sock, server_hostname=self.host)
 
 
+def decode(data: bytes, charset: str) -> str:
+    try:
+        codecs.lookup(charset)
+    except LookupError:
+        charset = "utf-8"
+    return data.decode(charset, "replace")
+
+
 class WebClient:
     def __init__(self, *, search_url: str | None = None, allow_private: bool = False,
-                 resolve: Callable = socket.getaddrinfo, timeout: float = TIMEOUT):
+                 resolve: Callable = socket.getaddrinfo, timeout: float = TIMEOUT, deadline: float = TOTAL_DEADLINE):
         self.search_url = search_url or os.environ.get("WISP_SEARCH_URL") or SEARCH_URL
         self.allow_private = allow_private
         self.resolve = resolve
         self.timeout = timeout
+        self.deadline = deadline
         self.last_urls: list[str] = []
 
-    def _pin(self, url: str, check: bool) -> tuple:
+    def _pin(self, url: str) -> tuple:
         parts = urlsplit(url)
         if parts.scheme not in ("http", "https") or not parts.hostname:
             raise WebError("só abro endereços http ou https")
@@ -159,15 +182,22 @@ class WebClient:
             raise WebError(f"não consegui resolver {parts.hostname}") from None
         if not found:
             raise WebError(f"não consegui resolver {parts.hostname}")
-        if check and not self.allow_private and not all(public_address(a) for a in found):
+        if not self.allow_private and not all(public_address(a) for a in found):
             raise WebError("esse endereço aponta para a rede local deste Mac; não abro")
         return parts, port, found[0]
 
-    def _get(self, url: str, *, body: bytes | None = None, check: bool = True) -> tuple[str, str, bytes, str]:
+    def _get(self, url: str, *, body: bytes | None = None) -> tuple[str, str, bytes, str]:
+        started = time.monotonic()
         for _ in range(MAX_REDIRECTS + 1):
-            parts, port, ip = self._pin(url, check)
+            left = self.deadline - (time.monotonic() - started)
+            if left <= 0:
+                raise WebError("o site demorou demais; parei")
+            parts, port, ip = self._pin(url)
             factory = _PinnedHTTPS if parts.scheme == "https" else _PinnedHTTP
-            connection = factory(parts.hostname, port, ip, self.timeout)
+            connection = factory(parts.hostname, port, ip, min(self.timeout, left))
+            watchdog = threading.Timer(left, lambda: _abort(connection))
+            watchdog.daemon = True
+            watchdog.start()
             try:
                 target = (parts.path or "/") + (f"?{parts.query}" if parts.query else "")
                 headers = {"User-Agent": USER_AGENT, "Accept": "text/html,text/plain,application/json;q=0.9,*/*;q=0.1"}
@@ -183,20 +213,32 @@ class WebClient:
                 kind = (response.getheader("Content-Type") or "").split(";")[0].strip().lower()
                 if not kind.startswith(TEXT_TYPES):
                     raise WebError(f"o conteúdo é {kind or 'de tipo desconhecido'}, não texto; não abri")
-                data = response.read(MAX_BYTES + 1)
+                data = b""
+                while len(data) <= MAX_BYTES:
+                    chunk = response.read1(CHUNK)
+                    if not chunk:
+                        break
+                    data += chunk
+                    if time.monotonic() - started > self.deadline:
+                        raise WebError("o site demorou demais; parei")
+                if time.monotonic() - started >= self.deadline:
+                    raise WebError("o site demorou demais; parei")
                 charset = re.search(r"charset=([\w-]+)", response.getheader("Content-Type") or "")
                 return url, kind, data[:MAX_BYTES], (charset.group(1) if charset else "utf-8")
             except (OSError, http.client.HTTPException) as e:
+                if time.monotonic() - started >= self.deadline:
+                    raise WebError("o site demorou demais; parei") from None
                 raise WebError(f"não consegui abrir o endereço ({type(e).__name__})") from None
             finally:
+                watchdog.cancel()
                 connection.close()
         raise WebError("o endereço redirecionou demais")
 
     def search(self, query: str) -> str:
         if not query.strip():
             raise WebError("a busca está vazia")
-        _, _, data, charset = self._get(self.search_url, body=f"q={quote_plus(query.strip())}".encode(), check=False)
-        found = parse_results(data.decode(charset, "replace"))
+        _, _, data, charset = self._get(self.search_url, body=f"q={quote_plus(query.strip())}".encode())
+        found = parse_results(decode(data, charset))
         if not found:
             raise WebError("a busca não devolveu resultados (a fonte pode ter limitado o acesso); tente de novo mais tarde")
         self.last_urls = [r["url"] for r in found]
@@ -205,7 +247,7 @@ class WebClient:
 
     def fetch(self, url: str) -> str:
         final, kind, data, charset = self._get(url.strip())
-        raw = data.decode(charset, "replace")
+        raw = decode(data, charset)
         text = html_to_text(raw) if kind in ("text/html", "application/xhtml+xml") else raw.strip()
         if len(text) > TEXT_LIMIT:
             text = text[:TEXT_LIMIT] + "…"

@@ -1,9 +1,10 @@
 import json
 import os
+import socket
 import sys
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
-PORT = int(sys.argv[1])
+PATH = sys.argv[1]
 LOG = os.environ.get("FAKE_CHILD_LOG")
 
 
@@ -32,4 +33,18 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(b"data: [DONE]\n\n")
 
 
-HTTPServer(("127.0.0.1", PORT), Handler).serve_forever()
+class UnixServer(HTTPServer):
+    address_family = socket.AF_UNIX
+
+    def server_bind(self):
+        self.socket.bind(PATH)
+        self.server_address = PATH
+        self.server_name = "unix"
+        self.server_port = 0
+
+    def get_request(self):
+        connection, _ = super().get_request()
+        return connection, ("unix", 0)
+
+
+UnixServer(PATH, Handler).serve_forever()

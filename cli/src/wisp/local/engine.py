@@ -332,7 +332,8 @@ class LocalEngine:
         if name not in host.specs:
             return True, f"a ferramenta {name} não existe ou não abriu"
         scripted = name == "write_file" and Files(self._roots()).is_script_write(arguments)
-        unvouched = name == "web_fetch" and arguments.get("url") not in host.trusted_urls
+        url = arguments.get("url")
+        unvouched = name == "web_fetch" and not (isinstance(url, str) and url in host.trusted_urls)
         if scripted or unvouched or guardrails.needs_card(rails, guard.tier, session.mode, name):
             shown = dict(arguments)
             if name == "run_shell":
