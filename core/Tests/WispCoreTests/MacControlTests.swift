@@ -372,6 +372,47 @@ private final class FakeDriver: MacDriver, @unchecked Sendable {
         #expect(!MacSafety.requiresCard(MacElement(role: "AXButton", title: "X"), ancestors: [], strict: false))
     }
 
+    @Test func inABrowserTabsAndTabGroupRadiosAskForTheCardButNativeAppsKeepTheExemption() {
+        func card(_ element: MacElement, _ ancestors: [MacElement], browser: Bool) -> Bool {
+            MacSafety.requiresCard(element, ancestors: ancestors, strict: true, browser: browser)
+        }
+        let group = [MacElement(role: "AXTabGroup")]
+        #expect(card(MacElement(role: "AXRadioButton", pressable: true), group, browser: true))
+        #expect(card(MacElement(role: "AXTab", pressable: true), [], browser: true))
+        #expect(card(MacElement(role: "AXTab"), [], browser: true), "a browser tab asks even when it does not expose press")
+        #expect(!card(MacElement(role: "AXRadioButton", pressable: true), group, browser: false))
+        #expect(!card(MacElement(role: "AXTab", pressable: true), [], browser: false))
+        #expect(!MacSafety.requiresCard(MacElement(role: "AXTab"), ancestors: [], strict: false, browser: true))
+        #expect(card(MacElement(role: "AXTextField", pressable: true), [], browser: true) == false, "text fields stay free")
+        for name in ["Safari", "Google Chrome", "Arc", "Firefox", "Brave Browser", "Microsoft Edge"] { #expect(MacSafety.isBrowser(app: name), Comment(rawValue: name)) }
+        #expect(MacSafety.isBrowser(app: "x", bundle: "com.google.Chrome"))
+        for name in ["Finder", "Terminal", "Search", "Marc", ""] { #expect(!MacSafety.isBrowser(app: name), Comment(rawValue: name)) }
+    }
+
+    @Test func aTabClickInABrowserIsRefusedInStrictModeAndPassesInANativeApp() {
+        let tab = MacElement(role: "AXRadioButton", title: "Inbox", pressable: true, x: 10, y: 10, width: 10, height: 10, depth: 1)
+        let tree = [MacElement(role: "AXTabGroup", depth: 0), tab]
+        let driver = FakeDriver()
+        driver.elements = tree
+        driver.focused = MacFocus(app: "Google Chrome", element: nil, bundle: "com.google.Chrome")
+        let arguments = ["clicar", "--titulo", "Inbox", "--estrito"]
+        #expect(service(driver).run(arguments: arguments).exitCode == MacError.blocked)
+        #expect(driver.calls.isEmpty)
+        driver.focused = MacFocus(app: "Calendar", element: nil, bundle: "com.apple.iCal")
+        #expect(service(driver).run(arguments: arguments).exitCode == 0)
+        #expect(driver.calls == ["press 1"])
+    }
+
+    @Test func theRuntimeRootComesFromThePasswdHomeNotFromTheEnvironment() {
+        let before = MacCaller.passwdHome()
+        let saved = getenv("HOME").map { String(cString: $0) }
+        setenv("HOME", "/tmp/attacker-home", 1)
+        defer { if let saved { setenv("HOME", saved, 1) } else { unsetenv("HOME") } }
+        #expect(MacCaller.passwdHome() == before)
+        #expect(!before.isEmpty && before != "/tmp/attacker-home")
+        #expect(MacCaller.runtimePrefixes(home: MacCaller.passwdHome()).allSatisfy { !$0.hasPrefix("/tmp/attacker-home") })
+    }
+
     @Test func strictClicksAreRefusedOnButtonsAndPassOnTextFields() {
         let driver = FakeDriver()
         driver.elements = [MacElement(role: "AXWindow"), MacElement(role: "AXButton", title: "Continuar", depth: 1), MacElement(role: "AXTextField", title: "Busca", depth: 1)]
