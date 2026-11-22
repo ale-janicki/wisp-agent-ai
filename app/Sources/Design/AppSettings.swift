@@ -64,6 +64,7 @@ final class AppSettings {
             let loginItemRegistered = settings.loginItemRegistered
             let section = settings.settingsSection
             let agenda = settings.agenda
+            let meetings = settings.meetings
             settings = .default
             settings.dashboardOrder = order
             settings.telegramOrder = topicOrder
@@ -75,6 +76,7 @@ final class AppSettings {
             settings.loginItemRegistered = loginItemRegistered
             settings.settingsSection = section
             settings.agenda = agenda
+            settings.meetings = meetings
         }
     }
 
@@ -116,6 +118,10 @@ final class AppSettings {
 
     func setNotices(_ change: (inout NoticeSettings) -> Void) {
         update { change(&$0.notices) }
+    }
+
+    func setMeetings(_ change: (inout MeetingSettings) -> Void) {
+        update { change(&$0.meetings) }
     }
 
     func setPermissionMode(_ mode: String?) {
