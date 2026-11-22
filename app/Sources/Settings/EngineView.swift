@@ -15,7 +15,12 @@ struct EngineSettingsCard: View {
                     .foregroundStyle(Theme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            ForEach(EngineKind.allCases, id: \.self) { kind in row(kind) }
+            ForEach(EngineKind.allCases, id: \.self) { kind in
+                VStack(alignment: .leading, spacing: Theme.Space.s) {
+                    row(kind)
+                    if let login = EngineLogin(kind) { EngineConnectBlock(login) }
+                }
+            }
             if model.active == .codex {
                 Text("No Codex o Wisp não recebe pedidos de aprovação: o que protege é o sandbox do sistema, e as travas do Wisp (hooks) só existem no Claude. Enviar e-mail continua pedindo a tua aprovação.")
                     .font(Theme.Font.caption)

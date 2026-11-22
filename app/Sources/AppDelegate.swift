@@ -28,6 +28,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         TerminationSignal.routeToHandler()
+        EngineConnectModel.removeOldCommandFiles()
         let source = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
         source.setEventHandler {
             DispatchQueue.global().asyncAfter(deadline: .now() + QuitDeadline.sigtermFallbackSeconds) { exit(0) }
