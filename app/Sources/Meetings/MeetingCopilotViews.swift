@@ -400,6 +400,17 @@ struct PrepCard: View {
 }
 
 struct WebhookCard: View {
+    private func payloadText(_ text: String) -> some View {
+        ScrollView {
+            Text(text)
+                .font(Theme.Font.tool)
+                .foregroundStyle(Theme.textPrimary)
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .frame(maxHeight: 180)
+    }
+
     let offer: WebhookOffer
     let allow: () -> Void
     let dismiss: () -> Void
@@ -422,15 +433,11 @@ struct WebhookCard: View {
                     .font(Theme.Font.caption)
                     .foregroundStyle(Theme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
-                DisclosureGroup("Ver o JSON completo que será enviado") {
-                    ScrollView {
-                        Text(offer.pending.bodyText)
-                            .font(Theme.Font.tool)
-                            .foregroundStyle(Theme.textPrimary)
-                            .textSelection(.enabled)
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                DisclosureGroup("Ver o JSON completo que será enviado (os bytes exatos)") {
+                    VStack(alignment: .leading, spacing: Theme.Space.xs) {
+                        payloadText(offer.pending.bodyText)
+                        DisclosureGroup("formatado") { payloadText(offer.pending.formattedBodyText) }
                     }
-                    .frame(maxHeight: 220)
                 }
                 .font(Theme.Font.caption)
                 .foregroundStyle(Theme.textSecondary)

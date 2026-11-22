@@ -602,14 +602,26 @@ final class MeetingWebhookTests: XCTestCase {
         } catch {}
     }
 
-    func testTheCardCanShowTheExactJSONThatWillBeSent() throws {
+    func testTheCardShowsTheExactBytesThatAreSignedAndSent() throws {
+        let content = try MeetingWebhook.content(title: "T", startedAt: Date(), durationSeconds: 60.5, note: Self.noteWithExtras, metrics: MeetingMetrics(durationSeconds: 60.5))
+        let pending = PendingWebhook(target: try target("https://hooks.example.com/in"), body: content.body, preview: content.preview, signed: true)
+        XCTAssertEqual(Data(pending.bodyText.utf8), pending.body)
+        XCTAssertEqual(pending.bodyText, String(decoding: content.body, as: UTF8.self))
+        let request = try XCTUnwrap(MeetingWebhook.request(for: pending, secret: "s", timestamp: 1_800_000_000))
+        XCTAssertEqual(request.suffix(pending.body.count), pending.body)
+        let signature = MeetingWebhook.signature(body: Data(pending.bodyText.utf8), secret: "s", timestamp: 1_800_000_000)
+        XCTAssertTrue(String(decoding: request, as: UTF8.self).contains("X-Wisp-Signature: \(signature)\r\n"))
+        XCTAssertFalse(pending.bodyText.contains("\n"))
+    }
+
+    func testTheFormattedViewIsSeparateAndParsesToTheSameJSON() throws {
         let content = try MeetingWebhook.content(title: "T", startedAt: Date(), durationSeconds: 60, note: Self.noteWithExtras, metrics: nil)
-        let pending = PendingWebhook(target: try target("https://hooks.example.com/in"), body: content.body, preview: content.preview)
-        XCTAssertTrue(pending.bodyText.contains("Você: propôs fechar."))
-        XCTAssertTrue(pending.bodyText.contains("Enviar"))
-        XCTAssertEqual(try JSONSerialization.jsonObject(with: Data(pending.bodyText.utf8)) as? NSDictionary,
+        let pending = PendingWebhook(target: try target("https://hooks.example.com/in"), body: content.body)
+        XCTAssertNotEqual(pending.formattedBodyText, pending.bodyText)
+        XCTAssertTrue(pending.formattedBodyText.contains("Você: propôs fechar."))
+        XCTAssertEqual(try JSONSerialization.jsonObject(with: Data(pending.formattedBodyText.utf8)) as? NSDictionary,
                        try JSONSerialization.jsonObject(with: content.body) as? NSDictionary)
-        XCTAssertTrue(pending.bodyText.contains("\n"))
+        XCTAssertEqual(PendingWebhook(target: pending.target, body: Data("not json".utf8)).formattedBodyText, "not json")
     }
 
     func testStatusCodeComesFromTheFirstLineOnly() {
