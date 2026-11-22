@@ -62,6 +62,7 @@ public struct MeetingTranscriptDocument: Codable, Equatable, Sendable {
     public var language: String
     public var engine: String
     public var segments: [MeetingSegment]
+    public var failedSegments: Int?
 
     public init(startedAt: Date, durationSeconds: Double, language: String = "auto", engine: String, segments: [MeetingSegment]) {
         self.startedAt = startedAt
@@ -73,6 +74,7 @@ public struct MeetingTranscriptDocument: Codable, Equatable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case version, language, engine, segments
+        case failedSegments = "failed_segments"
         case startedAt = "started_at"
         case durationSeconds = "duration_s"
     }

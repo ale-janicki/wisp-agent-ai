@@ -45,6 +45,7 @@ public struct RecordingMeta: Codable, Equatable, Sendable {
     public var event: MeetingEventInfo?
     public var summaryDeferred: Bool?
     public var brainError: String?
+    public var notice: String?
 
     public init(
         mode: RecordingMode = .call, startedAt: Date, durationSeconds: Double? = nil, devices: Devices,
@@ -63,7 +64,7 @@ public struct RecordingMeta: Codable, Equatable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case version, mode, devices, status, failure, sources, title, metrics, bookmarks, checklist, event
+        case version, mode, devices, status, failure, sources, title, metrics, bookmarks, checklist, event, notice
         case summaryDeferred = "summary_deferred"
         case brainError = "brain_error"
         case noteFile = "note_file"

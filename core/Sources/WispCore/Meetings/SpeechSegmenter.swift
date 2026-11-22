@@ -10,11 +10,17 @@ public struct SpeechSegmenterConfig: Equatable, Sendable {
     public var postPadSeconds: Double
     public var maxSegmentSeconds: Double
     public var cutSearchSeconds: Double
+    public var floorMultiplier: Float
+    public var floorWindowSeconds: Double
+    public var maxOnRMS: Float
+    public var cutOverlapSeconds: Double
+    public var maxNoisyCuts: Int
 
     public init(
-        frameSamples: Int = 480, onRMS: Float = 0.003, offRMS: Float = 0.0021, minSpeechSeconds: Double = 0.25,
+        frameSamples: Int = 480, onRMS: Float = 0.003, offRMS: Float = 0.0021, minSpeechSeconds: Double = 0.1,
         redemptionSeconds: Double = 0.5, prePadSeconds: Double = 0.3, postPadSeconds: Double = 0.4,
-        maxSegmentSeconds: Double = 20, cutSearchSeconds: Double = 2
+        maxSegmentSeconds: Double = 20, cutSearchSeconds: Double = 2, floorMultiplier: Float = 3,
+        floorWindowSeconds: Double = 10, maxOnRMS: Float = 0.05, cutOverlapSeconds: Double = 0.5, maxNoisyCuts: Int = 2
     ) {
         self.frameSamples = frameSamples
         self.onRMS = onRMS
@@ -25,9 +31,17 @@ public struct SpeechSegmenterConfig: Equatable, Sendable {
         self.postPadSeconds = postPadSeconds
         self.maxSegmentSeconds = maxSegmentSeconds
         self.cutSearchSeconds = cutSearchSeconds
+        self.floorMultiplier = floorMultiplier
+        self.floorWindowSeconds = floorWindowSeconds
+        self.maxOnRMS = maxOnRMS
+        self.cutOverlapSeconds = cutOverlapSeconds
+        self.maxNoisyCuts = maxNoisyCuts
     }
 
     public static let `default` = SpeechSegmenterConfig()
+    public static let sensitive = SpeechSegmenterConfig(onRMS: 0.0012, offRMS: 0.00084)
+
+    fileprivate var offRatio: Float { onRMS > 0 ? offRMS / onRMS : 0.7 }
 
     fileprivate func samples(_ seconds: Double) -> Int { Int((seconds * Double(SpeechAudio.sampleRate)).rounded()) }
 }
@@ -47,6 +61,14 @@ public struct SpeechSegmenter: Sendable {
     private let postPad: Int
     private let maxSegment: Int
     private let cutSearch: Int
+    private let cutOverlap: Int
+    private let floorCapacity: Int
+    private var floorLevels: [Float] = []
+    private var floorTick = 0
+    private var on: Float
+    private var off: Float
+    private var noisyCuts = 0
+    private var noiseRun = false
     private var buffer: [Float] = []
     private var bufferStart = 0
     private var processed = 0
@@ -68,6 +90,10 @@ public struct SpeechSegmenter: Sendable {
         postPad = config.samples(config.postPadSeconds)
         maxSegment = config.samples(config.maxSegmentSeconds)
         cutSearch = config.samples(config.cutSearchSeconds)
+        cutOverlap = config.samples(config.cutOverlapSeconds)
+        floorCapacity = max(1, config.samples(config.floorWindowSeconds) / max(1, config.frameSamples))
+        on = config.onRMS
+        off = config.offRMS
     }
 
     public var totalSamples: Int { total }
@@ -84,9 +110,12 @@ public struct SpeechSegmenter: Sendable {
             processed = end
             let level = rms(from: start, to: end)
             if !isOpen {
-                guard level >= config.onRMS else { continue }
+                guard level >= on else {
+                    recordFloor(level)
+                    continue
+                }
                 open(at: start)
-            } else if level >= config.offRMS {
+            } else if level >= off {
                 lastVoicedEnd = end
             } else if end - lastVoicedEnd >= redemption {
                 close(into: &events)
@@ -137,8 +166,12 @@ public struct SpeechSegmenter: Sendable {
     }
 
     private mutating func close(into events: inout [SegmenterEvent]) {
-        defer { isOpen = false }
-        guard hasEnoughSpeech else {
+        defer {
+            isOpen = false
+            noisyCuts = 0
+            noiseRun = false
+        }
+        guard !noiseRun, hasEnoughSpeech else {
             if announced { events.append(.dropped) }
             return
         }
@@ -170,19 +203,62 @@ public struct SpeechSegmenter: Sendable {
             }
             start += frame
         }
+        let quiet = bestLevel < off
+        if !quiet, noisyCuts >= config.maxNoisyCuts {
+            markNoise(until: now, into: &events)
+            return
+        }
         let cut = best + frame / 2
         emit(from: emitFrom, to: cut, into: &events)
         isContinuation = true
         announced = false
         candidate = cut
-        emitFrom = cut
+        emitFrom = quiet ? cut : max(cut - cutOverlap, bufferStart)
+        noisyCuts = quiet ? 0 : noisyCuts + 1
         lastVoicedEnd = cut
-        var next = best + frame
+        rescanVoiced(after: best + frame, until: now)
+        announceIfNeeded(into: &events)
+    }
+
+    private mutating func markNoise(until now: Int, into events: inout [SegmenterEvent]) {
+        noiseRun = true
+        events.append(.dropped)
+        floorLevels = []
+        var index = now - frame
+        while index >= emitFrom, floorLevels.count < floorCapacity {
+            floorLevels.append(rms(from: index, to: index + frame))
+            index -= frame
+        }
+        updateThresholds(force: true)
+        isContinuation = true
+        announced = false
+        candidate = now
+        emitFrom = now
+        lastEmittedEnd = max(lastEmittedEnd, now)
+        lastVoicedEnd = now
+    }
+
+    private mutating func rescanVoiced(after first: Int, until now: Int) {
+        var next = first
         while next + frame <= now {
-            if rms(from: next, to: next + frame) >= config.offRMS { lastVoicedEnd = next + frame }
+            if rms(from: next, to: next + frame) >= off { lastVoicedEnd = next + frame }
             next += frame
         }
-        announceIfNeeded(into: &events)
+    }
+
+    private mutating func recordFloor(_ level: Float) {
+        floorLevels.append(level)
+        if floorLevels.count > floorCapacity { floorLevels.removeFirst(floorLevels.count - floorCapacity) }
+        floorTick += 1
+        if floorTick % 16 == 0 { updateThresholds(force: false) }
+    }
+
+    private mutating func updateThresholds(force: Bool) {
+        guard force || floorLevels.count >= 33, !floorLevels.isEmpty else { return }
+        let sorted = floorLevels.sorted()
+        let percentile = sorted[sorted.count / 5]
+        on = min(max(config.onRMS, config.floorMultiplier * percentile), max(config.onRMS, config.maxOnRMS))
+        off = on * config.offRatio
     }
 
     private func rms(from start: Int, to end: Int) -> Float {

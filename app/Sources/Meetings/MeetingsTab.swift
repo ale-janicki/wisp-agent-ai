@@ -475,6 +475,9 @@ private struct MeetingDetailView: View {
                         if entry.meta.status == .failed { library.retry(entry) } else { library.regenerateNote(entry) }
                     }
                 }
+                if let notice = entry.meta.notice {
+                    IssueLine(text: notice, help: notice, actionTitle: "Melhorar transcrição") { library.improveTranscript(entry) }
+                }
                 if let brainError = entry.meta.brainError {
                     IssueLine(text: "Não gravei a nota no brain.", help: brainError, actionTitle: "Tentar de novo") {
                         library.brainAction(entry)

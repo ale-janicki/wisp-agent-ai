@@ -117,7 +117,7 @@ final class MeetingTranscriptionTests: XCTestCase {
 
     func testShortBlipsAreDroppedWithoutInference() {
         var streamer = ChannelStreamer(channel: .mic)
-        var jobs = streamer.append(tone(seconds: 0.1))
+        var jobs = streamer.append(tone(seconds: 0.06))
         jobs += streamer.append(silence(seconds: 2))
         jobs += streamer.flush()
         XCTAssertEqual(jobs.filter { !$0.samples.isEmpty }, [])
@@ -699,7 +699,11 @@ final class MeetingTranscriptionTests: XCTestCase {
     }
 
     func testContinuousSpeechRunsOneInferencePerTwentySeconds() {
-        let calls = inferenceCalls(seconds: 60) { _ in self.tone(seconds: 1) }
+        let calls = inferenceCalls(seconds: 60) { second in
+            var audio = self.tone(seconds: 1)
+            if second % 2 == 0 { for index in 4_000..<5_000 { audio[index] = 0 } }
+            return audio
+        }
         XCTAssertEqual(calls.finals, 4)
     }
 
@@ -713,7 +717,7 @@ final class MeetingTranscriptionTests: XCTestCase {
         _ = try RecordingFolder.update(in: folder) { $0.durationSeconds = 3_600 }
         let live = MeetingTranscriptDocument(
             startedAt: t0, durationSeconds: 3_600, language: "auto", engine: "live-asr",
-            segments: [MeetingSegment(start: 1, end: 3, speaker: "eu", text: "ao vivo")]
+            segments: [MeetingSegment(start: 1, end: 400, speaker: "eu", text: "ao vivo")]
         )
         try MeetingTranscriptFile.write(live, in: folder, live: true)
         let recognizer = ScriptedRecognizer()
@@ -737,6 +741,104 @@ final class MeetingTranscriptionTests: XCTestCase {
         try await pipeline(recognizer).process(folder: folder)
         XCTAssertEqual(recognizer.seen.count, 0)
         XCTAssertEqual(try MeetingTranscriptFile.read(in: folder).engine, "live-asr")
+    }
+
+    private func writeLive(in folder: URL, segments: [MeetingSegment], failed: Int? = nil, duration: Double = 9) throws {
+        var live = MeetingTranscriptDocument(startedAt: t0, durationSeconds: duration, language: "auto", engine: "live-asr", segments: segments)
+        live.failedSegments = failed
+        try MeetingTranscriptFile.write(live, in: folder, live: true)
+    }
+
+    private let heard = [MeetingSegment(start: 1, end: 3, speaker: "eu", text: "ao vivo")]
+
+    func testLiveTranscriptWithFailedSegmentsIsNotTrustedAndTheFinalPassRuns() async throws {
+        let folder = try makeRecording(status: .transcribing)
+        try writeLive(in: folder, segments: heard, failed: 2)
+        let recognizer = ScriptedRecognizer()
+        try await pipeline(recognizer).process(folder: folder)
+        XCTAssertGreaterThan(recognizer.seen.count, 0)
+        XCTAssertEqual(try MeetingTranscriptFile.read(in: folder).engine, "fake-asr")
+    }
+
+    func testInterruptedRecordingNeverTrustsTheLiveTranscript() async throws {
+        let folder = try makeRecording(status: .interrupted)
+        try writeLive(in: folder, segments: heard)
+        let recognizer = ScriptedRecognizer()
+        try await pipeline(recognizer).process(folder: folder)
+        XCTAssertGreaterThan(recognizer.seen.count, 0)
+        XCTAssertEqual(try MeetingTranscriptFile.read(in: folder).engine, "fake-asr")
+    }
+
+    func testLiveTranscriberRecordsTheFailedSegmentCountInTheLiveFile() async throws {
+        let recognizer = ScriptedRecognizer()
+        recognizer.failAfter = 0
+        let store = MeetingTranscriptStore(startedAt: t0, engine: "x", folder: root)
+        let live = LiveTranscriber(recognizer: recognizer, store: store, onUpdate: { _ in })
+        for _ in 0..<2 {
+            live.push16k(tone(seconds: 1), channel: .mic)
+            live.push16k(silence(seconds: 1), channel: .mic)
+        }
+        _ = await live.finish()
+        XCTAssertEqual(try MeetingTranscriptFile.read(in: root, live: true).failedSegments, 2)
+    }
+
+    func testSpeechRatioCountsOverlappingSegmentsOnce() {
+        let segments = [
+            MeetingSegment(start: 0, end: 10, speaker: "eu", text: "a"), MeetingSegment(start: 5, end: 12, speaker: "outros", text: "b"),
+            MeetingSegment(start: 50, end: 53, speaker: "eu", text: "c"),
+        ]
+        XCTAssertEqual(MeetingSpeech.ratio(segments, duration: 100), 0.15, accuracy: 0.0001)
+        XCTAssertTrue(MeetingSpeech.isSparse(segments, duration: 600))
+        XCTAssertFalse(MeetingSpeech.isSparse(segments, duration: 100))
+        XCTAssertTrue(MeetingSpeech.isSparse([], duration: 10))
+    }
+
+    func testSparseLiveTranscriptOfALongRecordingRunsTheSensitiveFinalPassAndWarns() async throws {
+        let folder = try makeRecording(status: .transcribing)
+        _ = try RecordingFolder.update(in: folder) { $0.durationSeconds = 600 }
+        try writeLive(in: folder, segments: heard, duration: 600)
+        let recognizer = ScriptedRecognizer()
+        try await pipeline(recognizer).process(folder: folder)
+        XCTAssertEqual(recognizer.seen.count, 2)
+        XCTAssertEqual(try RecordingFolder.read(in: folder).notice, MeetingSpeech.sparseNotice)
+    }
+
+    func testEmptyLiveTranscriptRunsTheSensitiveFinalPassInsteadOfSilence() async throws {
+        let folder = try makeRecording(status: .transcribing)
+        try writeLive(in: folder, segments: [])
+        let recognizer = ScriptedRecognizer()
+        try await pipeline(recognizer).process(folder: folder)
+        XCTAssertEqual(recognizer.seen.count, 2)
+        XCTAssertEqual(try RecordingFolder.read(in: folder).notice, MeetingSpeech.sparseNotice)
+        XCTAssertEqual(try RecordingFolder.read(in: folder).status, .noted)
+    }
+
+    func testSparseFinalPassOfALongRecordingIsRedoneWithTheSensitiveThreshold() async throws {
+        let folder = try makeRecording(status: .transcribing)
+        _ = try RecordingFolder.update(in: folder) { $0.durationSeconds = 600 }
+        let recognizer = ScriptedRecognizer()
+        try await pipeline(recognizer).process(folder: folder)
+        XCTAssertEqual(recognizer.seen.count, 4)
+        XCTAssertEqual(try RecordingFolder.read(in: folder).notice, MeetingSpeech.sparseNotice)
+    }
+
+    func testSilentRecordingShowsTheNoSpeechNoticeAfterTheSensitivePass() async throws {
+        let folder = try RecordingFolder.create(root: root, date: t0, timeZone: TimeZone(identifier: "UTC")!)
+        let wav = root.appendingPathComponent("silent2.wav")
+        try writeWAV(to: wav, seconds: 3, micRange: 100...101, systemRange: 100...101)
+        _ = try M4AFileConverter().convert(from: wav, to: RecordingFolder.audioURL(in: folder))
+        try RecordingFolder.write(RecordingMeta(startedAt: t0, durationSeconds: 3, devices: .init(mic: nil, system: nil), status: .transcribing), in: folder)
+        try await pipeline().process(folder: folder)
+        let meta = try RecordingFolder.read(in: folder)
+        XCTAssertEqual(meta.notice, MeetingSpeech.silentNotice)
+        XCTAssertEqual(meta.failure, "nenhuma fala detectada nessa gravação")
+    }
+
+    func testTrustedLiveTranscriptLeavesNoNotice() async throws {
+        let folder = try makeRecording(status: .transcribing)
+        try writeLive(in: folder, segments: heard)
+        try await pipeline().process(folder: folder)
+        XCTAssertNil(try RecordingFolder.read(in: folder).notice)
     }
 
     func testPipelineTranscribesByVoiceSegmentsWhenThereIsNoLiveTranscript() async throws {
