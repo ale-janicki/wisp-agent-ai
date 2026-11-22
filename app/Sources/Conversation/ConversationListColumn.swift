@@ -11,15 +11,10 @@ struct ConversationListColumn: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
+                Button(action: showNav) { Image(systemName: "chevron.left") }
+                    .buttonStyle(CircleButtonStyle(size: Theme.Control.compactHeight))
+                    .help("Voltar ao menu")
                 Spacer(minLength: 0)
-                Button(action: showNav) {
-                    Image(systemName: "sidebar.left")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(Theme.textSecondary)
-                        .frame(width: 26, height: 22)
-                }
-                .buttonStyle(RowButtonStyle())
-                .help("Mostrar menu")
             }
             .padding(.top, Theme.Space.xs)
             rows
