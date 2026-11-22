@@ -133,11 +133,13 @@ public struct CalEvent: Identifiable, Equatable, Sendable {
     public var busy: Bool
     public var declined: Bool
     public var modified: Date?
+    public var recurrenceRuleCount: Int
 
     public init(
         id: String, calendarID: String, title: String, start: Date, end: Date, allDay: Bool = false, timeZoneID: String? = nil,
         location: String? = nil, url: URL? = nil, notes: String? = nil, attendees: [CalAttendee] = [], alarmOffsets: [Int] = [],
-        recurrence: CalRecurrence? = nil, isRecurring: Bool = false, writable: Bool = true, busy: Bool = true, declined: Bool = false, modified: Date? = nil
+        recurrence: CalRecurrence? = nil, isRecurring: Bool = false, writable: Bool = true, busy: Bool = true, declined: Bool = false, modified: Date? = nil,
+        recurrenceRuleCount: Int = 0
     ) {
         self.id = id
         self.calendarID = calendarID
@@ -157,7 +159,10 @@ public struct CalEvent: Identifiable, Equatable, Sendable {
         self.busy = busy
         self.declined = declined
         self.modified = modified
+        self.recurrenceRuleCount = recurrenceRuleCount
     }
+
+    public var hasMultipleRules: Bool { recurrenceRuleCount > 1 }
 
     public var uid: String { isRecurring ? "\(id)@\(Int(start.timeIntervalSince1970))" : id }
     public var ref: EventRef { EventRef(id: id, start: isRecurring ? start : nil) }

@@ -95,7 +95,7 @@ public final class EventKitCalendarBackend: CalendarBackend, @unchecked Sendable
                 event.calendar = chosen
             }
             if let offsets = edit.alarmOffsets { event.alarms = offsets.map { EKAlarm(relativeOffset: TimeInterval($0)) } }
-            if scope != .thisOnly {
+            if scope != .thisOnly, (event.recurrenceRules?.count ?? 0) <= 1 {
                 switch edit.recurrence {
                 case .keep: break
                 case .remove: event.recurrenceRules = nil
@@ -250,7 +250,8 @@ public final class EventKitCalendarBackend: CalendarBackend, @unchecked Sendable
             alarmOffsets: (event.alarms ?? []).compactMap { $0.absoluteDate == nil ? Int($0.relativeOffset) : nil },
             recurrence: event.recurrenceRules?.first.flatMap(recurrence), isRecurring: event.hasRecurrenceRules,
             writable: event.calendar?.allowsContentModifications ?? false, busy: event.availability != .free,
-            declined: me?.participantStatus == .declined, modified: event.lastModifiedDate)
+            declined: me?.participantStatus == .declined, modified: event.lastModifiedDate,
+            recurrenceRuleCount: event.recurrenceRules?.count ?? 0)
     }
 
     private static func nonEmpty(_ text: String?) -> String? {

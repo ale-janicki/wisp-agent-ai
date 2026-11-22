@@ -24,7 +24,7 @@ public struct UndoResult: Equatable, Sendable {
 public actor CalendarEditor {
     public enum Inverse: Sendable {
         case deleteCreated(EventRef)
-        case restore(EventRef, EventEdit, RecurrenceScope)
+        case restore(EventRef, EventEdit, RecurrenceScope, caveat: String?)
         case recreate(EventDraft, originalID: String, caveat: String?)
     }
 
@@ -61,7 +61,7 @@ public actor CalendarEditor {
         guard event.writable else { throw CalendarEditorError.readOnly(event.title) }
         let scope = RecurrenceScope.resolved(requested, for: event)
         var applied = edit
-        if scope == .thisOnly { applied.recurrence = .keep }
+        if scope == .thisOnly || event.hasMultipleRules { applied.recurrence = .keep }
         guard !applied.isEmpty else { return event }
         let newStart = applied.start ?? event.start, newEnd = applied.end ?? event.end
         guard newEnd >= newStart else { throw CalendarEditorError.invalidRange }
@@ -77,7 +77,9 @@ public actor CalendarEditor {
         }
         let result = try await backend.update(ref: event.ref, edit: applied, scope: scope, expectedModified: event.modified)
         let target = scope == .all ? EventRef(id: result.id) : result.ref
-        push("alterar \"\(event.title)\"", .restore(target, before, scope))
+        let splitNote = scope == .thisAndFuture && event.isRecurring
+            ? "a série que foi dividida não é juntada de volta: as ocorrências seguintes continuam numa série separada" : nil
+        push("alterar \"\(event.title)\"", .restore(target, before, scope, caveat: splitNote))
         return result
     }
 
@@ -85,6 +87,7 @@ public actor CalendarEditor {
         guard event.writable else { throw CalendarEditorError.readOnly(event.title) }
         let scope = RecurrenceScope.resolved(requested, for: event)
         var snapshot = EventDraft(event)
+        if scope == .all, event.isRecurring, let master = try? await backend.event(ref: EventRef(id: event.id)) { snapshot = EventDraft(master) }
         var caveats: [String] = []
         if event.isRecurring {
             switch scope {
@@ -93,6 +96,7 @@ public actor CalendarEditor {
                 caveats.append("o macOS não deixa reinserir uma ocorrência na série, então ela volta como evento avulso")
             case .thisAndFuture:
                 caveats.append("a série futura foi recriada como uma série nova")
+                if case .count? = event.recurrence?.end { caveats.append("o número de repetições recomeça a contar desta ocorrência") }
             case .all:
                 caveats.append("a série foi recriada como uma série nova")
             }
@@ -110,7 +114,7 @@ public actor CalendarEditor {
             switch entry.inverse {
             case .deleteCreated(let ref):
                 try await backend.delete(ref: ref, scope: .all, expectedModified: nil)
-            case .restore(let ref, let edit, let scope):
+            case .restore(let ref, let edit, let scope, _):
                 _ = try await backend.update(ref: ref, edit: edit, scope: scope, expectedModified: nil)
             case .recreate(let draft, let originalID, _):
                 let made = try await backend.create(draft)
@@ -125,7 +129,11 @@ public actor CalendarEditor {
             throw error
         }
         var caveat: String?
-        if case .recreate(_, _, let note) = entry.inverse { caveat = note.map { $0.prefix(1).uppercased() + $0.dropFirst() + "." } }
+        switch entry.inverse {
+        case .recreate(_, _, let note), .restore(_, _, _, let note):
+            caveat = note.map { $0.prefix(1).uppercased() + $0.dropFirst() + "." }
+        default: break
+        }
         return UndoResult(label: "Desfeito: \(entry.label)", caveat: caveat)
     }
 
@@ -136,8 +144,8 @@ public actor CalendarEditor {
             switch entry.inverse {
             case .deleteCreated(let ref) where ref.id == old:
                 entry.inverse = .deleteCreated(EventRef(id: new, start: ref.start))
-            case .restore(let ref, let edit, let scope) where ref.id == old:
-                entry.inverse = .restore(EventRef(id: new, start: ref.start), edit, scope)
+            case .restore(let ref, let edit, let scope, let caveat) where ref.id == old:
+                entry.inverse = .restore(EventRef(id: new, start: ref.start), edit, scope, caveat: caveat)
             case .recreate(let draft, let originalID, let caveat) where originalID == old:
                 entry.inverse = .recreate(draft, originalID: new, caveat: caveat)
             default: break
