@@ -28,7 +28,7 @@ struct BrainHomeView: View {
                 } else {
                     Spacer(minLength: 0)
                 }
-                Button("Nota de hoje", action: openDaily).buttonStyle(CompactCapsuleStyle(accent: true))
+                Button("Nota de hoje", action: openDaily).buttonStyle(CapsuleButtonStyle(kind: .accent, size: .compact))
             }
             if query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 recents

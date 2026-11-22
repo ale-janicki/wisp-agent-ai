@@ -197,19 +197,10 @@ private struct MeetingMainCard: View {
                 InlineError(text: warning)
             }
             if let message = model.message {
-                Text(message)
-                    .font(Theme.Font.caption)
-                    .foregroundStyle(Theme.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                NoticeLine(text: message) { model.dismissMessage() }
             }
             if let notice = library.notice {
-                HStack(spacing: Theme.Space.s) {
-                    Text(notice)
-                        .font(Theme.Font.caption)
-                        .foregroundStyle(Theme.textSecondary)
-                    Button { library.dismissNotice() } label: { Image(systemName: "xmark") }
-                        .buttonStyle(CircleButtonStyle(size: 20))
-                }
+                NoticeLine(text: notice) { library.dismissNotice() }
             }
             ForEach(library.webhookOffers) { offer in
                 WebhookCard(offer: offer, allow: { library.allowWebhook(offer.id) }, dismiss: { library.dismissWebhook(offer.id) })
@@ -246,6 +237,22 @@ private struct MeetingMainCard: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 PrepCard(copilot: copilot)
             }
+        }
+    }
+}
+
+private struct NoticeLine: View {
+    let text: String
+    let dismiss: () -> Void
+
+    var body: some View {
+        HStack(spacing: Theme.Space.s) {
+            Text(text)
+                .font(Theme.Font.caption)
+                .foregroundStyle(Theme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Button(action: dismiss) { Image(systemName: "xmark") }
+                .buttonStyle(CircleButtonStyle(size: 20))
         }
     }
 }
@@ -300,7 +307,7 @@ private struct SourceMenu: View {
     @Binding var selection: RecordingSources
 
     var body: some View {
-        Menu {
+        CapsuleMenu(title: selection.shortLabel, help: "Fonte do áudio") {
             ForEach(RecordingSources.allCases) { option in
                 Button {
                     selection = option
@@ -312,14 +319,7 @@ private struct SourceMenu: View {
                     }
                 }
             }
-        } label: {
-            Text(selection.shortLabel)
-                .font(Theme.Font.caption)
-                .lineLimit(1)
         }
-        .menuStyle(.borderlessButton)
-        .fixedSize()
-        .help("Fonte do áudio")
     }
 }
 
@@ -495,41 +495,29 @@ private struct MeetingDetailView: View {
 
     private var controls: some View {
         HStack(spacing: Theme.Space.s) {
-            Button { library.select(nil) } label: {
-                Image(systemName: "chevron.left")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(Theme.textSecondary)
-                    .frame(width: 26, height: 22)
-            }
-            .buttonStyle(RowButtonStyle())
-            .help("Voltar às reuniões")
-            Spacer(minLength: 0)
-            Button { navCover.set(!navCover.isCovered) } label: {
-                Image(systemName: "sidebar.left")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(Theme.textSecondary)
-                    .frame(width: 26, height: 22)
-            }
-            .buttonStyle(RowButtonStyle())
-            .help(navCover.isCovered ? "Mostrar menu" : "Esconder menu")
-        }
-    }
-
-    private var header: some View {
-        HStack(alignment: .top, spacing: Theme.Space.s) {
-            VStack(alignment: .leading, spacing: 2) {
-                SectionTitle(text: row.title)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                Text("\(row.dateText) · \(row.durationText) · \(MeetingStatusText.label(badge: row.badge, stage: stage))")
-                    .font(Theme.Font.caption)
-                    .foregroundStyle(Theme.textTertiary)
-                    .lineLimit(1)
-            }
+            Button { library.select(nil) } label: { Image(systemName: "chevron.left") }
+                .buttonStyle(CircleButtonStyle())
+                .help("Voltar às reuniões")
+            Button { navCover.set(!navCover.isCovered) } label: { Image(systemName: "sidebar.left") }
+                .buttonStyle(CircleButtonStyle())
+                .help(navCover.isCovered ? "Mostrar menu" : "Esconder menu")
             Spacer(minLength: Theme.Space.s)
             primaryButton
             moreMenu
         }
+    }
+
+    private var header: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            SectionTitle(text: row.title)
+                .lineLimit(1)
+                .truncationMode(.tail)
+            Text("\(row.dateText) · \(row.durationText) · \(MeetingStatusText.label(badge: row.badge, stage: stage))")
+                .font(Theme.Font.caption)
+                .foregroundStyle(Theme.textTertiary)
+                .lineLimit(1)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     @ViewBuilder
@@ -537,17 +525,17 @@ private struct MeetingDetailView: View {
         switch primary {
         case .generate:
             Button("Gerar nota") { library.regenerateNote(entry) }
-                .buttonStyle(CompactCapsuleStyle(accent: true))
+                .buttonStyle(CapsuleButtonStyle(kind: .accent))
                 .lineLimit(1)
                 .fixedSize()
         case .cancel:
             Button("Cancelar nota") { library.cancelNote(entry.id) }
-                .buttonStyle(CompactCapsuleStyle(accent: false))
+                .buttonStyle(CapsuleButtonStyle(kind: .ghost))
                 .lineLimit(1)
                 .fixedSize()
         case .brain:
             Button(brain.label) { library.brainAction(entry) }
-                .buttonStyle(CompactCapsuleStyle(accent: true))
+                .buttonStyle(CapsuleButtonStyle(kind: .accent))
                 .lineLimit(1)
                 .fixedSize()
         case nil:
@@ -556,7 +544,7 @@ private struct MeetingDetailView: View {
     }
 
     private var moreMenu: some View {
-        Menu {
+        IconMenu(systemImage: "ellipsis", help: "Mais ações") {
             Button("Copiar") { library.copy(entry) }
                 .disabled(entry.hasNote ? false : !entry.hasTranscript)
             if entry.hasNote {
@@ -570,16 +558,7 @@ private struct MeetingDetailView: View {
             }
             Divider()
             Button("Mostrar no Finder") { library.reveal(entry) }
-        } label: {
-            Image(systemName: "ellipsis")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(Theme.textSecondary)
-                .frame(width: 24, height: 24)
         }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .fixedSize()
-        .help("Mais ações")
     }
 
     private var pagePicker: some View {
@@ -641,7 +620,7 @@ private struct IssueLine: View {
                 .truncationMode(.tail)
                 .help(help)
             Button(actionTitle, action: action)
-                .buttonStyle(CompactCapsuleStyle(accent: false))
+                .buttonStyle(CapsuleButtonStyle(kind: .ghost))
                 .lineLimit(1)
                 .fixedSize()
             Spacer(minLength: 0)

@@ -11,7 +11,7 @@ struct BrainTreeView: View {
                 Text("Notas").font(Theme.Font.caption).foregroundStyle(Theme.textTertiary)
                 Spacer(minLength: 0)
                 Button { model.prompt = .newNote(folder: model.active.map { BrainText.parent(of: $0.path) } ?? "") } label: { Image(systemName: "square.and.pencil") }
-                    .buttonStyle(CircleButtonStyle(size: 22))
+                    .buttonStyle(CircleButtonStyle(size: Theme.Control.compactHeight))
                     .help("Nova nota")
                 Menu {
                     Button("Novo desenho") { model.createDrawing(.excalidraw, in: model.active.map { BrainText.parent(of: $0.path) } ?? "") }
@@ -19,16 +19,16 @@ struct BrainTreeView: View {
                 } label: { Image(systemName: "scribble") }
                     .menuStyle(.button)
                     .menuIndicator(.hidden)
-                    .buttonStyle(CircleButtonStyle(size: 22))
+                    .buttonStyle(CircleButtonStyle(size: Theme.Control.compactHeight))
                     .help("Novo desenho ou canvas")
                 Button { model.prompt = .newFolder(folder: "") } label: { Image(systemName: "folder.badge.plus") }
-                    .buttonStyle(CircleButtonStyle(size: 22))
+                    .buttonStyle(CircleButtonStyle(size: Theme.Control.compactHeight))
                     .help("Nova pasta")
                 Button {
                     model.expanded = []
                     model.refreshTree()
                 } label: { Image(systemName: "chevron.up.chevron.down") }
-                    .buttonStyle(CircleButtonStyle(size: 22))
+                    .buttonStyle(CircleButtonStyle(size: Theme.Control.compactHeight))
                     .help("Recolher tudo")
             }
             .padding(.leading, Theme.Space.s)

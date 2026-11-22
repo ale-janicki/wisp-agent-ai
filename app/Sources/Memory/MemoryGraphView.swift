@@ -75,7 +75,7 @@ struct MemoryGraphView: View {
                     caption
                     Spacer(minLength: Theme.Space.s)
                     Button { forcesOpen.toggle() } label: { Image(systemName: "slider.horizontal.3") }
-                        .buttonStyle(CircleButtonStyle(kind: forcesOpen ? .accent : .plain, size: 28))
+                        .buttonStyle(CircleButtonStyle(kind: forcesOpen ? .accent : .plain, size: Theme.Control.compactHeight))
                         .help(forcesOpen ? "Fechar ajustes do grafo" : "Forças e exibição")
                 }
                 Spacer(minLength: 0)
@@ -127,19 +127,19 @@ struct MemoryGraphView: View {
             Button { model.setLocalMode(!model.localMode, fallback: recent) } label: {
                 Image(systemName: "point.3.connected.trianglepath.dotted")
             }
-            .buttonStyle(CircleButtonStyle(kind: model.localMode ? .accent : .plain, size: 28))
+            .buttonStyle(CircleButtonStyle(kind: model.localMode ? .accent : .plain, size: Theme.Control.compactHeight))
             .help(model.localMode ? "Mostrar o grafo inteiro" : "Grafo local: a nota e vizinhos até 2 passos")
             Button { model.showGhosts.toggle() } label: { Image(systemName: "circle.dashed") }
-                .buttonStyle(CircleButtonStyle(kind: model.showGhosts ? .accent : .plain, size: 28))
+                .buttonStyle(CircleButtonStyle(kind: model.showGhosts ? .accent : .plain, size: Theme.Control.compactHeight))
                 .help(model.showGhosts ? "Esconder links sem nota" : "Mostrar links sem nota")
             Button { model.zoomSmoothly(by: 1 / 1.4, at: nil) } label: { Image(systemName: "minus") }
-                .buttonStyle(CircleButtonStyle(size: 28))
+                .buttonStyle(CircleButtonStyle(size: Theme.Control.compactHeight))
                 .help("Afastar")
             Button { model.zoomSmoothly(by: 1.4, at: nil) } label: { Image(systemName: "plus") }
-                .buttonStyle(CircleButtonStyle(size: 28))
+                .buttonStyle(CircleButtonStyle(size: Theme.Control.compactHeight))
                 .help("Aproximar")
             Button { model.fit() } label: { Image(systemName: "arrow.up.left.and.arrow.down.right") }
-                .buttonStyle(CircleButtonStyle(size: 28))
+                .buttonStyle(CircleButtonStyle(size: Theme.Control.compactHeight))
                 .help("Enquadrar")
         }
     }

@@ -47,7 +47,7 @@ private struct ExcalidrawDocumentView: View {
                         Text("Exportar")
                     }
                     .menuStyle(.button)
-                    .buttonStyle(CompactCapsuleStyle(accent: false))
+                    .buttonStyle(CapsuleButtonStyle(kind: .ghost, size: .compact))
                     .fixedSize()
                 }
                 if let notice = model.readOnlyNotice {
@@ -121,9 +121,9 @@ struct DrawingToolbar<Trailing: View>: View {
             Spacer(minLength: 0)
             HStack(spacing: 2) {
                 Button("Ver") { editing = false }
-                    .buttonStyle(CompactCapsuleStyle(accent: !editing))
+                    .buttonStyle(CapsuleButtonStyle(kind: (!editing) ? .accent : .ghost, size: .compact))
                 Button("Editar") { editing = true }
-                    .buttonStyle(CompactCapsuleStyle(accent: editing))
+                    .buttonStyle(CapsuleButtonStyle(kind: editing ? .accent : .ghost, size: .compact))
                     .disabled(readOnlyNotice != nil)
             }
             trailing
@@ -143,9 +143,9 @@ struct ExternalChangeBanner: View {
                 .foregroundStyle(Theme.textSecondary)
             Spacer(minLength: 0)
             Button("Recarregar do disco", action: reload)
-                .buttonStyle(CompactCapsuleStyle(accent: false))
+                .buttonStyle(CapsuleButtonStyle(kind: .ghost, size: .compact))
             Button("Manter o meu", action: overwrite)
-                .buttonStyle(CompactCapsuleStyle(accent: true))
+                .buttonStyle(CapsuleButtonStyle(kind: .accent, size: .compact))
         }
         .padding(.horizontal, Theme.Space.m)
         .padding(.vertical, 7)
