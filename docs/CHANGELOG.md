@@ -9,6 +9,10 @@ Entries are in descending chronological order (newest first).
 
 ## [Unreleased]
 
+## [0.4.4] - 2026-11-22
+
+- Version 0.4.4 (build 11).
+
 ### Changed
 
 - Reuniões: lighter live transcription and a lighter stop. Silent stretches and windows with nothing new spoken no longer run the model, partial updates come every 2.75 s instead of 1.5 s, "Salvando…" shows the conversion percentage and runs at background priority, and recordings over 10 minutes keep the live transcript instead of re-transcribing the whole hour (the new "Melhorar transcrição" menu item runs the full pass on demand).
