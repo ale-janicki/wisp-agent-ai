@@ -77,6 +77,43 @@ final class DrawingReviewThreeTests: XCTestCase {
         XCTAssertTrue(written.contains("Hello ^AAAA1111"))
     }
 
+    func testAStrayParagraphBeforeADeadAnchorIsKept() throws {
+        let original = sample(region: "Hello ^AAAA1111\n\nnotes\n\nDead ^DEAD0000\n\n", ids: [("AAAA1111", "Hello")])
+        let file = try ExcalidrawFile.parse(original, container: .markdown)
+        let full = file.serialized()
+        let written = head(full)
+        XCTAssertTrue(written.contains("Hello ^AAAA1111\n\nnotes\n\n"))
+        XCTAssertFalse(written.contains("Dead"))
+        XCTAssertEqual(head(try ExcalidrawFile.parse(full, container: .markdown).serialized()), written)
+    }
+
+    func testAStrayParagraphBeforeADeadAnchorTravelsToTheNextLiveElement() throws {
+        let original = sample(region: "Hello ^AAAA1111\n\nnotes\n\nDead ^DEAD0000\n\nWorld ^BBBB2222\n\n", ids: [("AAAA1111", "Hello"), ("BBBB2222", "World")])
+        let written = head(try ExcalidrawFile.parse(original, container: .markdown).serialized())
+        XCTAssertTrue(written.contains("Hello ^AAAA1111\n\nnotes\n\nWorld ^BBBB2222\n\n"))
+    }
+
+    @MainActor
+    func testAClosingModelStaysInTheQuitRegistryUntilItIsFinished() async {
+        let registry = QuitFlush()
+        let closer = DrawingClosingTracker()
+        let log = Log()
+        let token = registry.register {
+            if closer.isClosing { await closer.waitUntilFinished(timeout: .seconds(3)) }
+            log.lines.append(closer.isFinished ? "flushed-after-close" : "flushed-early")
+        }
+        closer.begin()
+        XCTAssertFalse(registry.isEmpty)
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(200))
+            registry.unregister(token)
+            closer.finish()
+        }
+        await registry.flushAll(timeout: .seconds(3))
+        XCTAssertEqual(log.lines, ["flushed-after-close"])
+        XCTAssertTrue(registry.isEmpty)
+    }
+
     func testAtomicWriteTreatsAVanishedFileAsChanged() throws {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("wisp-gone-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)

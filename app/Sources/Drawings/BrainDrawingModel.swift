@@ -35,7 +35,8 @@ final class BrainDrawingModel {
     @ObservationIgnored private let onNotice: (String) -> Void
     @ObservationIgnored private var session = DrawingEditSession()
     @ObservationIgnored private var editedThisSession = false
-    @ObservationIgnored private var closing = false
+    @ObservationIgnored private let closer = DrawingClosingTracker()
+    private var closing: Bool { closer.isClosing }
     @ObservationIgnored private var quitToken: UUID?
     @ObservationIgnored private var loadGeneration = 0
     @ObservationIgnored private var file: ExcalidrawFile?
@@ -75,11 +76,9 @@ final class BrainDrawingModel {
 
     func stop() {
         guard !closing else { return }
-        closing = true
+        closer.begin()
         autosave?.cancel()
         watcher?.cancel()
-        if let quitToken { QuitFlush.shared.unregister(quitToken) }
-        quitToken = nil
         if session.pageDirty, pageReady {
             host.onEvent = { event in self.handle(event) }
             host.send(.requestSave)
@@ -93,7 +92,10 @@ final class BrainDrawingModel {
     }
 
     func flushForQuit() async {
-        guard !closing else { return }
+        if closing {
+            await closer.waitUntilFinished()
+            return
+        }
         if session.pageDirty, pageReady {
             host.send(.requestSave)
             await DrawingCloseWait.until(timeout: .seconds(2)) { !self.session.pageDirty || self.externalChangePending }
@@ -102,9 +104,17 @@ final class BrainDrawingModel {
             writePending()
             if externalChangePending { saveRecoveryCopy() }
         }
+        warnIfEditsWereLost()
+    }
+
+    private func warnIfEditsWereLost() {
+        guard session.pageDirty, session.pendingScene == nil, !externalChangePending else { return }
+        log.error("drawing page did not answer the last save request for \(self.url.lastPathComponent, privacy: .public)")
+        onNotice("Não consegui salvar as últimas edições de \(url.lastPathComponent): a página não respondeu a tempo.")
     }
 
     private func finishClosing() {
+        warnIfEditsWereLost()
         var conflicted = externalChangePending
         if session.pendingScene != nil {
             if !conflicted, diskChangedOutsideWisp() { conflicted = true }
@@ -121,6 +131,9 @@ final class BrainDrawingModel {
             if (try? AtomicFile.write(data, to: url, root: brainRoot, expectingHash: state.knownDiskHash)) != nil { state.didWrite(data) }
         }
         host.tearDown()
+        if let quitToken { QuitFlush.shared.unregister(quitToken) }
+        quitToken = nil
+        closer.finish()
     }
 
     private func diskChangedOutsideWisp() -> Bool {
