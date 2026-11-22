@@ -198,3 +198,28 @@ def test_a_sqlite_failure_becomes_one_tool_sentence(index, monkeypatch):
     monkeypatch.setattr(type(index), "graph", boom)
     result = asyncio.run(build_server(lambda: index).call_tool("brain_links", {"note": "plano"}))
     assert result.is_error is True and result.content[0].text == DB_FAILURE
+
+
+def test_search_gives_the_sync_a_deadline_and_flags_a_partial_index_in_a_second_block(index, monkeypatch):
+    from wisp.brain_index import SyncStats
+    from wisp.brain_server import PARTIAL_NOTE, SYNC_SECONDS
+
+    seen = {}
+    real = index.sync
+
+    def slow(deadline=None):
+        seen["left"] = deadline - time.monotonic()
+        real(deadline)
+        return SyncStats(partial=True, complete=False)
+
+    monkeypatch.setattr(index, "sync", slow)
+    assert isinstance(brain_search(index, "plano"), list)
+    result = asyncio.run(build_server(lambda: index).call_tool("brain_search", {"query": "plano"}))
+    assert 0 < seen["left"] <= SYNC_SECONDS
+    assert isinstance(json.loads(result.content[0].text), list)
+    assert len(result.content) == 2 and result.content[1].text == PARTIAL_NOTE
+
+
+def test_a_complete_index_adds_no_note_block(index):
+    result = asyncio.run(build_server(lambda: index).call_tool("brain_search", {"query": "plano"}))
+    assert len(result.content) == 1

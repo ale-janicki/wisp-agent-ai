@@ -350,13 +350,15 @@ class BrainIndex:
         self._generation: str | None = None
 
     def _connect(self) -> sqlite3.Connection:
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        self.db_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        self.db_path.parent.chmod(0o700)
         give_up = time.monotonic() + self.lock_timeout
         deleted = False
         while True:
             conn = sqlite3.connect(self.db_path, timeout=self.lock_timeout, isolation_level=None)
             try:
                 self._prepare(conn)
+                self._lock_down()
                 return conn
             except sqlite3.DatabaseError as e:
                 conn.close()
@@ -369,6 +371,13 @@ class BrainIndex:
                     time.sleep(BUSY_PAUSE)
                 else:
                     raise
+
+    def _lock_down(self) -> None:
+        for suffix in ("", "-wal", "-shm"):
+            try:
+                Path(str(self.db_path) + suffix).chmod(0o600)
+            except FileNotFoundError:
+                pass
 
     def _prepare(self, conn: sqlite3.Connection) -> None:
         conn.execute("PRAGMA journal_mode=WAL")
