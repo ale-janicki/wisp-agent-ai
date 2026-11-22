@@ -112,4 +112,85 @@ final class LiveEncodedRecordingTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: RecordingFolder.rawAudioURL(in: folder).path))
         XCTAssertTrue(M4AFileConverter.covers(written: try length(RecordingFolder.audioURL(in: folder)), total: second * 3 + 100))
     }
+
+    private final class FailingEncoder: AudioFileSink, @unchecked Sendable {
+        private var writes = 0
+
+        func write(_ frames: [Float]) throws {
+            writes += 1
+            if writes > 2 { throw MeetingRecorderError.sink("encoder quebrou") }
+        }
+
+        func finish() throws {}
+    }
+
+    func testEncoderFailingMidRecordingKeepsTheRawFileAndStopConvertsTheWholeThing() throws {
+        let folder = try newFolder()
+        let sink = try LiveEncodedSink(rawURL: RecordingFolder.rawAudioURL(in: folder), makeEncoder: { _ in FailingEncoder() })
+        var written = 0
+        while written < second * 2 {
+            try sink.write(frames(2_400, from: written))
+            written += 2_400
+        }
+        try sink.finish()
+        XCTAssertEqual(try length(RecordingFolder.rawAudioURL(in: folder)), written)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: LiveRecordingAudio.url(in: folder).path))
+        let destination = RecordingFolder.audioURL(in: folder)
+        _ = try LiveEncodedConverter().convert(from: RecordingFolder.rawAudioURL(in: folder), to: destination)
+        XCTAssertTrue(M4AFileConverter.covers(written: try length(destination), total: written))
+    }
+
+    func testWholeConversionFailingKeepsTheRawFileAndRemovesTheLiveFile() throws {
+        let folder = try newFolder()
+        try record(frameCount: second, in: folder)
+        let raw = RecordingFolder.rawAudioURL(in: folder)
+        try Data(repeating: 7, count: 512).write(to: raw)
+        XCTAssertThrowsError(try LiveEncodedConverter().convert(from: raw, to: RecordingFolder.audioURL(in: folder)))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: raw.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: LiveRecordingAudio.url(in: folder).path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: RecordingFolder.audioURL(in: folder).path))
+    }
+
+    func testRecoveryAdoptsAnAlreadyFinalizedLiveFileWithoutReEncoding() throws {
+        let folder = try newFolder()
+        try record(frameCount: second * 2, in: folder)
+        let before = try digest(LiveRecordingAudio.url(in: folder))
+        try RecordingFolder.write(RecordingMeta(startedAt: t0, devices: .init(mic: "mic", system: "sys")), in: folder)
+        let recovered = RecordingRecovery.recover(root: root, converter: LiveEncodedConverter())
+        XCTAssertEqual(recovered.count, 1)
+        XCTAssertNil(recovered.first?.failure)
+        XCTAssertEqual(try digest(RecordingFolder.audioURL(in: folder)), before)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: RecordingFolder.rawAudioURL(in: folder).path))
+    }
+
+    func testM4AStillBeingWrittenHasNoIndexAndIsRebuiltFromTheRawFile() throws {
+        let folder = try newFolder()
+        let sink = try LiveEncodedSink(rawURL: RecordingFolder.rawAudioURL(in: folder))
+        var written = 0
+        while written < second * 3 {
+            try sink.write(frames(2_400, from: written))
+            written += 2_400
+        }
+        let snapshot = try Data(contentsOf: LiveRecordingAudio.url(in: folder))
+        try sink.finish()
+        try snapshot.write(to: LiveRecordingAudio.url(in: folder))
+        XCTAssertThrowsError(try AVAudioFile(forReading: LiveRecordingAudio.url(in: folder)))
+        let destination = RecordingFolder.audioURL(in: folder)
+        _ = try LiveEncodedConverter().convert(from: RecordingFolder.rawAudioURL(in: folder), to: destination)
+        XCTAssertEqual(try length(destination), written)
+    }
+
+    func testM4AThatStillOpensButLostItsAudioDataIsNotAdopted() throws {
+        let folder = try newFolder()
+        try record(frameCount: second * 3, in: folder)
+        let live = LiveRecordingAudio.url(in: folder)
+        let whole = try Data(contentsOf: live)
+        let cut = whole.prefix(whole.count * 95 / 100)
+        try cut.write(to: live)
+        XCTAssertEqual(try length(live), second * 3)
+        let destination = RecordingFolder.audioURL(in: folder)
+        _ = try LiveEncodedConverter().convert(from: RecordingFolder.rawAudioURL(in: folder), to: destination)
+        XCTAssertEqual(try length(destination), second * 3)
+        XCTAssertNotEqual(try digest(destination), SHA256.hash(data: cut).map { String(format: "%02x", $0) }.joined())
+    }
 }

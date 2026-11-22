@@ -31,6 +31,7 @@ public struct MeetingPauseGate: Sendable {
 public final class MeetingTranscriptStore: @unchecked Sendable {
     private let lock = NSLock()
     private var merger = TranscriptMerger()
+    private var failedSegments = 0
     private let startedAt: Date
     private let engine: String
     private let language: String
@@ -60,14 +61,20 @@ public final class MeetingTranscriptStore: @unchecked Sendable {
         if let saved, let folder { try? MeetingTranscriptFile.write(saved, in: folder, live: true) }
     }
 
+    public func recordFailure() {
+        lock.withLock { failedSegments += 1 }
+    }
+
     public func document(duration: Double) -> MeetingTranscriptDocument {
         lock.withLock { document(duration: duration, segments: merger.finals) }
     }
 
     private func document(duration: Double, segments: [MeetingSegment]) -> MeetingTranscriptDocument {
-        MeetingTranscriptDocument(
+        var made = MeetingTranscriptDocument(
             startedAt: startedAt, durationSeconds: duration, language: language, engine: engine, segments: segments
         )
+        made.failedSegments = failedSegments > 0 ? failedSegments : nil
+        return made
     }
 }
 
@@ -229,6 +236,7 @@ public final class LiveTranscriber: @unchecked Sendable {
                 defer { failureReported = true }
                 return !failureReported
             }
+            store.recordFailure()
             store.commit([], channel: job.channel)
             onUpdate(store.snapshot)
             if first { onFailure(error.localizedDescription) }

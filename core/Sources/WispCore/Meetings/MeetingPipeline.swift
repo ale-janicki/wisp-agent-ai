@@ -56,6 +56,29 @@ public enum MeetingNoteText {
     }
 }
 
+public enum MeetingSpeech {
+    public static let minimumSeconds = 120.0
+    public static let minimumRatio = 0.05
+    public static let sparseNotice = "Pouca fala detectada nesta gravação. Refiz a transcrição com mais sensibilidade; confira o texto."
+    public static let silentNotice = "Quase nenhuma fala foi detectada, mesmo com a escuta mais sensível. Confira se o microfone e o áudio da chamada estavam ligados."
+
+    public static func ratio(_ segments: [MeetingSegment], duration: Double) -> Double {
+        guard duration > 0 else { return 0 }
+        var covered = 0.0
+        var edge = -Double.infinity
+        for segment in segments.sorted(by: { $0.start < $1.start }) where segment.end > segment.start {
+            let start = max(segment.start, edge)
+            if segment.end > start { covered += segment.end - start }
+            edge = max(edge, segment.end)
+        }
+        return covered / duration
+    }
+
+    public static func isSparse(_ segments: [MeetingSegment], duration: Double) -> Bool {
+        segments.isEmpty || (duration > minimumSeconds && ratio(segments, duration: duration) < minimumRatio)
+    }
+}
+
 public struct MeetingPipeline: Sendable {
     public var transcriber: MeetingTranscriber
     public var notes: MeetingNoteWriter
@@ -67,22 +90,51 @@ public struct MeetingPipeline: Sendable {
         self.brain = brain
     }
 
-    func trustedLive(folder: URL, meta: RecordingMeta) -> MeetingTranscriptDocument? {
-        guard var live = try? MeetingTranscriptFile.read(in: folder, live: true), !live.segments.isEmpty else { return nil }
+    struct LiveCheck {
+        var document: MeetingTranscriptDocument?
+        var sparse: Bool
+    }
+
+    func liveCheck(folder: URL, meta: RecordingMeta) -> LiveCheck {
+        guard meta.status != .interrupted, var live = try? MeetingTranscriptFile.read(in: folder, live: true),
+              (live.failedSegments ?? 0) == 0 else { return LiveCheck(document: nil, sparse: false) }
+        guard !live.segments.isEmpty else { return LiveCheck(document: nil, sparse: true) }
         live.durationSeconds = max(live.durationSeconds, meta.durationSeconds ?? 0)
         live.segments = TranscriptTidy.mergeAdjacent(live.segments)
-        return live
+        if MeetingSpeech.isSparse(live.segments, duration: live.durationSeconds) { return LiveCheck(document: nil, sparse: true) }
+        return LiveCheck(document: live, sparse: false)
+    }
+
+    func transcribeFinal(
+        folder: URL, meta: RecordingMeta, sensitive: Bool, progress: @escaping @Sendable (Double) -> Void
+    ) async throws -> (document: MeetingTranscriptDocument, notice: String?) {
+        func run(_ config: ChannelStreamerConfig?) async throws -> MeetingTranscriptDocument {
+            var worker = transcriber
+            if let config { worker.config = config }
+            return try await worker.transcribe(
+                folder: folder, startedAt: meta.startedAt, sources: meta.sources ?? .both,
+                duration: meta.durationSeconds ?? 0, progress: progress
+            )
+        }
+        var document = try await run(sensitive ? .sensitive : nil)
+        var raised = sensitive
+        if !sensitive, MeetingSpeech.isSparse(document.segments, duration: max(document.durationSeconds, meta.durationSeconds ?? 0)) {
+            let retry = try await run(.sensitive)
+            raised = true
+            if retry.segments.count >= document.segments.count { document = retry }
+        }
+        guard raised else { return (document, nil) }
+        return (document, document.segments.isEmpty ? MeetingSpeech.silentNotice : MeetingSpeech.sparseNotice)
     }
 
     public func improveTranscript(folder: URL, stage: @escaping @Sendable (MeetingStage) -> Void = { _ in }) async throws {
         let meta = try RecordingFolder.read(in: folder)
         stage(.transcribing(0))
-        let document = try await transcriber.transcribe(
-            folder: folder, startedAt: meta.startedAt, sources: meta.sources ?? .both,
-            duration: meta.durationSeconds ?? 0, progress: { stage(.transcribing($0)) }
-        )
+        let result = try await transcribeFinal(folder: folder, meta: meta, sensitive: false, progress: { stage(.transcribing($0)) })
+        let document = result.document
         guard !document.segments.isEmpty else { return }
         try MeetingTranscriptFile.write(document, in: folder)
+        _ = try RecordingFolder.update(in: folder) { $0.notice = result.notice }
         stage(.writingNote)
         try await writeNote(folder: folder, document: document, meta: try RecordingFolder.read(in: folder))
     }
@@ -96,19 +148,23 @@ public struct MeetingPipeline: Sendable {
             do {
                 stage(.transcribing(0))
                 let document: MeetingTranscriptDocument
-                if let live = trustedLive(folder: folder, meta: meta) {
+                var notice: String?
+                let check = liveCheck(folder: folder, meta: meta)
+                if let live = check.document {
                     document = live
                 } else {
-                    document = try await transcriber.transcribe(
-                        folder: folder, startedAt: meta.startedAt, sources: meta.sources ?? .both,
-                        duration: meta.durationSeconds ?? 0, progress: { stage(.transcribing($0)) }
+                    let result = try await transcribeFinal(
+                        folder: folder, meta: meta, sensitive: check.sparse, progress: { stage(.transcribing($0)) }
                     )
+                    document = result.document
+                    notice = result.notice
                 }
                 try MeetingTranscriptFile.write(document, in: folder)
                 try? manager.removeItem(at: MeetingTranscriptFile.url(in: folder, live: true))
                 meta = try RecordingFolder.update(in: folder) {
                     $0.status = .transcribed
                     $0.failure = document.segments.isEmpty ? "nenhuma fala detectada nessa gravação" : nil
+                    $0.notice = notice
                 }
             } catch is CancellationError {
                 throw CancellationError()

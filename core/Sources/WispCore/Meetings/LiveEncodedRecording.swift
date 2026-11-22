@@ -11,12 +11,16 @@ public final class LiveEncodedSink: AudioFileSink, @unchecked Sendable {
     private let lock = NSLock()
     private let raw: StereoFileSink
     private let liveURL: URL
-    private var encoded: StereoFileSink?
+    private var encoded: AudioFileSink?
 
-    public init(rawURL: URL) throws {
+    public convenience init(rawURL: URL) throws {
+        try self.init(rawURL: rawURL, makeEncoder: { try StereoFileSink(url: $0, container: .m4a) })
+    }
+
+    init(rawURL: URL, makeEncoder: (URL) throws -> AudioFileSink) throws {
         raw = try StereoFileSink(url: rawURL, container: .pcm16)
         liveURL = LiveRecordingAudio.url(in: rawURL.deletingLastPathComponent())
-        encoded = try? StereoFileSink(url: liveURL, container: .m4a)
+        encoded = try? makeEncoder(liveURL)
     }
 
     public func write(_ frames: [Float]) throws {
@@ -67,9 +71,16 @@ public struct LiveEncodedConverter: AudioFileConverter {
         guard M4AFileConverter.covers(written: Int(encoded.length), total: Int(raw.length)) else {
             throw MeetingRecorderError.sink("o áudio gravado ao vivo ficou mais curto que a gravação")
         }
+        let tail = AVAudioFrameCount(min(4_096, encoded.length))
+        guard tail > 0, let probe = AVAudioPCMBuffer(pcmFormat: encoded.processingFormat, frameCapacity: tail) else {
+            throw MeetingRecorderError.sink("o áudio gravado ao vivo está vazio")
+        }
+        encoded.framePosition = encoded.length - AVAudioFramePosition(tail)
+        try encoded.read(into: probe, frameCount: tail)
+        guard probe.frameLength == tail else { throw MeetingRecorderError.sink("o áudio gravado ao vivo está truncado") }
         try? FileManager.default.removeItem(at: destination)
         try FileManager.default.moveItem(at: live, to: destination)
-        try RecordingFolder.restrictFile(at: destination)
+        try? RecordingFolder.restrictFile(at: destination)
         return Double(raw.length) / raw.processingFormat.sampleRate
     }
 }
