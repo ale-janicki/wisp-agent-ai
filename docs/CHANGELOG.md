@@ -9,10 +9,9 @@ Entries are in descending chronological order (newest first).
 
 ## [Unreleased]
 
-### Fixed
+## [0.4.3] - 2026-11-22
 
-- Ajustes > Modelo: choosing Claude or Codex when the harness is managed outside the Wisp (your own `~/.claude`) no longer shows a red "harness não sincronizou" line. The engine is saved and the note "o harness é gerenciado fora do Wisp, então ele não foi alterado" appears as secondary text (`wisp config set engine|wisp_dir|brain` report `done` with `data.harness = "managed_elsewhere"`); real harness failures stay red.
-- Ajustes > Modelo (and the Conversa tab settings): with Claude or Codex as the engine the local-model recommendation, "Pensar antes de responder" and the "Neste Mac" list are collapsed behind one "IA local neste Mac" row ("Ver modelos locais", closed by default); with IA local everything shows as before.
+- Version 0.4.3 (build 10).
 
 ### Added
 
@@ -30,6 +29,11 @@ Entries are in descending chronological order (newest first).
 ### Changed
 
 - Setup no longer has a step sidebar, a system-tools step, a Claude login, Telegram, Spotify or profile editing: Telegram and the profile moved to Ajustes, Spotify stays in the Música tab settings, and setup never downloads or installs the Claude CLI, Obsidian, the Command Line Tools or Homebrew.
+
+### Fixed
+
+- Ajustes > Modelo: choosing Claude or Codex when the harness is managed outside the Wisp (your own `~/.claude`) no longer shows a red "harness não sincronizou" line. The engine is saved and the note "o harness é gerenciado fora do Wisp, então ele não foi alterado" appears as secondary text (`wisp config set engine|wisp_dir|brain` report `done` with `data.harness = "managed_elsewhere"`); real harness failures stay red.
+- Ajustes > Modelo (and the Conversa tab settings): with Claude or Codex as the engine the local-model recommendation, "Pensar antes de responder" and the "Neste Mac" list are collapsed behind one "IA local neste Mac" row ("Ver modelos locais", closed by default); with IA local everything shows as before.
 
 ## [0.4.2] - 2026-11-22
 
