@@ -60,6 +60,8 @@ def add_parser(sub) -> None:
     child = steps.add_parser("mlx-child")
     child.add_argument("--model-dir", required=True)
     child.add_argument("--socket", required=True)
+    delete = steps.add_parser("delete")
+    delete.add_argument("tag")
     use = steps.add_parser("use")
     use.add_argument("tag")
     where = steps.add_parser("backend")
@@ -77,15 +79,24 @@ def _backend(folder: Path, catalog: catalogs.Catalog, make: Callable | None) -> 
 
 def _status(folder: Path, backend: backends.Backend, state: modelos.LocalState, catalog: catalogs.Catalog) -> dict:
     running = backend.running()
+    downloading: list[str] = []
+    resumable: list[str] = []
     if backend.kind == "mlx":
-        present = set(backend.available())
-        installed = [t for t in state.instalados if t in present]
+        installed = backend.available()
+        for model in catalog.models:
+            kind = fetch.state_of(folder, model.tag)
+            if kind == "downloading":
+                downloading.append(model.tag)
+            elif kind == "partial":
+                resumable.append(model.tag)
     else:
         installed = [state.ativo] if running and state.ativo else []
     return {
         **catalogs.to_json(catalog),
         "backend": {"kind": backend.kind, "available": backend.runtime_missing() is None and (backend.kind != "mlx" or arch.host_is_apple_silicon()), "running": running, "url": state.url},
         "installed": installed,
+        "downloading": downloading,
+        "resumable": resumable,
         "active": state.ativo if state.ativo in installed else "",
         "pensar": state.pensar,
     }
@@ -114,6 +125,18 @@ def _use(folder: Path, backend: backends.Backend, state: modelos.LocalState, cat
         emit({"type": "error", "message": f"{tag} não está instalado neste Mac"})
         return 1
     modelos.write(folder, modelos.with_active(state, tag))
+    emit({"type": "done", "tag": tag})
+    return 0
+
+
+def _delete(folder: Path, state: modelos.LocalState, catalog: catalogs.Catalog, tag: str) -> int:
+    if catalog.find(tag) is None:
+        emit({"type": "error", "message": f"{tag} não está no catálogo do Wisp"})
+        return 1
+    fetch.remove(folder, tag)
+    if state.ativo == tag:
+        backends.stop_server()
+    modelos.write(folder, replace(state, ativo="" if state.ativo == tag else state.ativo, instalados=tuple(t for t in state.instalados if t != tag)))
     emit({"type": "done", "tag": tag})
     return 0
 
@@ -209,6 +232,8 @@ def run(args: argparse.Namespace, make: Callable | None = None, servers: list | 
             return 0
         if args.action == "use":
             return _use(folder, backend, state, catalog, args.tag)
+        if args.action == "delete":
+            return _delete(folder, state, catalog, args.tag)
         if args.action == "ready":
             return _ready(backend, state)
         return _chat(folder, backend, args, servers)

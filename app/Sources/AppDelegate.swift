@@ -78,6 +78,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Task { await runtime.ensure() }
     }
 
+    func retryRuntime() async {
+        await runtime.ensure()
+    }
+
     func showSetup() {
         presentSetup(homeOverride: nil, existingInstall: true)
     }
