@@ -122,24 +122,62 @@ public struct BrainFiles: Sendable {
             }
             if let problem = writeProblem(rel) { throw BrainFilesError.readOnly(problem) }
         }
-        try Self.replace(Data(text.utf8), at: destination, label: rel)
+        try Self.replace(Data(text.utf8), at: destination, root: root, label: rel)
     }
 
-    static func replace(_ data: Data, at destination: URL, label: String) throws {
-        let staging: URL
-        do {
-            staging = try FileManager.default.url(for: .itemReplacementDirectory, in: .userDomainMask, appropriateFor: destination, create: true)
-        } catch {
-            throw BrainFilesError.failed("não consegui preparar o salvamento de \(label): \(error.localizedDescription)")
+    static func replace(_ data: Data, at destination: URL, root: URL, label: String) throws {
+        var failures: [String] = []
+        for staging in try stagingFolders(for: destination, root: root) {
+            let temporary = staging.folder.appendingPathComponent(staging.name)
+            defer { if staging.disposable { try? FileManager.default.removeItem(at: staging.folder) } else { try? FileManager.default.removeItem(at: temporary) } }
+            do {
+                try stage(data, at: temporary, attributesFrom: destination)
+                try rename(temporary, destination)
+                syncFolder(destination.deletingLastPathComponent())
+                return
+            } catch {
+                failures.append(error.localizedDescription)
+                if (error as NSError).code != Int(EXDEV), staging.disposable == false { break }
+            }
         }
-        defer { try? FileManager.default.removeItem(at: staging) }
-        let temporary = staging.appendingPathComponent("note")
-        do {
-            try stage(data, at: temporary, attributesFrom: destination)
-            try rename(temporary, destination)
-        } catch {
-            throw BrainFilesError.failed("não consegui salvar \(label): \(error.localizedDescription)")
+        throw BrainFilesError.failed("não consegui salvar \(label): \(failures.last ?? "sem pasta para o arquivo temporário")")
+    }
+
+    private struct Staging {
+        var folder: URL
+        var name: String
+        var disposable: Bool
+    }
+
+    private static func stagingFolders(for destination: URL, root: URL) throws -> [Staging] {
+        var options: [Staging] = []
+        if let system = try? FileManager.default.url(for: .itemReplacementDirectory, in: .userDomainMask, appropriateFor: destination, create: true) {
+            options.append(Staging(folder: system, name: "note", disposable: true))
         }
+        let git = root.appendingPathComponent(".git", isDirectory: true)
+        var isFolder: ObjCBool = false
+        var gitInfo = stat(), destinationInfo = stat()
+        let parent = destination.deletingLastPathComponent()
+        if FileManager.default.fileExists(atPath: git.path, isDirectory: &isFolder), isFolder.boolValue,
+           stat(git.path, &gitInfo) == 0, stat(parent.path, &destinationInfo) == 0, gitInfo.st_dev == destinationInfo.st_dev {
+            let inside = git.appendingPathComponent("wisp-tmp", isDirectory: true)
+            if (try? FileManager.default.createDirectory(at: inside, withIntermediateDirectories: true)) != nil {
+                options.append(Staging(folder: inside, name: "note-\(UUID().uuidString.prefix(8))", disposable: false))
+            }
+        }
+        options.append(Staging(folder: parent, name: ".wisp-tmp-\(UUID().uuidString.prefix(8))", disposable: false))
+        return options
+    }
+
+    static func stagingFoldersForTesting(_ destination: URL, root: URL) throws -> [String] {
+        try stagingFolders(for: destination, root: root).map(\.name)
+    }
+
+    static func syncFolder(_ folder: URL) {
+        let descriptor = open(folder.path, O_RDONLY)
+        guard descriptor >= 0 else { return }
+        defer { close(descriptor) }
+        if fcntl(descriptor, F_FULLFSYNC) != 0 { fsync(descriptor) }
     }
 
     static func stage(_ data: Data, at temporary: URL, attributesFrom source: URL) throws {
@@ -168,8 +206,12 @@ public struct BrainFiles: Sendable {
     public func sameFile(_ a: String, _ b: String) -> Bool {
         guard let first = try? url(a), let second = try? url(b) else { return false }
         var one = stat(), two = stat()
-        guard stat(first.path, &one) == 0, stat(second.path, &two) == 0 else { return false }
+        guard lstat(first.path, &one) == 0, lstat(second.path, &two) == 0 else { return false }
         return one.st_dev == two.st_dev && one.st_ino == two.st_ino
+    }
+
+    public func isCaseOnlyRename(_ from: String, _ to: String) -> Bool {
+        from != to && from.lowercased() == to.lowercased() && sameFile(from, to)
     }
 
     public func isHardLinked(_ rel: String) -> Bool {
@@ -206,7 +248,7 @@ public struct BrainFiles: Sendable {
         try validateNew(to)
         let source = try url(from), destination = try url(to)
         guard exists(from) else { throw BrainFilesError.missing(from) }
-        if exists(to), !sameFile(from, to) { throw BrainFilesError.exists(to) }
+        if exists(to), !isCaseOnlyRename(from, to) { throw BrainFilesError.exists(to) }
         try makeParent(of: to)
         do { try Self.rename(source, destination) } catch {
             throw BrainFilesError.failed("não consegui mover \(from): \(error.localizedDescription)")

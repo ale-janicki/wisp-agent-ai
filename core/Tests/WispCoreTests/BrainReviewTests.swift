@@ -92,3 +92,40 @@ final class BrainReviewTests: XCTestCase {
         XCTAssertNoThrow(try BrainRefactor.plan(root: vault.path, scan: scan, from: "recipes/Bread.md", to: "recipes/bread.md"))
     }
 }
+
+final class BrainFallbackTests: XCTestCase {
+    func testConflictMarkersUseCrlfInACrlfFile() {
+        let outcome = BrainMerge.merge(base: "a\r\nb\r\nc", mine: "a\r\nx\r\nc", theirs: "a\r\ny\r\nc")
+        guard case .conflict(let text) = outcome else { return XCTFail("expected a conflict") }
+        XCTAssertEqual(text, "a\r\n<<<<<<< minhas edições\r\nx\r\n=======\r\ny\r\n>>>>>>> no disco\r\nc")
+        XCTAssertTrue(BrainMerge.hasMarkers(text))
+        guard case .conflict(let plain) = BrainMerge.merge(base: "a\nb\nc", mine: "a\nx\nc", theirs: "a\ny\nc") else { return XCTFail("expected a conflict") }
+        XCTAssertFalse(plain.contains("\r"))
+    }
+
+    func testCaseOnlyRenameLooksAtTheLinkItselfAndRequiresCaseOnlyNames() throws {
+        let vault = try BrainVaultFixture(["target.md": "# T\n"])
+        try FileManager.default.createSymbolicLink(atPath: vault.root.appendingPathComponent("link.md").path, withDestinationPath: "target.md")
+        let files = BrainFiles(root: vault.path)
+        XCTAssertFalse(files.sameFile("link.md", "target.md"))
+        XCTAssertFalse(files.isCaseOnlyRename("link.md", "target.md"))
+        XCTAssertFalse(files.isCaseOnlyRename("target.md", "target.md"))
+        XCTAssertTrue(files.isCaseOnlyRename("target.md", "Target.md") || !files.exists("Target.md"))
+        XCTAssertThrowsError(try files.move("link.md", to: "target.md"))
+    }
+
+    func testStagingFallsBackToGitFolderThenToAHiddenSiblingNamedWispTmp() throws {
+        let vault = try BrainVaultFixture()
+        let destination = vault.root.appendingPathComponent("recipes/bread.md")
+        var options = try BrainFiles.stagingFoldersForTesting(destination, root: vault.root)
+        XCTAssertTrue(options.last?.hasPrefix(".wisp-tmp-") == true)
+        XCTAssertFalse(options.contains { $0.hasPrefix("note-") })
+        try FileManager.default.createDirectory(at: vault.root.appendingPathComponent(".git"), withIntermediateDirectories: true)
+        options = try BrainFiles.stagingFoldersForTesting(destination, root: vault.root)
+        XCTAssertTrue(options.contains { $0.hasPrefix("note-") })
+        try BrainFiles(root: vault.path).write("after", to: "recipes/bread.md")
+        let leftovers = try FileManager.default.contentsOfDirectory(atPath: vault.root.appendingPathComponent(".git/wisp-tmp").path)
+        XCTAssertTrue(leftovers.isEmpty)
+        XCTAssertEqual(try vault.text("recipes/bread.md"), "after")
+    }
+}

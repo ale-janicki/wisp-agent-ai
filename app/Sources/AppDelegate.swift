@@ -7,6 +7,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var setup: SetupWindowController?
     private let runtime = RuntimeInstaller()
     private var brainColher: BrainColherService?
+    private var terminationSignal: DispatchSourceSignal?
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard !QuitFlush.shared.isEmpty else { return .terminateNow }
@@ -27,6 +28,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        signal(SIGTERM, SIG_IGN)
+        let source = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
+        source.setEventHandler {
+            MainActor.assumeIsolated { BrainModel.shared.flushForQuit() }
+            exit(0)
+        }
+        source.resume()
+        terminationSignal = source
         NSApp.setActivationPolicy(.accessory)
         #if DEBUG
         if ArtRenderer.isRequested(ProcessInfo.processInfo.arguments) {

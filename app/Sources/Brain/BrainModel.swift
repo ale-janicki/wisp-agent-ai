@@ -470,11 +470,17 @@ final class BrainModel {
         for tab in tabs { save(tab.id) }
     }
 
-    func flushForQuit() {
+    @discardableResult
+    func flushForQuit() -> [String] {
         flush()
+        var lost: [String] = []
         for tab in tabs where tab.kind == .note && tab.dirty && tab.readOnly == nil {
-            _ = BrainRecovery.save(tab.text, named: tab.path, in: recoveryFolder)
+            if BrainRecovery.save(tab.text, named: tab.path, in: recoveryFolder) == nil {
+                lost.append(tab.path)
+                log.error("quit: could not keep a recovery copy of \(tab.path, privacy: .public)")
+            }
         }
+        return lost
     }
 
     @discardableResult
@@ -499,7 +505,7 @@ final class BrainModel {
     }
 
     func toggleTask(line: Int, raw: String) {
-        guard let tab = active, tab.readOnly == nil else { return }
+        guard let tab = active, tab.readOnly == nil, tab.conflict == nil else { return }
         guard let next = BrainTasks.toggle(in: tab.text, line: line, expected: raw) else {
             message = "A nota mudou; atualizei a tela e não marquei nada."
             reparse(tab.id)
@@ -513,14 +519,14 @@ final class BrainModel {
     }
 
     func setProperty(_ key: String, to value: BrainProperty.Value) {
-        guard let tab = active, tab.readOnly == nil else { return }
+        guard let tab = active, tab.readOnly == nil, tab.conflict == nil else { return }
         var document = BrainDocument(tab.text)
         document.set(key, to: value)
         replaceText(tab.id, with: document.text)
     }
 
     func removeProperty(_ key: String) {
-        guard let tab = active, tab.readOnly == nil else { return }
+        guard let tab = active, tab.readOnly == nil, tab.conflict == nil else { return }
         var document = BrainDocument(tab.text)
         document.remove(key)
         replaceText(tab.id, with: document.text)
@@ -751,7 +757,7 @@ final class BrainModel {
     }
 
     func insertTemplate(_ path: String) {
-        guard let files, let tab = active, tab.kind == .note, tab.readOnly == nil, let source = try? files.read(path) else { return }
+        guard let files, let tab = active, tab.kind == .note, tab.readOnly == nil, tab.conflict == nil, let source = try? files.read(path) else { return }
         let rendered = BrainTemplate.render(source, title: BrainText.stem(of: tab.path), date: Date())
         if tab.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             replaceText(tab.id, with: rendered)
