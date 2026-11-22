@@ -1,5 +1,6 @@
 import ast
 import asyncio
+import itertools
 import json
 import shutil
 import sys
@@ -11,13 +12,14 @@ from local_fakes import FakeLLM, call, reply
 
 from wisp.config import WispConfig
 from wisp.local import guardrails
-from wisp.local.engine import FILES_KEY, EngineError, LocalEngine, fit_context, history_from, record_turn
+from wisp.local.engine import FILES_KEY, EngineError, LocalEngine, fit_context, history_from, record_turn, trim_history, estimate_tokens, shorten_foreign
 from wisp.local.guardrails import MODES
 from wisp.local.tools import Files, ServerSpec, ToolFailure, load_servers, open_host, with_approval_socket
 from wisp.paths import WispPaths
 
 WISP_FOLDER = Path(guardrails.__file__).parents[1] / "wisp_folder"
 FIXTURES = Path(__file__).parent / "fixtures"
+DAY20 = "<contexto>data de hoje: 2026-11-20 (não mencione a data a menos que perguntem)</contexto>"
 CONTRACT = FIXTURES / "contract" / "local-engine-events.jsonl"
 
 
@@ -197,7 +199,7 @@ def test_a_model_may_change_between_turns_and_the_tier_follows(folder):
         first, _ = run(engine, session)
         second, events = run(engine, session, model="qwen3:14b")
     assert (first.model, second.model) == ("qwen3:8b", "qwen3:14b") and events[0]["tier"] == "medio"
-    assert fake.chats()[1]["messages"][1]["content"] == "oi\n\n[Hoje é 2026-11-20.]"
+    assert fake.chats()[1]["messages"][1]["content"] == f"{DAY20}\noi"
 
 
 def test_resume_rebuilds_the_context_from_the_transcript_only(folder):
@@ -215,7 +217,7 @@ def test_resume_rebuilds_the_context_from_the_transcript_only(folder):
             {"role": "user", "content": "pergunta"}, {"role": "assistant", "content": "primeira"}]
         run(engine, resumed, "e agora")
     sent = [m["content"] for m in fake.chats()[0]["messages"][1:]]
-    assert sent == ["pergunta", "primeira", "e agora\n\n[Hoje é 2026-11-20.]"]
+    assert sent == ["pergunta", "primeira", f"{DAY20}\ne agora"]
     with pytest.raises(EngineError):
         engine.resume("../x")
     with pytest.raises(EngineError, match="não achei"):
@@ -534,3 +536,68 @@ def test_a_write_to_these_script_suffixes_shows_the_card(folder, suffix):
         engine = grande(make(folder, fake, asked))
         run(engine, engine.start("c1", "qwen3:32b", "bypassPermissions"))
     assert [c[0] for c in asked.calls] == ["write_file"]
+
+
+def exchange(n, size=400, tools=False):
+    unit = [{"role": "user", "content": f"u{n} " + "x" * size}]
+    if tools:
+        unit += [{"role": "assistant", "content": "", "tool_calls": [{"id": f"t{n}", "function": {"name": "f", "arguments": {}}}]},
+                 {"role": "tool", "tool_name": "f", "tool_call_id": f"t{n}", "content": "r" * size}]
+    return unit + [{"role": "assistant", "content": f"a{n} " + "y" * size}]
+
+
+def history(count, **kw):
+    return [m for n in range(count) for m in exchange(n, **kw)]
+
+
+def test_trim_history_respects_the_budget_and_drops_whole_exchanges():
+    messages = history(30)
+    kept = trim_history(messages, 1000)
+    assert estimate_tokens(kept) <= 1000 and kept[0]["role"] == "user" and kept[-1] == messages[-1]
+    assert kept == messages[len(messages) - len(kept):]
+
+
+def test_trim_history_keeps_the_same_prefix_for_several_turns():
+    starts = [trim_history(history(count), 3000)[0]["content"] for count in range(20, 60)]
+    runs = [len(list(group)) for _, group in itertools.groupby(starts)]
+    assert min(runs[1:-1]) >= 3
+    assert all(estimate_tokens(trim_history(history(c), 3000)) <= 3000 for c in range(20, 60))
+
+
+def test_trim_history_never_splits_a_tool_call_from_its_result():
+    for count in range(5, 30):
+        kept = trim_history(history(count, tools=True), 1200)
+        assert kept[0]["role"] == "user"
+        calls = {c["id"] for m in kept for c in m.get("tool_calls", [])}
+        results = {m["tool_call_id"] for m in kept if m["role"] == "tool"}
+        assert calls == results
+
+
+def test_trim_history_keeps_a_lone_oversized_last_exchange_and_small_histories_untouched():
+    small = history(3)
+    assert trim_history(small, 100000) == small
+    big = [*history(4), *exchange(9, size=6000)]
+    assert trim_history(big, 500) == exchange(9, size=6000)
+
+
+def test_long_replies_from_another_engine_are_truncated_but_local_ones_are_not(tmp_path):
+    path = tmp_path / "c.jsonl"
+    long = "z" * 5000
+    lines = [{"v": 1, "at": "t", "kind": "user", "text": "oi"},
+             {"v": 1, "at": "t", "kind": "assistant", "engine": "claude", "text": long},
+             {"v": 1, "at": "t", "kind": "assistant", "engine": "local", "text": long}]
+    path.write_text("\n".join(json.dumps(line) for line in lines) + "\n")
+    messages = history_from(path)
+    assert len(messages[1]["content"]) == 1801 and messages[1]["content"].endswith("…") and messages[2]["content"] == long
+    assert shorten_foreign("curta") == "curta"
+
+
+def test_the_engine_sends_a_trimmed_history_and_the_latest_turn_intact(folder):
+    with FakeLLM([reply("ok")]) as fake:
+        engine = make(folder, fake)
+        session = engine.start("c1", "llama3.2:3b")
+        session.messages = history(60, size=800)
+        run(engine, session, "pergunta final")
+    sent = fake.chats()[0]["messages"]
+    assert sent[-1]["content"].endswith("pergunta final") and sent[1]["role"] == "user"
+    assert estimate_tokens(sent[1:-1]) <= 2500

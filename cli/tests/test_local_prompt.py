@@ -59,6 +59,9 @@ def test_capabilities_list_only_the_enabled_tools():
     assert "nenhuma ferramenta" in prompt.capabilities([])
 
 
+DAY21 = "<contexto>data de hoje: 2026-11-21 (não mencione a data a menos que perguntem)</contexto>"
+
+
 def test_two_turns_share_the_stable_prefix_and_the_date_comes_after_it(folder):  # noqa: F811
     days = iter([date(2026, 11, 20), date(2026, 11, 21), date(2026, 11, 22)])
     with FakeLLM([reply("a"), reply("b")]) as fake:
@@ -71,8 +74,8 @@ def test_two_turns_share_the_stable_prefix_and_the_date_comes_after_it(folder): 
     assert first["messages"][0] == second["messages"][0] and first["tools"] == second["tools"]
     assert "2026-11" not in first["messages"][0]["content"]
     assert second["messages"][1] == first["messages"][1]
-    assert second["messages"][1]["content"].startswith("um") and second["messages"][1]["content"].endswith("[Hoje é 2026-11-20.]")
-    assert second["messages"][-1]["content"] == "dois\n\n[Hoje é 2026-11-21.]"
+    assert second["messages"][1]["content"].startswith("<contexto>data de hoje: 2026-11-20") and second["messages"][1]["content"].endswith("\num")
+    assert second["messages"][-1]["content"] == f"{DAY21}\ndois"
 
 
 def test_the_system_prompt_has_no_per_turn_text():
