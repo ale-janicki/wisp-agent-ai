@@ -1,11 +1,11 @@
 public enum TabSettingsBlock: String, CaseIterable, Sendable {
-    case engine, model, permission, brain, agenda, meetings, macControl, integrations
+    case engine, model, permission, telegram, brain, agenda, meetings, macControl, integrations
 }
 
 public enum TabSettings {
     public static func blocks(forTab tab: String) -> [TabSettingsBlock] {
         switch tab {
-        case "conversation": [.engine, .model, .permission]
+        case "conversation": [.engine, .model, .permission, .telegram]
         case "brain": [.brain]
         case "agenda": [.agenda]
         case "meetings": [.meetings]

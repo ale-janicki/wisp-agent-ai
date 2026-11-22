@@ -368,28 +368,3 @@ struct RecommendationBlock: View {
         }
     }
 }
-
-struct LocalAIOffer: View {
-    private let model = ModelPickerModel.shared
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: Theme.Space.s) {
-            Text("Roda um modelo neste Mac, sem internet e sem assinatura. Dá para trocar depois em Ajustes > Modelo.")
-                .font(Theme.Font.caption)
-                .foregroundStyle(Theme.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-            if let status = model.status, status.backend.isMlx, let advice = model.recommendation {
-                RecommendationBlock(advice: advice, status: status)
-            } else {
-                ProgressView().controlSize(.small)
-            }
-            if let error = model.error {
-                Text(error)
-                    .font(Theme.Font.caption)
-                    .foregroundStyle(Theme.error)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-        .onAppear { model.refresh() }
-    }
-}

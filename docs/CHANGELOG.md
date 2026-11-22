@@ -17,6 +17,12 @@ Entries are in descending chronological order (newest first).
 ### Added
 
 - Meetings: the live recording screen keeps the transcript at a readable width (side panel sits below it when the tab is narrow), recorder controls sit in one row, the copilot and conversation cards are compact ("Ainda sem fala" instead of rows of zeros), and a finished meeting's note renders as Markdown (headings, lists, bold, links, wikilinks) like the Brain reader; "Copiar" still copies the raw Markdown.
+- Setup is one screen: a "Preparando o Wisp…" line while the runtime installs (with "Tentar de novo" on failure), "Este Mac" (chip, memory, free disk) and three engine cards side by side. IA local is selected by default with the model recommended for the Mac already picked in a dropdown (every catalog model with size and speed, "Recomendado", "Já baixado", "Apertado", and "não cabe" disabled); Claude and Codex are choices that show "Conectado" only when the CLI is already logged in, otherwise "Conecte depois em Ajustes > Modelo". "Começar" creates the brain (or keeps the configured one), installs the harness, selects the engine, saves the profile with defaults and starts the model download in the background, with errors inline and "Tentar de novo".
+- Ajustes > Modelo and the Conversa tab settings have a "Telegram" card ("Conectar Telegram": token, group search, disconnect); Ajustes > Geral has a "Perfil" card (Wisp name, your name, image).
+
+### Changed
+
+- Setup no longer has a step sidebar, a system-tools step, a Claude login, Telegram, Spotify or profile editing: Telegram and the profile moved to Ajustes, Spotify stays in the Música tab settings, and setup never downloads or installs the Claude CLI, Obsidian, the Command Line Tools or Homebrew.
 
 ## [0.4.2] - 2026-11-22
 

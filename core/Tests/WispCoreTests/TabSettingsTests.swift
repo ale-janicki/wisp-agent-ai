@@ -3,7 +3,7 @@ import XCTest
 
 final class TabSettingsTests: XCTestCase {
     func testConversationShowsEngineModelAndPermission() {
-        XCTAssertEqual(TabSettings.blocks(forTab: "conversation"), [.engine, .model, .permission])
+        XCTAssertEqual(TabSettings.blocks(forTab: "conversation"), [.engine, .model, .permission, .telegram])
     }
 
     func testEachRelatedTabShowsOnlyItsOwnSection() {

@@ -2,7 +2,6 @@ import AppKit
 import Observation
 import SwiftUI
 
-/// What the wizard shows: the runtime install first, then the steps once the runtime hands over its `wisp`.
 @MainActor @Observable
 final class SetupSession {
     let runtime: RuntimeInstaller
@@ -21,7 +20,7 @@ final class SetupSession {
         guard model == nil, case .ready(let wisp) = phase else { return }
         let model = SetupModel(wisp: wisp, homeOverride: homeOverride, existingInstall: existingInstall)
         self.model = model
-        Task { await model.refreshFromDoctor() }
+        Task { await model.load() }
     }
 
     func retryRuntime() {
@@ -51,7 +50,7 @@ final class SetupWindowController: NSObject, NSWindowDelegate {
         }
         let host = NSHostingView(rootView: SetupView(session: session, finish: { [weak self] in self?.finishAndClose() }))
         let window = NSWindow(
-            contentRect: CGRect(x: 0, y: 0, width: 820, height: 600),
+            contentRect: CGRect(x: 0, y: 0, width: 720, height: 520),
             styleMask: [.titled, .closable, .miniaturizable],
             backing: .buffered,
             defer: false)
@@ -74,7 +73,6 @@ final class SetupWindowController: NSObject, NSWindowDelegate {
     }
 
     func windowWillClose(_ notification: Notification) {
-        session.model?.cancelPolling()
         window = nil
         onClose()
     }
