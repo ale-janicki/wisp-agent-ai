@@ -133,9 +133,9 @@ def _delete(folder: Path, state: modelos.LocalState, catalog: catalogs.Catalog, 
     if catalog.find(tag) is None:
         emit({"type": "error", "message": f"{tag} não está no catálogo do Wisp"})
         return 1
-    fetch.remove(folder, tag)
     if state.ativo == tag:
         backends.stop_server()
+    fetch.remove(folder, tag)
     modelos.write(folder, replace(state, ativo="" if state.ativo == tag else state.ativo, instalados=tuple(t for t in state.instalados if t != tag)))
     emit({"type": "done", "tag": tag})
     return 0
