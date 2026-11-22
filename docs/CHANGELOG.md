@@ -22,6 +22,7 @@ Entries are in descending chronological order (newest first).
 
 - The "Memória" and "Brain" sidebar tabs are now one "Brain" tab: the recent notes list, the command search and the graph search moved into it (home view when no note is open, "Visão geral" button).
 - Ajustes > Modelo list redesigned: one grouped card, one row per model (name, size, memory and speed on one line, at most two tags, one trailing button) and the long description behind "Detalhes". The recommendation card says "Usar Qwen3 8B (já baixado)" when the model is on disk.
+- Ajustes > Sobre now holds Atualizações (version, Verificar agora, automatic checks) at the top, instead of the end of Geral; the duplicate version row in Sobre is gone.
 
 ### Fixed
 
