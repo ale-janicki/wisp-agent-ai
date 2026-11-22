@@ -590,19 +590,33 @@ private struct MeetingDetailView: View {
 
     @ViewBuilder
     private var pageContent: some View {
-        switch page {
-        case .note:
-            if let note = detail?.note {
-                MeetingNoteView(markdown: note)
-            } else {
-                TabMessage(text: library.stage(of: entry.id) != nil ? "Gerando a nota…" : "Ainda não tem nota.")
+        if detail == nil, entry.hasNote || entry.hasTranscript {
+            SkeletonLines(count: 6)
+        } else {
+            switch page {
+            case .note:
+                noteContent
+            case .transcript:
+                transcriptContent
             }
-        case .transcript:
-            if let lines = detail?.lines, !lines.isEmpty {
-                TranscriptListView(lines: lines)
-            } else {
-                TabMessage(text: library.stage(of: entry.id) != nil ? "Transcrevendo…" : "Sem transcrição.")
-            }
+        }
+    }
+
+    @ViewBuilder
+    private var noteContent: some View {
+        if let note = detail?.note {
+            MeetingNoteView(markdown: note)
+        } else {
+            TabMessage(text: library.stage(of: entry.id) != nil ? "Gerando a nota…" : "Ainda não tem nota.")
+        }
+    }
+
+    @ViewBuilder
+    private var transcriptContent: some View {
+        if let lines = detail?.lines, !lines.isEmpty {
+            TranscriptListView(lines: lines)
+        } else {
+            TabMessage(text: library.stage(of: entry.id) != nil ? "Transcrevendo…" : "Sem transcrição.")
         }
     }
 }
