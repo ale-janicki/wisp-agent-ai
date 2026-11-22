@@ -728,6 +728,20 @@ final class BrainModel {
         }
     }
 
+    func createDrawing(_ kind: BrainNewDrawing.Kind, in folder: String) {
+        guard let files else { return }
+        do {
+            let path = try BrainNewDrawing.create(kind, in: folder, files: files, knownPaths: Set(entries.map(\.path)))
+            entries.append(BrainFileEntry(path: path, isFolder: false))
+            treeIndex = BrainTree.Index(entries: entries)
+            if !folder.isEmpty { expanded.insert(folder) }
+            open(path, newTab: true)
+            scan()
+        } catch {
+            message = error.localizedDescription
+        }
+    }
+
     func createFolder(named name: String, in folder: String) {
         guard let files else { return }
         let clean = name.trimmingCharacters(in: .whitespaces)
