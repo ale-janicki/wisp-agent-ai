@@ -43,6 +43,7 @@ def add_parser(sub) -> None:
     advise.add_argument("--json", action="store_true")
     advise.add_argument("--chip")
     advise.add_argument("--memory-bytes", type=int)
+    advise.add_argument("--available-bytes", type=int)
     advise.add_argument("--free-disk-bytes", type=int)
     pull = steps.add_parser("pull")
     pull.add_argument("tag")
@@ -175,6 +176,7 @@ def _recomendar(catalog: catalogs.Catalog, args: argparse.Namespace) -> int:
         args.chip if args.chip is not None else recomendar.read_chip(),
         args.memory_bytes if args.memory_bytes is not None else recomendar.read_memory(),
         args.free_disk_bytes if args.free_disk_bytes is not None else storage.free_bytes(Path.home()),
+        args.available_bytes if args.available_bytes is not None else (recomendar.read_available() if args.memory_bytes is None else 0),
     )
     emit(recomendar.recommend(hardware, catalog))
     return 0

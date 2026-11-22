@@ -236,6 +236,7 @@ private struct ToolsRow: View {
 
 private struct TypingRow: View {
     let text: String
+    @State private var since = Date()
 
     var body: some View {
         HStack(spacing: Theme.Space.s) {
@@ -252,13 +253,19 @@ private struct TypingRow: View {
                     }
                 }
             }
-            Text(text)
-                .font(Theme.Font.caption)
-                .foregroundStyle(Theme.textSecondary)
+            TimelineView(.periodic(from: since, by: 1)) { context in
+                Text(Self.label(text, elapsed: context.date.timeIntervalSince(since)))
+                    .font(Theme.Font.caption)
+                    .foregroundStyle(Theme.textSecondary)
+            }
         }
         .padding(.horizontal, Theme.Space.m)
         .frame(height: 30)
         .background(Theme.surfaceHi, in: RoundedRectangle(cornerRadius: Theme.Radius.bubble, style: .continuous))
+    }
+
+    static func label(_ text: String, elapsed: TimeInterval) -> String {
+        elapsed >= 5 ? "\(text) \(Int(elapsed)) s" : text
     }
 }
 

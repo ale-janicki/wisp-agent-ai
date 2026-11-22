@@ -1,4 +1,5 @@
 import json
+from datetime import date
 from pathlib import Path
 
 import pytest
@@ -94,6 +95,7 @@ def test_the_recomendar_command_prints_the_same_json_for_given_hardware(folder, 
 def test_the_recomendar_command_reads_this_mac_when_nothing_is_given(folder, capsys, monkeypatch):
     monkeypatch.setattr(recomendar, "read_chip", lambda: "Apple M4")
     monkeypatch.setattr(recomendar, "read_memory", lambda: 16 << 30)
+    monkeypatch.setattr(recomendar, "read_available", lambda: 0)
     monkeypatch.setattr(storage, "free_bytes", lambda path: 158_000_000_000)
     assert wisp_cli.main(["local", "recomendar", "--json"]) == 0
     assert lines(capsys)[0] == by_name()["m4-16gb"]
@@ -183,7 +185,7 @@ def test_a_recorded_message_is_left_out_of_the_history_but_still_sent(folder, ca
         monkeypatch.setattr("sys.stdin", __import__("io").StringIO(""))
         assert wisp_cli.main(argv) == 0
     sent = [(m["role"], m["content"]) for m in fake.chats()[0]["messages"] if m["role"] != "system"]
-    assert sent == [("user", "antes"), ("assistant", "resposta"), ("user", "agora")]
+    assert sent == [("user", "antes"), ("assistant", "resposta"), ("user", f"agora\n\n[Hoje é {date.today().isoformat()}.]")]
     assert path.read_text().count("\n") == 3
 
 
@@ -195,3 +197,30 @@ def test_config_set_engine_accepts_local_and_keeps_the_local_table(fake_home, ca
     assert json.loads(capsys.readouterr().out)["data"]["engine"] == "local"
     assert read_active(fake_home / "Wisp") == "local"
     assert modelos.read(fake_home / "Wisp") == modelos.LocalState("qwen3:8b", ("qwen3:8b",))
+
+
+def test_low_free_memory_recommends_one_model_lighter_and_says_why():
+    catalog = catalogs.load()
+    plenty = recomendar.recommend(recomendar.Hardware("Apple M4", 16 << 30, 100 << 30, 12 << 30), catalog)
+    short = recomendar.recommend(recomendar.Hardware("Apple M4", 16 << 30, 100 << 30, 5 << 30), catalog)
+    unknown = recomendar.recommend(recomendar.Hardware("Apple M4", 16 << 30, 100 << 30), catalog)
+    assert plenty["best"]["tag"] == unknown["best"]["tag"] == "qwen3:8b" and recomendar.LOW_MEMORY_REASON not in plenty["best"]["reason"]
+    assert short["best"]["tag"] == "qwen3:4b" and short["best"]["reason"].endswith("o Mac está com pouca memória livre agora")
+    assert short["fastest"]["tag"] == "qwen3:8b"
+
+
+def test_low_free_memory_keeps_the_only_model_that_fits():
+    only = recomendar.recommend(recomendar.Hardware("Apple M1", 8 << 30, 100 << 30, 1 << 30), catalogs.load())
+    assert only["best"]["tag"] == "qwen3:4b" and recomendar.LOW_MEMORY_REASON not in only["best"]["reason"]
+
+
+def test_vm_stat_available_memory_sums_free_inactive_speculative_and_purgeable():
+    sample = (
+        "Mach Virtual Memory Statistics: (page size of 16384 bytes)\n"
+        "Pages free:                               10.\n"
+        "Pages active:                             999.\n"
+        "Pages inactive:                           20.\n"
+        "Pages speculative:                        3.\n"
+        "Pages purgeable:                          7.\n"
+    )
+    assert recomendar.parse_available(sample) == 40 * 16384 and recomendar.parse_available("") == 0
