@@ -248,9 +248,14 @@ final class CalendarModel {
         let date = index.date(forDayNumber: anchorDay)
         let style = Date.FormatStyle().locale(Locale(identifier: "pt_BR"))
         switch mode {
-        case .day: return date.formatted(style.weekday(.wide).day().month(.wide)).capitalized
-        default: return date.formatted(style.month(.wide).year()).capitalized
+        case .day: return Self.sentenceCase(date.formatted(style.weekday(.wide).day().month(.wide)))
+        default: return Self.sentenceCase(date.formatted(style.month(.wide).year()))
         }
+    }
+
+    static func sentenceCase(_ text: String) -> String {
+        guard let first = text.first else { return text }
+        return first.uppercased() + text.dropFirst()
     }
 
     func ensureLoaded(days: ClosedRange<Int>) {
