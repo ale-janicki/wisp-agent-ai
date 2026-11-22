@@ -695,4 +695,16 @@ final class MeetingCaptureTests: XCTestCase {
         XCTAssertEqual(try JSONDecoder().decode(WispSettings.self, from: data).recordingsPath, "~/Gravacoes")
         XCTAssertNil(try JSONDecoder().decode(WispSettings.self, from: Data(#"{"theme":"lime"}"#.utf8)).recordingsPath)
     }
+
+    func testAnActiveRecordingIsOneWithRecordingStatusTouchedInTheLastMinute() throws {
+        let folder = try RecordingFolder.create(root: root, date: t0, timeZone: utc)
+        let meta = RecordingMeta(startedAt: t0, devices: .init(mic: nil, system: nil), status: .recording)
+        try RecordingFolder.write(meta, in: folder)
+        XCTAssertTrue(RecordingFolder.hasActiveRecording(in: root))
+        XCTAssertFalse(RecordingFolder.hasActiveRecording(in: root, now: Date().addingTimeInterval(120)))
+        var finished = meta
+        finished.status = .transcribing
+        try RecordingFolder.write(finished, in: folder)
+        XCTAssertFalse(RecordingFolder.hasActiveRecording(in: root))
+    }
 }

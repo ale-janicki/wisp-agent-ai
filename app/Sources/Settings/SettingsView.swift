@@ -557,13 +557,16 @@ private struct MeetingsMoveRow: View {
 
     var body: some View {
         if model.pendingMeetings > 0 || model.meetingsMove != .idle {
-            SettingsRow(title: "Mover reuniões", detail: detail) {
-                if case .moving = model.meetingsMove {
-                    ProgressView().controlSize(.small)
-                } else {
-                    Button("Mover reuniões") { model.moveMeetings() }
-                        .buttonStyle(CapsuleButtonStyle(kind: .ghost))
-                        .disabled(model.pendingMeetings == 0)
+            TimelineView(.periodic(from: .now, by: 2)) { _ in
+                let recording = model.recordingActive()
+                SettingsRow(title: "Mover reuniões", detail: recording ? "Espere a gravação terminar para mover." : detail) {
+                    if case .moving = model.meetingsMove {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Button("Mover reuniões") { model.moveMeetings() }
+                            .buttonStyle(CapsuleButtonStyle(kind: .ghost))
+                            .disabled(model.pendingMeetings == 0 || recording)
+                    }
                 }
             }
         }
