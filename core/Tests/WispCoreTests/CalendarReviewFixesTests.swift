@@ -445,6 +445,52 @@ final class SeriesSnapshotTests: XCTestCase {
         XCTAssertEqual(backend.created[0].recurrence?.end, .count(5))
     }
 
+    func testUndoOfDeleteAllSaysSeriesExceptionsAreNotRestored() async throws {
+        let backend = FakeCalendarBackend()
+        backend.master = counted(23)
+        let editor = CalendarEditor(backend: backend)
+        try await editor.delete(counted(25), scope: .all)
+        let result = try await editor.undo()
+        XCTAssertTrue(result?.caveat?.contains("exceções da série") == true)
+        XCTAssertFalse(result?.caveat?.contains("não consegui ler a série") == true)
+    }
+
+    func testDeleteAllWithUnreadableMasterSaysTheSeriesStartsFromThisOccurrence() async throws {
+        let backend = FakeCalendarBackend()
+        let editor = CalendarEditor(backend: backend)
+        try await editor.delete(counted(25), scope: .all)
+        _ = try await editor.undo()
+        XCTAssertEqual(backend.created[0].start, stamp(2026, 11, 25, 9))
+    }
+
+    func testUnreadableMasterCaveatIsReported() async throws {
+        let backend = FakeCalendarBackend()
+        let editor = CalendarEditor(backend: backend)
+        try await editor.delete(counted(25), scope: .all)
+        let result = try await editor.undo()
+        XCTAssertTrue(result?.caveat?.contains("recriada a partir desta ocorrência") == true)
+    }
+
+    func testUndoOfDeletingASeriesWithSeveralRulesSaysOnlyTheFirstIsRecreated() async throws {
+        let backend = FakeCalendarBackend()
+        var event = counted(25)
+        event.recurrenceRuleCount = 2
+        backend.master = event
+        let editor = CalendarEditor(backend: backend)
+        try await editor.delete(event, scope: .all)
+        let all = try await editor.undo()
+        XCTAssertTrue(all?.caveat?.contains("mais de uma regra") == true)
+        try await editor.delete(event, scope: .thisAndFuture)
+        let future = try await editor.undo()
+        XCTAssertTrue(future?.caveat?.contains("mais de uma regra") == true)
+        try await editor.delete(event, scope: .thisOnly)
+        let single = try await editor.undo()
+        XCTAssertFalse(single?.caveat?.contains("mais de uma regra") == true)
+        try await editor.delete(counted(25), scope: .thisAndFuture)
+        let one = try await editor.undo()
+        XCTAssertFalse(one?.caveat?.contains("mais de uma regra") == true)
+    }
+
     func testDeletingThisAndFutureWithACountAdmitsTheCountRestarts() async throws {
         let backend = FakeCalendarBackend()
         let editor = CalendarEditor(backend: backend)

@@ -12,6 +12,7 @@ Entries are in descending chronological order (newest first).
 ### Fixed
 
 - Drawings: the drawing file name in the save-timeout log is now private, and a deleted text element whose text has a blank line keeps its earlier paragraphs as stray text (documented and tested).
+- Agenda undo of a delete is honest about what it cannot restore: undoing "todos" says that series exceptions (edited or deleted single occurrences) are not restored, says so when the original series could not be read and was recreated from the clicked occurrence, and warns when the series had more than one recurrence rule (only the first is recreated).
 - Brain index hardening: the index folder is now private (0700) and the database and its `-wal`/`-shm` files 0600, since they hold a plain-text copy of the notes. The first `brain_search` on a large brain stops indexing after 45 s and answers from the partial index with a note that it is still being built, instead of hitting the tool timeout. An invalid `recall_tokens` (not an integer >= 0) or `brain_log_markers` (not a list of strings) in `wisp.json` now falls back to the default with a warning instead of silently disabling recall.
 
 ### Added

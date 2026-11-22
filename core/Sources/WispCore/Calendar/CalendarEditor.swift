@@ -87,7 +87,17 @@ public actor CalendarEditor {
         guard event.writable else { throw CalendarEditorError.readOnly(event.title) }
         let scope = RecurrenceScope.resolved(requested, for: event)
         var snapshot = EventDraft(event)
-        if scope == .all, event.isRecurring, let master = try? await backend.event(ref: EventRef(id: event.id)) { snapshot = EventDraft(master) }
+        var masterMissing = false
+        var ruleCount = event.recurrenceRuleCount
+        if scope == .all, event.isRecurring {
+            do {
+                let master = try await backend.event(ref: EventRef(id: event.id))
+                snapshot = EventDraft(master)
+                ruleCount = max(ruleCount, master.recurrenceRuleCount)
+            } catch {
+                masterMissing = true
+            }
+        }
         var caveats: [String] = []
         if event.isRecurring {
             switch scope {
@@ -98,8 +108,12 @@ public actor CalendarEditor {
                 caveats.append("a série futura foi recriada como uma série nova")
                 if case .count? = event.recurrence?.end { caveats.append("o número de repetições recomeça a contar desta ocorrência") }
             case .all:
-                caveats.append("a série foi recriada como uma série nova")
+                caveats.append("a série foi recriada como uma série nova; as exceções da série (ocorrências editadas ou apagadas) não são restauradas")
+                if masterMissing { caveats.append("não consegui ler a série original, então ela será recriada a partir desta ocorrência") }
             }
+        }
+        if event.isRecurring, scope != .thisOnly, ruleCount > 1 {
+            caveats.append("a série tinha mais de uma regra de repetição e só a primeira é recriada")
         }
         if event.attendees.contains(where: { !$0.isMe }) {
             caveats.append("os convidados não são restaurados e os cancelamentos já enviados não são desfeitos")
