@@ -207,13 +207,20 @@ struct SettingsView: View {
             ) { settings.setClipboardCapture($0) }
             Divider().overlay(Theme.stroke)
             PathRow(title: "Pasta do Wisp", key: .wispDir)
-            Text("Trocar o caminho não move nada: aponta o Wisp para outra pasta.")
-                .font(Theme.Font.caption)
-                .foregroundStyle(Theme.textSecondary)
-            VStack(alignment: .leading, spacing: Theme.Space.xs) {
-                ForEach(WispFolder.contents, id: \.name) { entry in
-                    Text("\(entry.name): \(entry.detail)")
+            DisclosureGroup("O que tem dentro") {
+                Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: Theme.Space.m, verticalSpacing: Theme.Space.xs) {
+                    ForEach(WispFolder.contents, id: \.name) { entry in
+                        GridRow {
+                            Text(entry.name)
+                                .font(.system(.caption, design: .monospaced))
+                            Text(entry.detail)
+                                .font(Theme.Font.caption)
+                        }
+                        .foregroundStyle(Theme.textSecondary)
+                    }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.top, Theme.Space.xs)
             }
             .font(Theme.Font.caption)
             .foregroundStyle(Theme.textSecondary)
@@ -725,6 +732,7 @@ private struct PathRow: View {
                     Button("Trocar…") { model.choose(key) }
                         .buttonStyle(CapsuleButtonStyle(kind: .ghost))
                         .disabled(model.busy)
+                        .help("Trocar o caminho não move nada: aponta o Wisp para outra pasta.")
                     Button("Mostrar no Finder") { model.reveal(key) }
                         .buttonStyle(CapsuleButtonStyle(kind: .ghost))
                         .disabled(!FileManager.default.fileExists(atPath: model.url(key).path))

@@ -17,6 +17,7 @@ Entries are in descending chronological order (newest first).
 - Meetings: attendees and the people, projects and clients named in the summary become `[[wikilinks]]` only when the brain index finds exactly one existing note by title, alias or file name; no match or more than one match stays plain text, and no note is ever created for a link.
 - Meetings: the "Salvar no brain" button now runs the same sync instead of copying the note, and reads "Abrir no brain" once the synced note exists.
 - Meetings: new setting "Gerar resumo logo após a chamada" in Ajustes > Geral > Reuniões and on the Reuniões tab (on by default). Off writes the brain note with participants and the transcript link right away and the finished meeting shows "Gerar resumo", which fills the same brain note.
+- Ajustes > Geral > "Pasta do Wisp" is one compact row: the "Trocar o caminho não move nada" note moved into the "Trocar…" tooltip and the list of what is inside the folder sits behind a closed "O que tem dentro" disclosure.
 
 ### Changed
 
