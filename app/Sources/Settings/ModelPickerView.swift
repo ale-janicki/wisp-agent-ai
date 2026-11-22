@@ -89,7 +89,11 @@ struct ModelPickerCard: View {
                     .buttonStyle(CapsuleButtonStyle(kind: .ghost))
                 }
             } else {
-                ProgressView().controlSize(.small)
+                VStack(spacing: Theme.Space.s) {
+                    ForEach(0..<3, id: \.self) { _ in
+                        Skeleton(cornerRadius: Theme.Radius.bubble).frame(height: 56)
+                    }
+                }
             }
         }
     }

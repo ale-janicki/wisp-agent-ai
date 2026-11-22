@@ -64,6 +64,8 @@ final class CalendarModel {
     @ObservationIgnored private let log = Logger(subsystem: AppIdentity.bundleID, category: "calendar")
     @ObservationIgnored private var loadedChunks = Set<Int>()
     @ObservationIgnored private var loadingChunks = Set<Int>()
+    @ObservationIgnored private var settledChunks = Set<Int>()
+    @ObservationIgnored private var failedChunks = Set<Int>()
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private var watcher: Task<Void, Never>?
     @ObservationIgnored private var settle: Task<Void, Never>?
@@ -103,6 +105,13 @@ final class CalendarModel {
         _ = revision
         let visible = visibleCalendarIDs
         return index.events(onDay: day).filter { visible.contains($0.calendarID) || calendars.isEmpty }
+    }
+
+    func isPending(day: Int) -> Bool {
+        _ = revision
+        _ = loading
+        let chunk = Self.chunk(of: day)
+        return access == .granted && !settledChunks.contains(chunk) && !failedChunks.contains(chunk)
     }
 
     func start() {
@@ -298,8 +307,12 @@ final class CalendarModel {
                 if let found {
                     self.index.replace(range: lower..<upper, with: found)
                     self.loadedChunks.formUnion(group)
+                    self.settledChunks.formUnion(group)
+                    self.failedChunks.subtract(group)
                     self.revision += 1
                 } else {
+                    self.failedChunks.formUnion(group)
+                    self.revision += 1
                     self.message = "Não consegui ler a agenda."
                 }
                 self.loading = !self.loadingChunks.isEmpty
