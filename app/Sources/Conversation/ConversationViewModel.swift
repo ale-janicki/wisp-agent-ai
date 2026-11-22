@@ -104,7 +104,7 @@ final class ConversationViewModel {
     }
 
     var sections: ConversationSections {
-        TelegramTopics.sections(records: records, topics: telegram.loadedTopics, order: AppSettings.shared.settings.telegramOrder)
+        TelegramTopics.sections(allRecords: records, topics: telegram.loadedTopics, order: AppSettings.shared.settings.telegramOrder)
     }
 
     // MARK: Last-message preview
@@ -312,12 +312,29 @@ final class ConversationViewModel {
         if record.id == currentId { newConversation() }
     }
 
+    var currentClosed: Bool { records.first { $0.id == currentId }?.isClosed ?? false }
+
+    func reopen(_ record: ConversationRecord) {
+        do {
+            try store.reopen(id: record.id)
+        } catch {
+            log.error("conversation reopen failed: \(error.localizedDescription, privacy: .public)")
+            current.appendSystem("não consegui reabrir a conversa: \(error.localizedDescription)")
+            return
+        }
+        records = store.all()
+    }
+
+    func reopenCurrent() {
+        if let record = records.first(where: { $0.id == currentId }) { reopen(record) }
+    }
+
     func open(_ record: ConversationRecord) {
         if let existing = runtime(id: record.id, sessionId: record.sessionId) {
             activate(existing)
             return
         }
-        if let topic = TelegramTopics.topic(forSession: record.sessionId, conversation: record.id, in: telegram.loadedTopics) {
+        if !record.isClosed, let topic = TelegramTopics.topic(forSession: record.sessionId, conversation: record.id, in: telegram.loadedTopics) {
             openLinked(topic: topic, title: record.title, id: record.id)
             return
         }
@@ -395,6 +412,11 @@ final class ConversationViewModel {
     func setRateLimit(_ value: RateLimit?) { rateLimit = value }
 
     func save(_ record: ConversationRecord) throws {
+        var record = record
+        if let existing = store.all().first(where: { $0.id == record.id }) {
+            record.closedAt = existing.closedAt
+            record.closedFrom = existing.closedFrom
+        }
         try store.upsert(record)
         records = store.all()
     }
@@ -402,6 +424,7 @@ final class ConversationViewModel {
     // MARK: Telegram
 
     func refreshTelegram() async {
+        records = store.all()
         await telegram.refresh()
         fillPreviews()
         shell?.notices.topicsLoaded(telegram.loadedTopics, following: linkedThread, records: records, statusPrefix: profile.agent.statusPrefix)
@@ -422,6 +445,7 @@ final class ConversationViewModel {
         Task { [weak self] in
             guard let self else { return }
             await self.telegram.close(thread: thread)
+            self.records = self.store.all()
             self.syncFollowing()
         }
     }

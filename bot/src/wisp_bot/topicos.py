@@ -297,6 +297,16 @@ def abertos() -> list[dict]:
     return out
 
 
+def encerrados() -> list[dict]:
+    out = []
+    sessoes = _ler_sessoes()
+    for p in sorted(DIR.glob("topico-*.md")) if DIR.is_dir() else []:
+        d = _fm(_ler(p))
+        if d.get("status") == "encerrado" and d.get("topic_key"):
+            out.append(_com_sessao(d, d["topic_key"], sessoes))
+    return out
+
+
 # ---- brain-sync: pull antes de ler, push (agrupado) depois de escrever ----
 
 SYNC = _CFG.brain_sync_cmd     # argv; None = sem sync (brain so local): pull/push sao no-op
