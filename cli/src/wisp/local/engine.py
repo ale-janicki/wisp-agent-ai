@@ -31,7 +31,8 @@ FILES_KEY = "conteúdo dos arquivos que o comando executa"
 QUERY_FREE_CHARS = 120
 LEAVES_TURN_CLEAN = frozenset({"web_search", "list_files", "write_file"})
 PRIVATE_MARK = ".private"
-LEAKY_URL_FIELDS = ("url", "busca")
+LEAKY_FIELDS = {"mac_open_url": ("url", "busca", "site", "navegador"), "mac_open": ("alvo",)}
+URL_LIKE = re.compile(r"^(?:[a-z][a-z0-9+.-]*://|mailto:|[\w-]+(?:\.[\w-]+)+(?:[/?#:]|$))", re.I)
 log = logging.getLogger(__name__)
 URL = re.compile(r"https?://[^\s<>\"']+")
 URL_TAIL = ".,;:!?)]}"
@@ -132,12 +133,33 @@ def system_prompt(folder: Path, tier: guardrails.Tier, tools: list[str], today: 
     return "\n\n".join(part for part in (agent, f"Skills:\n{skills}" if skills else "", limits) if part)
 
 
+def leaks(name: str, session: Session, arguments: dict) -> bool:
+    fields = LEAKY_FIELDS.get(name)
+    if not fields:
+        return False
+    if session.private:
+        return True
+    for field_name in fields:
+        value = arguments.get(field_name)
+        if value is None:
+            continue
+        if not isinstance(value, str) or len(value) > QUERY_FREE_CHARS:
+            return True
+        if name == "mac_open" and URL_LIKE.match(value.strip()) and not Path(os.path.expanduser(value.strip())).exists():
+            return True
+    return False
+
+
 def history_from(path: Path) -> list[dict]:
     return [
         {"role": e["kind"], "content": e["text"]}
         for e in transcript.read_entries(path)
         if e["kind"] in ("user", "assistant") and isinstance(e.get("text"), str) and e["text"].strip()
     ]
+
+
+def read_private_tool(messages: list[dict]) -> bool:
+    return any(m.get("role") == "tool" and m.get("tool_name") not in LEAVES_TURN_CLEAN for m in messages)
 
 
 class LocalEngine:
@@ -190,7 +212,11 @@ class LocalEngine:
         path = self.folder / "conversas" / f"{conversation}.jsonl"
         if not transcript.ID.match(conversation) or not path.is_file():
             raise EngineError(f"não achei a conversa {conversation} em conversas/")
-        return Session(conversation, self._model(model), self._mode(mode), history_from(path), self._mark_path(conversation).exists())
+        history = history_from(path)
+        session = Session(conversation, self._model(model), self._mode(mode), history, self._mark_path(conversation).exists())
+        if not session.private and read_private_tool(history):
+            self._mark_private(session)
+        return session
 
     def _mark_path(self, conversation: str) -> Path:
         if not transcript.ID.match(conversation):
@@ -367,8 +393,7 @@ class LocalEngine:
         unvouched = name == "web_fetch" and not (isinstance(url, str) and url in host.trusted_urls)
         query = arguments.get("query")
         leaky = name == "web_search" and (session.private or not isinstance(query, str) or len(query) > QUERY_FREE_CHARS)
-        leaky = leaky or (name == "mac_open_url" and (session.private or any(
-            arguments.get(f) is not None and (not isinstance(arguments[f], str) or len(arguments[f]) > QUERY_FREE_CHARS) for f in LEAKY_URL_FIELDS)))
+        leaky = leaky or leaks(name, session, arguments)
         if scripted or unvouched or leaky or guardrails.needs_card(rails, guard.tier, session.mode, name):
             shown = dict(arguments)
             if name == "run_shell":
