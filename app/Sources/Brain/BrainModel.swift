@@ -133,6 +133,8 @@ final class BrainModel {
 
     @ObservationIgnored private var treeIndex = BrainTree.Index(entries: [])
     @ObservationIgnored private var watcher: BrainWatcher?
+    @ObservationIgnored private var recoveryLedger = BrainRecoveryLedger()
+    @ObservationIgnored private lazy var quitRegistration = BrainQuitRegistration { [weak self] in self?.flushForQuit() }
     @ObservationIgnored private var saveTasks: [UUID: Task<Void, Never>] = [:]
     @ObservationIgnored private var rescanTask: Task<Void, Never>?
     @ObservationIgnored private var searchTask: Task<Void, Never>?
@@ -177,6 +179,7 @@ final class BrainModel {
         watcher?.stop()
         watcher = nil
         rescanTask?.cancel()
+        quitRegistration.update(hasOpenNotes: false)
     }
 
     private func scan(restoring: Bool = false) {
@@ -383,6 +386,11 @@ final class BrainModel {
         guard let root else { return }
         UserDefaults.standard.set(tabs.map(\.path), forKey: "brain.tabs.\(root)")
         UserDefaults.standard.set(active?.path, forKey: "brain.active.\(root)")
+        updateQuitRegistration()
+    }
+
+    private func updateQuitRegistration() {
+        quitRegistration.update(hasOpenNotes: tabs.contains { $0.kind == .note })
     }
 
     private func restoreTabs() {
@@ -397,6 +405,7 @@ final class BrainModel {
         }
         activeID = tabs.first { $0.path == activePath }?.id ?? tabs.first?.id
         if let path = active?.path { reveal(path) }
+        updateQuitRegistration()
     }
 
     func resolve(_ link: BrainWikiLink, from source: String) -> String? {
@@ -476,7 +485,9 @@ final class BrainModel {
         flush()
         var lost: [String] = []
         for tab in tabs where tab.kind == .note && tab.dirty && tab.readOnly == nil {
+            guard recoveryLedger.shouldCopy(tab.path, text: tab.text) else { continue }
             if BrainRecovery.save(tab.text, named: tab.path, in: recoveryFolder) == nil {
+                recoveryLedger.forget(tab.path)
                 lost.append(tab.path)
                 log.error("quit: could not keep a recovery copy of \(tab.path, privacy: .public)")
             }
