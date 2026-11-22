@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import re
 import uuid
@@ -30,6 +31,8 @@ FILES_KEY = "conteúdo dos arquivos que o comando executa"
 QUERY_FREE_CHARS = 120
 LEAVES_TURN_CLEAN = frozenset({"web_search", "list_files", "write_file"})
 PRIVATE_MARK = ".private"
+LEAKY_URL_FIELDS = ("url", "busca")
+log = logging.getLogger(__name__)
 URL = re.compile(r"https?://[^\s<>\"']+")
 URL_TAIL = ".,;:!?)]}"
 SKILL_HEADER = re.compile(r"^(name|description):\s*(.+)$", re.MULTILINE)
@@ -173,8 +176,13 @@ class LocalEngine:
 
     def start(self, conversation: str | None = None, model: str | None = None, mode: str = "default") -> Session:
         guardrails.load(self.folder)
+        if conversation is not None and not transcript.ID.match(conversation):
+            raise EngineError(f"identificador de conversa inválido: {conversation!r}")
         session = Session(conversation or str(uuid.uuid4()), self._model(model), self._mode(mode))
-        self._mark_path(session.conversation).unlink(missing_ok=True)
+        if conversation is None:
+            self._mark_path(session.conversation).unlink(missing_ok=True)
+        else:
+            session.private = self._mark_path(conversation).exists()
         return session
 
     def resume(self, conversation: str, model: str | None = None, mode: str = "default") -> Session:
@@ -185,6 +193,8 @@ class LocalEngine:
         return Session(conversation, self._model(model), self._mode(mode), history_from(path), self._mark_path(conversation).exists())
 
     def _mark_path(self, conversation: str) -> Path:
+        if not transcript.ID.match(conversation):
+            raise EngineError(f"identificador de conversa inválido: {conversation!r}")
         return self.folder / "conversas" / f"{conversation}{PRIVATE_MARK}"
 
     def _mark_private(self, session: Session) -> None:
@@ -195,8 +205,8 @@ class LocalEngine:
         try:
             path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
             os.close(os.open(path, os.O_WRONLY | os.O_CREAT, 0o600))
-        except OSError:
-            pass
+        except OSError as e:
+            log.warning("não consegui gravar a marca de conversa privada (%s); esta sessão segue privada só na memória", e)
 
     @staticmethod
     def _mode(mode: str) -> str:
@@ -357,6 +367,8 @@ class LocalEngine:
         unvouched = name == "web_fetch" and not (isinstance(url, str) and url in host.trusted_urls)
         query = arguments.get("query")
         leaky = name == "web_search" and (session.private or not isinstance(query, str) or len(query) > QUERY_FREE_CHARS)
+        leaky = leaky or (name == "mac_open_url" and (session.private or any(
+            arguments.get(f) is not None and (not isinstance(arguments[f], str) or len(arguments[f]) > QUERY_FREE_CHARS) for f in LEAKY_URL_FIELDS)))
         if scripted or unvouched or leaky or guardrails.needs_card(rails, guard.tier, session.mode, name):
             shown = dict(arguments)
             if name == "run_shell":
