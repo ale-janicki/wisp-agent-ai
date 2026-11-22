@@ -111,10 +111,13 @@ def _folder_migrate(args: argparse.Namespace) -> int:
 def _harness_and_codex(cfg: WispConfig, dry_run: bool) -> StepReport:
     paths = WispPaths.current()
     report = setup_harness(SubprocessRunner(), paths, cfg, dry_run=dry_run)
-    if report.status == "failed":
+    managed = report.status == "failed" and report.data.get("harness") == "managed_elsewhere"
+    if report.status == "failed" and not managed:
         return report
     synced = sync_codex(paths, cfg, dry_run=dry_run)
     report.details += synced.details
+    if managed and synced.state == "failed":
+        report.summary = "o Codex não sincronizou"
     if synced.state != "skipped":
         report.data["codex"] = synced.state
     return report
@@ -136,7 +139,7 @@ MANAGED_NOTE = "o harness é gerenciado fora do Wisp, então ele não foi altera
 
 
 def _managed_elsewhere(report: StepReport) -> bool:
-    return report.status == "failed" and report.data.get("harness") == "managed_elsewhere"
+    return report.status == "failed" and report.data.get("harness") == "managed_elsewhere" and report.data.get("codex") != "failed"
 
 
 def _set_engine(cfg: WispConfig, engine: str) -> StepReport:
@@ -148,9 +151,9 @@ def _set_engine(cfg: WispConfig, engine: str) -> StepReport:
     if engine != "local":
         stop_server()
     synced = _harness_and_codex(cfg, False)
-    data = {"key": "engine", "engine": engine, "sync": synced.status}
+    data = {"key": "engine", "engine": engine, "sync": synced.status, **synced.data}
     if _managed_elsewhere(synced):
-        return StepReport("config", "done", f"motor salvo; {MANAGED_NOTE}", data={**data, "harness": "managed_elsewhere"})
+        return StepReport("config", "done", f"motor salvo; {MANAGED_NOTE}", synced.details, data)
     if synced.status == "failed":
         return StepReport("config", "failed", f"motor salvo, mas o harness não sincronizou: {synced.summary}", synced.details, data)
     return StepReport("config", "done", "motor salvo", synced.details, data)
@@ -179,9 +182,9 @@ def _config_set(args: argparse.Namespace) -> int:
         if report.status == "failed":
             return report
         synced = _harness_and_codex(cfg, False)
-        data = {"key": args.key, "path": str(target), "sync": synced.status}
+        data = {"key": args.key, "path": str(target), "sync": synced.status, **synced.data}
         if _managed_elsewhere(synced):
-            return StepReport("config", "done", f"caminho salvo; {MANAGED_NOTE}", data={**data, "harness": "managed_elsewhere"})
+            return StepReport("config", "done", f"caminho salvo; {MANAGED_NOTE}", synced.details, data)
         if synced.status == "failed":
             return StepReport("config", "failed", f"caminho salvo, mas o harness não sincronizou: {synced.summary}", synced.details, data)
         return StepReport("config", "done", "caminho salvo", synced.details, data)
