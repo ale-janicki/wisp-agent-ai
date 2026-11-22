@@ -7,17 +7,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var setup: SetupWindowController?
     private let runtime = RuntimeInstaller()
     private var brainColher: BrainColherService?
+    private var terminationSignal: DispatchSourceSignal?
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard !QuitFlush.shared.isEmpty else { return .terminateNow }
         Task { @MainActor in
-            await QuitFlush.shared.flushAll(timeout: .seconds(3))
+            await QuitFlush.shared.flushAll(timeout: QuitDeadline.flushTimeout)
             NSApp.reply(toApplicationShouldTerminate: true)
         }
         return .terminateLater
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        BrainModel.shared.flushForQuit()
         runtime.cancel()
         brainColher?.stop()
         shell?.meetings.stopForQuit()
@@ -26,6 +28,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        TerminationSignal.routeToHandler()
+        let source = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
+        source.setEventHandler {
+            DispatchQueue.global().asyncAfter(deadline: .now() + QuitDeadline.sigtermFallbackSeconds) { exit(0) }
+            NSApp.terminate(nil)
+        }
+        source.resume()
+        terminationSignal = source
         NSApp.setActivationPolicy(.accessory)
         #if DEBUG
         if ArtRenderer.isRequested(ProcessInfo.processInfo.arguments) {

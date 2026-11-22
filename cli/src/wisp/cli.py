@@ -462,6 +462,10 @@ def build_parser() -> argparse.ArgumentParser:
     colher.add_argument("--if-due", action="store_true")
     colher.add_argument("--dry-run", action="store_true")
     colher.add_argument("--json", action="store_true")
+    search = brain_steps.add_parser("search")
+    search.add_argument("query")
+    search.add_argument("--root")
+    search.add_argument("--limit", type=int, default=20)
     add_arquivos_parser(sub)
     add_mac_parser(sub)
     add_agenda_parser(sub)
@@ -505,6 +509,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _config_set(args)
     if args.command == "hook":
         return _hook(args)
+    if args.command == "brain" and args.brain_action == "search":
+        from wisp.brain_cli import run_search
+
+        return run_search(args.query, args.root, args.limit, _load_config_or_default()[0], WispPaths.current())
     if args.command == "brain":
         return _brain_colher(args)
     if args.command == "email":

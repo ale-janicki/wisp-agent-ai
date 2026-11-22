@@ -21,7 +21,6 @@ final class MemoryModel {
 
     private(set) var recents: Recents = .loading
     private(set) var search: Search = .idle
-    private(set) var openError: String?
 
     @ObservationIgnored private var searchGeneration = 0
     @ObservationIgnored private var recentsGeneration = 0
@@ -61,14 +60,6 @@ final class MemoryModel {
             search = .loaded(query: trimmed, hits: MemorySearch.ranked(MemorySearch.parse(data, root: root), query: trimmed))
         case .failure(let error):
             search = .failed("Não consegui buscar nas notas: \(error.localizedDescription)")
-        }
-    }
-
-    func open(_ path: String, root: String) {
-        openError = nil
-        guard let url = MemorySearch.obsidianURL(root: root, path: path), NSWorkspace.shared.open(url) else {
-            openError = "Não consegui abrir a nota no Obsidian; confira se ele está instalado."
-            return
         }
     }
 }
