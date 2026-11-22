@@ -707,4 +707,14 @@ final class MeetingCaptureTests: XCTestCase {
         try RecordingFolder.write(finished, in: folder)
         XCTAssertFalse(RecordingFolder.hasActiveRecording(in: root))
     }
+
+    func testAFolderNotTouchedInTheLastMinuteIsNotEvenRead() throws {
+        let folder = try RecordingFolder.create(root: root, date: t0, timeZone: utc)
+        try RecordingFolder.write(RecordingMeta(startedAt: t0, devices: .init(mic: nil, system: nil), status: .recording), in: folder)
+        let old = Date().addingTimeInterval(-600)
+        for url in [folder, RecordingFolder.metaURL(in: folder)] {
+            try FileManager.default.setAttributes([.modificationDate: old], ofItemAtPath: url.path)
+        }
+        XCTAssertFalse(RecordingFolder.hasActiveRecording(in: root))
+    }
 }
