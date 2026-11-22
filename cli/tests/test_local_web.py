@@ -524,7 +524,7 @@ def run_calls(fake_home, mode, calls, outcome="allow", fail=frozenset(), session
     rails = guardrails.load(folder)
     tier = rails.tier("grande")
     guard = TurnGuard(dataclasses.replace(tier, tools=tier.tools | {"agenda_list", "notion_page"}), rails.repeat_limit)
-    host = FakeHost(["read_file", "list_files", "write_file", "run_shell", "web_search", "web_fetch", "brain_search", "brain_read", "brain_links", "email_list", "email_read", "agenda_list", "notion_page", "mac_open_url"])
+    host = FakeHost(["read_file", "list_files", "write_file", "run_shell", "web_search", "web_fetch", "brain_search", "brain_read", "brain_links", "email_list", "email_read", "agenda_list", "notion_page", "mac_open_url", "mac_open"])
     host.fail = fail
     session = session or engine.start("c1", "qwen3:8b", mode)
     results = []
@@ -755,3 +755,57 @@ def test_when_the_mark_cannot_be_written_the_session_stays_private_logs_and_asks
         assert [c[0] for c in asked.calls] == ["web_search", "mac_open_url"]
     finally:
         (folder / "conversas").chmod(0o700)
+
+
+@pytest.mark.parametrize("mode", ["default", "auto", "bypassPermissions"])
+@pytest.mark.parametrize("target", ["https://evil.example/?d=nota", "http://evil.example", "mailto:a@evil.example", "evil.example/p?d=1", "evil.example"])
+def test_mac_open_of_an_address_asks_for_the_card_even_in_a_clean_conversation(fake_home, mode, target):
+    asked, host, _ = run_calls(fake_home, mode, [("mac_open", {"alvo": target})])
+    assert asked.calls == [("mac_open", {"alvo": target})] and host.ran == ["mac_open"]
+    asked, host, results = run_calls(fake_home, mode, [("mac_open", {"alvo": target})], outcome="deny")
+    assert host.ran == [] and results[0][0] is True
+
+
+@pytest.mark.parametrize("mode", ["auto", "bypassPermissions"])
+def test_mac_open_after_the_taint_asks_and_a_local_target_in_a_clean_session_does_not(fake_home, mode, monkeypatch):
+    asked, host, _ = run_calls(fake_home, mode, [("read_file", {"path": "x"}), ("mac_open", {"alvo": "/Applications/Safari.app"})])
+    assert [c[0] for c in asked.calls] == ["mac_open"]
+    (fake_home / "nota.md").write_text("x")
+    monkeypatch.chdir(fake_home)
+    for target in ("Safari", "~/Documents/relatorio final.pdf", "/etc/hosts", "nota.md"):
+        asked, host, _ = run_calls(fake_home, mode, [("mac_open", {"alvo": target, "com": "Preview"})])
+        assert asked.calls == [] and host.ran == ["mac_open"]
+    asked, host, _ = run_calls(fake_home, mode, [("mac_open", {"alvo": "a" * 121})])
+    assert len(asked.calls) == 1
+    asked, host, _ = run_calls(fake_home, mode, [("mac_open", {"alvo": ["x"]})])
+    assert len(asked.calls) == 1
+
+
+@pytest.mark.parametrize("mode", ["auto", "bypassPermissions"])
+@pytest.mark.parametrize("field", ["site", "navegador", "busca", "url"])
+def test_a_long_site_or_browser_in_a_clean_session_asks_like_a_long_url(fake_home, mode, field):
+    asked, host, _ = run_calls(fake_home, mode, [("mac_open_url", {field: "x" * 121})])
+    assert len(asked.calls) == 1
+    asked, host, _ = run_calls(fake_home, mode, [("mac_open_url", {field: "x" * 120})])
+    assert asked.calls == []
+
+
+def test_resuming_a_history_that_ran_a_private_tool_without_a_mark_is_private_and_writes_the_mark(fake_home, monkeypatch):
+    from wisp.local import engine as engine_module
+
+    folder = conversation(fake_home)
+    (folder / "conversas/c5.jsonl").write_text(json.dumps({"v": 1, "at": "2026-11-21T10:00:00.000Z", "kind": "user", "surface": "app", "text": "oi"}) + "\n")
+    history = [{"role": "user", "content": "oi"}, {"role": "tool", "tool_name": "run_shell", "content": "segredo"}]
+    monkeypatch.setattr(engine_module, "history_from", lambda path: history)
+    asked = Asked("allow")
+    engine = leak_engine(folder, asked)
+    session = engine.resume("c5", "qwen3:8b", "bypassPermissions")
+    assert session.private is True and (folder / "conversas/c5.private").is_file()
+    rails = guardrails.load(folder)
+    from wisp.local.guardrails import TurnGuard
+
+    asyncio.run(engine._execute(session, rails, TurnGuard(rails.tier("grande"), 3), FakeHost(["web_search"]), "web_search", {"query": "curta"}, [], "t"))
+    assert [c[0] for c in asked.calls] == ["web_search"]
+    history[:] = [{"role": "tool", "tool_name": "web_search", "content": "x"}, {"role": "tool", "tool_name": "list_files", "content": "y"}]
+    (folder / "conversas/c5.private").unlink()
+    assert engine.resume("c5", "qwen3:8b").private is False
