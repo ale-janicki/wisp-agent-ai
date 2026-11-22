@@ -102,6 +102,8 @@ public struct MeetingPipeline: Sendable {
     }
 
     private func writeNote(folder: URL, document: MeetingTranscriptDocument, meta: RecordingMeta) async throws {
+        let metrics = MeetingMetricsCalculator.compute(document.segments, elapsed: document.durationSeconds).metrics
+        _ = try RecordingFolder.update(in: folder) { $0.metrics = metrics }
         var outcome: NoteOutcome
         do {
             outcome = try await notes.writeNote(folder: folder)
