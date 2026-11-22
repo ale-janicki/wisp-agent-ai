@@ -109,7 +109,7 @@ public final class AXMacDriver: MacDriver {
         try walk(app, max: max, depth: depth).map(\.0)
     }
 
-    public func pressElement(app: String?, max: Int, depth: Int, at index: Int, expect: MacElement, block: String?) throws {
+    public func pressElement(app: String?, max: Int, depth: Int, at index: Int, expect: MacElement, block: String?, strict: Bool) throws {
         let nodes = try walk(app, max: max, depth: depth)
         guard index < nodes.count else { throw MacError("o elemento mudou de lugar; leia a árvore de novo") }
         let current = nodes[index].0
@@ -118,6 +118,10 @@ public final class AXMacDriver: MacDriver {
         }
         let chain = MacSafety.ancestors(of: index, in: nodes.map(\.0))
         if MacSafety.blocks(current, ancestors: chain, pattern: block) { throw MacError(MacRefusal.sendButton(current.label), exitCode: MacError.blocked) }
+        let elements = nodes.map(\.0)
+        if MacSafety.requiresCard(current, ancestors: chain, strict: strict, lineage: MacSafety.lineage(of: index, in: elements)) {
+            throw MacError(MacRefusal.sendButton(current.label), exitCode: MacError.blocked)
+        }
         if AXUIElementPerformAction(nodes[index].1, "AXPress" as CFString) == .success { return }
         guard current.width > 0 else { throw MacError("não consegui clicar nesse elemento") }
         try clickPoint(x: current.centerX, y: current.centerY)
