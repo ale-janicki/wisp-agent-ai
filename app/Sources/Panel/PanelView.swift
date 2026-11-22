@@ -9,6 +9,7 @@ struct PanelView: View {
     @State private var draft = ""
     @State private var listShown: Bool
     @State private var settingsTab: PanelTab?
+    @State private var navCovered = false
 
     #if DEBUG
     nonisolated(unsafe) static var snapshotNav = false
@@ -38,15 +39,22 @@ struct PanelView: View {
             } else {
                 HStack(alignment: .top, spacing: 0) {
                     leftColumn
-                        .frame(width: Theme.Layout.sidebarWidth - padding)
+                        .frame(width: navCovered ? 0 : Theme.Layout.sidebarWidth - padding)
                         .clipped()
+                        .allowsHitTesting(!navCovered)
                     content
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 }
             }
         }
         .environment(\.openTabSettings) { settingsTab = $0 }
-        .onChange(of: controller.tab) { _, _ in settingsTab = nil }
+        .environment(\.navCover, NavCover(isCovered: navCovered) { covered in
+            withAnimation(Self.slide) { navCovered = covered }
+        })
+        .onChange(of: controller.tab) { _, tab in
+            settingsTab = nil
+            if tab != .meetings { navCovered = false }
+        }
         .padding(.horizontal, padding)
         .padding(.bottom, padding)
     }
