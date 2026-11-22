@@ -12,8 +12,8 @@ SID = "aaaaaaaa-1111-4222-8333-bbbbbbbbbbbb"
 def _indice(tmp_path, extra=None):
     path = tmp_path / "conversations.json"
     registros = [
-        {"id": CONV.upper(), "sessionId": SID, "title": "topico-um", "updatedAt": "2026-01-01T00:00:00.000Z"},
-        {"id": OUTRA.upper(), "sessionId": None, "title": "local", "updatedAt": "2026-01-01T00:00:00.000Z"},
+        {"id": CONV.upper(), "sessionId": SID, "title": "topico-um", "updatedAt": "2023-01-01T00:00:00.000Z"},
+        {"id": OUTRA.upper(), "sessionId": None, "title": "local", "updatedAt": "2023-01-01T00:00:00.000Z"},
     ] + (extra or [])
     path.write_text(json.dumps(registros))
     return path
@@ -108,11 +108,21 @@ def test_resumo_falho_nao_marca(monkeypatch, tmp_path):
 def test_marcar_antigas_so_sessao_de_topico_encerrado_e_nao_viva(tmp_path):
     indice = _indice(tmp_path)
     encerradas = [{"session_id": SID, "session_last": "1700000000"}, {"session_id": "", "session_last": "0"}]
-    assert conversa.marcar_antigas(indice, {SID}, encerradas) == 0
-    assert conversa.marcar_antigas(indice, set(), encerradas) == 1
+    assert conversa.marcar_antigas(indice, {SID}, encerradas) == []
+    assert conversa.marcar_antigas(indice, set(), encerradas) == [CONV.upper()]
     dados = _ler(indice)
     assert dados[CONV]["closedAt"] == "2023-11-14T22:13:20Z" and "closedAt" not in dados[OUTRA]
-    assert conversa.marcar_antigas(indice, set(), encerradas) == 0
+    assert conversa.marcar_antigas(indice, set(), encerradas) == []
+
+
+def test_marcar_antigas_nao_fecha_conversa_usada_depois_do_encerramento(tmp_path):
+    indice = _indice(tmp_path)
+    registros = json.loads(indice.read_text())
+    registros[0]["updatedAt"] = "2026-01-01T00:00:00.000Z"
+    indice.write_text(json.dumps(registros))
+    depois = [{"session_id": SID, "session_last": "1700000000"}]
+    assert conversa.marcar_antigas(indice, set(), depois) == []
+    assert "closedAt" not in _ler(indice)[CONV]
 
 
 def test_encerrados_le_so_notas_encerradas(monkeypatch, tmp_path):

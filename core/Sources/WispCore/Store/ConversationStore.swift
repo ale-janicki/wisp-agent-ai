@@ -48,8 +48,10 @@ public struct ConversationRecord: Codable, Identifiable, Sendable, Equatable {
         lastFrom = try c.decodeIfPresent(PreviewSide.self, forKey: .lastFrom)
         titleGenerated = try c.decodeIfPresent(Bool.self, forKey: .titleGenerated) ?? false
         awayOnPhone = try c.decodeIfPresent(Bool.self, forKey: .awayOnPhone) ?? false
-        closedAt = try c.decodeIfPresent(Date.self, forKey: .closedAt)
-        closedFrom = try c.decodeIfPresent(String.self, forKey: .closedFrom)
+        if let at = try? c.decodeIfPresent(Date.self, forKey: .closedAt) {
+            closedAt = at
+            closedFrom = try? c.decodeIfPresent(String.self, forKey: .closedFrom)
+        }
     }
 }
 
@@ -84,24 +86,54 @@ public final class ConversationStore: @unchecked Sendable {
     public func upsert(_ record: ConversationRecord) throws {
         lock.lock()
         defer { lock.unlock() }
-        reloadIfChanged()
-        var next = records
-        if let index = next.firstIndex(where: { $0.id == record.id }) {
-            next[index] = record
-        } else {
-            next.append(record)
+        try withFileLock {
+            reloadIfChanged()
+            var next = records
+            if let index = next.firstIndex(where: { $0.id == record.id }) {
+                next[index] = record
+            } else {
+                next.append(record)
+            }
+            try persist(next)
+            records = next
         }
-        try persist(next)
-        records = next
     }
 
     public func delete(id: UUID) throws {
         lock.lock()
         defer { lock.unlock() }
-        reloadIfChanged()
-        let next = records.filter { $0.id != id }
-        try persist(next)
-        records = next
+        try withFileLock {
+            reloadIfChanged()
+            let next = records.filter { $0.id != id }
+            try persist(next)
+            records = next
+        }
+    }
+
+    public func reopen(id: UUID) throws {
+        lock.lock()
+        defer { lock.unlock() }
+        try withFileLock {
+            reloadIfChanged()
+            var next = records
+            guard let index = next.firstIndex(where: { $0.id == id }), next[index].isClosed else { return }
+            next[index].closedAt = nil
+            next[index].closedFrom = nil
+            try persist(next)
+            records = next
+        }
+    }
+
+    private var lockURL: URL { directory.appendingPathComponent("conversations.json.lock") }
+
+    private func withFileLock<T>(_ body: () throws -> T) throws -> T {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let fd = open(lockURL.path, O_RDWR | O_CREAT, 0o600)
+        guard fd >= 0 else { throw CocoaError(.fileWriteNoPermission) }
+        defer { close(fd) }
+        guard flock(fd, LOCK_EX) == 0 else { throw CocoaError(.fileWriteUnknown) }
+        defer { flock(fd, LOCK_UN) }
+        return try body()
     }
 
     private func sorted(_ list: [ConversationRecord]) -> [ConversationRecord] {
