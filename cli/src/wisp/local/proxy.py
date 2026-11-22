@@ -3,10 +3,12 @@ import hmac
 import http.client
 import json
 import os
+import shutil
 import signal
 import socket
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -18,22 +20,27 @@ IDLE_POLL = 2.0
 CHILD_WAIT = 180.0
 CHAT_PATHS = ("/v1/chat/completions", "/chat/completions")
 DROPPED_FIELDS = ("draft_model", "adapters", "adapter_path")
-DEFAULT_CHILD = [sys.executable, "-m", "mlx_lm.server", "--host", LOOPBACK, "--port", "{port}", "--model", "{model}"]
+DEFAULT_CHILD = [sys.executable, "-m", "wisp", "local", "mlx-child", "--model-dir", "{model}", "--socket", "{socket}"]
 
 
 def proof(key: str, nonce: str) -> str:
     return hmac.new(key.encode(), nonce.encode(), hashlib.sha256).hexdigest()
 
 
-def free_port() -> int:
-    with socket.socket() as probe:
-        probe.bind((LOOPBACK, 0))
-        return probe.getsockname()[1]
+class UnixConnection(http.client.HTTPConnection):
+    def __init__(self, path: str, timeout: float):
+        super().__init__("localhost", timeout=timeout)
+        self.path = path
+
+    def connect(self):
+        self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self.sock.settimeout(self.timeout)
+        self.sock.connect(self.path)
 
 
 class Gate:
-    def __init__(self, model: str, key: str, child_port: int, idle_seconds: float):
-        self.model, self.key, self.child_port, self.idle_seconds = model, key, child_port, idle_seconds
+    def __init__(self, model: str, key: str, child_path: str, idle_seconds: float):
+        self.model, self.key, self.child_path, self.idle_seconds = model, key, child_path, idle_seconds
         self.lock = threading.Lock()
         self.active = 0
         self.ready = False
@@ -112,7 +119,7 @@ def handler_for(gate: Gate):
                 gate.touch(-1)
 
         def _forward(self, body: dict) -> None:
-            upstream = http.client.HTTPConnection(LOOPBACK, gate.child_port, timeout=600)
+            upstream = UnixConnection(gate.child_path, 600)
             try:
                 upstream.request("POST", "/v1/chat/completions", json.dumps(body).encode(), {"Content-Type": "application/json"})
                 response = upstream.getresponse()
@@ -134,9 +141,9 @@ def handler_for(gate: Gate):
     return Handler
 
 
-def child_ready(port: int) -> bool:
+def child_ready(path: str) -> bool:
     try:
-        connection = http.client.HTTPConnection(LOOPBACK, port, timeout=2)
+        connection = UnixConnection(path, 2)
         connection.request("GET", "/v1/models")
         ok = connection.getresponse().status == 200
         connection.close()
@@ -154,15 +161,17 @@ def write_info(path: Path, info: dict) -> None:
 
 def serve(*, model: str, port: int, key: str, idle_minutes: float, info_path: Path, child_argv: list[str] | None = None,
           marker: str = "") -> int:
-    child_port = free_port()
-    argv = [a.format(port=child_port, model=model) for a in (child_argv or DEFAULT_CHILD)]
+    sockets = tempfile.mkdtemp(prefix="wisp-mlx-", dir="/tmp")
+    child_path = os.path.join(sockets, "child.sock")
+    argv = [a.format(socket=child_path, model=model) for a in (child_argv or DEFAULT_CHILD)]
     env = {**os.environ, "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1"}
     child = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env)
-    gate = Gate(model, key, child_port, idle_minutes * 60)
+    gate = Gate(model, key, child_path, idle_minutes * 60)
     try:
         server = ThreadingHTTPServer((LOOPBACK, port), handler_for(gate))
     except OSError:
         child.terminate()
+        shutil.rmtree(sockets, ignore_errors=True)
         return 3
     stop = threading.Event()
 
@@ -172,13 +181,13 @@ def serve(*, model: str, port: int, key: str, idle_minutes: float, info_path: Pa
     signal.signal(signal.SIGTERM, shut)
     signal.signal(signal.SIGINT, shut)
     threading.Thread(target=server.serve_forever, daemon=True).start()
-    write_info(info_path, {"pid": os.getpid(), "child": child.pid, "port": port, "child_port": child_port, "model": model,
-                           "marker": marker, "started": time.time()})
+    write_info(info_path, {"pid": os.getpid(), "child": child.pid, "port": port, "model": model,
+                           "marker": marker, "socket_dir": sockets, "started": time.time()})
     deadline = time.monotonic() + CHILD_WAIT
     while not stop.is_set():
         if child.poll() is not None:
             break
-        if not gate.ready and child_ready(child_port):
+        if not gate.ready and child_ready(child_path):
             gate.ready = True
             gate.touch(0)
         if not gate.ready and time.monotonic() > deadline:
@@ -196,4 +205,5 @@ def serve(*, model: str, port: int, key: str, idle_minutes: float, info_path: Pa
             child.kill()
             child.wait()
     info_path.unlink(missing_ok=True)
+    shutil.rmtree(sockets, ignore_errors=True)
     return 0

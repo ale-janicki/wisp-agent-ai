@@ -5,6 +5,7 @@ import json
 import os
 import re
 import secrets
+import shutil
 import signal
 import subprocess
 import sys
@@ -265,6 +266,9 @@ def stop_server(state_dir: Path | None = None) -> bool:
             _terminate(info["pid"], info["marker"])
         if isinstance(info.get("child"), int) and info.get("model"):
             _terminate(info["child"], info["model"], wait=3.0)
+        leftover = info.get("socket_dir")
+        if isinstance(leftover, str) and Path(leftover).parent == Path("/tmp") and Path(leftover).name.startswith("wisp-mlx-"):
+            shutil.rmtree(leftover, ignore_errors=True)
     for name in ("server.json", "server.key"):
         (state_dir / name).unlink(missing_ok=True)
     return had

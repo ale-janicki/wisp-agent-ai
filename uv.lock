@@ -1158,6 +1158,7 @@ source = { editable = "cli" }
 dependencies = [
     { name = "mcp" },
     { name = "mlx-lm", marker = "platform_machine == 'arm64' and sys_platform == 'darwin'" },
+    { name = "transformers", marker = "platform_machine == 'arm64' and sys_platform == 'darwin'" },
     { name = "wisp-bot" },
 ]
 
@@ -1165,6 +1166,7 @@ dependencies = [
 requires-dist = [
     { name = "mcp", specifier = "==2.3.0" },
     { name = "mlx-lm", marker = "platform_machine == 'arm64' and sys_platform == 'darwin'", specifier = "==0.32.2" },
+    { name = "transformers", marker = "platform_machine == 'arm64' and sys_platform == 'darwin'", specifier = "==5.24.0" },
     { name = "wisp-bot", editable = "bot" },
 ]
 

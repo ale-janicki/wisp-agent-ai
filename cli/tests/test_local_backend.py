@@ -1,4 +1,6 @@
 import json
+import os
+import signal
 import socket
 import stat
 import subprocess
@@ -68,7 +70,7 @@ def test_an_openai_backend_is_ready_only_with_a_reachable_server_and_a_listed_mo
         assert fake.client().readiness("m") is None
 
 
-CHILD = [sys.executable, str(Path(__file__).parent / "fixtures/fake_mlx_child.py"), "{port}", "{model}"]
+CHILD = [sys.executable, str(Path(__file__).parent / "fixtures/fake_mlx_child.py"), "{socket}", "{model}"]
 
 
 def free_port() -> int:
@@ -235,7 +237,7 @@ def test_a_stale_record_is_reaped_and_a_reused_pid_is_not_killed(mlx):
 
 
 def test_a_server_that_never_gets_ready_is_killed_on_the_timeout(mlx):
-    backend = mlx(child=[sys.executable, "-c", "import time; time.sleep(120)", "{port}", "{model}"], wait=3)
+    backend = mlx(child=[sys.executable, "-c", "import time; time.sleep(120)", "{socket}", "{model}"], wait=3)
     with pytest.raises(BackendError, match="não respondeu depois de iniciar"):
         backend.ensure_running("qwen3:4b")
     time.sleep(0.5)
@@ -336,3 +338,38 @@ def test_the_proxy_hands_the_thinking_flag_to_the_real_server_request(mlx, tmp_p
     backend.chat("qwen3:4b", [{"role": "user", "content": "oi"}], [], {})
     forwarded = json.loads((tmp_path / "child.log").read_text().splitlines()[-1])["body"]
     assert forwarded["chat_template_kwargs"] == {"enable_thinking": think}
+
+
+def listening_tcp(pid: int) -> str:
+    done = subprocess.run(["/usr/sbin/lsof", "-nP", "-a", "-p", str(pid), "-iTCP", "-sTCP:LISTEN"], capture_output=True, text=True)
+    return done.stdout.strip()
+
+
+def test_the_model_process_listens_on_no_tcp_port_and_its_socket_is_private(mlx):
+    backend = mlx()
+    backend.ensure_running("qwen3:4b")
+    info = backends.read_server_info(backend.state_dir)
+    assert "child_port" not in info and "child_port" not in json.dumps(info)
+    folder = Path(info["socket_dir"])
+    assert stat.S_IMODE(folder.stat().st_mode) == 0o700 and folder.parent == Path("/tmp")
+    assert (folder / "child.sock").is_socket()
+    assert listening_tcp(info["child"]) == ""
+    assert f":{backend.client.port} " in listening_tcp(info["pid"]) + " "
+    backend.stop()
+    assert not folder.exists()
+
+
+def test_a_killed_launcher_leaves_no_socket_folder_behind_after_stop(mlx):
+    backend = mlx()
+    backend.ensure_running("qwen3:4b")
+    info = backends.read_server_info(backend.state_dir)
+    os.kill(info["pid"], signal.SIGKILL)
+    time.sleep(0.5)
+    backend.stop()
+    assert not Path(info["socket_dir"]).exists()
+
+
+def test_the_real_mlx_server_entry_points_the_child_relies_on_still_exist():
+    mlx_server = pytest.importorskip("mlx_lm.server")
+    assert callable(mlx_server.main) and callable(mlx_server._run_http_server) and mlx_server.APIHandler
+    assert mlx_server._run_http_server.__defaults__[1] is mlx_server.APIHandler

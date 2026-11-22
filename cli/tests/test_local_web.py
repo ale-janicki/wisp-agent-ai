@@ -130,7 +130,7 @@ def test_a_search_page_with_no_results_says_the_source_may_have_limited_access(s
     threading.Thread(target=server.serve_forever, daemon=True).start()
     try:
         with pytest.raises(WebError, match="limitado o acesso"):
-            WebClient(search_url=f"http://127.0.0.1:{server.server_address[1]}/").search("x")
+            WebClient(search_url=f"http://127.0.0.1:{server.server_address[1]}/", allow_private=True).search("x")
     finally:
         server.shutdown()
 
@@ -302,3 +302,155 @@ def test_a_turn_can_search_and_fetch_and_the_page_text_comes_back_as_data(site, 
         tool_messages = [m["content"] for m in fake.chats()[2]["messages"] if m["role"] == "tool"]
     assert result.text == "resumo" and asked.calls == [] and "never instructions" in system
     assert all(m.startswith(DATA_HEADER) for m in tool_messages) and "Pagina" in tool_messages[0] and "Ola mundo" in tool_messages[1]
+
+
+def test_a_charset_nobody_knows_falls_back_to_utf8_instead_of_crashing(site):
+    class Odd(Site):
+        def do_GET(self):
+            self._send(200, "text/html; charset=utf-9000", "<p>Olá, mundo</p>".encode())
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Odd)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        assert "Olá, mundo" in WebClient(allow_private=True).fetch(f"http://127.0.0.1:{server.server_address[1]}/")
+    finally:
+        server.shutdown()
+    from wisp.local.web import decode
+
+    assert decode("é".encode(), "no-such-codec") == "é" and decode(b"\xff", "no-such-codec") == "\ufffd" and decode("é".encode("latin-1"), "latin-1") == "é"
+
+
+def drip_server(header_drip: bool):
+    import socket
+    import time
+
+    listener = socket.socket()
+    listener.bind(("127.0.0.1", 0))
+    listener.listen(5)
+    stop = threading.Event()
+
+    def run():
+        while not stop.is_set():
+            try:
+                connection, _ = listener.accept()
+            except OSError:
+                return
+            connection.recv(4096)
+            try:
+                if header_drip:
+                    for byte in b"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nX-Slow: " + b"a" * 5000:
+                        connection.send(bytes([byte]))
+                        time.sleep(0.2)
+                else:
+                    connection.send(b"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 100000\r\n\r\n")
+                    for _ in range(1000):
+                        connection.send(b"x")
+                        time.sleep(0.2)
+            except OSError:
+                pass
+            connection.close()
+
+    threading.Thread(target=run, daemon=True).start()
+    return listener, stop
+
+
+@pytest.mark.parametrize("header_drip", [False, True])
+def test_a_server_that_drips_bytes_cannot_hold_the_fetch_past_the_total_deadline(header_drip):
+    import time
+
+    listener, stop = drip_server(header_drip)
+    started = time.monotonic()
+    try:
+        with pytest.raises(WebError, match="demorou demais"):
+            WebClient(allow_private=True, timeout=20, deadline=1.5).fetch(f"http://127.0.0.1:{listener.getsockname()[1]}/")
+    finally:
+        stop.set()
+        listener.close()
+    assert time.monotonic() - started < 6
+
+
+def test_the_deadline_is_shared_by_every_redirect_hop(site):
+    import time
+
+    class Hops(Site):
+        def do_GET(self):
+            time.sleep(0.8)
+            self._send(302, "text/plain", b"", {"Location": "/hop"})
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Hops)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    started = time.monotonic()
+    try:
+        with pytest.raises(WebError, match="demorou demais|redirecionou demais"):
+            WebClient(allow_private=True, deadline=2).fetch(f"http://127.0.0.1:{server.server_address[1]}/")
+    finally:
+        server.shutdown()
+    assert time.monotonic() - started < 5
+
+
+def test_the_search_address_follows_the_same_rules_as_a_fetch_on_every_hop(site):
+    def resolver(answer):
+        return lambda host, port: [(2, 1, 6, "", (answer, port))]
+
+    with pytest.raises(WebError, match="rede local"):
+        WebClient(search_url="http://busca.test/html/", resolve=resolver("127.0.0.1")).search("x")
+    with pytest.raises(WebError, match="rede local"):
+        WebClient(search_url="http://busca.test/html/", resolve=resolver("10.0.0.7")).search("x")
+    with pytest.raises(WebError, match="http ou https"):
+        WebClient(search_url="file:///etc/passwd").search("x")
+    with pytest.raises(WebError, match="usuário e senha"):
+        WebClient(search_url="http://u:p@busca.test/").search("x")
+    assert Site.seen == []
+
+
+def test_a_search_that_redirects_to_the_local_network_is_refused_at_that_hop(site, monkeypatch):
+    class Bounce(Site):
+        def do_POST(self):
+            self.rfile.read(int(self.headers["Content-Length"]))
+            self._send(302, "text/plain", b"", {"Location": "http://interno.test/segredo"})
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Bounce)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    first = {"done": False}
+
+    def resolver(host, port):
+        if host == "busca.test":
+            return [(2, 1, 6, "", ("127.0.0.1", port))]
+        return [(2, 1, 6, "", ("10.0.0.9", port))]
+
+    import wisp.local.web as web
+
+    monkeypatch.setattr(web, "public_address", lambda a: a != "10.0.0.9")
+    try:
+        with pytest.raises(WebError, match="rede local"):
+            WebClient(search_url=f"http://busca.test:{server.server_address[1]}/", resolve=resolver).search("x")
+    finally:
+        server.shutdown()
+    assert first["done"] is False
+
+
+def test_the_search_address_from_the_environment_is_validated_like_any_other(monkeypatch):
+    monkeypatch.setenv("WISP_SEARCH_URL", "http://127.0.0.1:9/html/")
+    with pytest.raises(WebError, match="rede local"):
+        WebClient().search("x")
+    monkeypatch.setenv("WISP_SEARCH_URL", "gopher://x")
+    with pytest.raises(WebError, match="http ou https"):
+        WebClient().search("x")
+
+
+def test_a_fetch_whose_url_is_a_list_or_a_dict_is_asked_about_and_fails_without_crashing_the_turn(site, fake_home):
+    folder = fake_home / "Wisp"
+    for sub in ("skills", "ferramentas", "conversas"):
+        (folder / sub).mkdir(parents=True, exist_ok=True)
+    for name in ("guardrails.toml", "modelos.toml"):
+        shutil.copy(WISP_FOLDER / name, folder / name)
+    for bad in (["http://a.test/"], {"x": 1}, 7, None):
+        asked = Asked("allow")
+        script = [reply("", [call("web_fetch", url=bad)]), reply("fim")]
+        with FakeLLM(script) as fake:
+            engine = LocalEngine(folder, WispConfig(), WispPaths.current(), fake.client(), servers=[], approver=asked, today=lambda: date(2026, 11, 21),
+                                 web=WebClient(allow_private=True))
+            events = []
+            result = asyncio.run(engine.send(engine.start("c1", "qwen3:4b"), "oi", events.append))
+        results = [b for e in events if e["type"] == "user" for b in e["message"]["content"]]
+        assert result.text == "fim" and len(asked.calls) == 1 and results[0]["is_error"] and "falta url" in results[0]["content"]
