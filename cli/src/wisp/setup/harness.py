@@ -152,7 +152,7 @@ def setup_harness(runner: Runner, paths: WispPaths, cfg: WispConfig, *, dry_run:
         return _failed("falta criar o cérebro antes", step="brain")
     claude_dir = paths.home / ".claude"
     if _managed_elsewhere(claude_dir):
-        return _failed("harness gerenciado fora do Wisp")
+        return _failed("harness gerenciado fora do Wisp", harness="managed_elsewhere")
 
     source = resources_root() / "harness"
     values = _values(cfg)

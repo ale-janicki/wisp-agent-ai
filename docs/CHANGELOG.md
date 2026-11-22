@@ -9,6 +9,11 @@ Entries are in descending chronological order (newest first).
 
 ## [Unreleased]
 
+### Fixed
+
+- Ajustes > Modelo: choosing Claude or Codex when the harness is managed outside the Wisp (your own `~/.claude`) no longer shows a red "harness não sincronizou" line. The engine is saved and the note "o harness é gerenciado fora do Wisp, então ele não foi alterado" appears as secondary text (`wisp config set engine|wisp_dir|brain` report `done` with `data.harness = "managed_elsewhere"`); real harness failures stay red.
+- Ajustes > Modelo (and the Conversa tab settings): with Claude or Codex as the engine the local-model recommendation, "Pensar antes de responder" and the "Neste Mac" list are collapsed behind one "IA local neste Mac" row ("Ver modelos locais", closed by default); with IA local everything shows as before.
+
 ## [0.4.2] - 2026-11-22
 
 - Version 0.4.2 (build 9).
