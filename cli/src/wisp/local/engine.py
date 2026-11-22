@@ -27,6 +27,8 @@ ENGINE = "local"
 CHARS_PER_TOKEN = 3
 INPUT_SHARE = 0.75
 OLD_RESULT_CHARS = 300
+HISTORY_KEEP_SHARE = 0.6
+FOREIGN_REPLY_TOKENS = 600
 RESULT_CHARS = 8000
 FILES_KEY = "conteúdo dos arquivos que o comando executa"
 QUERY_FREE_CHARS = 120
@@ -105,6 +107,28 @@ def fit_context(system: str, tools: list[dict], messages: list[dict], context_to
     return kept, dropped
 
 
+def trim_history(messages: list[dict], budget: int) -> list[dict]:
+    starts = _unit_starts(messages)
+    if len(starts) < 2:
+        return messages
+    bounds = [0, *starts[1:], len(messages)]
+    sizes = [estimate_tokens(messages[a:b]) for a, b in zip(bounds, bounds[1:])]
+    first, total = 0, 0
+    for last, size in enumerate(sizes):
+        total += size
+        if total <= budget:
+            continue
+        while first < last and total > budget * HISTORY_KEEP_SHARE:
+            total -= sizes[first]
+            first += 1
+    return messages[bounds[first]:]
+
+
+def shorten_foreign(text: str) -> str:
+    limit = FOREIGN_REPLY_TOKENS * CHARS_PER_TOKEN
+    return text if len(text) <= limit else text[:limit].rstrip() + "…"
+
+
 def leaks(name: str, session: Session, arguments: dict) -> bool:
     fields = LEAKY_FIELDS.get(name)
     if not fields:
@@ -124,7 +148,7 @@ def leaks(name: str, session: Session, arguments: dict) -> bool:
 
 def history_from(path: Path) -> list[dict]:
     return [
-        {"role": e["kind"], "content": e["text"]}
+        {"role": e["kind"], "content": shorten_foreign(e["text"]) if e["kind"] == "assistant" and e.get("engine") != ENGINE else e["text"]}
         for e in transcript.read_entries(path)
         if e["kind"] in ("user", "assistant") and isinstance(e.get("text"), str) and e["text"].strip()
     ]
@@ -273,14 +297,15 @@ class LocalEngine:
         log.debug("prompt estimate: system %d + tools %d tokens", estimate_tokens(system), estimate_tokens(tools))
         context = self.catalog.context_of(tag)
         host.trusted_urls.update(typed_urls(text))
-        turn: list[dict] = [{"role": "user", "content": f"{text}\n\n{today_note(self.today())}"}]
+        turn: list[dict] = [{"role": "user", "content": f"{today_note(self.today())}\n{text}"}]
+        history = trim_history(session.messages, tier.history_tokens)
         denials: list[str] = []
         notes = [*problems, *host.problems]
         last_text = ""
         stopped: str | None = None
         forgot = False
         while True:
-            fitted = fit_context(system, tools, session.messages + turn, context)
+            fitted = fit_context(system, tools, history + turn, context)
             if fitted is None:
                 stopped = "context"
                 break

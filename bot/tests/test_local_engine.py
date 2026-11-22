@@ -20,7 +20,7 @@ from local_fakes import FakeLLM, call, reply  # noqa: E402
 
 
 def without_day(text):
-    return re.sub(r"\n\n\[Hoje é \d{4}-\d{2}-\d{2}\.\]$", "", text)
+    return re.sub(r"^<contexto>data de hoje: \d{4}-\d{2}-\d{2} [^\n]*</contexto>\n", "", text)
 
 
 @pytest.fixture
