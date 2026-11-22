@@ -18,20 +18,27 @@ final class BrainDrawingModel {
     private(set) var status = Status.loading
     private(set) var saveNote = ""
     private(set) var externalChangePending = false
+    private(set) var readOnlyNotice: String?
     var editing = false {
-        didSet { if editing != oldValue { editingChanged() } }
+        didSet {
+            guard editing != oldValue else { return }
+            if editing, readOnlyNotice != nil {
+                editing = false
+                return
+            }
+            perform(session.setEditing(editing, pageReady: pageReady))
+        }
     }
 
     @ObservationIgnored private let vaultRoot: URL?
     @ObservationIgnored private let openNote: (String) -> Void
     @ObservationIgnored private let onNotice: (String) -> Void
-    @ObservationIgnored private var webDirty = false
+    @ObservationIgnored private var session = DrawingEditSession()
     @ObservationIgnored private var editedThisSession = false
     @ObservationIgnored private var closing = false
     @ObservationIgnored private var loadGeneration = 0
     @ObservationIgnored private var file: ExcalidrawFile?
     @ObservationIgnored private var state = DrawingFileState()
-    @ObservationIgnored private var pendingScene: String?
     @ObservationIgnored private var autosave: Task<Void, Never>?
     @ObservationIgnored private var watcher: Task<Void, Never>?
     @ObservationIgnored private var dark = true
@@ -69,7 +76,7 @@ final class BrainDrawingModel {
         closing = true
         autosave?.cancel()
         watcher?.cancel()
-        if editing, webDirty, pageReady {
+        if session.pageDirty, pageReady {
             host.send(.requestSave)
             Task { [weak self] in
                 try? await Task.sleep(for: .milliseconds(500))
@@ -82,7 +89,7 @@ final class BrainDrawingModel {
 
     private func finishClosing() {
         var conflicted = externalChangePending
-        if pendingScene != nil {
+        if session.pendingScene != nil {
             if !conflicted, diskChangedOutsideWisp() { conflicted = true }
             if conflicted {
                 saveRecoveryCopy()
@@ -94,7 +101,7 @@ final class BrainDrawingModel {
         }
         if editedThisSession, !conflicted, var current = file, current.pruneEmbeddedFiles() {
             let data = Data(current.serialized().utf8)
-            if (try? data.write(to: url, options: .atomic)) != nil { state.didWrite(data) }
+            if (try? AtomicFile.write(data, to: url, root: brainRoot, expectingHash: state.knownDiskHash)) != nil { state.didWrite(data) }
         }
         host.tearDown()
     }
@@ -107,17 +114,12 @@ final class BrainDrawingModel {
     }
 
     private func saveRecoveryCopy() {
-        guard let scene = pendingScene, var current = file else { return }
-        let folder = url.deletingLastPathComponent()
+        guard let scene = session.pendingScene, var current = file else { return }
         do {
-            try current.apply(sceneJSON: scene) { attachment in
-                let target = DrawingAttachments.uniqueURL(forPastedImage: attachment.mimeType, in: folder)
-                try attachment.data.write(to: target, options: .atomic)
-                return target.lastPathComponent
-            }
+            try current.apply(sceneJSON: scene, store: storeAttachment)
             let destination = DrawingRecovery.recoveryURL(for: url)
-            try Data(current.serialized().utf8).write(to: destination, options: .atomic)
-            pendingScene = nil
+            try AtomicFile.write(Data(current.serialized().utf8), to: destination, root: brainRoot)
+            session.discardPending()
             onNotice("\(url.lastPathComponent) mudou fora do Wisp. Suas edições foram salvas em \(destination.lastPathComponent).")
         } catch {
             log.error("drawing recovery failed: \(error.localizedDescription, privacy: .public)")
@@ -134,9 +136,16 @@ final class BrainDrawingModel {
         host.send(.export(format))
     }
 
+    private var brainRoot: URL { DrawingAttachments.root(for: url, vaultRoot: vaultRoot) }
+
+    private func storeAttachment(_ attachment: ExcalidrawFile.NewAttachment) throws -> String {
+        let target = DrawingAttachments.uniqueURL(forPastedImage: attachment.mimeType, in: url.deletingLastPathComponent())
+        try AtomicFile.write(attachment.data, to: target, root: brainRoot)
+        return target.lastPathComponent
+    }
+
     func reloadFromDisk() {
-        pendingScene = nil
-        webDirty = false
+        session.didReload()
         externalChangePending = false
         loadFromDisk()
     }
@@ -146,10 +155,21 @@ final class BrainDrawingModel {
         writePending(force: true)
     }
 
-    private func editingChanged() {
-        guard pageReady else { return }
-        host.send(.setViewMode(!editing))
-        if !editing, pendingScene != nil { writePending() }
+    private func perform(_ actions: [DrawingEditSession.Action]) {
+        for action in actions {
+            switch action {
+            case .requestSave: host.send(.requestSave)
+            case .setViewMode(let viewMode): host.send(.setViewMode(viewMode))
+            case .scheduleAutosave:
+                editedThisSession = true
+                saveNote = "Editando…"
+                scheduleAutosave()
+            case .cancelAutosave: autosave?.cancel()
+            case .writeNow:
+                editedThisSession = true
+                writePending()
+            }
+        }
     }
 
     private func handle(_ event: DrawingBridgeEvent) {
@@ -157,25 +177,11 @@ final class BrainDrawingModel {
         case .ready:
             pageReady = true
             loadFromDisk()
-        case .dirty:
-            guard editing else { return }
-            webDirty = true
-            state.dirty = true
-        case .clean:
-            if pendingScene == nil { webDirty = false }
-        case .changed(let scene):
-            guard editing else { return }
-            webDirty = true
-            editedThisSession = true
-            pendingScene = scene
-            saveNote = "Editando…"
-            scheduleAutosave()
-        case .save(let scene):
-            guard editing else { return }
-            editedThisSession = true
-            pendingScene = scene
-            autosave?.cancel()
-            writePending()
+        case .dirty, .clean, .changed, .save:
+            guard readOnlyNotice == nil else { return }
+            let before = session.hasUnsavedWork
+            perform(session.handle(event))
+            if session.hasUnsavedWork, !before { state.dirty = true }
         case .exported(let format, let data):
             saveExport(data, format: format)
         case .openLink(let link):
@@ -191,10 +197,12 @@ final class BrainDrawingModel {
     private func loadFromDisk() {
         do {
             let data = try Data(contentsOf: url)
-            let parsed = try ExcalidrawFile.parse(String(decoding: data, as: UTF8.self), container: ExcalidrawFile.container(forFileNamed: url.lastPathComponent) ?? .markdown)
+            let parsed = try ExcalidrawFile.parse(data: data, container: ExcalidrawFile.container(forFileNamed: url.lastPathComponent) ?? .markdown)
             file = parsed
+            readOnlyNotice = parsed.readOnlyNotice
+            if parsed.readOnlyNotice != nil { editing = false }
             state.didLoad(data)
-            webDirty = false
+            session.didReload()
             loadGeneration += 1
             let generation = loadGeneration
             let location = url
@@ -235,7 +243,7 @@ final class BrainDrawingModel {
     }
 
     private func writePending(force: Bool = false) {
-        guard let scene = pendingScene, var current = file else { return }
+        guard readOnlyNotice == nil, let scene = session.pendingScene, var current = file else { return }
         if !force {
             guard !externalChangePending else { return }
             state.dirty = true
@@ -245,28 +253,25 @@ final class BrainDrawingModel {
             }
         }
         do {
-            let folder = url.deletingLastPathComponent()
-            try current.apply(sceneJSON: scene) { attachment in
-                let target = DrawingAttachments.uniqueURL(forPastedImage: attachment.mimeType, in: folder)
-                try attachment.data.write(to: target, options: .atomic)
-                return target.lastPathComponent
-            }
+            try current.apply(sceneJSON: scene, store: storeAttachment)
             let text = Data(current.serialized().utf8)
-            try text.write(to: url, options: .atomic)
+            try AtomicFile.write(text, to: url, root: brainRoot, expectingHash: force ? nil : state.knownDiskHash)
             file = current
             state.didWrite(text)
-            pendingScene = nil
-            webDirty = false
+            session.didWrite()
             saveNote = current.notices.first ?? "Salvo"
+        } catch AtomicFile.Failure.changedOnDisk {
+            state.dirty = true
+            externalChangePending = true
         } catch {
-            saveNote = "Não consegui salvar: \(error.localizedDescription)"
+            saveNote = "Não consegui salvar: \((error as? AtomicFile.Failure)?.description ?? error.localizedDescription)"
             log.error("drawing save failed: \(error.localizedDescription, privacy: .public)")
         }
     }
 
     private func checkDisk() {
         guard status == .ready, !externalChangePending else { return }
-        state.dirty = pendingScene != nil || webDirty
+        state.dirty = session.hasUnsavedWork
         switch state.externalChange(diskData: try? Data(contentsOf: url)) {
         case .none: break
         case .reload: loadFromDisk()

@@ -88,19 +88,30 @@ public struct JSONParseError: Error, Equatable, CustomStringConvertible {
 
 extension JSONValue {
     public static func parse(_ text: String) throws -> JSONValue {
-        var parser = JSONParser(units: Array(text.utf8))
-        return try parser.parseDocument()
+        try parseChecked(text).value
     }
 
     public static func parse(_ data: Data) throws -> JSONValue {
+        try parseChecked(data).value
+    }
+
+    public static func parseChecked(_ text: String) throws -> (value: JSONValue, lossy: Bool) {
+        var parser = JSONParser(units: Array(text.utf8))
+        let value = try parser.parseDocument()
+        return (value, parser.lossy)
+    }
+
+    public static func parseChecked(_ data: Data) throws -> (value: JSONValue, lossy: Bool) {
         var parser = JSONParser(units: Array(data))
-        return try parser.parseDocument()
+        let value = try parser.parseDocument()
+        return (value, parser.lossy)
     }
 }
 
 private struct JSONParser {
     let units: [UInt8]
     var index = 0
+    var lossy = false
 
     init(units: [UInt8]) {
         self.units = units
@@ -200,6 +211,7 @@ private struct JSONParser {
             if pendingHigh != nil {
                 bytes.append(contentsOf: Array("\u{FFFD}".utf8))
                 pendingHigh = nil
+                lossy = true
             }
         }
         while index < units.count {
@@ -207,7 +219,11 @@ private struct JSONParser {
             if byte == UInt8(ascii: "\"") {
                 flushHigh()
                 index += 1
-                return String(decoding: bytes, as: UTF8.self)
+                guard let decoded = String(bytes: bytes, encoding: .utf8) else {
+                    lossy = true
+                    return String(decoding: bytes, as: UTF8.self)
+                }
+                return decoded
             }
             if byte != UInt8(ascii: "\\") {
                 flushHigh()
@@ -242,6 +258,7 @@ private struct JSONParser {
                     bytes.append(contentsOf: Array(String(decoding: [high, code], as: UTF16.self).utf8))
                 } else {
                     flushHigh()
+                    if Unicode.Scalar(UInt32(code)) == nil { lossy = true }
                     let scalar = Unicode.Scalar(UInt32(code)) ?? "\u{FFFD}"
                     bytes.append(contentsOf: Array(String(Character(scalar)).utf8))
                 }

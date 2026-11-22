@@ -13,7 +13,7 @@ public enum DrawingLink: Equatable, Sendable {
         let trimmed = link.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
         if let inner = wikilinkInner(trimmed) { return note(fromWikilink: inner) }
-        if let url = URL(string: trimmed), let scheme = url.scheme?.lowercased(), ["http", "https", "mailto", "obsidian"].contains(scheme) {
+        if let url = URL(string: trimmed), let scheme = url.scheme?.lowercased(), ["http", "https", "mailto"].contains(scheme) {
             return .url(url)
         }
         return nil

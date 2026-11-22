@@ -39,7 +39,7 @@ private struct ExcalidrawDocumentView: View {
     var body: some View {
         VStack(spacing: Theme.Space.s) {
             if let model {
-                DrawingToolbar(title: url.lastPathComponent, editing: Binding(get: { model.editing }, set: { model.editing = $0 }), note: model.saveNote) {
+                DrawingToolbar(title: url.lastPathComponent, editing: Binding(get: { model.editing }, set: { model.editing = $0 }), note: model.saveNote, readOnlyNotice: model.readOnlyNotice) {
                     Menu {
                         Button("Exportar PNG…") { model.export(.png) }
                         Button("Exportar SVG…") { model.export(.svg) }
@@ -49,6 +49,9 @@ private struct ExcalidrawDocumentView: View {
                     .menuStyle(.button)
                     .buttonStyle(CompactCapsuleStyle(accent: false))
                     .fixedSize()
+                }
+                if let notice = model.readOnlyNotice {
+                    InlineError(text: notice)
                 }
                 if model.externalChangePending {
                     ExternalChangeBanner(reload: model.reloadFromDisk, overwrite: model.overwriteDisk)
@@ -99,6 +102,7 @@ struct DrawingToolbar<Trailing: View>: View {
     let title: String
     @Binding var editing: Bool
     var note: String
+    var readOnlyNotice: String?
     @ViewBuilder var trailing: Trailing
 
     var body: some View {
@@ -120,6 +124,7 @@ struct DrawingToolbar<Trailing: View>: View {
                     .buttonStyle(CompactCapsuleStyle(accent: !editing))
                 Button("Editar") { editing = true }
                     .buttonStyle(CompactCapsuleStyle(accent: editing))
+                    .disabled(readOnlyNotice != nil)
             }
             trailing
         }

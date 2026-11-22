@@ -14,10 +14,12 @@ public struct ExcalidrawFile: Equatable, Sendable {
     public struct DataEntry: Equatable, Sendable {
         public var id: String
         public var text: String
+        public var before: String
 
-        public init(id: String, text: String) {
+        public init(id: String, text: String, before: String = "") {
             self.id = id
             self.text = text
+            self.before = before
         }
     }
 
@@ -72,6 +74,12 @@ public struct ExcalidrawFile: Equatable, Sendable {
     public var trailer: String
     public var indent: String
     public var trailingNewline = true
+    public var readOnlyNotice: String?
+    var textPrefix = "\n"
+    var textTail = ""
+    var elementLinksExtra = ""
+    var embeddedExtra = ""
+    public static let lossyNotice = "Este arquivo tem texto que não é UTF-8 válido; o Wisp abre só para leitura para não alterá-lo."
     public private(set) var notices: [String] = []
     var rawTexts: [String: String]
     var loadedTexts: [String: String]
@@ -121,26 +129,34 @@ public struct ExcalidrawFile: Equatable, Sendable {
     }
 
     public static func load(from url: URL) throws -> ExcalidrawFile {
-        let data = try Data(contentsOf: url)
-        return try parse(String(decoding: data, as: UTF8.self), container: container(forFileNamed: url.lastPathComponent) ?? .markdown)
+        try parse(data: Data(contentsOf: url), container: container(forFileNamed: url.lastPathComponent) ?? .markdown)
+    }
+
+    public static func parse(data: Data, container: Container) throws -> ExcalidrawFile {
+        let valid = String(data: data, encoding: .utf8)
+        var file = try parse(valid ?? String(decoding: data, as: UTF8.self), container: container)
+        if valid == nil { file.readOnlyNotice = lossyNotice }
+        return file
     }
 
     public static func parse(_ text: String, container: Container) throws -> ExcalidrawFile {
         switch container {
         case .plainJSON:
-            var plain = ExcalidrawFile(container: .plainJSON, encoding: .json, scene: try parseScene(text), indent: detectIndent(text))
+            let parsed = try parseScene(text)
+            var plain = ExcalidrawFile(container: .plainJSON, encoding: .json, scene: parsed.scene, indent: detectIndent(text))
             plain.trailingNewline = text.hasSuffix("\n")
+            if parsed.lossy { plain.readOnlyNotice = lossyNotice }
             return plain
         case .markdown:
             return try parseMarkdown(text)
         }
     }
 
-    private static func parseScene(_ text: String) throws -> JSONValue {
+    private static func parseScene(_ text: String) throws -> (scene: JSONValue, lossy: Bool) {
         do {
-            let scene = try JSONValue.parse(text)
-            guard scene.objectMembers != nil else { throw ParseError.invalidScene("a raiz não é um objeto") }
-            return scene
+            let parsed = try JSONValue.parseChecked(text)
+            guard parsed.value.objectMembers != nil else { throw ParseError.invalidScene("a raiz não é um objeto") }
+            return (parsed.value, parsed.lossy)
         } catch let error as JSONParseError {
             throw ParseError.invalidScene(error.description)
         }
@@ -163,10 +179,13 @@ public struct ExcalidrawFile: Equatable, Sendable {
         if rest.hasPrefix("%%") { rest.removeFirst(2) }
 
         let sceneText: String
+        var invalidUTF16 = false
         if compressed {
             let stripped = body.filter { $0 != "\n" && $0 != "\r" }
             do {
-                sceneText = try LZString.decompressChecked(fromBase64: stripped)
+                let units = try LZString.decompressUnits(fromBase64: stripped)
+                invalidUTF16 = String(validating: units, as: UTF16.self) == nil
+                sceneText = String(decoding: units, as: UTF16.self)
             } catch LZString.DecompressError.tooLarge {
                 throw ParseError.tooLarge
             } catch {
@@ -175,7 +194,8 @@ public struct ExcalidrawFile: Equatable, Sendable {
         } else {
             sceneText = body
         }
-        let scene = try parseScene(sceneText)
+        let parsedScene = try parseScene(sceneText)
+        let scene = parsedScene.scene
 
         let preamble = String(text[..<text.index(after: headingRange.lowerBound)])
         let dataRange = preamble.range(of: "(^|\\n)# Excalidraw Data\\n", options: .regularExpression)
@@ -199,12 +219,15 @@ public struct ExcalidrawFile: Equatable, Sendable {
             encoding: compressed ? .compressed : .json,
             header: header,
             commentedOut: commentedOut,
-            elementLinks: links,
-            embeddedFiles: embedded,
+            elementLinks: links.entries,
+            embeddedFiles: embedded.entries,
             scene: scene,
             trailer: rest,
             indent: detectIndent(sceneText)
         )
+        file.elementLinksExtra = links.extra
+        file.embeddedExtra = embedded.extra
+        if parsedScene.lossy || invalidUTF16 { file.readOnlyNotice = lossyNotice }
         file.readTextElements(region: region)
         file.loadedIDs = Set(file.elements.compactMap { $0["id"]?.stringValue })
         return file
@@ -224,12 +247,23 @@ public struct ExcalidrawFile: Equatable, Sendable {
             liveIDs.insert(id)
             loadedTexts[id] = element["text"]?.stringValue ?? ""
         }
-        guard let headingRange = region.range(of: "\(Self.textElementsHeading)\n") ?? (region.hasPrefix("\(Self.textElementsHeading)") ? region.range(of: Self.textElementsHeading) : nil) else { return }
-        var body = String(region[headingRange.upperBound...])
-        for stop in ["\n\(Self.elementLinksHeading)\n", "\n\(Self.embeddedFilesHeading)\n"] {
-            if let cut = body.range(of: stop) { body = String(body[..<body.index(after: cut.lowerBound)]) }
+        let knownHeadings = ["\(Self.elementLinksHeading)\n", "\(Self.embeddedFilesHeading)\n"]
+        guard let headingRange = Self.lineRange(of: "\(Self.textElementsHeading)\n", in: region) else {
+            var cut = region.endIndex
+            for heading in knownHeadings {
+                if let found = Self.lineRange(of: heading, in: region), found.lowerBound < cut { cut = found.lowerBound }
+            }
+            let prefix = String(region[..<cut])
+            textPrefix = prefix.isEmpty ? "\n" : prefix
+            return
         }
-        for stop in ["\(Self.elementLinksHeading)\n", "\(Self.embeddedFilesHeading)\n"] where body.hasPrefix(stop) { body = "" }
+        textPrefix = String(region[..<headingRange.lowerBound])
+        var body = String(region[headingRange.upperBound...])
+        var cutAt = body.endIndex
+        for heading in knownHeadings {
+            if let found = Self.lineRange(of: heading, in: body), found.lowerBound < cutAt { cutAt = found.lowerBound }
+        }
+        body = String(body[..<cutAt])
         guard let anchor = try? NSRegularExpression(pattern: "\\s\\^([^\\s^]+)(?=\\n|$)") else { return }
         let ns = body as NSString
         var cursor = 0
@@ -241,6 +275,25 @@ public struct ExcalidrawFile: Equatable, Sendable {
             cursor = match.range.location + match.range.length
             while cursor < ns.length, ns.character(at: cursor) == 10 { cursor += 1 }
         }
+        let tail = ns.substring(from: cursor)
+        if let heading = Self.firstUnknownHeading(in: tail) {
+            textTail = String(tail[heading...])
+        }
+    }
+
+    static func lineRange(of line: String, in text: String) -> Range<String.Index>? {
+        var search = text.startIndex..<text.endIndex
+        while let found = text.range(of: line, range: search) {
+            if found.lowerBound == text.startIndex || text[text.index(before: found.lowerBound)] == "\n" { return found }
+            search = found.upperBound..<text.endIndex
+        }
+        return nil
+    }
+
+    static func firstUnknownHeading(in text: String) -> String.Index? {
+        guard let regex = try? NSRegularExpression(pattern: "^#{1,6} \\S", options: .anchorsMatchLines),
+              let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) else { return nil }
+        return Range(match.range, in: text)?.lowerBound
     }
 
     private static func closingFenceAtEnd(_ text: String, from start: String.Index) -> Range<String.Index>? {
@@ -249,9 +302,9 @@ public struct ExcalidrawFile: Equatable, Sendable {
         return range.lowerBound >= start ? range : nil
     }
 
-    private static func entries(inSection heading: String, region: String, until stops: [String]) -> [DataEntry] {
+    private static func entries(inSection heading: String, region: String, until stops: [String]) -> (entries: [DataEntry], extra: String) {
         let lines = region.components(separatedBy: "\n")
-        guard let start = lines.firstIndex(of: heading) else { return [] }
+        guard let start = lines.firstIndex(of: heading) else { return ([], "") }
         var body: [String] = []
         for line in lines[(start + 1)...] {
             if stops.contains(line) { break }
@@ -261,27 +314,47 @@ public struct ExcalidrawFile: Equatable, Sendable {
         var entries: [DataEntry] = []
         var current: [String] = []
         var currentID: String?
+        var currentBefore = ""
+        var unknown: [String] = []
         var insideLatex = false
         func flush() {
             guard let currentID else { return }
             var text = current
             while text.last == "" { text.removeLast() }
-            entries.append(DataEntry(id: currentID, text: text.joined(separator: "\n")))
+            entries.append(DataEntry(id: currentID, text: text.joined(separator: "\n"), before: currentBefore))
+        }
+        func takeUnknown() -> String {
+            while unknown.last == "" { unknown.removeLast() }
+            while unknown.first == "" { unknown.removeFirst() }
+            defer { unknown = [] }
+            return unknown.isEmpty ? "" : unknown.joined(separator: "\n") + "\n\n"
         }
         for line in body {
             if !insideLatex, let id = entryID(line) {
                 flush()
+                currentBefore = takeUnknown()
                 currentID = id
                 current = [line]
-            } else if currentID != nil {
+            } else if insideLatex {
                 current.append(line)
+            } else if currentID != nil, line.isEmpty {
+                current.append(line)
+            } else if line.isEmpty, unknown.isEmpty {
+                continue
+            } else {
+                if currentID != nil, !current.isEmpty {
+                    flush()
+                    currentID = nil
+                    current = []
+                }
+                unknown.append(line)
             }
             if currentID != nil, (line.components(separatedBy: "$$").count - 1) % 2 == 1 {
                 insideLatex.toggle()
             }
         }
         flush()
-        return entries
+        return (entries, takeUnknown())
     }
 
     private static func entryID(_ line: String) -> String? {
@@ -371,16 +444,19 @@ public struct ExcalidrawFile: Equatable, Sendable {
         if container == .plainJSON { return scene.serialized(indent: indent) + (trailingNewline ? "\n" : "") }
         var out = header
         if !header.isEmpty, !header.hasSuffix("\n") { out += "\n" }
-        out += "\(Self.dataHeading)\n\n\(Self.textElementsHeading)\n"
+        out += "\(Self.dataHeading)\n\(textPrefix)\(Self.textElementsHeading)\n"
         for element in textElements { out += "\(element.raw) ^\(element.id)\n\n" }
+        out += textTail
         let links = effectiveElementLinks()
-        if !links.isEmpty {
+        if !links.isEmpty || !elementLinksExtra.isEmpty {
             out += "\(Self.elementLinksHeading)\n"
-            for link in links { out += "\(link.text)\n\n" }
+            for link in links { out += "\(link.before)\(link.text)\n\n" }
+            out += elementLinksExtra
         }
-        if !embeddedFiles.isEmpty {
+        if !embeddedFiles.isEmpty || !embeddedExtra.isEmpty {
             out += "\(Self.embeddedFilesHeading)\n"
-            for entry in embeddedFiles { out += "\(entry.text)\n\n" }
+            for entry in embeddedFiles { out += "\(entry.before)\(entry.text)\n\n" }
+            out += embeddedExtra
         }
         if !commentedOut { out += "%%\n" }
         let sceneText = scene.serialized(indent: indent)
@@ -403,7 +479,7 @@ public struct ExcalidrawFile: Equatable, Sendable {
             guard let id = element["id"]?.stringValue else { continue }
             live.insert(id)
             if let link = element["link"]?.stringValue, !link.isEmpty, seen.insert(id).inserted {
-                result.append(DataEntry(id: id, text: "\(id): \(link)"))
+                result.append(DataEntry(id: id, text: "\(id): \(link)", before: elementLinks.first { $0.id == id }?.before ?? ""))
             }
         }
         for entry in elementLinks where live.contains(entry.id) && seen.insert(entry.id).inserted {
@@ -423,8 +499,9 @@ public struct ExcalidrawFile: Equatable, Sendable {
         return chunks.joined(separator: "\n\n")
     }
 
-    public func write(to url: URL) throws {
-        try Data(serialized().utf8).write(to: url, options: .atomic)
+    public func write(to url: URL, root: URL? = nil, expectingHash: String? = nil) throws {
+        guard readOnlyNotice == nil else { throw AtomicFile.Failure.io(readOnlyNotice ?? "") }
+        try AtomicFile.write(Data(serialized().utf8), to: url, root: root, expectingHash: expectingHash)
     }
 
     public static func wikilinkTarget(of entry: DataEntry) -> String? {
@@ -465,7 +542,7 @@ public struct ExcalidrawFile: Equatable, Sendable {
 
     @discardableResult
     public mutating func apply(sceneJSON: String, store: (NewAttachment) throws -> String) throws -> [NewAttachment] {
-        var incoming = try Self.parseScene(sceneJSON)
+        var incoming = try Self.parseScene(sceneJSON).scene
         var created: [NewAttachment] = []
         let known = Set(embeddedFiles.map(\.id))
         let referenced = Self.referencedFileIDs(in: incoming)
@@ -513,6 +590,7 @@ public struct ExcalidrawFile: Equatable, Sendable {
     public mutating func pruneEmbeddedFiles() -> Bool {
         let stale = Set(unreferencedEmbeddedIDs)
         guard !stale.isEmpty else { return false }
+        for entry in embeddedFiles where stale.contains(entry.id) { embeddedExtra += entry.before }
         embeddedFiles.removeAll { stale.contains($0.id) }
         return true
     }

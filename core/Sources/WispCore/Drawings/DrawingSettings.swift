@@ -34,7 +34,7 @@ public struct ExcalidrawPluginSettings: Equatable, Sendable {
     public func fileName(at date: Date, timeZone: TimeZone = .current) -> String {
         let stamp = dateFormat.isEmpty ? "" : Self.format(date, pattern: dateFormat, timeZone: timeZone)
         let suffix = compatibilityMode ? ".excalidraw" : (useExcalidrawExtension ? ".excalidraw.md" : ".md")
-        return filenamePrefix + stamp + suffix
+        return NewDrawing.sanitizedName(filenamePrefix) + NewDrawing.sanitizedName(stamp) + suffix
     }
 
     static func format(_ date: Date, pattern: String, timeZone: TimeZone) -> String {
@@ -78,20 +78,49 @@ public enum NewDrawing {
         return candidate
     }
 
+    public enum Failure: Error, Equatable, CustomStringConvertible {
+        case unsafeFolder(String)
+        case outsideBrain
+
+        public var description: String {
+            switch self {
+            case .unsafeFolder(let folder): "A pasta \"\(folder)\" das configurações do Excalidraw sai do brain; o Wisp não cria desenhos nela."
+            case .outsideBrain: "A pasta do desenho resolve para fora do brain; o Wisp não cria arquivos nela."
+            }
+        }
+    }
+
+    public static func sanitizedName(_ text: String) -> String {
+        String(text.unicodeScalars.filter { $0 != "/" && $0 != "\\" && $0 != ":" && $0.value != 0 })
+    }
+
+    static func folderComponents(_ folder: String) throws -> [String] {
+        if folder.hasPrefix("/") || folder.hasPrefix("\\") || folder.hasPrefix("~") { throw Failure.unsafeFolder(folder) }
+        let parts = folder.replacingOccurrences(of: "\\", with: "/").split(separator: "/", omittingEmptySubsequences: true).map(String.init)
+        if parts.contains("..") { throw Failure.unsafeFolder(folder) }
+        return parts.filter { $0 != "." }
+    }
+
     public static func create(brain: URL, settings: ExcalidrawPluginSettings? = nil, now: Date = Date(), timeZone: TimeZone = .current) throws -> URL {
         let settings = settings ?? ExcalidrawPluginSettings.load(brain: brain)
-        let folder = settings.folder.isEmpty ? brain : brain.appendingPathComponent(settings.folder, isDirectory: true)
+        var folder = brain
+        for part in try folderComponents(settings.folder) { folder.appendPathComponent(part, isDirectory: true) }
+        guard DrawingAttachments.confined(folder, to: brain) != nil else { throw Failure.outsideBrain }
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        let url = uniqueURL(folder: folder, fileName: settings.fileName(at: now, timeZone: timeZone))
+        guard let safeFolder = DrawingAttachments.confined(folder, to: brain) else { throw Failure.outsideBrain }
+        let url = uniqueURL(folder: safeFolder, fileName: settings.fileName(at: now, timeZone: timeZone))
         let file = ExcalidrawFile.blank(pluginVersion: settings.pluginVersion, compressed: settings.compress, plain: settings.compatibilityMode)
-        try file.write(to: url)
+        try file.write(to: url, root: brain)
         return url
     }
 
-    public static func createCanvas(in folder: URL, named name: String = "Sem título") throws -> URL {
+    public static func createCanvas(in folder: URL, brain: URL, named name: String = "Sem título") throws -> URL {
+        guard DrawingAttachments.confined(folder, to: brain) != nil else { throw Failure.outsideBrain }
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        let url = uniqueURL(folder: folder, fileName: "\(name).canvas")
-        try JSONCanvas.blank().write(to: url)
+        guard let safeFolder = DrawingAttachments.confined(folder, to: brain) else { throw Failure.outsideBrain }
+        let clean = sanitizedName(name)
+        let url = uniqueURL(folder: safeFolder, fileName: "\(clean.isEmpty ? "Sem título" : clean).canvas")
+        try JSONCanvas.blank().write(to: url, root: brain)
         return url
     }
 }

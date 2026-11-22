@@ -9,7 +9,11 @@ public enum LZString {
     }()
 
     public static func compressToBase64(_ input: String) -> String {
-        let encoded = compress(Array(input.utf16), bitsPerChar: 6) { base64Alphabet[$0] }
+        compressToBase64(units: Array(input.utf16))
+    }
+
+    public static func compressToBase64(units: [UInt16]) -> String {
+        let encoded = compress(units, bitsPerChar: 6) { base64Alphabet[$0] }
         let padding: [UInt16]
         switch encoded.count % 4 {
         case 1: padding = Array("===".utf16)
@@ -32,12 +36,16 @@ public enum LZString {
     }
 
     public static func decompressChecked(fromBase64 input: String, maxUnits: Int = defaultMaxUnits) throws -> String {
+        String(decoding: try decompressUnits(fromBase64: input, maxUnits: maxUnits), as: UTF16.self)
+    }
+
+    public static func decompressUnits(fromBase64 input: String, maxUnits: Int = defaultMaxUnits) throws -> [UInt16] {
         let units = Array(input.utf16)
         if units.isEmpty { throw DecompressError.corrupted }
         guard let result = try decompress(length: units.count, resetValue: 32, maxUnits: maxUnits, next: { index in
             index < units.count ? (base64Values[units[index]] ?? 0) : 0
         }) else { throw DecompressError.corrupted }
-        return String(decoding: result, as: UTF16.self)
+        return result
     }
 
     private struct BitWriter {
