@@ -159,6 +159,8 @@ struct BrainTab: View {
                 .disabled(model.templates.isEmpty || model.active?.kind != .note)
                 Divider()
                 Button("Nova nota") { model.prompt = .newNote(folder: model.active.map { BrainText.parent(of: $0.path) } ?? "") }
+                Button("Novo desenho") { model.createDrawing(.excalidraw, in: model.active.map { BrainText.parent(of: $0.path) } ?? "") }
+                Button("Novo canvas") { model.createDrawing(.canvas, in: model.active.map { BrainText.parent(of: $0.path) } ?? "") }
                 Button("Nova pasta") { model.prompt = .newFolder(folder: "") }
                 Divider()
                 Button("Adicionar propriedades à nota") { model.setProperty("tags", to: .list([])) }
