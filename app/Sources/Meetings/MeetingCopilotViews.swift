@@ -5,28 +5,51 @@ struct LiveSessionView: View {
     @ObservedObject var model: MeetingRecordingModel
     @ObservedObject var copilot: MeetingCopilotModel
 
+    private static let transcriptMinWidth: CGFloat = 360
+    private static let sidebarWidth: CGFloat = 290
+
     var body: some View {
-        HStack(alignment: .top, spacing: Theme.Space.m) {
-            VStack(alignment: .leading, spacing: Theme.Space.s) {
-                header
-                if let notice = copilot.limitNotice {
-                    Text(notice)
-                        .font(Theme.Font.caption)
-                        .foregroundStyle(Theme.busy)
-                        .fixedSize(horizontal: false, vertical: true)
+        GeometryReader { proxy in
+            let sideBySide = proxy.size.width >= Self.transcriptMinWidth + Self.sidebarWidth + Theme.Space.m
+            if sideBySide {
+                HStack(alignment: .top, spacing: Theme.Space.m) {
+                    transcriptColumn
+                        .frame(minWidth: Self.transcriptMinWidth, maxWidth: .infinity, maxHeight: .infinity)
+                    if copilot.isLive {
+                        CopilotSidebar(copilot: copilot)
+                            .frame(width: Self.sidebarWidth)
+                    }
                 }
-                NudgeChips(copilot: copilot)
-                notices
-                let lines = copilot.isLive ? copilot.transcriptLines : model.liveLines
-                if lines.isEmpty {
-                    TabMessage(text: model.isRecording ? "Esperando alguém falar…" : "Nada transcrito ainda.")
-                } else {
-                    TranscriptListView(lines: lines)
+            } else {
+                VStack(alignment: .leading, spacing: Theme.Space.m) {
+                    transcriptColumn
+                        .frame(maxWidth: .infinity, minHeight: 160, maxHeight: .infinity)
+                    if copilot.isLive {
+                        CopilotSidebar(copilot: copilot)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: min(220, proxy.size.height * 0.4))
+                    }
                 }
             }
-            if copilot.isLive {
-                CopilotSidebar(copilot: copilot)
-                    .frame(width: 270)
+        }
+    }
+
+    private var transcriptColumn: some View {
+        VStack(alignment: .leading, spacing: Theme.Space.s) {
+            header
+            if let notice = copilot.limitNotice {
+                Text(notice)
+                    .font(Theme.Font.caption)
+                    .foregroundStyle(Theme.busy)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            NudgeChips(copilot: copilot)
+            notices
+            let lines = copilot.isLive ? copilot.transcriptLines : model.liveLines
+            if lines.isEmpty {
+                TabMessage(text: model.isRecording ? "Esperando alguém falar…" : "Nada transcrito ainda.")
+            } else {
+                TranscriptListView(lines: lines)
             }
         }
     }
@@ -36,6 +59,7 @@ struct LiveSessionView: View {
             Text("Transcrição ao vivo")
                 .font(Theme.Font.title)
                 .foregroundStyle(Theme.textPrimary)
+                .lineLimit(1)
             if model.isRecording { Circle().fill(Theme.error).frame(width: 6, height: 6) }
             Spacer(minLength: 0)
             if copilot.isLive {
@@ -43,12 +67,11 @@ struct LiveSessionView: View {
                     copilot.addBookmark()
                 } label: {
                     Label("Marcar momento", systemImage: "bookmark")
+                        .lineLimit(1)
+                        .fixedSize()
                 }
                 .buttonStyle(CompactCapsuleStyle(accent: false))
                 .help("Marca este ponto da conversa. Atalho global: \(MeetingCopilotModel.bookmarkShortcut)")
-                Text(MeetingCopilotModel.bookmarkShortcut)
-                    .font(Theme.Font.captionMono)
-                    .foregroundStyle(Theme.textTertiary)
             }
         }
     }
@@ -174,7 +197,7 @@ private struct MetricsCard: View {
         let metrics = stats.metrics
         VStack(alignment: .leading, spacing: 6) {
             CardTitle(text: "Conversa", icon: "chart.bar")
-            HStack(spacing: 0) {
+            if spoken(metrics) > 0 {
                 GeometryReader { proxy in
                     ZStack(alignment: .leading) {
                         Capsule().fill(Theme.accentTeal.opacity(0.5))
@@ -183,11 +206,17 @@ private struct MetricsCard: View {
                 }
                 .frame(height: 6)
             }
-            row("Fala", spoken(metrics) > 0 ? "Você \(percent(metrics.youShare)) · Outros \(percent(1 - metrics.youShare))" : "—")
-            row("Palavras/min (Você · Outros)", "\(Int(metrics.you.wordsPerMinute.rounded())) · \(Int(metrics.others.wordsPerMinute.rounded()))")
-            row("Perguntas (Você · Outros)", "\(metrics.you.questions) · \(metrics.others.questions)")
-            row("Maior monólogo (Você · Outros)", "\(ElapsedFormat.clock(metrics.you.longestMonologueSeconds)) · \(ElapsedFormat.clock(metrics.others.longestMonologueSeconds))")
-            row("Silêncio", ElapsedFormat.clock(metrics.silenceSeconds))
+            if spoken(metrics) > 0 {
+                row("Fala", "Você \(percent(metrics.youShare)) · Outros \(percent(1 - metrics.youShare))")
+                row("Palavras/min (Você · Outros)", "\(Int(metrics.you.wordsPerMinute.rounded())) · \(Int(metrics.others.wordsPerMinute.rounded()))")
+                row("Perguntas (Você · Outros)", "\(metrics.you.questions) · \(metrics.others.questions)")
+                row("Maior monólogo (Você · Outros)", "\(ElapsedFormat.clock(metrics.you.longestMonologueSeconds)) · \(ElapsedFormat.clock(metrics.others.longestMonologueSeconds))")
+                row("Silêncio", ElapsedFormat.clock(metrics.silenceSeconds))
+            } else {
+                Text("Ainda sem fala")
+                    .font(Theme.Font.caption)
+                    .foregroundStyle(Theme.textSecondary)
+            }
         }
         .sidebarCard()
     }
@@ -248,9 +277,10 @@ private struct AssistCard: View {
             CardTitle(text: "Copiloto", icon: "sparkles")
             SwitchRow(
                 title: "Sugestões ao vivo",
-                detail: "Lê os últimos 4 min da transcrição e propõe até 3 itens, no máximo a cada 40 s. Cada rodada chama o motor ativo (Claude ou modelo local, sem ferramentas) e usa o seu plano.",
+                detail: "Até 3 sugestões a cada 40 s, a partir dos últimos 4 min.",
                 isOn: $copilot.assistOn
             )
+            .help("Cada rodada chama o motor ativo (Claude ou modelo local, sem ferramentas) e usa o seu plano.")
             if copilot.assistOn {
                 if let status = copilot.assistStatus {
                     Text(status)

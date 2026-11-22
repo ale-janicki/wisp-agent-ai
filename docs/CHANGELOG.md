@@ -14,6 +14,10 @@ Entries are in descending chronological order (newest first).
 - Ajustes > Modelo: choosing Claude or Codex when the harness is managed outside the Wisp (your own `~/.claude`) no longer shows a red "harness não sincronizou" line. The engine is saved and the note "o harness é gerenciado fora do Wisp, então ele não foi alterado" appears as secondary text (`wisp config set engine|wisp_dir|brain` report `done` with `data.harness = "managed_elsewhere"`); real harness failures stay red.
 - Ajustes > Modelo (and the Conversa tab settings): with Claude or Codex as the engine the local-model recommendation, "Pensar antes de responder" and the "Neste Mac" list are collapsed behind one "IA local neste Mac" row ("Ver modelos locais", closed by default); with IA local everything shows as before.
 
+### Added
+
+- Meetings: the live recording screen keeps the transcript at a readable width (side panel sits below it when the tab is narrow), recorder controls sit in one row, the copilot and conversation cards are compact ("Ainda sem fala" instead of rows of zeros), and a finished meeting's note renders as Markdown (headings, lists, bold, links, wikilinks) like the Brain reader; "Copiar" still copies the raw Markdown.
+
 ## [0.4.2] - 2026-11-22
 
 - Version 0.4.2 (build 9).
