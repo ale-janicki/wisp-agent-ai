@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from . import tg_html
-from .store import CURSOR
+from .store import CURSOR, file_lock
 from .transcript import Transcripts, clip, stamp
 
 log = logging.getLogger("wisp.conversa")
@@ -35,6 +35,71 @@ def legado(session_id: str, transcripts: Transcripts, indice: Path | None = None
 def indice_do_app() -> Path:
     from .config import CURRENT
     return CURRENT.conversations_file
+
+
+def _registros(indice: Path) -> list | None:
+    try:
+        registros = json.loads(indice.read_text("utf-8"))
+    except (OSError, ValueError):
+        return None
+    return registros if isinstance(registros, list) else None
+
+
+def _gravar_indice(indice: Path, registros: list) -> None:
+    tmp = indice.with_name(indice.name + ".tmp")
+    tmp.write_text(json.dumps(registros, indent=2, sort_keys=True, ensure_ascii=False) + "\n", "utf-8")
+    tmp.chmod(0o600)
+    tmp.replace(indice)
+
+
+def _iso(epoch: float | None = None) -> str:
+    moment = datetime.fromtimestamp(epoch, timezone.utc) if epoch else datetime.now(timezone.utc)
+    return moment.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _casa(registro, conversation: str, session_id: str) -> bool:
+    if not isinstance(registro, dict):
+        return False
+    if conversation and str(registro.get("id") or "").lower() == conversation.lower():
+        return True
+    return bool(session_id) and registro.get("sessionId") == session_id
+
+
+def encerrar_conversa(indice: Path, conversation: str, session_id: str, origem: str,
+                      quando: float | None = None) -> bool:
+    with file_lock(indice):
+        registros = _registros(indice)
+        if registros is None:
+            return False
+        achou = False
+        for r in registros:
+            if _casa(r, conversation, session_id) and not r.get("closedAt"):
+                r["closedAt"] = _iso(quando)
+                r["closedFrom"] = origem
+                achou = True
+        if achou:
+            _gravar_indice(indice, registros)
+        return achou
+
+
+def marcar_antigas(indice: Path, vivas: set[str], encerradas: list[dict]) -> int:
+    with file_lock(indice):
+        registros = _registros(indice)
+        if registros is None:
+            return 0
+        n = 0
+        for nota in encerradas:
+            sid = str(nota.get("session_id") or "")
+            if not sid or sid in vivas:
+                continue
+            for r in registros:
+                if _casa(r, "", sid) and not r.get("closedAt"):
+                    r["closedAt"] = _iso(float(nota.get("session_last") or 0) or None)
+                    r["closedFrom"] = "telegram"
+                    n += 1
+        if n:
+            _gravar_indice(indice, registros)
+        return n
 
 
 def garantir(store, transcripts: Transcripts, key: str, reason: str = "new", indice: Path | None = None) -> str:

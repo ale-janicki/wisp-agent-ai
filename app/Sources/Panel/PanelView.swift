@@ -206,7 +206,7 @@ struct PanelView: View {
         ComposerView(
             text: $draft,
             placeholder: "Pergunte ao \(model.personaName)…",
-            disabled: model.inputBlocked,
+            disabled: model.inputBlocked || model.currentClosed,
             attachments: model.pendingAttachments,
             notice: model.attachmentNotice,
             onAttach: model.attach,
@@ -288,17 +288,22 @@ private struct ConversationCard: View {
 
             ConversationView(model: model)
 
-            ComposerView(
-                text: $draft,
-                placeholder: "Pergunte ao \(model.personaName)…",
-                disabled: model.inputBlocked,
-                attachments: model.pendingAttachments,
-                notice: model.attachmentNotice,
-                onAttach: model.attach,
-                onRemove: model.detach,
-                onSubmit: submit
-            )
-            .padding([.horizontal, .bottom], Theme.Space.m)
+            if model.currentClosed {
+                ClosedBar(model: model)
+                    .padding(.bottom, Theme.Space.m)
+            } else {
+                ComposerView(
+                    text: $draft,
+                    placeholder: "Pergunte ao \(model.personaName)…",
+                    disabled: model.inputBlocked,
+                    attachments: model.pendingAttachments,
+                    notice: model.attachmentNotice,
+                    onAttach: model.attach,
+                    onRemove: model.detach,
+                    onSubmit: submit
+                )
+                .padding([.horizontal, .bottom], Theme.Space.m)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous))
@@ -311,7 +316,7 @@ private struct ConversationCard: View {
         }
         .dropDestination(for: URL.self) { urls, _ in
             let files = urls.filter(\.isFileURL)
-            guard !files.isEmpty, !model.inputBlocked else { return false }
+            guard !files.isEmpty, !model.inputBlocked, !model.currentClosed else { return false }
             model.attach(files)
             return true
         } isTargeted: { dropping = $0 }

@@ -1245,7 +1245,18 @@ async def on_aprovacao(update, context) -> None:
         await _aprovacoes.pressionou(update, context)
 
 
+def _migrar_encerradas() -> None:
+    marca = _CFG.state_dir / "encerradas-migradas"
+    if marca.exists() or not _CFG.conversations_file.is_file():
+        return
+    vivas = {t.session_id for t in store.all()}
+    conversa.marcar_antigas(_CFG.conversations_file, vivas, topicos.encerrados())
+    marca.parent.mkdir(parents=True, exist_ok=True)
+    marca.write_text("1\n", "utf-8")
+
+
 async def _post_init(app) -> None:
+    _migrar_encerradas()
     for t in store.all():
         nome = _CFG.system_topics.get(_thread_de(t.key))
         if nome and t.name != nome:
@@ -1311,7 +1322,7 @@ async def _apagar_topico(bot, chat_id: int, thread_id: int) -> str:
             return "ficou aberto (sem permissão)"
 
 
-async def fechar(bot, chat_id: int, thread_id: int, key: str) -> None:
+async def fechar(bot, chat_id: int, thread_id: int, key: str, origem: str = "telegram") -> None:
     chat = SimpleNamespace(id=chat_id)
     async with lock_for(key):
         t = topico_local(key)
@@ -1341,6 +1352,8 @@ async def fechar(bot, chat_id: int, thread_id: int, key: str) -> None:
         vigilia.soltar(key)
         topicos.set_status(key, "encerrado")
         topicos.push_logo()
+        if t:
+            conversa.encerrar_conversa(_CFG.conversations_file, t.conversation, t.session_id, origem)
 
     destino = await _apagar_topico(bot, chat_id, thread_id)
 
@@ -1504,7 +1517,7 @@ async def _ctl_encerrar(bot, thread) -> dict:
         raise ValueError(f"topico {thread} nao esta no Telegram nem no terminal")
     chat_id, thread_id = int(key.rsplit(":", 1)[0]), _thread_de(key)
     nome = store.get(key).name
-    await fechar(bot, chat_id, thread_id, key)
+    await fechar(bot, chat_id, thread_id, key, "app")
     if store.get(key) is not None:
         raise ValueError("o resumo falhou, entao o topico ficou")
     return {"ok": True, "nome": nome, "thread_id": thread_id}
