@@ -1,0 +1,80 @@
+import dataclasses
+import re
+from datetime import date
+from pathlib import Path
+
+from local_fakes import FakeLLM, reply
+from test_local_engine import folder, make, run  # noqa: F401
+
+from wisp.config import WispConfig
+from wisp.harness_merge import PLACEHOLDER
+from wisp.local import catalog as catalogs
+from wisp.local import guardrails, prompt
+
+TEMPLATE = (Path(__file__).parents[2] / "harness" / "claude-md-block.md").read_text()
+SMALL = catalogs.load().find("qwen3:8b")
+TIER = guardrails.Tier("pequeno", 6, frozenset(), frozenset())
+
+
+def test_agente_renders_every_placeholder_with_the_profile(tmp_path):
+    names = set(PLACEHOLDER.findall(TEMPLATE))
+    assert {"PERSONA_NAME", "USER_NAME", "BRAIN_DIR", "LANGUAGE"} <= names
+    cfg = WispConfig(user_name="Ana", persona="Lia", language="pt-BR", brain=str(tmp_path / "brain"), wisp_dir=str(tmp_path / "w"))
+    text = prompt.render_agent(TEMPLATE, cfg)
+    assert "{{" not in text and "Lia" in text and "Ana" in text and str(tmp_path / "brain") in text and str(tmp_path / "w") in text
+
+
+def test_missing_profile_values_fall_back_and_unknown_placeholders_vanish():
+    cfg = WispConfig(user_name="", persona="", language="", brain=None)
+    text = prompt.render_agent(TEMPLATE + "\nx {{NOT_A_THING}} y", cfg)
+    assert "{{" not in text and "the user" in text
+    assert "Wisp" in text and "pt-BR" in text and prompt.NO_BRAIN in text and "x  y" in text
+
+
+def test_agente_on_disk_is_never_rewritten(folder):  # noqa: F811
+    (folder / "agente.md").write_text("Oi {{USER_NAME}}")
+    before = (folder / "agente.md").read_text()
+    text = prompt.system_prompt(folder, WispConfig(user_name="Ana"), TIER, [], SMALL, "qwen3:8b")
+    assert "Oi Ana" in text and (folder / "agente.md").read_text() == before
+
+
+def test_identity_names_the_model_and_the_web_tools_when_enabled():
+    text = prompt.identity(SMALL, "qwen3:8b", ["web_search", "web_fetch", "read_file"])
+    assert text == ("Você está rodando localmente no Qwen3 8B (MLX), neste Mac, sem internet para o modelo; "
+                    "as ferramentas web_search e web_fetch acessam a internet quando você as chama.")
+    assert "Pequeno" not in text
+
+
+def test_identity_without_web_tools_says_there_is_no_internet():
+    text = prompt.identity(SMALL, "qwen3:8b", ["read_file"])
+    assert "web_search" not in text and "não tem ferramenta para acessar a internet" in text
+
+
+def test_capabilities_list_only_the_enabled_tools():
+    with_web = prompt.capabilities(["web_search", "read_file", "mac_open"])
+    assert "internet" in with_web and "ler e listar arquivos" in with_web and "controlar o Mac" in with_web
+    assert "shell" not in with_web and "e-mail" not in with_web
+    without = prompt.capabilities(["read_file", "list_files"])
+    assert "internet" not in without and "ler e listar arquivos" in without
+    assert "nenhuma ferramenta" in prompt.capabilities([])
+
+
+def test_two_turns_share_the_stable_prefix_and_the_date_comes_after_it(folder):  # noqa: F811
+    days = iter([date(2026, 11, 20), date(2026, 11, 21), date(2026, 11, 22)])
+    with FakeLLM([reply("a"), reply("b")]) as fake:
+        engine = make(folder, fake)
+        engine.today = lambda: next(days)
+        session = engine.start("c1", "qwen3:8b")
+        run(engine, session, "um")
+        run(engine, session, "dois")
+        first, second = fake.chats()
+    assert first["messages"][0] == second["messages"][0] and first["tools"] == second["tools"]
+    assert "2026-11" not in first["messages"][0]["content"]
+    assert second["messages"][1] == first["messages"][1]
+    assert second["messages"][1]["content"].startswith("um") and second["messages"][1]["content"].endswith("[Hoje é 2026-11-20.]")
+    assert second["messages"][-1]["content"] == "dois\n\n[Hoje é 2026-11-21.]"
+
+
+def test_the_system_prompt_has_no_per_turn_text():
+    text = prompt.system_prompt(Path("/nonexistent"), WispConfig(), TIER, ["web_search"], SMALL, "qwen3:8b")
+    assert not re.search(r"\d{4}-\d{2}-\d{2}", text) and dataclasses.is_dataclass(TIER)

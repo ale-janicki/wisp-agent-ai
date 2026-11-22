@@ -1,4 +1,5 @@
 import asyncio
+import re
 import json
 import shutil
 import sys
@@ -16,6 +17,10 @@ FIXTURES = ROOT / "cli/tests/fixtures"
 WISP_FOLDER = ROOT / "cli/src/wisp/wisp_folder"
 sys.path.insert(0, str(ROOT / "cli/tests"))
 from local_fakes import FakeLLM, call, reply  # noqa: E402
+
+
+def without_day(text):
+    return re.sub(r"\n\n\[Hoje é \d{4}-\d{2}-\d{2}\.\]$", "", text)
 
 
 @pytest.fixture
@@ -82,7 +87,7 @@ def test_a_text_turn_runs_the_local_engine_and_records_the_transcript(wisp, monk
     assert res.ok and res.text == "Olá!" and res.engine == "local" and res.model == "qwen3:8b"
     kinds = [(e["kind"], e.get("engine"), e.get("model"), e.get("text")) for e in entries(wisp)]
     assert kinds[1:] == [("user", None, None, "oi"), ("assistant", "local", "qwen3:8b", "Olá!")]
-    assert [m["content"] for m in fake.chats()[0]["messages"] if m["role"] == "user"] == ["oi"]
+    assert [without_day(m["content"]) for m in fake.chats()[0]["messages"] if m["role"] == "user"] == ["oi"]
 
 
 def test_the_next_turn_carries_the_conversation_from_the_transcript(wisp, monkeypatch):
@@ -90,7 +95,7 @@ def test_the_next_turn_carries_the_conversation_from_the_transcript(wisp, monkey
         point(wisp, fake.url)
         turn(wisp, fake, "primeira")
         turn(wisp, fake, "segunda")
-    sent = [(m["role"], m["content"]) for m in fake.chats()[1]["messages"] if m["role"] != "system"]
+    sent = [(m["role"], without_day(m["content"])) for m in fake.chats()[1]["messages"] if m["role"] != "system"]
     assert sent == [("user", "primeira"), ("assistant", "um"), ("user", "segunda")]
 
 
@@ -194,7 +199,7 @@ def test_switching_from_claude_to_local_rebuilds_the_context_from_the_transcript
     with FakeLLM([reply("Sim, Paris.")], tags={"qwen3:8b": 5}) as fake:
         point(wisp, fake.url)
         res = turn(wisp, fake, "e a população?", trocou=True, notices=notices)
-    sent = [(m["role"], m["content"]) for m in fake.chats()[0]["messages"] if m["role"] != "system"]
+    sent = [(m["role"], without_day(m["content"])) for m in fake.chats()[0]["messages"] if m["role"] != "system"]
     assert res.ok and notices == ["avisou"] and sent == [
         ("user", "qual a capital da França?"), ("assistant", "Paris."), ("user", "e a população?")]
     assert wisp.transcripts.last_engine(TOPIC.session_id) == "local"
@@ -304,7 +309,7 @@ def test_a_message_that_starts_with_a_dash_is_not_taken_for_an_option(wisp, monk
     with FakeLLM([reply("ok")], tags={"qwen3:8b": 5}) as fake:
         point(wisp, fake.url)
         res = turn(wisp, fake, "-5 graus é frio?")
-    assert res.ok and fake.chats()[0]["messages"][-1]["content"] == "-5 graus é frio?"
+    assert res.ok and without_day(fake.chats()[0]["messages"][-1]["content"]) == "-5 graus é frio?"
 
 
 def test_the_modelo_summary_shows_the_thinking_setting(wisp):

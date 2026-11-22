@@ -37,6 +37,8 @@ public enum LocalAdvisor {
 
     static let subscription = "use o Claude ou o Codex, que rodam na assinatura"
     static let gibibyte: UInt64 = 1 << 30
+    static let lowMemoryHeadroom: UInt64 = 2 << 30
+    public static let lowMemoryReason = "o Mac está com pouca memória livre agora"
 
     public static func chipFamily(_ chip: String) -> String? {
         guard let regex = try? NSRegularExpression(pattern: #"\bApple\s+M(\d+)(?:\s+(Pro|Max|Ultra))?\b"#, options: .caseInsensitive),
@@ -92,10 +94,17 @@ public enum LocalAdvisor {
         var notes: [String] = []
         var best: LocalPick?
         var fastest: LocalPick?
-        if let top = usable.max(by: { $0.sizeBytes < $1.sizeBytes }) {
+        if var top = usable.max(by: { $0.sizeBytes < $1.sizeBytes }) {
+            var pressure = ""
+            let lighter = usable.filter { $0.sizeBytes < top.sizeBytes }
+            if hardware.availableMemory > 0, hardware.availableMemory < top.memoryBytes + lowMemoryHeadroom,
+               let next = lighter.max(by: { $0.sizeBytes < $1.sizeBytes }) {
+                top = next
+                pressure = "; \(lowMemoryReason)"
+            }
             let words = bandwidth.map { wordsPerSecond(bandwidth: $0, sizeBytes: top.sizeBytes) }
             let weak = top.toolsReliable ? "" : "; erra mais ao usar ferramentas"
-            best = pick(top, bandwidth: bandwidth, reason: "cabe com folga em \(memoryLabel(hardware.totalMemory)); \(speedText(words))\(weak)")
+            best = pick(top, bandwidth: bandwidth, reason: "cabe com folga em \(memoryLabel(hardware.totalMemory)); \(speedText(words))\(weak)\(pressure)")
             if let small = usable.filter(\.toolsReliable).min(by: { $0.sizeBytes < $1.sizeBytes }) {
                 let smallWords = bandwidth.map { wordsPerSecond(bandwidth: $0, sizeBytes: small.sizeBytes) }
                 fastest = pick(small, bandwidth: bandwidth, reason: "o menor que ainda usa ferramentas direito; \(speedText(smallWords))")
