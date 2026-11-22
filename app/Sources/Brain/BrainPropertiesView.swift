@@ -214,8 +214,7 @@ struct BrainSidePanelView: View {
 
     private func tagRow(_ tag: String, count: Int?) -> some View {
         Button {
-            model.searchQuery = "#" + tag
-            model.showsSearch = true
+            model.searchTag(tag)
         } label: {
             HStack {
                 Text("#" + tag).font(Theme.Font.body).foregroundStyle(Theme.accentTeal).lineLimit(1)
