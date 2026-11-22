@@ -208,7 +208,15 @@ struct SettingsView: View {
             Text("Trocar o caminho não move nada: aponta o Wisp para outra pasta.")
                 .font(Theme.Font.caption)
                 .foregroundStyle(Theme.textSecondary)
-                .padding(.bottom, Theme.Space.s)
+            VStack(alignment: .leading, spacing: Theme.Space.xs) {
+                ForEach(WispFolder.contents, id: \.name) { entry in
+                    Text("\(entry.name): \(entry.detail)")
+                }
+            }
+            .font(Theme.Font.caption)
+            .foregroundStyle(Theme.textSecondary)
+            .padding(.vertical, Theme.Space.s)
+            MeetingsMoveRow()
             Divider().overlay(Theme.stroke)
             SettingsRow(
                 title: "Setup",
@@ -541,6 +549,43 @@ private struct SettingsRow<Control: View>: View {
         }
         .padding(.vertical, Theme.Space.s)
         .frame(minHeight: Theme.Layout.rowHeight)
+    }
+}
+
+private struct MeetingsMoveRow: View {
+    private let model = PathsModel.shared
+    @State private var recording = false
+
+    var body: some View {
+        Group {
+            if model.pendingMeetings > 0 || model.meetingsMove != .idle {
+                SettingsRow(title: "Mover reuniões", detail: recording ? "Espere a gravação terminar para mover." : detail) {
+                    if case .moving = model.meetingsMove {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Button("Mover reuniões") { model.moveMeetings() }
+                            .buttonStyle(CapsuleButtonStyle(kind: .ghost))
+                            .disabled(model.pendingMeetings == 0 || recording)
+                    }
+                }
+            }
+        }
+        .task {
+            while !Task.isCancelled {
+                let roots = model.recordingRoots()
+                recording = await Task.detached { PathsModel.recordingActive(in: roots) }.value
+                try? await Task.sleep(for: .seconds(2))
+            }
+        }
+    }
+
+    private var detail: String {
+        switch model.meetingsMove {
+        case .moving(let done, let total): "Movendo \(done) de \(total)…"
+        case .finished(let summary): summary
+        case .failed(let message): "\(message) Dá para tentar de novo: o que já foi movido fica."
+        case .idle: "\(model.pendingMeetings) reuniões ficaram em ~/Wisp/reunioes. Mover leva as gravações para a pasta nova."
+        }
     }
 }
 

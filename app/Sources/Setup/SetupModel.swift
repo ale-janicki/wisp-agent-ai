@@ -75,7 +75,7 @@ final class SetupModel {
 
     var home: URL { homeOverride ?? FileManager.default.homeDirectoryForCurrentUser }
 
-    var defaultBrainFolder: URL { home.appendingPathComponent("Wisp/brain", isDirectory: true) }
+    var defaultBrainFolder: URL { WispFolder.layout(raw: nil, home: home).brain }
 
     var stateURL: URL {
         if let homeOverride {

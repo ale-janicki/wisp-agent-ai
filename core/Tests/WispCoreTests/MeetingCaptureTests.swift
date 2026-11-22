@@ -97,8 +97,8 @@ final class MeetingCaptureTests: XCTestCase {
 
     func testDefaultRootIsWispReunioesAndConfiguredPathWins() {
         let home = URL(fileURLWithPath: "/Users/x")
-        XCTAssertEqual(RecordingFolder.root(configured: nil, home: home).path, "/Users/x/Wisp/reunioes")
-        XCTAssertEqual(RecordingFolder.root(configured: "  ", home: home).path, "/Users/x/Wisp/reunioes")
+        XCTAssertEqual(RecordingFolder.root(configured: nil, environment: [:], home: home).path, "/Users/x/Wisp/reunioes")
+        XCTAssertEqual(RecordingFolder.root(configured: "  ", environment: [:], home: home).path, "/Users/x/Wisp/reunioes")
         XCTAssertEqual(RecordingFolder.root(configured: "~/Gravacoes", home: home).path, "/Users/x/Gravacoes")
         XCTAssertEqual(RecordingFolder.root(configured: "/Volumes/hd/rec", home: home).path, "/Volumes/hd/rec")
     }
@@ -694,5 +694,27 @@ final class MeetingCaptureTests: XCTestCase {
         let data = try JSONEncoder().encode(settings)
         XCTAssertEqual(try JSONDecoder().decode(WispSettings.self, from: data).recordingsPath, "~/Gravacoes")
         XCTAssertNil(try JSONDecoder().decode(WispSettings.self, from: Data(#"{"theme":"lime"}"#.utf8)).recordingsPath)
+    }
+
+    func testAnActiveRecordingIsOneWithRecordingStatusTouchedInTheLastMinute() throws {
+        let folder = try RecordingFolder.create(root: root, date: t0, timeZone: utc)
+        let meta = RecordingMeta(startedAt: t0, devices: .init(mic: nil, system: nil), status: .recording)
+        try RecordingFolder.write(meta, in: folder)
+        XCTAssertTrue(RecordingFolder.hasActiveRecording(in: root))
+        XCTAssertFalse(RecordingFolder.hasActiveRecording(in: root, now: Date().addingTimeInterval(120)))
+        var finished = meta
+        finished.status = .transcribing
+        try RecordingFolder.write(finished, in: folder)
+        XCTAssertFalse(RecordingFolder.hasActiveRecording(in: root))
+    }
+
+    func testAFolderNotTouchedInTheLastMinuteIsNotEvenRead() throws {
+        let folder = try RecordingFolder.create(root: root, date: t0, timeZone: utc)
+        try RecordingFolder.write(RecordingMeta(startedAt: t0, devices: .init(mic: nil, system: nil), status: .recording), in: folder)
+        let old = Date().addingTimeInterval(-600)
+        for url in [folder, RecordingFolder.metaURL(in: folder)] {
+            try FileManager.default.setAttributes([.modificationDate: old], ofItemAtPath: url.path)
+        }
+        XCTAssertFalse(RecordingFolder.hasActiveRecording(in: root))
     }
 }
