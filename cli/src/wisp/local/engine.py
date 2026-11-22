@@ -17,7 +17,7 @@ from wisp.local import catalog as catalogs
 from wisp.local import guardrails, modelos
 from wisp.local.approver import Approver, DenyApprover
 from wisp.local.guardrails import GuardrailsError, TurnGuard
-from wisp.local.prompt import system_prompt, today_note
+from wisp.local.prompt import neutralize_context, system_prompt, today_note
 from wisp.local.backend import Backend, BackendError, make_backend
 from wisp.local.web import WebClient
 from wisp.local.tools import Files, ToolFailure, ToolHost, ServerSpec, load_servers, open_host, with_approval_socket
@@ -373,7 +373,7 @@ class LocalEngine:
             guard.last_repeated = name
             return "loop"
         error, result = await self._execute(session, rails, guard, host, name, arguments, denials, call["id"])
-        result = result if len(result) <= RESULT_CHARS else result[:RESULT_CHARS] + "…"
+        result = neutralize_context(result if len(result) <= RESULT_CHARS else result[:RESULT_CHARS] + "…")
         emit({"type": "user", "message": {"role": "user", "content": [
             {"type": "tool_result", "tool_use_id": call["id"], "is_error": error, "content": result}]}})
         turn.append({"role": "tool", "tool_name": name, "tool_call_id": call["id"], "content": result})
