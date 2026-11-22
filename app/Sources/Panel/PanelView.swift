@@ -34,8 +34,8 @@ struct PanelView: View {
     var body: some View {
         VStack(spacing: 0) {
             header
-            if model.profileError != nil || model.onboarding != nil {
-                OnboardingView(model: model)
+            if model.profileError != nil {
+                OnboardingView(model: model) {}
             } else {
                 HStack(alignment: .top, spacing: 0) {
                     leftColumn
@@ -151,7 +151,14 @@ struct PanelView: View {
         switch controller.tab {
         case .home: home
         case .conversation:
-            ConversationCard(model: model, draft: $draft, submit: submit)
+            if model.onboarding.blocksInput {
+                OnboardingView(model: model) {
+                    SettingsSection.model.open()
+                    controller.tab = .settings
+                }
+            } else {
+                ConversationCard(model: model, draft: $draft, submit: submit)
+            }
         case .tasks: TasksTab(profile: model.profile)
         case .reminders: RemindersTab(profile: model.profile)
         case .agenda: AgendaTab(profile: model.profile)
