@@ -13,6 +13,8 @@ Entries are in descending chronological order (newest first).
 
 - Brain: the tab opens on the graph, the home and graph icons became one "Grafo | Lista" selector, and the magnifier is gone: a single "Buscar nota" field filters the graph or searches the notes in the list, and ⇧⌘F focuses it.
 - Conversa and Reuniões: the panel icon that brought the menu back is a back arrow ("Voltar ao menu"); in Reuniões it was next to a back arrow that already did the same, so it is gone.
+- Reuniões: the live transcript now listens for speech instead of re-reading sliding windows. Each stretch of speech (with a short lead-in and tail) is transcribed once as soon as it ends, long monologues are cut at the quietest moment every 20 s at most, a silent side costs nothing, and a grey "…" shows while someone is still talking. One minute of non-stop talking dropped from about 30 recognizer runs to 4, and a conversation with half speech from about 23 to 8. Because live and final now transcribe the same segments, a finished recording keeps its live transcript at any length instead of being transcribed again (only "Melhorar transcrição" redoes it).
+- Reuniões: the recording is also encoded to `.m4a` while it runs, so stopping no longer re-encodes the whole meeting ("Salvando…" is a file move). The raw `.caf` stays until the `.m4a` is checked to cover it, and a recording cut short is still rebuilt from the `.caf` on the next launch.
 
 ### Fixed
 
@@ -26,8 +28,6 @@ Entries are in descending chronological order (newest first).
 
 - Reuniões: lighter live transcription and a lighter stop. Silent stretches and windows with nothing new spoken no longer run the model, partial updates come every 2.75 s instead of 1.5 s, "Salvando…" shows the conversion percentage and runs at background priority, and recordings over 10 minutes keep the live transcript instead of re-transcribing the whole hour (the new "Melhorar transcrição" menu item runs the full pass on demand).
 - Reuniões: one button standard (primary, secondary, icon, all 32 pt tall), the source and event pickers look like buttons, the detail header keeps back and sidebar together on the left, and "Gravação salva" no longer shows the folder name and can be dismissed.
-- Reuniões: the live transcript now listens for speech instead of re-reading sliding windows. Each stretch of speech (with a short lead-in and tail) is transcribed once as soon as it ends, long monologues are cut at the quietest moment every 20 s at most, a silent side costs nothing, and a grey "…" shows while someone is still talking. One minute of non-stop talking dropped from about 30 recognizer runs to 4, and a conversation with half speech from about 23 to 8. Because live and final now transcribe the same segments, a finished recording keeps its live transcript at any length instead of being transcribed again (only "Melhorar transcrição" redoes it).
-- Reuniões: the recording is also encoded to `.m4a` while it runs, so stopping no longer re-encodes the whole meeting ("Salvando…" is a file move). The raw `.caf` stays until the `.m4a` is checked to cover it, and a recording cut short is still rebuilt from the `.caf` on the next launch.
 
 ### Fixed
 
