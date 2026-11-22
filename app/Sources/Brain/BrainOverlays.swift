@@ -80,63 +80,6 @@ struct BrainSwitcherOverlay: View {
     }
 }
 
-struct BrainSearchOverlay: View {
-    @Bindable var model: BrainModel
-    @State private var selection = 0
-
-    var body: some View {
-        BrainOverlayCard(dismiss: { model.showsSearch = false }, width: 520) {
-            VStack(alignment: .leading, spacing: Theme.Space.s) {
-                SearchField(text: $model.searchQuery, placeholder: "Buscar em todas as notas", autofocus: true)
-                    .onSubmit { choose(selection) }
-                    .onKeyPress(.downArrow) { selection = min(selection + 1, max(model.searchHits.count - 1, 0)); return .handled }
-                    .onKeyPress(.upArrow) { selection = max(selection - 1, 0); return .handled }
-                if let error = model.searchError {
-                    InlineError(text: error)
-                } else if model.searching {
-                    SkeletonRows(count: 3)
-                } else if model.searchHits.isEmpty, !model.searchQuery.trimmingCharacters(in: .whitespaces).isEmpty {
-                    Text("Nenhuma nota com “\(model.searchQuery)”").font(Theme.Font.caption).foregroundStyle(Theme.textTertiary).padding(Theme.Space.s)
-                }
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 1) {
-                        ForEach(Array(model.searchHits.enumerated()), id: \.element.id) { index, hit in
-                            Button { choose(index) } label: {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    HStack(spacing: Theme.Space.s) {
-                                        Text(hit.title).font(Theme.Font.bodyMedium).foregroundStyle(Theme.textPrimary).lineLimit(1)
-                                        Text(BrainText.parent(of: hit.path))
-                                            .font(Theme.Font.caption)
-                                            .foregroundStyle(Theme.textTertiary)
-                                            .lineLimit(1)
-                                            .truncationMode(.head)
-                                            .layoutPriority(-1)
-                                    }
-                                    Text(hit.snippet).font(Theme.Font.caption).foregroundStyle(Theme.textSecondary).lineLimit(2).multilineTextAlignment(.leading)
-                                }
-                            }
-                            .buttonStyle(RowButtonStyle(highlight: index == selection ? .subtle : .none, height: 52))
-                        }
-                    }
-                }
-                .frame(maxHeight: 300)
-                .scrollIndicators(.hidden)
-            }
-        }
-        .onAppear { model.search(model.searchQuery) }
-        .onChange(of: model.searchQuery) {
-            selection = 0
-            model.search(model.searchQuery)
-        }
-    }
-
-    private func choose(_ index: Int) {
-        guard model.searchHits.indices.contains(index) else { return }
-        model.showsSearch = false
-        model.open(model.searchHits[index].path)
-    }
-}
-
 struct BrainPromptOverlay: View {
     var model: BrainModel
     let prompt: BrainPrompt

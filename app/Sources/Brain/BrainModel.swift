@@ -123,8 +123,9 @@ final class BrainModel {
     var prompt: BrainPrompt?
     var message: String?
     var showsSwitcher = false
-    var showsSearch = false
-    var showsGraph = false
+    var showsGraph = true
+    var browsing = false
+    private(set) var searchFocusTick = 0
     var showsTree = true
     var sidePanel: BrainSidePanel?
     var searchError: String?
@@ -251,6 +252,7 @@ final class BrainModel {
     func open(_ path: String, line: Int? = nil, heading: String? = nil, newTab: Bool = false) {
         guard let files else { return }
         message = nil
+        browsing = false
         let kind = BrainFileKind.of(path)
         if kind == .other, let url = try? files.url(path) {
             NSWorkspace.shared.activateFileViewerSelecting([url])
@@ -929,16 +931,25 @@ final class BrainModel {
         }
     }
 
+    func focusSearch() {
+        browsing = true
+        searchFocusTick += 1
+    }
+
+    func searchTag(_ name: String) {
+        searchQuery = "#" + name
+        showsGraph = false
+        focusSearch()
+    }
+
     func closeOverlays() {
         prompt = nil
         showsSwitcher = false
-        showsSearch = false
     }
 
     func dismissOverlay() -> Bool {
         if prompt != nil { prompt = nil; return true }
         if showsSwitcher { showsSwitcher = false; return true }
-        if showsSearch { showsSearch = false; return true }
         return false
     }
 
