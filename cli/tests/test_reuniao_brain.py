@@ -87,7 +87,7 @@ def test_ambiguous_attendee_stays_plain_text(tmp_path):
 def test_unknown_attendee_is_plain_and_no_stub_is_created(tmp_path):
     brain = brain_of(tmp_path)
     reuniao_brain.sync(recording(tmp_path), brain, [], UTC)
-    assert tree(brain) == ["meetings", "meetings/2027-01-15-08h00m-alinhamento-do-roadmap.md"]
+    assert tree(brain) == ["meetings", "meetings/.wisp-index.lock", "meetings/2027-01-15-08h00m-alinhamento-do-roadmap.md"]
     text = (brain / "meetings" / "2027-01-15-08h00m-alinhamento-do-roadmap.md").read_text("utf-8")
     assert "[[" not in text
 
@@ -135,7 +135,7 @@ def test_file_name_and_frontmatter(tmp_path):
         assert line in head
     assert '  - "Bruno Lima <bruno@example.com>"' in head
     assert f'gravacao: "{tmp_path / "rec"}"' in head
-    assert f"({(tmp_path / 'rec' / 'nota.md').as_uri()})" in text
+    assert f"({tmp_path / 'rec' / 'nota.md'})" in text
     assert "> Pauta: revisar o orçamento" in text
 
 
@@ -174,7 +174,7 @@ def test_manual_flow_writes_placeholder_then_fills_the_same_note(tmp_path):
     text = path.read_text("utf-8")
     assert first["criada"] and not first["resumo"]
     assert reuniao_brain.PLACEHOLDER in text and "resumo_gerado: nao" in text
-    assert f"({(folder / 'transcript.json').as_uri()})" in text
+    assert f"({folder / 'transcript.json'})" in text
     assert "[[Ana Souza]]" in text
 
     meta = json.loads((folder / "meta.json").read_text("utf-8"))
@@ -186,7 +186,7 @@ def test_manual_flow_writes_placeholder_then_fills_the_same_note(tmp_path):
     filled = path.read_text("utf-8")
     assert reuniao_brain.PLACEHOLDER not in filled and "resumo_gerado: sim" in filled
     assert "[[Projeto Aurora]]" in filled
-    assert sorted(p.name for p in (brain / "meetings").iterdir()) == [path.name]
+    assert sorted(p.name for p in (brain / "meetings").iterdir() if p.suffix == ".md") == [path.name]
 
 
 def test_fill_keeps_user_edits_and_skips_when_placeholder_is_gone(tmp_path):
@@ -224,7 +224,7 @@ def test_only_the_meetings_folder_is_written(tmp_path):
     before = {p: p.read_bytes() for p in brain.rglob("*") if p.is_file()}
     reuniao_brain.sync(folder, brain, ROWS, UTC)
     after = {p: p.read_bytes() for p in brain.rglob("*") if p.is_file()}
-    created = set(after) - set(before)
+    created = {p for p in set(after) - set(before) if p.suffix == ".md"}
     assert len(created) == 1 and next(iter(created)).parent == (brain / "meetings").resolve()
     assert all(after[p] == before[p] for p in before)
     assert sorted(p.name for p in tmp_path.iterdir() if p.name != "home") == ["brain", "rec"]
@@ -297,3 +297,140 @@ def test_resync_does_not_duplicate_the_index_line(tmp_path):
 def test_index_line_sanitizes_the_title():
     moment = reuniao_brain.started_at({"started_at": "2027-01-15T08:00:00Z"}, UTC)
     assert reuniao_brain.index_line("n", "A [[b]] | c\nd", moment) == "- [[n]] — A b c d (2027-01-15)"
+
+
+def moved(path: Path, destination: Path) -> Path:
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    path.rename(destination)
+    return destination
+
+
+def sync_again(folder, brain, path, **kwargs):
+    meta = json.loads((folder / "meta.json").read_text("utf-8"))
+    meta["brain_note"] = str(path)
+    (folder / "meta.json").write_text(json.dumps(meta), "utf-8")
+    return reuniao_brain.sync(folder, brain, ROWS, UTC, **kwargs)
+
+
+def test_renamed_note_is_found_and_updated_not_duplicated(tmp_path):
+    brain = brain_of(tmp_path)
+    folder = recording(tmp_path, generated=False)
+    path = Path(reuniao_brain.sync(folder, brain, ROWS, UTC)["nota"])
+    renamed = moved(path, path.parent / "minha reuniao.md")
+    meta = json.loads((folder / "meta.json").read_text("utf-8"))
+    meta.update(note_state="generated", brain_note=str(path))
+    (folder / "meta.json").write_text(json.dumps(meta), "utf-8")
+    (folder / "nota.md").write_text(NOTA, "utf-8")
+    result = reuniao_brain.sync(folder, brain, ROWS, UTC)
+    assert result["criada"] is False and result["resumo"] is True
+    assert Path(result["nota"]) == renamed.resolve()
+    assert [p.name for p in (brain / "meetings").glob("*.md")] == ["minha reuniao.md"]
+    assert reuniao_brain.PLACEHOLDER not in renamed.read_text("utf-8")
+
+
+def test_note_moved_to_a_subfolder_or_elsewhere_in_the_brain_is_found(tmp_path):
+    brain = brain_of(tmp_path)
+    folder = recording(tmp_path)
+    path = Path(reuniao_brain.sync(folder, brain, ROWS, UTC)["nota"])
+    inner = moved(path, brain / "meetings" / "2027" / path.name)
+    assert Path(sync_again(folder, brain, path)["nota"]) == inner.resolve()
+    outer = moved(inner, brain / "arquivo" / path.name)
+    rows = ROWS + [row(f"arquivo/{path.stem}.md")]
+    meta = json.loads((folder / "meta.json").read_text("utf-8"))
+    meta["brain_note"] = str(inner)
+    (folder / "meta.json").write_text(json.dumps(meta), "utf-8")
+    result = reuniao_brain.sync(folder, brain, rows, UTC)
+    assert result["criada"] is False and Path(result["nota"]) == outer.resolve()
+
+
+def test_deleted_note_is_reported_and_recreated_only_on_request(tmp_path):
+    brain = brain_of(tmp_path)
+    folder = recording(tmp_path)
+    path = Path(reuniao_brain.sync(folder, brain, ROWS, UTC)["nota"])
+    path.unlink()
+    with pytest.raises(reuniao.Falha, match="movida ou apagada"):
+        sync_again(folder, brain, path)
+    assert list((brain / "meetings").glob("*.md")) == []
+    assert sync_again(folder, brain, path, recreate=True)["criada"] is True
+
+
+def test_event_text_cannot_inject_lines(tmp_path):
+    brain = brain_of(tmp_path)
+    event = {
+        "title": "A\n# Injected", "calendar": "Cal\n---", "organizer": {"name": "O\n## X", "email": "o@example.com"},
+        "attendees": [{"name": "P\n# Y", "email": "p@example.com"}], "url": "https://x.example/a\nb",
+    }
+    text = Path(reuniao_brain.sync(recording(tmp_path, event=event), brain, [], UTC)["nota"]).read_text("utf-8")
+    assert "A # Injected" in text
+    assert not any(line.startswith(("# Injected", "## X", "# Y")) for line in text.splitlines())
+    assert text.splitlines().count("---") == 2
+
+
+def test_paths_in_the_note_are_relative_to_home(tmp_path):
+    brain = brain_of(tmp_path)
+    folder = recording(tmp_path)
+    path = Path(reuniao_brain.sync(folder, brain, [], UTC, home=tmp_path)["nota"])
+    text = path.read_text("utf-8")
+    assert 'gravacao: "~/rec"' in text
+    assert "(~/rec/nota.md)" in text
+    assert str(tmp_path) not in text
+
+
+def test_note_is_found_again_by_its_home_relative_recording(tmp_path):
+    brain = brain_of(tmp_path)
+    folder = recording(tmp_path)
+    path = Path(reuniao_brain.sync(folder, brain, [], UTC, home=tmp_path)["nota"])
+    renamed = moved(path, path.parent / "outro.md")
+    result = reuniao_brain.sync(folder, brain, [], UTC, home=tmp_path)
+    assert result["criada"] is False and Path(result["nota"]) == renamed.resolve()
+
+
+def test_two_meetings_finishing_together_both_reach_the_index(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+
+    brain = brain_of(tmp_path)
+    (brain / "meetings").mkdir()
+    index = brain / "meetings" / "meetings-index.md"
+    index.write_text("", "utf-8")
+    folders = [recording(tmp_path, event={"title": f"Reuniao {n}"}, name=f"rec{n}") for n in range(6)]
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        list(pool.map(lambda f: reuniao_brain.sync(f, brain, [], UTC), folders))
+    lines = [line for line in index.read_text("utf-8").splitlines() if line]
+    assert len(lines) == 6 and len(set(lines)) == 6
+
+
+def test_rewrite_retries_once_when_the_file_changes_underneath(tmp_path):
+    target = tmp_path / "i.md"
+    target.write_text("a\n", "utf-8")
+    calls = []
+
+    def add(text):
+        calls.append(text)
+        if len(calls) == 1:
+            target.write_text("a\nuser\n", "utf-8")
+        return text + "novo\n"
+
+    assert reuniao_brain.rewrite(target, add) is True
+    assert target.read_text("utf-8") == "a\nuser\nnovo\n"
+    target.write_text("a\n", "utf-8")
+
+    def always(text):
+        target.write_text(text + "x", "utf-8")
+        return text + "novo\n"
+
+    with pytest.raises(reuniao.Falha):
+        reuniao_brain.rewrite(target, always)
+    assert [p.name for p in tmp_path.iterdir() if p.name != "home"] == ["i.md"]
+
+
+def test_create_falls_back_when_hard_links_are_not_supported(tmp_path, monkeypatch):
+    brain = brain_of(tmp_path)
+
+    def refuse(*args, **kwargs):
+        raise PermissionError("no links")
+
+    monkeypatch.setattr(reuniao_brain.os, "link", refuse)
+    first = Path(reuniao_brain.sync(recording(tmp_path), brain, [], UTC)["nota"])
+    second = Path(reuniao_brain.sync(recording(tmp_path, name="rec2"), brain, [], UTC)["nota"])
+    assert second.name == first.stem + "-2.md"
+    assert sorted(p.name for p in (brain / "meetings").iterdir() if p.name.startswith(".wisp-brain")) == []

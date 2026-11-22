@@ -9,6 +9,7 @@ Entries are in descending chronological order (newest first).
 
 ## [Unreleased]
 
+- Meetings: a brain note that was renamed or moved is found again (by its `gravacao` and marker) and updated in place instead of duplicated; if it was deleted, the sync says so and only recreates it on an explicit "Salvar no brain". Event text can no longer inject lines into the note, concurrent writes to the meetings index and summary are serialized and re-checked, and the note stores `~`-relative paths instead of absolute ones.
 ### Added
 
 - Each tab with settings (Conversa, Brain, Agenda, Reuniões, Música, My Mac) has a gear in its header that opens that tab's settings inside the tab, with "Voltar" and "Todos os ajustes"; Ajustes keeps everything.

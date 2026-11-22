@@ -154,7 +154,7 @@ final class MeetingLibraryModel: ObservableObject {
         guard entry.hasTranscript || entry.hasNote else { return }
         let folder = entry.folder
         let layout = RuntimeLayout(bundle: Bundle.main.bundleURL, home: FileManager.default.homeDirectoryForCurrentUser)
-        let writer = WispBrainWriter(layout: layout, brain: PathsModel.shared.url(.brain).path)
+        let writer = WispBrainWriter(layout: layout, brain: PathsModel.shared.url(.brain).path, recreate: true)
         Task { [weak self] in
             do {
                 let saved = try await writer.syncNote(folder: folder)

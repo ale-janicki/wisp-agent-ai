@@ -7,10 +7,12 @@ struct WispBrainWriter: MeetingBrainWriter {
     let wisp: URL
     let environment: [String: String]
     let brain: String
+    let recreate: Bool
 
-    init(layout: RuntimeLayout, brain: String) {
+    init(layout: RuntimeLayout, brain: String, recreate: Bool = false) {
         wisp = layout.wisp
         self.brain = brain
+        self.recreate = recreate
         var environment = ProcessInfo.processInfo.environment.filter { !$0.key.hasPrefix("UV_") && $0.key != "PYTHONPATH" }
         environment["WISP_RESOURCES"] = layout.src.path
         if let path = ClaudeLocator.cachedLoginShellPATH { environment["PATH"] = path }
@@ -20,7 +22,7 @@ struct WispBrainWriter: MeetingBrainWriter {
     func syncNote(folder: URL) async throws -> URL {
         let executable = wisp
         let environment = environment
-        let arguments = ["reuniao", "brain", folder.path, "--brain", brain]
+        let arguments = ["reuniao", "brain", folder.path, "--brain", brain] + (recreate ? ["--recriar"] : [])
         let token = CommandCancellation()
         let result = await withTaskCancellationHandler {
             await Task.detached {

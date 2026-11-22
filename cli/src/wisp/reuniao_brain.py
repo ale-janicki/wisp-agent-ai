@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+import fcntl
+import hashlib
 import json
 import os
 import re
 import sqlite3
 import tempfile
+from contextlib import contextmanager
 from datetime import datetime, tzinfo
 from pathlib import Path
+from urllib.parse import quote
 
 from wisp import reuniao
 from wisp.brain_index import STOPWORDS, BrainError, BrainIndex, NoteRow, fold, index_path
@@ -24,7 +28,10 @@ INDEX_NAME = "meetings-index.md"
 MAX_EVENT_NOTES_CHARS = 2000
 MIN_KEY_CHARS = 3
 MAX_KEYS = 20_000
-HEADER_PROBE = 4096
+HEADER_PROBE = 16384
+VAULT_LOCK = ".wisp-index.lock"
+MOVED = "a nota da reunião foi movida ou apagada no brain"
+DATED = re.compile(r"\d{4}-\d{2}-\d{2}-\d{2}h\d{2}m-")
 LOCK_NAME = ".brain.lock"
 PROTECTED = re.compile(r"\[\[.*?\]\]|`[^`\n]*`|\[[^\]\n]*\]\([^)\n]*\)|https?://\S+")
 
@@ -119,6 +126,18 @@ def text_of(value) -> str:
     return value.strip() if isinstance(value, str) else ""
 
 
+def line_of(value) -> str:
+    return " ".join(value.split()) if isinstance(value, str) else ""
+
+
+def home_path(path: Path, home: Path | None) -> str:
+    base = home if home is not None else Path.home()
+    try:
+        return "~/" + path.relative_to(base).as_posix()
+    except ValueError:
+        return str(path)
+
+
 def people_of(event: dict) -> list[tuple[str, str]]:
     found: list[tuple[str, str]] = []
     seen: set[str] = set()
@@ -129,7 +148,7 @@ def people_of(event: dict) -> list[tuple[str, str]]:
     for person in sources:
         if not isinstance(person, dict):
             continue
-        name, email = text_of(person.get("name")), text_of(person.get("email"))
+        name, email = line_of(person.get("name")), line_of(person.get("email"))
         key = email.casefold() or norm(name)
         if not (name or email) or key in seen:
             continue
@@ -168,28 +187,56 @@ def index_line(name: str, title: str, moment: datetime) -> str:
     return line if len(line) <= INDEX_LINE_CHARS else line[: INDEX_LINE_CHARS - 1] + "…"
 
 
+@contextmanager
+def vault_lock(meetings: Path):
+    fd = os.open(meetings / VAULT_LOCK, os.O_RDWR | os.O_CREAT, 0o600)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        yield
+    finally:
+        os.close(fd)
+
+
+def digest(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def rewrite(path: Path, transform) -> bool:
+    for _ in range(2):
+        before = path.read_bytes()
+        updated = transform(before.decode("utf-8"))
+        if updated is None:
+            return False
+        mode = path.stat().st_mode & 0o777
+        fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".wisp-rewrite-")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                handle.write(updated)
+            os.chmod(tmp, mode)
+            if digest(path.read_bytes()) != digest(before):
+                continue
+            os.replace(tmp, path)
+            return True
+        finally:
+            Path(tmp).unlink(missing_ok=True)
+    raise reuniao.Falha(f"{path.name} mudou enquanto eu gravava; tente de novo")
+
+
 def append_index(meetings: Path, name: str, title: str, moment: datetime) -> bool:
     index = meetings / INDEX_NAME
     if not index.is_file() or index.resolve().parent != meetings:
         return False
-    try:
-        existing = index.read_text("utf-8")
+
+    def add(existing: str) -> str | None:
         if f"[[{name}]]" in existing:
-            return False
+            return None
         separator = "" if not existing or existing.endswith("\n") else "\n"
-        mode = index.stat().st_mode & 0o777
-        fd, tmp = tempfile.mkstemp(dir=meetings, prefix=".wisp-index-")
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as handle:
-                handle.write(existing + separator + index_line(name, title, moment) + "\n")
-            os.chmod(tmp, mode)
-            os.replace(tmp, index)
-        except BaseException:
-            Path(tmp).unlink(missing_ok=True)
-            raise
+        return existing + separator + index_line(name, title, moment) + "\n"
+
+    try:
+        return rewrite(index, add)
     except (OSError, UnicodeDecodeError) as problem:
         raise reuniao.Falha(f"não consegui atualizar o índice das reuniões: {problem}")
-    return True
 
 
 def summary_of(folder: Path, meta: dict) -> tuple[str | None, str | None]:
@@ -216,7 +263,7 @@ def quoted(value: str) -> str:
     return json.dumps(value, ensure_ascii=False)
 
 
-def frontmatter(meta: dict, event: dict, moment: datetime, folder: Path, has_summary: bool) -> str:
+def frontmatter(meta: dict, event: dict, moment: datetime, folder: Path, has_summary: bool, home: Path | None = None) -> str:
     lines = [
         "---",
         "tipo: reuniao",
@@ -224,7 +271,7 @@ def frontmatter(meta: dict, event: dict, moment: datetime, folder: Path, has_sum
         f"data: {moment:%Y-%m-%d %H:%M}",
         f"duracao: {reuniao.clock(float(meta.get('duration_s') or 0))}",
     ]
-    calendar = text_of(event.get("calendar"))
+    calendar = line_of(event.get("calendar"))
     if calendar:
         lines.append(f"calendario: {quoted(calendar)}")
     people = people_of(event)
@@ -232,27 +279,30 @@ def frontmatter(meta: dict, event: dict, moment: datetime, folder: Path, has_sum
         lines.append("participantes:")
         lines.extend(f"  - {quoted(person_label(*person))}" for person in people)
     organizer = event.get("organizer")
-    if isinstance(organizer, dict) and person_label(text_of(organizer.get("name")), text_of(organizer.get("email"))):
-        lines.append(f"organizador: {quoted(person_label(text_of(organizer.get('name')), text_of(organizer.get('email'))))}")
-    link = text_of(event.get("url"))
+    label = person_label(line_of(organizer.get("name")), line_of(organizer.get("email"))) if isinstance(organizer, dict) else ""
+    if label:
+        lines.append(f"organizador: {quoted(label)}")
+    link = line_of(event.get("url"))
     if link:
         lines.append(f"link: {quoted(link)}")
-    lines.append(f"gravacao: {quoted(str(folder))}")
+    lines.append(f"gravacao: {quoted(home_path(folder, home))}")
     lines.append(f"resumo_gerado: {'sim' if has_summary else 'nao'}")
     lines.extend(["---", ""])
     return "\n".join(lines)
 
 
-def transcript_link(folder: Path) -> str:
+def transcript_link(folder: Path, home: Path | None = None) -> str:
     target = folder / "transcript.json"
     if (folder / "nota.md").exists():
         target = folder / "nota.md"
-    return f"[Transcrição completa]({target.as_uri()})"
+    return f"[Transcrição completa]({quote(home_path(target, home), safe='/~')})"
 
 
-def compose(meta: dict, folder: Path, names: Names, moment: datetime, title: str, summary: str | None) -> str:
+def compose(
+    meta: dict, folder: Path, names: Names, moment: datetime, title: str, summary: str | None, home: Path | None = None
+) -> str:
     event = meta.get("event") if isinstance(meta.get("event"), dict) else {}
-    parts = [frontmatter(meta, event, moment, folder, summary is not None), f"# {title}", ""]
+    parts = [frontmatter(meta, event, moment, folder, summary is not None, home), f"# {line_of(title) or FALLBACK_TITLE}", ""]
     people = people_of(event)
     if people:
         parts.append("**Participantes:** " + ", ".join(names.link_name(name, email) for name, email in people))
@@ -261,7 +311,7 @@ def compose(meta: dict, folder: Path, names: Names, moment: datetime, title: str
     if description:
         parts.extend(["## Descrição do evento", "", *(f"> {line}" for line in description.splitlines()), ""])
     parts.append(names.link_text(summary) if summary else PLACEHOLDER)
-    parts.extend(["", "## Transcrição", "", transcript_link(folder), ""])
+    parts.extend(["", "## Transcrição", "", transcript_link(folder, home), ""])
     return "\n".join(parts)
 
 
@@ -280,19 +330,39 @@ def meetings_folder(brain: Path) -> Path:
     return resolved
 
 
-def existing_note(meta: dict, meetings: Path) -> Path | None:
-    raw = text_of(meta.get("brain_note"))
-    if not raw:
-        return None
-    path = Path(raw)
+def head_of(path: Path) -> list[str] | None:
     try:
-        if path.suffix != ".md" or not path.is_file() or path.resolve().parent != meetings:
-            return None
         with path.open("r", encoding="utf-8") as handle:
-            head = handle.read(HEADER_PROBE)
+            return handle.read(HEADER_PROBE).splitlines()
     except (OSError, UnicodeDecodeError):
         return None
-    return path.resolve() if MARKER in head.splitlines() else None
+
+
+def inside(path: Path, root: Path) -> bool:
+    try:
+        return path.is_file() and path.suffix == ".md" and root in path.resolve().parents
+    except OSError:
+        return False
+
+
+def existing_note(meta: dict, folder: Path, brain: Path, meetings: Path, rows: list[NoteRow], home: Path | None) -> Path | None:
+    root = brain.resolve()
+    raw = text_of(meta.get("brain_note"))
+    if raw:
+        path = Path(raw)
+        head = head_of(path) if inside(path, root) else None
+        if head is not None and MARKER in head:
+            return path.resolve()
+    wanted = {f"gravacao: {quoted(home_path(folder, home))}", f"gravacao: {quoted(str(folder))}"}
+    candidates = sorted(meetings.rglob("*.md"))
+    candidates += [root / row.rel for row in rows if not row.rel.startswith(MEETINGS_DIR + "/") and DATED.match(row.stem)]
+    for path in candidates:
+        if not inside(path, root):
+            continue
+        head = head_of(path)
+        if head is not None and MARKER in head and wanted & set(head):
+            return path.resolve()
+    return None
 
 
 def create_unique(folder: Path, stem: str, text: str) -> Path:
@@ -301,12 +371,20 @@ def create_unique(folder: Path, stem: str, text: str) -> Path:
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
             handle.write(text)
         os.chmod(tmp, 0o600)
+        linking = True
         number = 1
         while True:
             target = folder / (f"{stem}.md" if number == 1 else f"{stem}-{number}.md")
             try:
-                os.link(tmp, target)
-                return target
+                if linking:
+                    try:
+                        os.link(tmp, target)
+                        return target
+                    except FileExistsError:
+                        raise
+                    except OSError:
+                        linking = False
+                return write_exclusive(target, text)
             except FileExistsError:
                 number += 1
             except OSError as problem:
@@ -315,32 +393,54 @@ def create_unique(folder: Path, stem: str, text: str) -> Path:
         Path(tmp).unlink(missing_ok=True)
 
 
+def write_exclusive(target: Path, text: str) -> Path:
+    fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(text)
+    except BaseException:
+        target.unlink(missing_ok=True)
+        raise
+    return target
+
+
 def fill_summary(path: Path, names: Names, summary: str | None, title: str | None) -> bool:
-    current = path.read_text("utf-8")
-    if summary is None or PLACEHOLDER not in current:
+    if summary is None:
         return False
-    updated = current.replace(PLACEHOLDER, names.link_text(summary), 1)
-    updated = updated.replace("resumo_gerado: nao", "resumo_gerado: sim", 1)
-    if title and f"\n# {FALLBACK_TITLE}\n" in updated:
-        updated = updated.replace(f"\n# {FALLBACK_TITLE}\n", f"\n# {title}\n", 1)
-    reuniao.write_private(path, updated)
-    return True
+
+    def fill(current: str) -> str | None:
+        if PLACEHOLDER not in current:
+            return None
+        updated = current.replace(PLACEHOLDER, names.link_text(summary), 1)
+        updated = updated.replace("resumo_gerado: nao", "resumo_gerado: sim", 1)
+        if title and f"\n# {FALLBACK_TITLE}\n" in updated:
+            updated = updated.replace(f"\n# {FALLBACK_TITLE}\n", f"\n# {line_of(title)}\n", 1)
+        return updated
+
+    return rewrite(path, fill)
 
 
-def sync(folder: Path, brain: Path, rows: list[NoteRow], tz: tzinfo | None = None) -> dict:
+def sync(
+    folder: Path, brain: Path, rows: list[NoteRow], tz: tzinfo | None = None, home: Path | None = None, recreate: bool = False
+) -> dict:
     meta = reuniao.read_json(folder / "meta.json")
-    meetings = meetings_folder(brain.expanduser())
+    brain = brain.expanduser()
+    meetings = meetings_folder(brain)
     names = Names(rows)
     note_title, summary = summary_of(folder, meta)
-    existing = existing_note(meta, meetings)
-    if existing:
-        return {"nota": str(existing), "criada": False, "resumo": fill_summary(existing, names, summary, note_title)}
     event = meta.get("event") if isinstance(meta.get("event"), dict) else {}
-    title = text_of(event.get("title")) or note_title or FALLBACK_TITLE
+    title = line_of(event.get("title")) or line_of(note_title) or FALLBACK_TITLE
     moment = started_at(meta, tz)
-    text = compose(meta, folder, names, moment, title, summary)
-    target = create_unique(meetings, file_stem(moment, title), text)
-    indexed = append_index(meetings, target.stem, title, moment)
+    with vault_lock(meetings):
+        existing = existing_note(meta, folder, brain, meetings, rows, home)
+        if existing:
+            return {"nota": str(existing), "criada": False, "resumo": fill_summary(existing, names, summary, note_title)}
+        recorded = text_of(meta.get("brain_note"))
+        if recorded and not recreate and not Path(recorded).exists():
+            raise reuniao.Falha(MOVED)
+        text = compose(meta, folder, names, moment, title, summary, home)
+        target = create_unique(meetings, file_stem(moment, title), text)
+        indexed = append_index(meetings, target.stem, title, moment)
     return {"nota": str(target), "criada": True, "resumo": summary is not None, "indice": indexed}
 
 
@@ -356,12 +456,14 @@ def load_rows(cfg: WispConfig, paths: WispPaths, brain: Path) -> list[NoteRow]:
         return []
 
 
-def make_brain_note(cfg: WispConfig, paths: WispPaths, folder: Path, brain: Path | None = None, tz: tzinfo | None = None) -> dict:
+def make_brain_note(
+    cfg: WispConfig, paths: WispPaths, folder: Path, brain: Path | None = None, tz: tzinfo | None = None, recreate: bool = False
+) -> dict:
     from wisp.layout import layout_of
 
     target = (brain or layout_of(cfg, paths.home).brain).expanduser()
     lock = reuniao.acquire_lock(folder, LOCK_NAME)
     try:
-        return sync(folder, target, load_rows(cfg, paths, target), tz)
+        return sync(folder, target, load_rows(cfg, paths, target), tz, paths.home, recreate)
     finally:
         os.close(lock)
