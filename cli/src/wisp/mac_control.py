@@ -7,6 +7,7 @@ import plistlib
 import re
 import secrets
 import shlex
+import signal
 import shutil
 import tempfile
 import time
@@ -34,13 +35,22 @@ SAFE_APPS_KEY = "macSafeApps"
 SHORTCUTS_KEY = "macReadOnlyShortcuts"
 CALLERS_DIR = "mac-callers"
 CALLER_TTL_S = 7 * 86400
-DEFAULT_SAFE_APPS = ("finder", "preview", "system settings", "music", "spotify", "calculator", "calendar", "notes", "textedit", "pages",
-                     "numbers", "keynote")
-NEVER_SAFE = re.compile(
-    r"terminal|iterm|warp|ghostty|kitty|alacritty|wezterm|hyper|tabby|xcode|visual studio|vscode|\bcode\b|cursor|windsurf|zed|sublime|nova|"
-    r"bbedit|textmate|pycharm|intellij|webstorm|goland|rider|clion|android studio|emacs|vim|script editor|script debugger|automator|"
-    r"shortcuts|atalhos|jupyter|python|node|ruby|shell|console|terminal"
-)
+DEFAULT_SAFE_BUNDLES = ("com.apple.finder", "com.apple.Preview", "com.apple.systempreferences", "com.apple.Music", "com.spotify.client",
+                        "com.apple.calculator", "com.apple.iCal", "com.apple.Notes", "com.apple.TextEdit", "com.apple.iWork.Pages",
+                        "com.apple.iWork.Numbers", "com.apple.iWork.Keynote")
+NEVER_SAFE_BUNDLES = frozenset(b.casefold() for b in (
+    "com.apple.Terminal", "com.googlecode.iterm2", "dev.warp.Warp-Stable", "dev.warp.Warp", "com.mitchellh.ghostty", "net.kovidgoyal.kitty",
+    "org.alacritty", "io.alacritty", "com.github.wez.wezterm", "com.microsoft.VSCode", "com.microsoft.VSCodeInsiders", "com.todesktop.230313mzl4w4u92",
+    "dev.zed.Zed", "dev.zed.Zed-Preview", "com.apple.dt.Xcode", "com.apple.ScriptEditor2", "com.apple.Automator", "com.apple.shortcuts",
+    "com.raycast.macos", "org.hammerspoon.Hammerspoon", "com.docker.docker", "dev.commandline.waveterm", "com.apple.Shortcuts",
+))
+NEVER_SAFE_PREFIXES = ("com.jetbrains.", "com.stairways.keyboardmaestro.", "com.panic.nova", "com.sublimetext.", "com.barebones.", "org.vim.", "org.gnu.emacs")
+BROWSER_PREFIXES = ("com.apple.safari", "com.google.chrome", "org.mozilla.", "company.thebrowser.", "com.brave.", "com.microsoft.edgemac",
+                    "com.operasoftware.", "com.vivaldi.", "org.chromium.", "app.zen-browser.", "com.kagi.")
+MESSENGER_PREFIXES = ("com.apple.mail", "com.apple.mobilesms", "com.apple.ichat", "net.whatsapp.", "com.tinyspeck.", "ru.keepcoder.telegram", "org.telegram.",
+                      "org.whispersystems.", "com.hnc.discord", "com.microsoft.outlook", "com.microsoft.teams", "org.mozilla.thunderbird",
+                      "com.readdle.", "us.zoom.", "com.skype.", "com.facebook.archon")
+NAV_KEYS = frozenset({"up", "down", "left", "right", "tab", "esc", "escape", "delete", "backspace", "forwarddelete", "pageup", "pagedown", "home", "end"})
 ACOES = ("tecla", "texto", "clique", "script", "atalho", "menu")
 HELPER_S = 30
 LOG_NAME = "mac-acoes.jsonl"
@@ -79,8 +89,6 @@ SEND_PATTERN = (r"\b(send|enviar|envia|mandar|senden|envoyer|submit|post|publica
                 "发送|送信|Отправить|Invia|Wyślij|Verstuur|Répondre|Skicka")
 SEND_TITLE = re.compile(SEND_PATTERN, re.I)
 SHELL_IN_SCRIPT = re.compile(r"do shell script\s+\"((?:[^\"\\]|\\.)*)\"|doShellScript\(\s*[\"']((?:[^\"'\\]|\\.)*)[\"']", re.I)
-SEND_KEYS = {"return", "enter"}
-SEND_MAIL_COMBO = ({"cmd", "shift"}, "d")
 MODIFIERS = {"command": "cmd", "cmd": "cmd", "shift": "shift", "option": "opt", "opt": "opt", "alt": "opt", "control": "ctrl", "ctrl": "ctrl", "fn": "fn"}
 
 SITES: dict[str, tuple[str, str | None]] = {
@@ -152,25 +160,34 @@ def send_title(text: str) -> bool:
     return bool(SEND_TITLE.search(text) or SEND_TITLE.search(normalize_label(text)))
 
 
-def key_sends(combo: str) -> bool:
+def key_is_safe(combo: str) -> bool:
     tokens = [MODIFIERS.get(t.strip(), t.strip()) for t in combo.lower().split("+")]
     key, mods = tokens[-1], set(tokens[:-1])
-    return key in SEND_KEYS or (key == SEND_MAIL_COMBO[1] and mods == SEND_MAIL_COMBO[0])
+    if key in NAV_KEYS:
+        return True
+    return mods == {"cmd"} and bool(re.fullmatch(r"[a-z0-9]", key))
 
 
-def key_presses_button(combo: str, info: dict) -> bool:
+def presses_send_control(combo: str, info: dict) -> bool:
     key = combo.lower().split("+")[-1].strip()
-    return key in ("space", " ") and info.get("papel") == "AXButton"
+    return key in ("space", " ", "return", "enter") and bool(info.get("pressavel")) and send_title(str(info.get("titulo") or ""))
 
 
 def canon(text: str) -> str:
     return unicodedata.normalize("NFC", text).replace("\r\n", "\n").replace("\r", "\n").strip()
 
 
+INVISIBLE_LETTERS = frozenset({0x115F, 0x1160, 0x3164, 0xFFA0, 0x2800, 0x17B4, 0x17B5, 0x180B, 0x180C, 0x180D, 0x180E, 0x034F})
+
+
+def hidden_character(ch: str) -> bool:
+    return unicodedata.category(ch).startswith("C") or unicodedata.category(ch) in ("Zl", "Zp") or ord(ch) in INVISIBLE_LETTERS
+
+
 def escape_controls(text: str) -> str:
     out = []
     for ch in text:
-        if ch in "\n\t" or not unicodedata.category(ch).startswith("C"):
+        if ch in "\n\t" or not hidden_character(ch):
             out.append(ch)
         else:
             out.append(f"\\u{{{ord(ch):04x}}}")
@@ -203,6 +220,23 @@ def parse_combo(combo: str) -> str:
     if not text or text.endswith("+") and text != "+":
         raise Falha("Informe a tecla, como cmd+shift+4 ou return.")
     return text
+
+
+def install_sigterm_cleanup(marker: Path) -> None:
+    previous = signal.getsignal(signal.SIGTERM)
+
+    def handler(number, frame):
+        marker.unlink(missing_ok=True)
+        if callable(previous):
+            previous(number, frame)
+            return
+        signal.signal(signal.SIGTERM, signal.SIG_DFL)
+        os.kill(os.getpid(), signal.SIGTERM)
+
+    try:
+        signal.signal(signal.SIGTERM, handler)
+    except ValueError:
+        return
 
 
 @dataclass
@@ -274,6 +308,7 @@ class Ctx:
             f.write(str(os.getpid()))
         os.chmod(marker, 0o600)
         atexit.register(lambda: marker.unlink(missing_ok=True))
+        install_sigterm_cleanup(marker)
         self.registered = True
 
     def helper_run(self, *args: str) -> str:
@@ -438,16 +473,24 @@ def shortcut_allowlist(ctx: Ctx) -> set[str]:
     return set(app_setting(ctx, SHORTCUTS_KEY))
 
 
-def safe_app(ctx: Ctx, app: str | None) -> bool:
-    name = fold(app or "")
-    if not name or is_browser(app) or is_messenger(app) or NEVER_SAFE.search(name):
+def bundle_matches(bundle: str, exact: frozenset[str] = frozenset(), prefixes: tuple[str, ...] = ()) -> bool:
+    low = bundle.casefold()
+    return low in exact or any(low.startswith(p.casefold()) for p in prefixes)
+
+
+def safe_app(ctx: Ctx, bundle: str | None, app: str | None = None) -> bool:
+    if not bundle or not bundle.strip():
         return False
-    allowed = {fold(n) for n in (*DEFAULT_SAFE_APPS, *app_setting(ctx, SAFE_APPS_KEY))}
-    return name in allowed
+    if bundle_matches(bundle, NEVER_SAFE_BUNDLES, NEVER_SAFE_PREFIXES) or bundle_matches(bundle, frozenset(), BROWSER_PREFIXES + MESSENGER_PREFIXES):
+        return False
+    if is_browser(app) or is_messenger(app):
+        return False
+    allowed = {b.casefold() for b in (*DEFAULT_SAFE_BUNDLES, *app_setting(ctx, SAFE_APPS_KEY))}
+    return bundle.casefold() in allowed
 
 
 def needs_card(ctx: Ctx, info: dict) -> bool:
-    return not safe_app(ctx, str(info.get("app") or ""))
+    return not safe_app(ctx, str(info.get("bundle") or ""), str(info.get("app") or ""))
 
 
 def run_shortcut(ctx: Ctx, nome: str, entrada: str | None = None) -> str:
@@ -537,8 +580,9 @@ def clicar(ctx: Ctx, titulo: str | None = None, papel: str | None = None, ponto:
         info = focus_info(ctx, app)
         args = ["clicar", *(["--titulo", titulo] if titulo else []), *(["--regex", regex] if regex else []),
                 *(["--papel", papel] if papel else []), "--indice", str(max(0, indice)), *(["--app", app] if app else [])]
+    args += ["--bloquear", SEND_PATTERN]
     if needs_card(ctx, info):
-        args += ["--bloquear", SEND_PATTERN, "--estrito"]
+        args += ["--estrito"]
     try:
         feito = ctx.helper_json(*args)
     except Falha as e:
@@ -569,7 +613,7 @@ def digitar(ctx: Ctx, texto: str, app: str | None = None) -> str:
 def tecla(ctx: Ctx, combo: str, app: str | None = None) -> str:
     combo = parse_combo(combo)
     info = writable_focus(ctx, app)
-    if needs_card(ctx, info) and (key_sends(combo) or key_presses_button(combo, info)):
+    if (needs_card(ctx, info) and not key_is_safe(combo)) or presses_send_control(combo, info):
         raise Falha(ENVIO_DIRETO)
     ctx.helper_run("tecla", combo, *(["--app", app] if app else []))
     return f"Apertei {combo}."

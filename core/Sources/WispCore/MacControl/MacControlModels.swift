@@ -40,6 +40,8 @@ public struct MacElement: Equatable, Sendable {
     public var value: String
     public var help: String
     public var identifier: String
+    public var pressable: Bool
+    public var editable: Bool
     public var x: Int
     public var y: Int
     public var width: Int
@@ -47,7 +49,7 @@ public struct MacElement: Equatable, Sendable {
     public var depth: Int
 
     public init(role: String, subrole: String = "", title: String = "", detail: String = "", value: String = "",
-                help: String = "", identifier: String = "", x: Int = 0, y: Int = 0, width: Int = 0, height: Int = 0, depth: Int = 0) {
+                help: String = "", identifier: String = "", pressable: Bool = false, editable: Bool = false, x: Int = 0, y: Int = 0, width: Int = 0, height: Int = 0, depth: Int = 0) {
         self.role = role
         self.subrole = subrole
         self.title = title
@@ -55,6 +57,8 @@ public struct MacElement: Equatable, Sendable {
         self.value = value
         self.help = help
         self.identifier = identifier
+        self.pressable = pressable
+        self.editable = editable
         self.x = x
         self.y = y
         self.width = width
@@ -97,10 +101,23 @@ public enum MacSafety {
 
     public static let cardRoles: Set<String> = ["AXButton", "AXMenuItem", "AXMenuButton", "AXDefaultButton"]
 
-    public static func requiresCard(_ element: MacElement, ancestors: [MacElement], strict: Bool) -> Bool {
-        guard strict, cardRoles.contains(element.role) else { return false }
+    public static let navigationRoles: Set<String> = [
+        "AXTextField", "AXTextArea", "AXSearchField", "AXComboBox", "AXTab", "AXTabGroup", "AXDisclosureTriangle", "AXScrollBar", "AXScrollArea",
+        "AXStaticText", "AXLink", "AXRow", "AXCell", "AXOutline", "AXTable", "AXList", "AXGroup", "AXToolbar", "AXWindow", "AXSplitGroup",
+        "AXSplitter", "AXRadioButton", "AXRadioGroup", "AXMenuBarItem", "AXMenuBar", "AXMenu", "AXWebArea", "AXSlider", "AXValueIndicator",
+    ]
+
+    static func asksCard(_ element: MacElement, ancestors: [MacElement]) -> Bool {
+        guard cardRoles.contains(element.role) || (element.pressable && !navigationRoles.contains(element.role)) else { return false }
         if !element.label.isEmpty, ancestors.prefix(ancestorLimit).contains(where: { $0.role == "AXToolbar" }) { return false }
         return true
+    }
+
+    public static func requiresCard(_ element: MacElement, ancestors: [MacElement], strict: Bool) -> Bool {
+        guard strict else { return false }
+        let chain = Array(ancestors.prefix(ancestorLimit))
+        if asksCard(element, ancestors: chain) { return true }
+        return chain.indices.contains { asksCard(chain[$0], ancestors: Array(chain.dropFirst($0 + 1))) && chain[$0].role != "AXToolbar" }
     }
 
     public static let ancestorLimit = 3
@@ -308,7 +325,7 @@ public struct MacCompose: Equatable, Sendable {
     }
 
     public static func extract(elements: [MacElement], window: String) -> MacCompose {
-        let candidates = elements.filter { bodyRoles.contains($0.role) && !$0.isSecure }
+        let candidates = elements.filter { bodyRoles.contains($0.role) && !$0.isSecure && $0.editable }
         let main = candidates.max { $0.width * $0.height < $1.width * $1.height }
         let subject = labelled(elements, subjectPattern).first { !$0.isEmpty } ?? ""
         return MacCompose(body: main?.value ?? "", recipients: names(elements, toPattern), cc: names(elements, ccPattern),
@@ -320,13 +337,23 @@ public enum MacCaller {
     public static let minimumLength = 32
     public static let maximumLength = 128
 
-    public static func valid(nonce: String?, directory: URL, uid: uid_t = getuid(), fileManager: FileManager = .default) -> Bool {
+    public static func isWispRuntime(_ pid: pid_t) -> Bool {
+        var buffer = [CChar](repeating: 0, count: 4096)
+        guard proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 else { return false }
+        let path = URL(fileURLWithPath: String(cString: buffer)).resolvingSymlinksInPath().path
+        return path.contains("/wisp/runtime/") || path.contains("/Wisp.app/Contents/")
+    }
+
+    public static func valid(nonce: String?, directory: URL, uid: uid_t = getuid(), fileManager: FileManager = .default,
+                             processCheck: (pid_t) -> Bool = MacCaller.isWispRuntime) -> Bool {
         guard let nonce = nonce?.trimmingCharacters(in: .whitespacesAndNewlines), nonce.count >= minimumLength, nonce.count <= maximumLength,
               nonce.allSatisfy({ $0.isHexDigit }) else { return false }
         let path = directory.appendingPathComponent(nonce).path
         var info = Darwin.stat()
         guard lstat(path, &info) == 0, (info.st_mode & S_IFMT) == S_IFREG, info.st_uid == uid, info.st_mode & 0o077 == 0 else { return false }
-        return fileManager.isReadableFile(atPath: path)
+        guard let text = try? String(contentsOfFile: path, encoding: .utf8),
+              let pid = pid_t(text.trimmingCharacters(in: .whitespacesAndNewlines)), pid > 1, kill(pid, 0) == 0 else { return false }
+        return processCheck(pid)
     }
 
     public static func readLine(from descriptor: Int32, timeout: Int32 = 2000) -> String? {

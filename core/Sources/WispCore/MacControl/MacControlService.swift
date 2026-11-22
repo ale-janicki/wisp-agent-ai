@@ -41,12 +41,14 @@ public struct MacFocus: Equatable, Sendable {
     public let element: MacElement?
     public let document: String
     public let window: String
+    public let bundle: String
 
-    public init(app: String, element: MacElement?, document: String = "", window: String = "") {
+    public init(app: String, element: MacElement?, document: String = "", window: String = "", bundle: String = "") {
         self.app = app
         self.element = element
         self.document = document
         self.window = window
+        self.bundle = bundle
     }
 }
 
@@ -143,6 +145,7 @@ public struct MacControlService {
             try needAccessibility()
             let focus = try driver.focus(app: app)
             let elements = try driver.tree(app: app, max: Self.composeMax, depth: Self.composeDepth)
+            guard elements.count < Self.composeMax else { throw MacError(MacRefusal.windowTooBig, exitCode: MacError.refused) }
             let compose = MacCompose.extract(elements: elements, window: focus.window)
             return try json(["app": focus.app, "corpo": compose.body, "destinatarios": compose.recipients, "cc": compose.cc, "bcc": compose.bcc,
                              "assunto": compose.subject, "janela": compose.window])
@@ -188,6 +191,7 @@ public struct MacControlService {
         }
         let focus = try driver.focus(app: app)
         let elements = try driver.tree(app: app, max: Self.composeMax, depth: Self.composeDepth)
+        guard elements.count < Self.composeMax else { throw MacError(MacRefusal.windowTooBig, exitCode: MacError.refused) }
         let now = MacCompose.extract(elements: elements, window: focus.window)
         func list(_ key: String) -> [String] { ((wanted[key] as? [String]) ?? []).map(MacCompose.canon).sorted() }
         let same = MacCompose.canon(now.body) == (wanted["corpo"] as? String).map(MacCompose.canon)
@@ -240,12 +244,13 @@ public struct MacControlService {
     }
 
     private func focusReport(_ focus: MacFocus) -> [String: Any] {
-        var report: [String: Any] = ["app": focus.app, "documento": focus.document, "janela": focus.window]
+        var report: [String: Any] = ["app": focus.app, "bundle": focus.bundle, "documento": focus.document, "janela": focus.window]
         guard let element = focus.element else { return report }
         report["papel"] = element.role
         report["subpapel"] = element.subrole
         report["titulo"] = element.title
         report["seguro"] = element.isSecure
+        report["pressavel"] = element.pressable
         return report
     }
 
@@ -259,6 +264,7 @@ public enum MacRefusal {
     public static let secureField = "recusei: o campo em foco é de senha, o Wisp nunca digita em campo de senha"
     public static let unreadableFocus = "recusei: não consegui ver qual campo está em foco, então não digito nada"
     public static let composeChanged = "recusei: a janela da mensagem mudou depois da aprovação (corpo, destinatários, cópias ou assunto) ou há cópia oculta"
+    public static let windowTooBig = "recusei: a janela tem elementos demais para eu ler inteira (limite de 1500); feche abas ou painéis e tente de novo"
     public static let noSingleSend = "recusei: não achei exatamente um botão de enviar dentro da janela da mensagem"
     public static let focusChanged = "interrompi: o foco mudou de app ou virou campo de senha antes de digitar"
 
