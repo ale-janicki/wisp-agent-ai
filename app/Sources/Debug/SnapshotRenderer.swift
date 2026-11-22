@@ -255,11 +255,12 @@ enum SnapshotRenderer {
     ) async {
         let profile = shell.conversation.profile
         shell.setSnapshotState(.panel, notch: layout.notch)
-        if let memory = profile.blocks?.memory, PanelTab.memory.isAvailable(in: profile), let root = memory.root {
+        if let memory = profile.blocks?.memory, PanelTab.brain.isAvailable(in: profile), let root = memory.root {
             let model = MemoryModel.shared
             model.refreshRecents(root: root)
             for _ in 0..<50 where model.recents == .loading { try? await Task.sleep(for: .milliseconds(100)) }
-            shell.tab = .memory
+            BrainModel.shared.showsGraph = false
+            shell.tab = .brain
             await render(shell, frame: layout.panel, notch: layout.notch, to: directory, name: "b-memory")
             let query = "brain-sync"
             let started = Date()
@@ -269,11 +270,11 @@ enum SnapshotRenderer {
             } else {
                 print("snapshot: memory search \(model.search)")
             }
-            MemoryTab.snapshotQuery = query
+            BrainHomeView.snapshotQuery = query
             shell.tab = .home
-            shell.tab = .memory
+            shell.tab = .brain
             await render(shell, frame: layout.panel, notch: layout.notch, to: directory, name: "b-memory-search")
-            MemoryTab.snapshotQuery = ""
+            BrainHomeView.snapshotQuery = ""
         }
         if let routines = profile.blocks?.routines, PanelTab.routines.isAvailable(in: profile) {
             let model = RoutinesModel.shared

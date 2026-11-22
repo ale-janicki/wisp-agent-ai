@@ -131,11 +131,6 @@ struct PanelView: View {
         case .reminders: RemindersTab(profile: model.profile)
         case .agenda: AgendaTab(profile: model.profile)
         case .meetings: MeetingsTab(model: controller.meetings)
-        case .memory:
-            MemoryTab(profile: model.profile) { path in
-                BrainModel.shared.open(path)
-                controller.tab = .brain
-            }
         case .brain:
             BrainTab(profile: model.profile) { question, context in
                 guard model.send(question, context: context) else { return false }
