@@ -76,6 +76,12 @@ public enum TaskList {
         }
     }
 
+    public static func lineIndex(of item: TaskItem, in text: String) -> Int? {
+        let parts = lines(of: text)
+        let matches = parts.indices.filter { parts[$0] == item.line }
+        return matches.indices.contains(item.occurrence) ? matches[item.occurrence] : nil
+    }
+
     public static func deleting(_ item: TaskItem, from text: String) throws -> String {
         var parts = lines(of: text)
         let matches = parts.indices.filter { parts[$0] == item.line }

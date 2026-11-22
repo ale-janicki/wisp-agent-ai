@@ -101,6 +101,14 @@ final class WispSettingsTests: XCTestCase {
         XCTAssertEqual(SettingsStore(directory: dir).settings.settingsSection, "notices")
     }
 
+    func testBrainModeRoundTripsAndOldFilesDefaultToGraph() throws {
+        XCTAssertTrue(try JSONDecoder().decode(WispSettings.self, from: Data(#"{"theme":"lime"}"#.utf8)).brainShowsGraph)
+        var settings = WispSettings.default
+        settings.brainShowsGraph = false
+        try SettingsStore(directory: dir).save(settings)
+        XCTAssertFalse(SettingsStore(directory: dir).settings.brainShowsGraph)
+    }
+
     func testGraphControlsDefaultWhenKeyIsMissing() throws {
         let settings = try JSONDecoder().decode(WispSettings.self, from: Data(#"{"theme":"lime"}"#.utf8))
         XCTAssertEqual(settings.graph, GraphControls())
