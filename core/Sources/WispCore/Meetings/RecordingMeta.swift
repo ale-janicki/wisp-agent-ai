@@ -131,15 +131,11 @@ public enum RecordingFolder {
         let names = (try? fileManager.contentsOfDirectory(atPath: root.path)) ?? []
         for name in names {
             let folder = root.appendingPathComponent(name, isDirectory: true)
-            guard let meta = try? read(in: folder), meta.status == .recording else { continue }
-            let walker = fileManager.enumerator(at: folder, includingPropertiesForKeys: [.contentModificationDateKey])
-            var newest = (try? folder.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
-            for case let url as URL in walker ?? NSEnumerator() {
-                if let date = try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate, date > newest {
-                    newest = date
-                }
-            }
-            if now.timeIntervalSince(newest) < seconds { return true }
+            let touched = [folder, rawAudioURL(in: folder), audioURL(in: folder), metaURL(in: folder)].compactMap {
+                (try? fileManager.attributesOfItem(atPath: $0.path))?[.modificationDate] as? Date
+            }.max()
+            guard let touched, now.timeIntervalSince(touched) < seconds else { continue }
+            if (try? read(in: folder))?.status == .recording { return true }
         }
         return false
     }

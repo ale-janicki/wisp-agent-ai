@@ -554,11 +554,11 @@ private struct SettingsRow<Control: View>: View {
 
 private struct MeetingsMoveRow: View {
     private let model = PathsModel.shared
+    @State private var recording = false
 
     var body: some View {
-        if model.pendingMeetings > 0 || model.meetingsMove != .idle {
-            TimelineView(.periodic(from: .now, by: 2)) { _ in
-                let recording = model.recordingActive()
+        Group {
+            if model.pendingMeetings > 0 || model.meetingsMove != .idle {
                 SettingsRow(title: "Mover reuniões", detail: recording ? "Espere a gravação terminar para mover." : detail) {
                     if case .moving = model.meetingsMove {
                         ProgressView().controlSize(.small)
@@ -568,6 +568,13 @@ private struct MeetingsMoveRow: View {
                             .disabled(model.pendingMeetings == 0 || recording)
                     }
                 }
+            }
+        }
+        .task {
+            while !Task.isCancelled {
+                let roots = model.recordingRoots()
+                recording = await Task.detached { PathsModel.recordingActive(in: roots) }.value
+                try? await Task.sleep(for: .seconds(2))
             }
         }
     }
