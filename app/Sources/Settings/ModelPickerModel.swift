@@ -7,7 +7,6 @@ import WispCore
 final class ModelPickerModel {
     enum Job: Equatable {
         case idle
-        case installingOllama(completed: UInt64, total: UInt64)
         case pulling(tag: String, completed: UInt64, total: UInt64)
     }
 
@@ -17,6 +16,8 @@ final class ModelPickerModel {
     private(set) var hardware = HardwareProfile.read()
     private(set) var job: Job = .idle
     private(set) var error: String?
+    private(set) var recommendation: LocalRecommendation?
+    private(set) var usingLocalAI = false
 
     @ObservationIgnored private let layout = RuntimeLayout(
         bundle: Bundle.main.bundleURL, home: FileManager.default.homeDirectoryForCurrentUser)
@@ -47,6 +48,7 @@ final class ModelPickerModel {
             }.value
             if case .success(let output) = result, let parsed = LocalModelStatus.decode(output.stdout) {
                 status = parsed
+                recommendation = LocalAdvisor.recommend(hardware: hardware, models: parsed.models, diskMargin: parsed.diskMarginBytes)
             } else if status == nil {
                 error = "Não consegui ler o catálogo de modelos."
             }
@@ -55,29 +57,70 @@ final class ModelPickerModel {
 
     func install(_ model: LocalModel) {
         guard !busy, let status else { return }
-        let fit = fit(model)
-        if let short = fit.diskShortBy {
-            error = "Falta espaço em disco: faltam \(ModelFit.gigabytes(short)) livres para baixar o \(model.name)."
+        if let problem = LocalAISetup.preflight(
+            model: model, hardware: hardware, diskMargin: status.diskMarginBytes, installed: status.installed.contains(model.tag)) {
+            error = problem
             return
         }
-        guard fit.level != .doesNotFit else {
-            error = "O \(model.name) não cabe na memória deste Mac."
+        guard status.backend.available else {
+            error = "Este Wisp não tem o mlx-lm: atualize o Wisp para baixar modelos."
             return
         }
         error = nil
-        let needsOllama = !status.ollama.installed
-        let first = LineStream()
-        stream = first
-        job = needsOllama ? .installingOllama(completed: 0, total: 0) : .pulling(tag: model.tag, completed: 0, total: 0)
+        let line = LineStream()
+        stream = line
+        job = .pulling(tag: model.tag, completed: 0, total: 0)
         Task {
-            if needsOllama {
-                guard await run(first, ["local", "install-ollama"], tag: nil) else { return finish() }
-                job = .pulling(tag: model.tag, completed: 0, total: 0)
-            }
-            let second = needsOllama ? LineStream() : first
-            stream = second
-            if await run(second, ["local", "pull", model.tag], tag: model.tag) { _ = await simple(["local", "use", model.tag], only: status.active.isEmpty) }
+            if await run(line, ["local", "pull", model.tag], tag: model.tag) { _ = await simple(["local", "use", model.tag], only: status.active.isEmpty) }
             finish()
+        }
+    }
+
+    func useLocalAI(_ model: LocalModel) {
+        guard !busy, let status else { return }
+        if let problem = LocalAISetup.preflight(
+            model: model, hardware: hardware, diskMargin: status.diskMarginBytes, installed: status.installed.contains(model.tag)) {
+            error = problem
+            return
+        }
+        guard status.backend.available else {
+            error = "Este Wisp não tem o mlx-lm: atualize o Wisp para usar a IA local."
+            return
+        }
+        error = nil
+        usingLocalAI = true
+        let steps = LocalAISetup.steps(modelInstalled: status.installed.contains(model.tag), tag: model.tag)
+        let line = LineStream()
+        stream = line
+        job = .pulling(tag: model.tag, completed: 0, total: 0)
+        Task {
+            let outcome = await LocalAISetup.run(steps) { step in
+                switch step {
+                case .pull(let tag):
+                    let pulling = LineStream()
+                    stream = pulling
+                    job = .pulling(tag: tag, completed: 0, total: 0)
+                    if await run(pulling, ["local", "pull", tag], tag: tag) { return .done }
+                    return pulling.wasCancelled ? .cancelled : .failed(error ?? "Não consegui baixar o modelo.")
+                case .use(let tag):
+                    return await simple(["local", "use", tag], only: true) ? .done : .failed("Não consegui ativar o modelo \(tag).")
+                case .selectEngine:
+                    return await simple(["config", "set", "engine", "local", "--json"], only: true, timeout: 90)
+                        ? .done : .failed("Não consegui trocar o motor para a IA local.")
+                }
+            }
+            if case .failed(let message) = outcome { error = message }
+            usingLocalAI = false
+            finish()
+            EngineModel.shared.refresh()
+        }
+    }
+
+    func setThinking(_ on: Bool) {
+        guard !busy else { return }
+        Task {
+            _ = await simple(["local", "pensar", on ? "on" : "off"], only: true)
+            refresh()
         }
     }
 
@@ -124,20 +167,20 @@ final class ModelPickerModel {
     private func apply(_ event: ModelJobEvent, tag: String?, box: FailureBox) {
         switch event {
         case .progress(_, let completed, let total):
-            job = tag.map { .pulling(tag: $0, completed: completed, total: total) } ?? .installingOllama(completed: completed, total: total)
+            if let tag { job = .pulling(tag: tag, completed: completed, total: total) }
         case .failed(let message): box.message = message
         case .done: break
         }
     }
 
-    private func simple(_ arguments: [String], only: Bool) async -> Bool {
+    private func simple(_ arguments: [String], only: Bool, timeout: TimeInterval = 20) async -> Bool {
         guard only else { return false }
         let executable = layout.wisp
         let environment = environment
         let result = await Task.detached {
-            CommandRunner.run(executable: executable, arguments: arguments, environment: environment, timeout: 20)
+            CommandRunner.run(executable: executable, arguments: arguments, environment: environment, timeout: timeout)
         }.value
-        if case .success(let output) = result, output.status == 0 { return true }
+        if case .success(let output) = result, output.status == 0, !output.timedOut { return true }
         log.error("wisp \(arguments.joined(separator: " "), privacy: .public) failed")
         return false
     }

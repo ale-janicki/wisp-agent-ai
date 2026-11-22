@@ -4,7 +4,7 @@ from pathlib import Path
 
 from wisp.fsops import atomic_write
 
-ENGINES = ("claude", "codex")
+ENGINES = ("claude", "codex", "local")
 DEFAULT_ENGINE = "claude"
 TABLE_HEADER = re.compile(r"^[ \t]*\[", re.MULTILINE)
 ACTIVE_LINE = re.compile(r'^(?P<head>[ \t]*ativo[ \t]*=[ \t]*)"[^"\n]*"', re.MULTILINE)

@@ -43,7 +43,11 @@ def texto(pedido: dict) -> str:
 
 
 def motor_de(req: dict) -> str:
-    return "Codex" if req.get("engine") == "codex" else "Claude"
+    return {"codex": "Codex", "local": "IA local"}.get(req.get("engine"), "Claude")
+
+
+def sujeito(req: dict) -> str:
+    return ("A " if req.get("engine") == "local" else "O ") + motor_de(req)
 
 
 LETRAS_INVISIVEIS = frozenset({0x115F, 0x1160, 0x3164, 0xFFA0, 0x2800, 0x17B4, 0x17B5, 0x180B, 0x180C, 0x180D, 0x180E, 0x034F})
@@ -72,15 +76,18 @@ def _descrever(req: dict) -> dict:
     """O `request` de um can_use_tool vira {summary, detail}: o que o dono le antes de permitir."""
     ferramenta = str(req.get("tool_name") or "uma ferramenta")
     motor = motor_de(req)
+    quem = sujeito(req)
     entrada = req.get("input") if isinstance(req.get("input"), dict) else {}
-    if ferramenta == "Bash" and isinstance(entrada.get("command"), str):
-        return {"summary": f"O {motor} quer rodar um comando", "detail": entrada["command"]}
+    if ferramenta in ("Bash", "run_shell") and isinstance(entrada.get("command"), str):
+        return {"summary": f"{quem} quer rodar um comando", "detail": entrada["command"]}
     corpo = json.dumps(entrada, ensure_ascii=False, indent=2, sort_keys=True)
-    if motor == "Codex" and ferramenta == EMAIL:
-        return {"summary": "O Codex quer enviar um e-mail", "detail": corpo}
+    if (motor == "Codex" and ferramenta == EMAIL) or (motor == "IA local" and ferramenta == "email_send"):
+        return {"summary": f"{quem} quer enviar um e-mail", "detail": corpo}
     if motor == "Codex" and ferramenta == MAC_SEND:
         return {"summary": "O Codex quer enviar uma mensagem pelo app", "detail": corpo}
-    return {"summary": f"O {motor} quer usar {ferramenta}", "detail": corpo}
+    if motor == "IA local" and ferramenta == "mac_send":
+        return {"summary": "A IA local quer enviar uma mensagem pelo app", "detail": corpo}
+    return {"summary": f"{quem} quer usar {ferramenta}", "detail": corpo}
 
 
 def _teclado(token: str):
@@ -121,7 +128,7 @@ class Aprovacoes:
             await self._fechar(chat_id, msg.message_id, corpo, "expirou")
             return EXPIROU
         except asyncio.CancelledError:
-            await self._fechar(chat_id, msg.message_id, corpo, f"cancelado (o {motor_de(req)} desistiu)")
+            await self._fechar(chat_id, msg.message_id, corpo, f"cancelado ({sujeito(req)[0].lower()}{sujeito(req)[1:]} desistiu)")
             raise
         finally:
             self._abertos.pop(token, None)
