@@ -144,9 +144,21 @@ final class RuntimeSyncTests: XCTestCase {
         XCTAssertEqual(RuntimeSync.step(from: "Downloading cpython-3.13.1-macos (20MiB)"), "baixando o Python")
         XCTAssertEqual(RuntimeSync.step(from: "Downloading mcp (150KiB)"), "baixando mcp")
         XCTAssertEqual(RuntimeSync.step(from: "Built wisp==0.3.0"), "construindo wisp")
-        XCTAssertEqual(RuntimeSync.step(from: "Installed 12 packages in 20ms"), "instalando 12")
+        XCTAssertEqual(RuntimeSync.step(from: "Installed 12 packages in 20ms"), "instalando os pacotes")
+        XCTAssertEqual(RuntimeSync.step(from: "Installed mcp==1.0 in 2ms"), "instalando mcp")
+        XCTAssertEqual(RuntimeSync.step(from: "Built 3 packages"), "construindo os pacotes")
+        XCTAssertEqual(RuntimeSync.step(from: "Downloading"), "baixando os pacotes")
         XCTAssertEqual(RuntimeSync.step(from: "Resolved 40 packages in 1s"), "resolvendo as dependências")
         XCTAssertNil(RuntimeSync.step(from: "warning: something"))
+    }
+
+    func testFailuresAreClassifiedEvenWithLastStepSuffix() {
+        let suffix = " Último passo: baixando mcp."
+        XCTAssertEqual(RuntimeSync.classify(RuntimeSync.lockFailure + suffix), .lock)
+        XCTAssertEqual(RuntimeSync.classify(RuntimeSync.idleFailure + suffix), .stalled)
+        XCTAssertEqual(RuntimeSync.classify(RuntimeSync.idleFailure), .stalled)
+        XCTAssertEqual(RuntimeSync.classify("error sending request for url"), .offline)
+        XCTAssertEqual(RuntimeSync.classify("boom"), .other)
     }
 
     func testUvGetsALockTimeout() {
