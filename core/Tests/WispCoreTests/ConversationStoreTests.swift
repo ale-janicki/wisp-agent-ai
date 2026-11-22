@@ -90,4 +90,48 @@ final class ConversationStoreTests: XCTestCase {
         XCTAssertEqual(store.all().count, 200)
         XCTAssertEqual(ConversationStore(directory: dir).all().count, 200)
     }
+
+    func testIndexWithoutClosedFieldsDecodesAsOpen() throws {
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let id = UUID()
+        let json = """
+        [{"id": "\(id.uuidString)", "sessionId": "s", "title": "old", "updatedAt": "2026-01-01T00:00:00.000Z"}]
+        """
+        try json.write(to: dir.appendingPathComponent("conversations.json"), atomically: true, encoding: .utf8)
+        let record = try XCTUnwrap(ConversationStore(directory: dir).all().first)
+        XCTAssertNil(record.closedAt)
+        XCTAssertNil(record.closedFrom)
+        XCTAssertFalse(record.isClosed)
+    }
+
+    func testClosedMarkWrittenByTheBotIsReadAndSurvivesReopen() throws {
+        let id = UUID()
+        let store = ConversationStore(directory: dir)
+        try store.upsert(ConversationRecord(id: id, sessionId: "s", title: "t", updatedAt: Date(timeIntervalSince1970: 1_000)))
+        let file = dir.appendingPathComponent("conversations.json")
+        var text = try String(contentsOf: file, encoding: .utf8)
+        text = text.replacingOccurrences(of: "\"id\"", with: "\"closedAt\" : \"2026-02-03T04:05:06Z\", \"closedFrom\" : \"telegram\", \"id\"")
+        try text.write(to: file, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(5)], ofItemAtPath: file.path)
+
+        var record = try XCTUnwrap(store.all().first)
+        XCTAssertTrue(record.isClosed)
+        XCTAssertEqual(record.closedFrom, "telegram")
+        XCTAssertEqual(record.closedAt, ISO8601DateFormatter().date(from: "2026-02-03T04:05:06Z"))
+
+        record.closedAt = nil
+        record.closedFrom = nil
+        try store.upsert(record)
+        XCTAssertFalse(try XCTUnwrap(ConversationStore(directory: dir).all().first).isClosed)
+    }
+
+    func testClosedMarkRoundTripsThroughThePersistedFile() throws {
+        let store = ConversationStore(directory: dir)
+        let when = Date(timeIntervalSince1970: 1_700_000_000)
+        try store.upsert(ConversationRecord(
+            id: UUID(), sessionId: "s", title: "t", updatedAt: when, closedAt: when, closedFrom: "app"))
+        let back = try XCTUnwrap(ConversationStore(directory: dir).all().first)
+        XCTAssertEqual(back.closedAt, when)
+        XCTAssertEqual(back.closedFrom, "app")
+    }
 }

@@ -66,6 +66,10 @@ struct ConversationListColumn: View {
                 }
                 TelegramSection(model: model, entries: sections.telegram)
                     .padding(.top, Theme.Space.m)
+                if !sections.closed.isEmpty {
+                    ClosedSection(model: model, records: sections.closed)
+                        .padding(.top, Theme.Space.m)
+                }
             }
             .padding(.top, Theme.Space.xs)
         }
@@ -85,6 +89,59 @@ private func section<Rows: View>(_ title: String, dot: Color? = nil, @ViewBuilde
         .padding(.leading, Theme.Space.m)
         .padding(.bottom, 4)
         rows()
+    }
+}
+
+private struct ClosedSection: View {
+    var model: ConversationViewModel
+    let records: [ConversationRecord]
+    @State private var expanded = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Button {
+                expanded.toggle()
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: expanded ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 9, weight: .semibold))
+                    Text("Encerradas (\(records.count))")
+                        .font(Theme.Font.caption)
+                }
+                .foregroundStyle(Theme.textTertiary)
+                .padding(.leading, Theme.Space.m)
+                .padding(.bottom, 4)
+            }
+            .buttonStyle(.plain)
+            if expanded {
+                ForEach(records) { record in
+                    ConversationRow(
+                        record: record,
+                        selected: record.id == model.currentId,
+                        preview: model.preview(record),
+                        open: { model.open(record) },
+                        delete: { model.delete(record) }
+                    )
+                }
+            }
+        }
+    }
+}
+
+struct ClosedBar: View {
+    var model: ConversationViewModel
+
+    var body: some View {
+        HStack(spacing: Theme.Space.s) {
+            Text("Conversa encerrada — só leitura")
+                .font(Theme.Font.caption)
+                .foregroundStyle(Theme.textSecondary)
+            Spacer(minLength: 0)
+            Button("Reabrir") { model.reopenCurrent() }
+                .buttonStyle(.bordered)
+        }
+        .padding(.horizontal, Theme.Space.m)
+        .padding(.vertical, Theme.Space.s)
     }
 }
 
