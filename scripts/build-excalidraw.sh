@@ -16,6 +16,7 @@ command -v node >/dev/null && command -v npm >/dev/null || {
   exit 1
 }
 
+rm -rf "$out"
 cd "$web"
 npm ci --ignore-scripts --no-audit --no-fund
 npm run build

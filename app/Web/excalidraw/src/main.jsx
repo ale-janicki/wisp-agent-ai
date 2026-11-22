@@ -162,6 +162,10 @@ function App() {
             setDark(message.dark);
             break;
           case "requestSave": {
+            if (!dirtyRef.current && !pendingRef.current) {
+              post({ type: "clean" });
+              break;
+            }
             clearTimeout(timerRef.current);
             const scene = buildScene();
             dirtyRef.current = false;

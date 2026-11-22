@@ -96,6 +96,7 @@ public struct JSONCanvas: Equatable, Sendable {
     public var extraMembers: [JSONMember]
     public var memberOrder: [String]
     public var trailingNewline: Bool
+    public var readOnlyNotice: String?
 
     public init(nodes: [CanvasNode] = [], edges: [CanvasEdge] = [], extraMembers: [JSONMember] = [], memberOrder: [String] = ["nodes", "edges"], trailingNewline: Bool = false) {
         self.nodes = nodes
@@ -106,18 +107,31 @@ public struct JSONCanvas: Equatable, Sendable {
     }
 
     public static func parse(_ text: String) throws -> JSONCanvas {
-        let root: JSONValue
-        do { root = try JSONValue.parse(text) } catch { throw CanvasError.notACanvas }
+        let parsed: (value: JSONValue, lossy: Bool)
+        do { parsed = try JSONValue.parseChecked(text) } catch { throw CanvasError.notACanvas }
+        let root = parsed.value
         guard let members = root.objectMembers else { throw CanvasError.notACanvas }
         var canvas = JSONCanvas(memberOrder: members.map(\.key), trailingNewline: text.hasSuffix("\n"))
+        if parsed.lossy { canvas.readOnlyNotice = lossyNotice }
         canvas.nodes = (root["nodes"]?.arrayValue ?? []).filter { $0.objectMembers != nil }.map(CanvasNode.init(raw:))
         canvas.edges = (root["edges"]?.arrayValue ?? []).filter { $0.objectMembers != nil }.map(CanvasEdge.init(raw:))
         canvas.extraMembers = members.filter { $0.key != "nodes" && $0.key != "edges" }
         return canvas
     }
 
+    public static let lossyNotice = "Este arquivo tem texto que não é UTF-8 válido; o Wisp abre só para leitura para não alterá-lo."
+
+    public static func parse(data: Data) throws -> JSONCanvas {
+        guard let text = String(data: data, encoding: .utf8) else {
+            var canvas = try parse(String(decoding: data, as: UTF8.self))
+            canvas.readOnlyNotice = lossyNotice
+            return canvas
+        }
+        return try parse(text)
+    }
+
     public static func load(from url: URL) throws -> JSONCanvas {
-        try parse(String(decoding: Data(contentsOf: url), as: UTF8.self))
+        try parse(data: Data(contentsOf: url))
     }
 
     public func serialized() -> String {
@@ -142,8 +156,9 @@ public struct JSONCanvas: Equatable, Sendable {
         return "[\n" + items.map { "\t\t" + $0.serialized() }.joined(separator: ",\n") + "\n\t]"
     }
 
-    public func write(to url: URL) throws {
-        try Data(serialized().utf8).write(to: url, options: .atomic)
+    public func write(to url: URL, root: URL? = nil, expectingHash: String? = nil) throws {
+        guard readOnlyNotice == nil else { throw AtomicFile.Failure.io(readOnlyNotice ?? "") }
+        try AtomicFile.write(Data(serialized().utf8), to: url, root: root, expectingHash: expectingHash)
     }
 
     public func node(_ id: String) -> CanvasNode? { nodes.first { $0.id == id } }

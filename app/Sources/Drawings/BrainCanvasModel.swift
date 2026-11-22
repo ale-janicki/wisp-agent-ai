@@ -22,8 +22,12 @@ final class BrainCanvasModel {
     private(set) var status = Status.loading
     private(set) var saveNote = ""
     private(set) var externalChangePending = false
+    private(set) var readOnlyNotice: String?
     var editing = false {
-        didSet { if !editing { connectingFrom = nil } }
+        didSet {
+            if !editing { connectingFrom = nil }
+            if editing, readOnlyNotice != nil { editing = false }
+        }
     }
     var selection: String?
     var connectingFrom: String?
@@ -80,7 +84,7 @@ final class BrainCanvasModel {
     private func saveRecoveryCopy() {
         let destination = DrawingRecovery.recoveryURL(for: url)
         do {
-            try canvas.write(to: destination)
+            try canvas.write(to: destination, root: brainRoot)
             state.dirty = false
             onNotice("\(url.lastPathComponent) mudou fora do Wisp. Suas edições foram salvas em \(destination.lastPathComponent).")
         } catch {
@@ -103,7 +107,9 @@ final class BrainCanvasModel {
     private func load() {
         do {
             let data = try Data(contentsOf: url)
-            canvas = try JSONCanvas.parse(String(decoding: data, as: UTF8.self))
+            canvas = try JSONCanvas.parse(data: data)
+            readOnlyNotice = canvas.readOnlyNotice
+            if readOnlyNotice != nil { editing = false }
             state.didLoad(data)
             status = .ready
             saveNote = ""
@@ -123,7 +129,10 @@ final class BrainCanvasModel {
         }
     }
 
+    private var brainRoot: URL { DrawingAttachments.root(for: url, vaultRoot: vaultRoot) }
+
     func mutate(_ change: (inout JSONCanvas) -> Void) {
+        guard readOnlyNotice == nil else { return }
         change(&canvas)
         state.dirty = true
         saveNote = "Editando…"
@@ -145,9 +154,12 @@ final class BrainCanvasModel {
         }
         do {
             let data = Data(canvas.serialized().utf8)
-            try data.write(to: url, options: .atomic)
+            try AtomicFile.write(data, to: url, root: brainRoot, expectingHash: force ? nil : state.knownDiskHash)
             state.didWrite(data)
             saveNote = "Salvo"
+        } catch AtomicFile.Failure.changedOnDisk {
+            state.dirty = true
+            externalChangePending = true
         } catch {
             saveNote = "Não consegui salvar: \(error.localizedDescription)"
             log.error("canvas save failed: \(error.localizedDescription, privacy: .public)")

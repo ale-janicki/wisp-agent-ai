@@ -39,7 +39,7 @@ private struct CanvasSurface: View {
 
     var body: some View {
         VStack(spacing: Theme.Space.s) {
-            DrawingToolbar(title: model.url.lastPathComponent, editing: $model.editing, note: model.saveNote) {
+            DrawingToolbar(title: model.url.lastPathComponent, editing: $model.editing, note: model.saveNote, readOnlyNotice: model.readOnlyNotice) {
                 HStack(spacing: 2) {
                     Button("−") { model.zoom(by: 1 / 1.25) }
                     Button("Ajustar") { model.fit() }
@@ -47,6 +47,7 @@ private struct CanvasSurface: View {
                 }
                 .buttonStyle(CompactCapsuleStyle(accent: false))
             }
+            if let notice = model.readOnlyNotice { InlineError(text: notice) }
             if model.editing { editBar }
             if model.externalChangePending {
                 ExternalChangeBanner(reload: model.reloadFromDisk, overwrite: model.overwriteDisk)
