@@ -16,6 +16,16 @@ Entries are in descending chronological order (newest first).
 ### Changed
 
 - The "Memória" and "Brain" sidebar tabs are now one "Brain" tab: the recent notes list, the command search and the graph search moved into it (home view when no note is open, "Visão geral" button).
+- Ajustes > Modelo list redesigned: one grouped card, one row per model (name, size, memory and speed on one line, at most two tags, one trailing button) and the long description behind "Detalhes". The recommendation card says "Usar Qwen3 8B (já baixado)" when the model is on disk.
+
+### Fixed
+
+- Ajustes > Modelo: a model whose download finished is shown as downloaded ("Usar" / "Em uso" and "Apagar") even when an interrupted download left a stale `.baixando-<model>.lock` or `modelos.toml` never recorded it. The list reads the folder (config.json plus every shard of `model.safetensors.index.json`, or `model.safetensors`, all non-empty); a lock nobody holds is removed; an incomplete folder offers "Retomar download".
+- The "mlx-lm missing" message no longer tells the user to update the Wisp. It says the local AI component is still being installed (the install was interrupted), that it finishes by itself, and offers "Tentar de novo".
+
+### Added
+
+- `wisp local delete TAG` removes a downloaded model (and its partial download); `wisp local catalog` now also reports `downloading` and `resumable` tags.
 
 ## [0.4.1] - 2026-11-22
 
