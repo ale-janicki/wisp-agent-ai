@@ -8,6 +8,7 @@ struct PanelView: View {
     var model: ConversationViewModel
     @State private var draft = ""
     @State private var listShown: Bool
+    @State private var settingsTab: PanelTab?
 
     #if DEBUG
     nonisolated(unsafe) static var snapshotNav = false
@@ -44,6 +45,8 @@ struct PanelView: View {
                 }
             }
         }
+        .environment(\.openTabSettings) { settingsTab = $0 }
+        .onChange(of: controller.tab) { _, _ in settingsTab = nil }
         .padding(.horizontal, padding)
         .padding(.bottom, padding)
     }
@@ -123,6 +126,20 @@ struct PanelView: View {
 
     @ViewBuilder
     private var content: some View {
+        if let tab = settingsTab, tab == controller.tab, TabSettings.hasSettings(tab.rawValue) {
+            TabSettingsPage(tab: tab, media: media) {
+                settingsTab = nil
+            } openAll: {
+                if let id = TabSettings.fullSection(forTab: tab.rawValue) { SettingsSection(rawValue: id)?.open() }
+                controller.tab = .settings
+            }
+        } else {
+            tabContent
+        }
+    }
+
+    @ViewBuilder
+    private var tabContent: some View {
         switch controller.tab {
         case .home: home
         case .conversation:
@@ -248,6 +265,7 @@ private struct ConversationCard: View {
                     .disabled(!model.canContinueOnPhoneCurrent)
                     .help("Continuar no celular")
                 }
+                TabSettingsButton(tab: .conversation)
             }
             .frame(height: 26)
             .padding(.horizontal, Theme.Space.l)
