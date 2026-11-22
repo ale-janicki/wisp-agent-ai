@@ -42,12 +42,13 @@ final class RuntimeSyncTests: XCTestCase {
     }
 
     func testASilentUvIsKilledRetriedOnceAndFailsWithASentence() throws {
-        let uv = try fakeUV("echo x >> '\(counter.path)'\nsleep 30")
+        let marker = "sleep 30.\(UInt32.random(in: 100_000_000...999_999_999))"
+        let uv = try fakeUV("echo x >> '\(counter.path)'\n\(marker)")
         let failure = try XCTUnwrap(run(uv))
         XCTAssertTrue(failure.hasPrefix(RuntimeSync.idleFailure))
         XCTAssertEqual(calls(), 2)
         let gone = (0..<40).contains { _ in
-            if shell("pgrep -f '[s]leep 30' | wc -l").trimmingCharacters(in: .whitespacesAndNewlines) == "0" { return true }
+            if shell("pgrep -f '[s]\(marker.dropFirst())' | wc -l").trimmingCharacters(in: .whitespacesAndNewlines) == "0" { return true }
             Thread.sleep(forTimeInterval: 0.05)
             return false
         }
