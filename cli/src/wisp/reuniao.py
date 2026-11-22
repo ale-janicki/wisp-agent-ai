@@ -397,6 +397,7 @@ def add_parser(sub) -> argparse.ArgumentParser:
     brain = cmds.add_parser("brain", help="write or update this meeting's note in the brain")
     brain.add_argument("pasta")
     brain.add_argument("--brain", dest="brain_dir", default=None)
+    brain.add_argument("--recriar", action="store_true")
     cmds.add_parser("assist", help="1 to 3 short suggestions from the live transcript (JSON on stdin)")
     cmds.add_parser("prep", help="prep checklist and probing questions for a meeting (JSON on stdin)")
     return reuniao
@@ -416,7 +417,7 @@ def run(args: argparse.Namespace, cfg: WispConfig, runner: Runner | None = None)
             from wisp.paths import WispPaths
 
             brain = Path(args.brain_dir).expanduser() if args.brain_dir else None
-            report = reuniao_brain.make_brain_note(cfg, WispPaths.current(), folder, brain)
+            report = reuniao_brain.make_brain_note(cfg, WispPaths.current(), folder, brain, recreate=args.recriar)
         else:
             report = make_note(cfg, runner or SubprocessRunner(), folder)
     except Falha as problem:
