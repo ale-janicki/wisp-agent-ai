@@ -185,7 +185,7 @@ def test_a_recorded_message_is_left_out_of_the_history_but_still_sent(folder, ca
         monkeypatch.setattr("sys.stdin", __import__("io").StringIO(""))
         assert wisp_cli.main(argv) == 0
     sent = [(m["role"], m["content"]) for m in fake.chats()[0]["messages"] if m["role"] != "system"]
-    assert sent == [("user", "antes"), ("assistant", "resposta"), ("user", f"agora\n\n[Hoje é {date.today().isoformat()}.]")]
+    assert sent == [("user", "antes"), ("assistant", "resposta"), ("user", f"<contexto>data de hoje: {date.today().isoformat()} (não mencione a data a menos que perguntem)</contexto>\nagora")]
     assert path.read_text().count("\n") == 3
 
 

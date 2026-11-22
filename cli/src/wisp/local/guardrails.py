@@ -13,6 +13,7 @@ READ_ONLY = frozenset({"read_file", "list_files", "email_list", "email_read", "e
 DEFAULT_TOOLS = frozenset({"web_search", "web_fetch", "brain_search", "brain_read", "brain_links"})
 REMOVABLE = DEFAULT_TOOLS | frozenset(MAC_TOOLS)
 DEFAULT_REPEAT_LIMIT = 3
+HISTORY_TOKENS = {"pequeno": 2500, "medio": 5000, "grande": 10000}
 TIER_KEYS = {"max_steps", "tools", "approve", "remove"}
 SHIPPED = Path(__file__).parents[1] / "wisp_folder" / "guardrails.toml"
 TOP_KEYS = set(TIERS) | {"irreversible", "loop"}
@@ -31,6 +32,10 @@ class Tier:
     tools: frozenset[str]
     approve: frozenset[str]
     removed: frozenset[str] = frozenset()
+
+    @property
+    def history_tokens(self) -> int:
+        return HISTORY_TOKENS[self.name]
 
     @property
     def label(self) -> str:
