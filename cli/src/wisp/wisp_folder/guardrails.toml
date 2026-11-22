@@ -2,10 +2,16 @@
 # If a value here is invalid, the local engine refuses to start and says which one.
 #
 # max_steps  how many model replies one turn may take; 0 means no cap
-# tools      the only tools the model can call at this size
+# tools      the tools the model can call at this size (plus the ones Wisp adds, below)
 # approve    tools that always wait for your approval card at this size
-# remove     optional: built-in mac_ tools Wisp adds to this size on its own (you do not need to list them) that you
-#            do not want here, for example remove = ["mac_script"]
+# remove     optional: tools Wisp adds to this size on its own (you do not need to list them) that you do not want
+#            here: the mac_ tools and the web and brain tools below, for example remove = ["mac_script", "web_fetch"]
+#
+# Wisp adds web_search, web_fetch, brain_search, brain_read and brain_links to every size in code, even when a list
+# below omits them; to take one away at a size, list it in that size's remove (taking it out of tools is not enough).
+# They never wait for a card, with two exceptions: a web_fetch of an address that is neither in this turn's web_search
+# results nor typed by you, and a web_search made after the conversation ran any tool other than web_search,
+# list_files and write_file, or with a query longer than 120 characters.
 
 [irreversible]
 # Always behind the approval card, in every permission mode. Wisp already includes email_send, mac_send and
@@ -18,15 +24,15 @@ repeat_limit = 3
 
 [pequeno]
 max_steps = 6
-tools = ["read_file", "list_files", "write_file", "email_list", "email_read", "email_search", "email_send", "mac_apps", "mac_windows", "mac_battery", "mac_wifi", "mac_screenshot", "mac_open", "mac_open_url", "mac_volume", "mac_media"]
+tools = ["read_file", "list_files", "write_file", "web_search", "web_fetch", "brain_search", "brain_read", "brain_links", "email_list", "email_read", "email_search", "email_send", "mac_apps", "mac_windows", "mac_battery", "mac_wifi", "mac_screenshot", "mac_open", "mac_open_url", "mac_volume", "mac_media"]
 approve = ["write_file"]
 
 [medio]
 max_steps = 12
-tools = ["read_file", "list_files", "write_file", "email_list", "email_read", "email_search", "email_send", "mac_apps", "mac_windows", "mac_battery", "mac_wifi", "mac_screenshot", "mac_open", "mac_open_url", "mac_volume", "mac_media", "mac_dnd_status", "mac_shortcuts_list", "mac_app", "mac_brightness", "mac_dark_mode", "mac_settings_pane", "mac_notify", "mac_shortcut", "mac_ui_tree", "mac_ui_click", "mac_ui_type", "mac_ui_key", "mac_ui_scroll", "mac_ui_menu"]
+tools = ["read_file", "list_files", "write_file", "web_search", "web_fetch", "brain_search", "brain_read", "brain_links", "email_list", "email_read", "email_search", "email_send", "mac_apps", "mac_windows", "mac_battery", "mac_wifi", "mac_screenshot", "mac_open", "mac_open_url", "mac_volume", "mac_media", "mac_dnd_status", "mac_shortcuts_list", "mac_app", "mac_brightness", "mac_dark_mode", "mac_settings_pane", "mac_notify", "mac_shortcut", "mac_ui_tree", "mac_ui_click", "mac_ui_type", "mac_ui_key", "mac_ui_scroll", "mac_ui_menu"]
 approve = []
 
 [grande]
 max_steps = 40
-tools = ["read_file", "list_files", "write_file", "run_shell", "email_list", "email_read", "email_search", "email_send", "mac_apps", "mac_windows", "mac_battery", "mac_wifi", "mac_screenshot", "mac_open", "mac_open_url", "mac_volume", "mac_media", "mac_dnd_status", "mac_shortcuts_list", "mac_app", "mac_brightness", "mac_dark_mode", "mac_settings_pane", "mac_notify", "mac_shortcut", "mac_ui_tree", "mac_ui_click", "mac_ui_type", "mac_ui_key", "mac_ui_scroll", "mac_ui_menu", "mac_script", "mac_send"]
+tools = ["read_file", "list_files", "write_file", "web_search", "web_fetch", "brain_search", "brain_read", "brain_links", "run_shell", "email_list", "email_read", "email_search", "email_send", "mac_apps", "mac_windows", "mac_battery", "mac_wifi", "mac_screenshot", "mac_open", "mac_open_url", "mac_volume", "mac_media", "mac_dnd_status", "mac_shortcuts_list", "mac_app", "mac_brightness", "mac_dark_mode", "mac_settings_pane", "mac_notify", "mac_shortcut", "mac_ui_tree", "mac_ui_click", "mac_ui_type", "mac_ui_key", "mac_ui_scroll", "mac_ui_menu", "mac_script", "mac_send"]
 approve = []

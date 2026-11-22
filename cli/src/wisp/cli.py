@@ -15,6 +15,7 @@ from wisp.agenda import add_parser as add_agenda_parser, run as run_agenda
 from wisp.config import WispConfig, is_unreadable, load_config, save_config
 from wisp.doctor import run_doctor
 from wisp.engines import ENGINES, write_active
+from wisp.local.backend import stop_server
 from wisp.fsops import OutsideHome, ensure_dir
 from wisp.local.cli import add_parser as add_local_parser, run as run_local
 from wisp.jobs import NotSupportedHere, manager_for
@@ -137,6 +138,8 @@ def _set_engine(cfg: WispConfig, engine: str) -> StepReport:
     folder = wisp_root(cfg)
     seed_folder(folder)
     write_active(folder, engine)
+    if engine != "local":
+        stop_server()
     synced = _harness_and_codex(cfg, False)
     data = {"key": "engine", "engine": engine, "sync": synced.status}
     if synced.status == "failed":

@@ -74,10 +74,10 @@ final class LocalModelsTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(status.models.count, 4)
         XCTAssertEqual(status.diskMarginBytes, 5_000_000_000)
         let eight = try XCTUnwrap(status.models.first { $0.tag == "qwen3:8b" })
-        XCTAssertEqual(eight.sizeBytes, 5_200_000_000)
+        XCTAssertEqual(eight.sizeBytes, 4_623_782_544)
         XCTAssertGreaterThan(eight.memoryBytes, eight.sizeBytes)
         XCTAssertEqual(eight.tierLabel, "Pequeno")
-        XCTAssertEqual(status.ollama, OllamaStatus(installed: false, running: false))
+        XCTAssertEqual(status.backend, BackendStatus(kind: "mlx", available: false, running: false))
         XCTAssertEqual(status.active, "")
     }
 

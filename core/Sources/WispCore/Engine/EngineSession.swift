@@ -3,11 +3,13 @@ import Foundation
 public enum EngineKind: String, CaseIterable, Sendable {
     case claude
     case codex
+    case local
 
     public var displayName: String {
         switch self {
         case .claude: "Claude"
         case .codex: "Codex"
+        case .local: "IA local"
         }
     }
 }
@@ -38,14 +40,16 @@ public struct EngineLaunch: Sendable {
     public var environment: [String: String]
     public var wispBinary: String?
     public var preflight: (@Sendable (String) -> CodexPreflight)?
+    public var conversation: String?
 
     public init(
         kind: EngineKind, executable: URL, cwd: URL, model: String? = nil, resume: String? = nil,
         permission: PermissionChoice? = nil, claudePermissionMode: String? = nil, instructions: String = "",
         claudeSettingsPath: String? = nil, disallowedTools: [String] = [], addDirs: [String] = [],
         environment: [String: String] = [:], wispBinary: String? = nil,
-        preflight: (@Sendable (String) -> CodexPreflight)? = nil
+        preflight: (@Sendable (String) -> CodexPreflight)? = nil, conversation: String? = nil
     ) {
+        self.conversation = conversation
         self.preflight = preflight
         self.wispBinary = wispBinary
         self.kind = kind
@@ -77,6 +81,10 @@ public enum EngineFactory {
                 executable: launch.executable, cwd: launch.cwd, resume: launch.resume, permission: launch.permission,
                 addDirs: launch.addDirs, instructions: launch.instructions, model: CodexCommand.configuredModel(), environmentOverrides: launch.environment,
                 wispBinary: launch.wispBinary, preflight: launch.preflight)
+        case .local:
+            LocalSession(
+                executable: launch.executable, cwd: launch.cwd, conversation: launch.conversation ?? "",
+                mode: launch.claudePermissionMode ?? "default", environment: launch.environment.isEmpty ? nil : launch.environment)
         }
     }
 }

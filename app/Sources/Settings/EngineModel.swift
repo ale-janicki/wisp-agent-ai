@@ -8,6 +8,7 @@ final class EngineModel {
 
     private(set) var active: EngineKind = .claude
     private(set) var codex: CodexReadiness?
+    private(set) var local: LocalReadiness?
     private(set) var busy = false
     private(set) var error: String?
 
@@ -28,6 +29,11 @@ final class EngineModel {
         let environment = environment
         Task {
             codex = await Task.detached { CodexReadiness.check(configured: nil, wispBinary: wisp, environment: environment) }.value
+            if active == .local {
+                local = await Task.detached { LocalReadiness.check(wispBinary: wisp, environment: environment) }.value
+            } else {
+                local = nil
+            }
         }
     }
 
@@ -71,6 +77,12 @@ final class EngineModel {
             if codex.installed, !codex.loggedIn { return "Codex instalado, mas falta entrar: rode `codex login` no Terminal." }
             if codex.installed { return "Codex instalado, mas o envio de e-mail está sem a trava de aprovação: rode `wisp harness sync`. Enquanto isso o Wisp responde pelo Claude." }
             return "Codex não está instalado neste Mac. Enquanto isso o Wisp responde pelo Claude."
+        case .local:
+            guard let local else {
+                return active == .local ? "Conferindo a IA local…" : "Roda um modelo neste Mac, sem internet e sem assinatura. Escolha e baixe o modelo no cartão Modelo, aqui embaixo."
+            }
+            if local.ready { return "Modelo local pronto: roda neste Mac, sem internet." }
+            return "\(local.missing ?? "Não está pronta"). Enquanto isso o Wisp responde pelo Claude; Ajustes > Modelo resolve."
         }
     }
 }

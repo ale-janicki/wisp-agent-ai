@@ -1,12 +1,12 @@
 from __future__ import annotations
-import asyncio, logging, time, tomllib
+import asyncio, html, logging, time, tomllib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Awaitable, Callable, Protocol
 
 log = logging.getLogger("wisp.engine")
 
-ENGINES = ("claude", "codex")
+ENGINES = ("claude", "codex", "local")
 DEFAULT = "claude"
 STATUS_TTL_S = 30
 
@@ -55,6 +55,9 @@ def active_name(wisp_dir: Path) -> str:
 
 
 def get(name: str) -> Engine:
+    if name == "local":
+        from .local_runner import LOCAL
+        return LOCAL
     if name == "codex":
         from .codex_runner import CODEX
         return CODEX
@@ -75,6 +78,9 @@ async def cached_status(engine: Engine) -> Status:
 
 
 def fallback_note(name: str, status: Status) -> str:
+    if name == "local":
+        return (f"<i>a IA local não está pronta neste Mac ({html.escape(status.problem or 'sem detalhe')}); "
+                "esta resposta veio do Claude. Ajustes &gt; Modelo, no app, resolve.</i>")
     why = ("não está instalado" if not status.installed else "não está com o login feito" if not status.logged_in
            else status.problem)
     return f"<i>o {name.capitalize()} {why} neste Mac; esta resposta veio do Claude.</i>"

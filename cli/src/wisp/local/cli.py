@@ -2,20 +2,22 @@ import argparse
 import asyncio
 import json
 import sys
-import time
 from collections.abc import Callable
+from dataclasses import replace
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from wisp.config import load_config
 from wisp.local.approver import clean
 from wisp.local import catalog as catalogs
-from wisp.local import modelos, ollama
+from wisp.local import arch
+from wisp.local import backend as backends
+from wisp.local import fetch, mlxchild, modelos, proxy, recomendar, storage
 from wisp.local.guardrails import MODES, GuardrailsError
 from wisp.local.modelos import ModelosError
 from wisp.paths import WispPaths
 from wisp.setup.folder import wisp_root
 
-DISK_CHECK_INTERVAL = 1.0
 
 
 def emit(event: dict) -> None:
@@ -35,77 +37,127 @@ def add_parser(sub) -> None:
     chat.add_argument("--thread", type=int)
     chat.add_argument("--no-record", action="store_true")
     chat.add_argument("--approvals", choices=["tty", "stdio"], default="tty")
+    chat.add_argument("--recorded", action="store_true", help="the host already wrote this message in the transcript")
+    steps.add_parser("ready")
+    advise = steps.add_parser("recomendar")
+    advise.add_argument("--json", action="store_true")
+    advise.add_argument("--chip")
+    advise.add_argument("--memory-bytes", type=int)
+    advise.add_argument("--free-disk-bytes", type=int)
     pull = steps.add_parser("pull")
     pull.add_argument("tag")
-    steps.add_parser("install-ollama")
+    steps.add_parser("stop")
+    think = steps.add_parser("pensar")
+    think.add_argument("state", choices=["on", "off"])
+    serve = steps.add_parser("serve")
+    serve.add_argument("--model-dir", required=True)
+    serve.add_argument("--port", type=int, required=True)
+    serve.add_argument("--key-file", required=True)
+    serve.add_argument("--idle-minutes", type=float, required=True)
+    serve.add_argument("--state-dir", required=True)
+    serve.add_argument("--marker", default="")
+    serve.add_argument("--child-json")
+    child = steps.add_parser("mlx-child")
+    child.add_argument("--model-dir", required=True)
+    child.add_argument("--socket", required=True)
     use = steps.add_parser("use")
     use.add_argument("tag")
+    where = steps.add_parser("backend")
+    kinds = where.add_subparsers(dest="kind", required=True)
+    kinds.add_parser("mlx")
+    server = kinds.add_parser("openai")
+    server.add_argument("--url", required=True)
+    server.add_argument("--model", required=True)
 
 
-def _status(folder: Path, client: ollama.OllamaClient, catalog: catalogs.Catalog) -> dict:
+def _backend(folder: Path, catalog: catalogs.Catalog, make: Callable | None) -> tuple[backends.Backend, modelos.LocalState]:
     state = modelos.read(folder)
-    running = client.running()
-    present = client.tags() if running else None
-    installed = [t for t in state.instalados if present is None or t in present]
+    return (make(folder, state, catalog) if make else backends.make_backend(folder, state, catalog)), state
+
+
+def _status(folder: Path, backend: backends.Backend, state: modelos.LocalState, catalog: catalogs.Catalog) -> dict:
+    running = backend.running()
+    if backend.kind == "mlx":
+        present = set(backend.available())
+        installed = [t for t in state.instalados if t in present]
+    else:
+        installed = [state.ativo] if running and state.ativo else []
     return {
         **catalogs.to_json(catalog),
-        "ollama": {"installed": ollama.find_cli() is not None, "running": running},
+        "backend": {"kind": backend.kind, "available": backend.runtime_missing() is None and (backend.kind != "mlx" or arch.host_is_apple_silicon()), "running": running, "url": state.url},
         "installed": installed,
         "active": state.ativo if state.ativo in installed else "",
+        "pensar": state.pensar,
     }
 
 
-def _pull(folder: Path, client: ollama.OllamaClient, catalog: catalogs.Catalog, tag: str) -> int:
+def _pull(folder: Path, catalog: catalogs.Catalog, tag: str) -> int:
+    if not arch.host_is_apple_silicon():
+        emit({"type": "error", "message": arch.NEEDS_APPLE_SILICON})
+        return 1
     entry = catalog.find(tag)
     if entry is None:
         emit({"type": "error", "message": f"{tag} não está no catálogo do Wisp"})
         return 1
-    problem = ollama.room_problem(entry.size_bytes, ollama.free_bytes(Path.home()), catalog.disk_margin_bytes)
-    if problem:
-        emit({"type": "error", "message": problem})
-        return 1
-    client.ensure_running()
-    stream = client.pull(tag)
-    last: dict = {}
-    checked = time.monotonic()
     try:
-        for chunk in stream:
-            last = chunk
-            emit({"type": "progress", "status": chunk.get("status", ""), "completed": chunk.get("completed", 0), "total": chunk.get("total", 0)})
-            if chunk.get("completed") and time.monotonic() - checked >= DISK_CHECK_INTERVAL:
-                checked = time.monotonic()
-                free = ollama.free_bytes(Path.home())
-                if free < catalog.disk_margin_bytes:
-                    emit({"type": "error", "message": f"o disco ficou com {free / 1e9:.1f} GB livres, abaixo da folga de {catalog.disk_margin_bytes / 1e9:.1f} GB; parei o download"})
-                    return 1
-    finally:
-        stream.close()
-    if last.get("status") != "success":
-        emit({"type": "error", "message": f"o download de {tag} não terminou; nada foi instalado"})
+        fetch.download(folder, entry, lambda chunk: emit({"type": "progress", **chunk}), margin=catalog.disk_margin_bytes)
+    except fetch.FetchError as e:
+        emit({"type": "error", "message": str(e)})
         return 1
     modelos.write(folder, modelos.with_installed(modelos.read(folder), tag))
     emit({"type": "done", "tag": tag})
     return 0
 
 
-def _use(folder: Path, client: ollama.OllamaClient, catalog: catalogs.Catalog, tag: str) -> int:
-    if tag not in _status(folder, client, catalog)["installed"]:
+def _use(folder: Path, backend: backends.Backend, state: modelos.LocalState, catalog: catalogs.Catalog, tag: str) -> int:
+    if tag not in _status(folder, backend, state, catalog)["installed"]:
         emit({"type": "error", "message": f"{tag} não está instalado neste Mac"})
         return 1
-    modelos.write(folder, modelos.with_active(modelos.read(folder), tag))
+    modelos.write(folder, modelos.with_active(state, tag))
     emit({"type": "done", "tag": tag})
     return 0
 
 
-def _install(catalog: catalogs.Catalog) -> int:
-    cli = ollama.find_cli()
-    if cli is None:
-        cli = ollama.install(lambda chunk: emit({"type": "progress", **chunk}), margin=catalog.disk_margin_bytes)
-    emit({"type": "done", "path": str(cli)})
+def _plain(text: str) -> bool:
+    return not any(c in text for c in ('"', "\\", "\n", "\r"))
+
+
+def _set_backend(folder: Path, args: argparse.Namespace) -> int:
+    state = modelos.read(folder)
+    if args.kind == "mlx":
+        modelos.write(folder, replace(state, backend="mlx", url="", ativo=state.ativo if state.backend == "mlx" else ""))
+    else:
+        url, model = args.url.strip(), args.model.strip()
+        parts = urlsplit(url)
+        if parts.scheme not in ("http", "https") or not parts.hostname or not _plain(url):
+            emit({"type": "error", "message": f"endereço do servidor inválido: {url}"})
+            return 1
+        if not model or not _plain(model):
+            emit({"type": "error", "message": "nome de modelo inválido"})
+            return 1
+        modelos.write(folder, replace(state, backend="openai", url=url, ativo=model))
+    backends.stop_server()
+    emit({"type": "done", "backend": args.kind})
     return 0
 
 
-def _chat(folder: Path, client: ollama.OllamaClient, args: argparse.Namespace) -> int:
+def _ready(backend: backends.Backend, state: modelos.LocalState) -> int:
+    missing = backend.readiness(state.ativo)
+    emit({"type": "ready", "ready": missing is None, **({"missing": missing} if missing else {})})
+    return 0
+
+
+def _recomendar(catalog: catalogs.Catalog, args: argparse.Namespace) -> int:
+    hardware = recomendar.Hardware(
+        args.chip if args.chip is not None else recomendar.read_chip(),
+        args.memory_bytes if args.memory_bytes is not None else recomendar.read_memory(),
+        args.free_disk_bytes if args.free_disk_bytes is not None else storage.free_bytes(Path.home()),
+    )
+    emit(recomendar.recommend(hardware, catalog))
+    return 0
+
+
+def _chat(folder: Path, backend: backends.Backend, args: argparse.Namespace, servers: list | None = None) -> int:
     from wisp.local.approver import StdioApprover, TtyApprover
     from wisp.local.engine import EngineError, LocalEngine, record_turn
 
@@ -113,32 +165,53 @@ def _chat(folder: Path, client: ollama.OllamaClient, args: argparse.Namespace) -
         raise EngineError("com --approvals stdio a mensagem vem em --message, o stdin é só das respostas de aprovação")
     text = sys.stdin.read() if args.message == "-" else args.message
     approver = StdioApprover(emit, sys.stdin) if args.approvals == "stdio" else TtyApprover()
-    engine = LocalEngine(folder, load_config(), WispPaths.current(), client, approver=approver, thread=args.thread)
+    engine = LocalEngine(folder, load_config(), WispPaths.current(), backend, approver=approver, thread=args.thread, servers=servers)
     exists = bool(args.conversation) and (folder / "conversas" / f"{args.conversation}.jsonl").is_file()
     session = engine.resume(args.conversation, args.model, args.mode) if exists else engine.start(args.conversation, args.model, args.mode)
+    if args.recorded:
+        while session.messages and session.messages[-1].get("role") == "user":
+            session.messages.pop()
     result = asyncio.run(engine.send(session, text, emit))
     if not args.no_record:
         record_turn(folder, session, args.surface, text, result)
     return 1 if result.is_error else 0
 
 
-def run(args: argparse.Namespace, make_client: Callable[[], ollama.OllamaClient] = ollama.OllamaClient) -> int:
+def run(args: argparse.Namespace, make: Callable | None = None, servers: list | None = None) -> int:
     from wisp.local.engine import EngineError
 
     try:
         folder = wisp_root(load_config())
         catalog = catalogs.load()
-        client = make_client()
-        if args.action == "catalog":
-            emit(_status(folder, client, catalog))
+        if args.action == "mlx-child":
+            return mlxchild.serve(args.model_dir, args.socket)
+        if args.action == "serve":
+            return proxy.serve(
+                model=args.model_dir, port=args.port, key=Path(args.key_file).read_text("utf-8").strip(), idle_minutes=args.idle_minutes,
+                info_path=Path(args.state_dir) / "server.json", child_argv=json.loads(args.child_json) if args.child_json else None,
+                marker=args.marker)
+        if args.action == "pensar":
+            modelos.write(folder, replace(modelos.read(folder), pensar=args.state == "on"))
+            emit({"type": "done", "pensar": args.state == "on"})
+            return 0
+        if args.action == "stop":
+            emit({"type": "done", "stopped": backends.stop_server()})
             return 0
         if args.action == "pull":
-            return _pull(folder, client, catalog, args.tag)
+            return _pull(folder, catalog, args.tag)
+        if args.action == "backend":
+            return _set_backend(folder, args)
+        if args.action == "recomendar":
+            return _recomendar(catalog, args)
+        backend, state = _backend(folder, catalog, make)
+        if args.action == "catalog":
+            emit(_status(folder, backend, state, catalog))
+            return 0
         if args.action == "use":
-            return _use(folder, client, catalog, args.tag)
-        if args.action == "install-ollama":
-            return _install(catalog)
-        return _chat(folder, client, args)
-    except (EngineError, GuardrailsError, ModelosError, ollama.OllamaError) as e:
+            return _use(folder, backend, state, catalog, args.tag)
+        if args.action == "ready":
+            return _ready(backend, state)
+        return _chat(folder, backend, args, servers)
+    except (EngineError, GuardrailsError, ModelosError, backends.BackendError, fetch.FetchError) as e:
         emit({"type": "error", "message": str(e)})
         return 1

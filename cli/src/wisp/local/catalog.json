@@ -1,66 +1,351 @@
 {
-  "source": "https://ollama.com/library/qwen3 (sizes as shown on the tags list, checked 2026-11-20; tool support is the page's tools tag; the 30b tag is Qwen3-30B-A3B)",
+  "source": "Hugging Face mlx-community 4-bit repos, file lists and sizes read from https://huggingface.co/api/models/<repo>/tree/main at the pinned revision on 2026-11-21 (README.md and .gitattributes are not downloaded); the 30b repo is Qwen3-30B-A3B-4bit; tools_reliable is a Wisp judgement, not a source",
   "disk_margin_bytes": 5000000000,
   "models": [
     {
       "tag": "qwen3:4b",
       "name": "Qwen3 4B",
       "params": "4B",
-      "size_bytes": 2500000000,
+      "size_bytes": 2278969756,
       "tier": "pequeno",
       "context_tokens": 8192,
       "memory_overhead_bytes": 1500000000,
       "speed": "rapido",
       "limitations": "Bom para resumir e escrever textos curtos; erra com frequência ao encadear ferramentas e perde o fio em conversas longas.",
-      "library_url": "https://ollama.com/library/qwen3"
+      "library_url": "https://huggingface.co/mlx-community/Qwen3-4B-4bit",
+      "tools_reliable": false,
+      "repo": "mlx-community/Qwen3-4B-4bit",
+      "revision": "4dcb3d101c2a062e5c1d4bb173588c54ea6c4d25",
+      "files": [
+        {
+          "path": "added_tokens.json",
+          "size": 707,
+          "git_sha1": "b54f9135e44c1e81047e8d05cb027af8bc039eed"
+        },
+        {
+          "path": "config.json",
+          "size": 937,
+          "git_sha1": "032ad326a0daaaeeec00f2a585262acf5f692861"
+        },
+        {
+          "path": "merges.txt",
+          "size": 1671853,
+          "git_sha1": "31349551d90c7606f325fe0f11bbb8bd5fa0d7c7"
+        },
+        {
+          "path": "model.safetensors",
+          "size": 2263022529,
+          "sha256": "e240c0bdc0ebb0681bf0da0f98d9719fd6ebe269a3633f81542c13e81345651d"
+        },
+        {
+          "path": "model.safetensors.index.json",
+          "size": 63924,
+          "git_sha1": "07e230a328dd17a09d96ee045d49b27596656aff"
+        },
+        {
+          "path": "special_tokens_map.json",
+          "size": 613,
+          "git_sha1": "ac23c0aaa2434523c494330aeb79c58395378103"
+        },
+        {
+          "path": "tokenizer.json",
+          "size": 11422654,
+          "sha256": "aeb13307a71acd8fe81861d94ad54ab689df773318809eed3cbe794b4492dae4"
+        },
+        {
+          "path": "tokenizer_config.json",
+          "size": 9706,
+          "git_sha1": "7345216a0785dc7086e8c245b2a9d3896ce2b756"
+        },
+        {
+          "path": "vocab.json",
+          "size": 2776833,
+          "git_sha1": "4783fe10ac3adce15ac8f358ef5462739852c569"
+        }
+      ]
     },
     {
       "tag": "qwen3:8b",
       "name": "Qwen3 8B",
       "params": "8B",
-      "size_bytes": 5200000000,
+      "size_bytes": 4623782544,
       "tier": "pequeno",
       "context_tokens": 8192,
       "memory_overhead_bytes": 1500000000,
       "speed": "rapido",
       "limitations": "Bom para ler e resumir e-mails e redigir rascunhos; fraco em código longo e em tarefas com muitos passos.",
-      "library_url": "https://ollama.com/library/qwen3"
+      "library_url": "https://huggingface.co/mlx-community/Qwen3-8B-4bit",
+      "tools_reliable": true,
+      "repo": "mlx-community/Qwen3-8B-4bit",
+      "revision": "545dc4251c05440727734bcd94334791f6ab0192",
+      "files": [
+        {
+          "path": "added_tokens.json",
+          "size": 707,
+          "git_sha1": "b54f9135e44c1e81047e8d05cb027af8bc039eed"
+        },
+        {
+          "path": "config.json",
+          "size": 939,
+          "git_sha1": "6f2a32b76648381bea25bdc81fad0e7160f86ac5"
+        },
+        {
+          "path": "merges.txt",
+          "size": 1671853,
+          "git_sha1": "31349551d90c7606f325fe0f11bbb8bd5fa0d7c7"
+        },
+        {
+          "path": "model.safetensors",
+          "size": 4607835174,
+          "sha256": "f2d29621aab300336ad645567ff38c42aac755513006ef4e8a579cf7ef5256d8"
+        },
+        {
+          "path": "model.safetensors.index.json",
+          "size": 64065,
+          "git_sha1": "4af62897c345f277e7b17aab48230d7ba119d87e"
+        },
+        {
+          "path": "special_tokens_map.json",
+          "size": 613,
+          "git_sha1": "ac23c0aaa2434523c494330aeb79c58395378103"
+        },
+        {
+          "path": "tokenizer.json",
+          "size": 11422654,
+          "sha256": "aeb13307a71acd8fe81861d94ad54ab689df773318809eed3cbe794b4492dae4"
+        },
+        {
+          "path": "tokenizer_config.json",
+          "size": 9706,
+          "git_sha1": "7345216a0785dc7086e8c245b2a9d3896ce2b756"
+        },
+        {
+          "path": "vocab.json",
+          "size": 2776833,
+          "git_sha1": "4783fe10ac3adce15ac8f358ef5462739852c569"
+        }
+      ]
     },
     {
       "tag": "qwen3:14b",
       "name": "Qwen3 14B",
       "params": "14B",
-      "size_bytes": 9300000000,
+      "size_bytes": 8323868085,
       "tier": "medio",
       "context_tokens": 16384,
       "memory_overhead_bytes": 3000000000,
       "speed": "medio",
       "limitations": "Segue instruções e usa ferramentas melhor que os menores; ainda fraco em código longo e em planos de muitos passos.",
-      "library_url": "https://ollama.com/library/qwen3"
+      "library_url": "https://huggingface.co/mlx-community/Qwen3-14B-4bit",
+      "tools_reliable": true,
+      "repo": "mlx-community/Qwen3-14B-4bit",
+      "revision": "a4d9b2df59d2c150bef02fcbe0d91046b7ca33a4",
+      "files": [
+        {
+          "path": "added_tokens.json",
+          "size": 707,
+          "git_sha1": "b54f9135e44c1e81047e8d05cb027af8bc039eed"
+        },
+        {
+          "path": "config.json",
+          "size": 939,
+          "git_sha1": "38386939cee12ed747ace23c207f2d1f1ea111e5"
+        },
+        {
+          "path": "merges.txt",
+          "size": 1671853,
+          "git_sha1": "31349551d90c7606f325fe0f11bbb8bd5fa0d7c7"
+        },
+        {
+          "path": "model-00001-of-00002.safetensors",
+          "size": 5354381380,
+          "sha256": "5795efcfc7c96fd273e600562e8b111bfcc427415de9001d0a07e70cd99cff19"
+        },
+        {
+          "path": "model-00002-of-00002.safetensors",
+          "size": 2953517134,
+          "sha256": "2814562d654fe2d541fd4682804a0ccaa400e79701872c8e9f5998cf9481fdf8"
+        },
+        {
+          "path": "model.safetensors.index.json",
+          "size": 86266,
+          "git_sha1": "7ca9a1b8e12ec323d0c74fb3bc3cbf8269aaabdc"
+        },
+        {
+          "path": "special_tokens_map.json",
+          "size": 613,
+          "git_sha1": "ac23c0aaa2434523c494330aeb79c58395378103"
+        },
+        {
+          "path": "tokenizer.json",
+          "size": 11422654,
+          "sha256": "aeb13307a71acd8fe81861d94ad54ab689df773318809eed3cbe794b4492dae4"
+        },
+        {
+          "path": "tokenizer_config.json",
+          "size": 9706,
+          "git_sha1": "7345216a0785dc7086e8c245b2a9d3896ce2b756"
+        },
+        {
+          "path": "vocab.json",
+          "size": 2776833,
+          "git_sha1": "4783fe10ac3adce15ac8f358ef5462739852c569"
+        }
+      ]
     },
     {
       "tag": "qwen3:30b",
       "name": "Qwen3 30B",
       "params": "30B (MoE, ~3B ativos)",
-      "size_bytes": 19000000000,
+      "size_bytes": 17190783781,
       "tier": "medio",
       "context_tokens": 16384,
       "memory_overhead_bytes": 3000000000,
       "speed": "medio",
       "limitations": "Bom para o dia a dia e para editar arquivos; usa só ~3B parâmetros por resposta, então pode falhar em cadeias longas de ferramentas.",
-      "library_url": "https://ollama.com/library/qwen3"
+      "library_url": "https://huggingface.co/mlx-community/Qwen3-30B-A3B-4bit",
+      "tools_reliable": true,
+      "repo": "mlx-community/Qwen3-30B-A3B-4bit",
+      "revision": "d388dead1515f5e085ef7a0431dd8fadf0886c57",
+      "files": [
+        {
+          "path": "added_tokens.json",
+          "size": 707,
+          "git_sha1": "b54f9135e44c1e81047e8d05cb027af8bc039eed"
+        },
+        {
+          "path": "config.json",
+          "size": 1190,
+          "git_sha1": "1f0afe76d38b4bc9ddb6949a0a5b88b26a2677e1"
+        },
+        {
+          "path": "merges.txt",
+          "size": 1671853,
+          "git_sha1": "31349551d90c7606f325fe0f11bbb8bd5fa0d7c7"
+        },
+        {
+          "path": "model-00001-of-00004.safetensors",
+          "size": 5319507366,
+          "sha256": "18e9a14cae093ba31a9033f065a9815d048dd46ee5b3550a4804f0c11edc5d40"
+        },
+        {
+          "path": "model-00002-of-00004.safetensors",
+          "size": 5364678660,
+          "sha256": "b4d2137faf0903ab2bdaeebda18e8ce201af08c6a07bc732ed2d437cf327e321"
+        },
+        {
+          "path": "model-00003-of-00004.safetensors",
+          "size": 5274790383,
+          "sha256": "345483f1cd9ba445a764330cccf3f5545c59bbc02f4ec38eac842f200e445ddc"
+        },
+        {
+          "path": "model-00004-of-00004.safetensors",
+          "size": 1215804259,
+          "sha256": "2d41885ffa0a1f4edd67def6208573d92afdbbf6f49eee39a13a16fb89bad956"
+        },
+        {
+          "path": "model.safetensors.index.json",
+          "size": 119557,
+          "git_sha1": "9d72b1879d37208f51e32bd1c3e6ab80be05491c"
+        },
+        {
+          "path": "special_tokens_map.json",
+          "size": 613,
+          "git_sha1": "ac23c0aaa2434523c494330aeb79c58395378103"
+        },
+        {
+          "path": "tokenizer.json",
+          "size": 11422654,
+          "sha256": "aeb13307a71acd8fe81861d94ad54ab689df773318809eed3cbe794b4492dae4"
+        },
+        {
+          "path": "tokenizer_config.json",
+          "size": 9706,
+          "git_sha1": "7345216a0785dc7086e8c245b2a9d3896ce2b756"
+        },
+        {
+          "path": "vocab.json",
+          "size": 2776833,
+          "git_sha1": "4783fe10ac3adce15ac8f358ef5462739852c569"
+        }
+      ]
     },
     {
       "tag": "qwen3:32b",
       "name": "Qwen3 32B",
       "params": "32B",
-      "size_bytes": 20000000000,
+      "size_bytes": 18445872022,
       "tier": "medio",
       "context_tokens": 16384,
       "memory_overhead_bytes": 3000000000,
       "speed": "lento",
       "limitations": "O mais capaz do catálogo local; lento e pesado, e ainda abaixo do Claude e do Codex em tarefas longas.",
-      "library_url": "https://ollama.com/library/qwen3"
+      "library_url": "https://huggingface.co/mlx-community/Qwen3-32B-4bit",
+      "tools_reliable": true,
+      "repo": "mlx-community/Qwen3-32B-4bit",
+      "revision": "bcaaf7f538adf166c1080a2befdb4f6019f66639",
+      "files": [
+        {
+          "path": "added_tokens.json",
+          "size": 707,
+          "git_sha1": "b54f9135e44c1e81047e8d05cb027af8bc039eed"
+        },
+        {
+          "path": "config.json",
+          "size": 939,
+          "git_sha1": "325da4f516bd849605071725536c35655699feb2"
+        },
+        {
+          "path": "merges.txt",
+          "size": 1671853,
+          "git_sha1": "31349551d90c7606f325fe0f11bbb8bd5fa0d7c7"
+        },
+        {
+          "path": "model-00001-of-00004.safetensors",
+          "size": 5366619059,
+          "sha256": "c37d8ac8663e5bcfb7334889dcba56e3c6b3d7a9b8643a62c5f8b6105765aee1"
+        },
+        {
+          "path": "model-00002-of-00004.safetensors",
+          "size": 5346575850,
+          "sha256": "2f8fbccad32a2a2f3072ffb8d6adea2790cc0bd84927cc0c44fbaf1d97912867"
+        },
+        {
+          "path": "model-00003-of-00004.safetensors",
+          "size": 5359025653,
+          "sha256": "4412f7fa42e1419455698d3fe2b3c9557badd36a8a5c3a8d3d2439fc2fa6f0de"
+        },
+        {
+          "path": "model-00004-of-00004.safetensors",
+          "size": 2357630312,
+          "sha256": "5cdadd1a77ec47b3ea7799255efb7d15431765874963f55a33f71f43386eb619"
+        },
+        {
+          "path": "model.safetensors.index.json",
+          "size": 137843,
+          "git_sha1": "b04399472e64a537849ded038fb9b9cebadc4989"
+        },
+        {
+          "path": "special_tokens_map.json",
+          "size": 613,
+          "git_sha1": "ac23c0aaa2434523c494330aeb79c58395378103"
+        },
+        {
+          "path": "tokenizer.json",
+          "size": 11422654,
+          "sha256": "aeb13307a71acd8fe81861d94ad54ab689df773318809eed3cbe794b4492dae4"
+        },
+        {
+          "path": "tokenizer_config.json",
+          "size": 9706,
+          "git_sha1": "7345216a0785dc7086e8c245b2a9d3896ce2b756"
+        },
+        {
+          "path": "vocab.json",
+          "size": 2776833,
+          "git_sha1": "4783fe10ac3adce15ac8f358ef5462739852c569"
+        }
+      ]
     }
   ]
 }

@@ -120,7 +120,7 @@ def run(command: str, cfg: WispConfig, runner: Runner, raw: str) -> int:
     if command == "prep" and not any(str(payload.get(key) or "").strip() for key in ("titulo", "notas", "descricao")):
         return fail("sem evento nem descrição para preparar")
     requested = read_active(Path(cfg.wisp_dir).expanduser())
-    client = reuniao.make_client()
+    client = reuniao.make_client(cfg)
     engine, reason = reuniao.pick_backend(requested, cfg, runner, client)
     if engine is None:
         return fail(reason or "nenhum motor disponível")

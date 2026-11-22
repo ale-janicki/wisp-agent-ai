@@ -1,11 +1,12 @@
 import re
 import tomllib
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from wisp.fsops import atomic_write
 
 FILE = "modelos.toml"
+BACKENDS = ("mlx", "openai")
 SECTION = re.compile(r"^\s*\[([^\]]+)\]\s*(#.*)?$")
 
 
@@ -17,6 +18,10 @@ class ModelosError(Exception):
 class LocalState:
     ativo: str = ""
     instalados: tuple[str, ...] = field(default_factory=tuple)
+    backend: str = "mlx"
+    url: str = ""
+    idle_minutes: int = 15
+    pensar: bool = False
 
 
 def read(folder: Path) -> LocalState:
@@ -29,14 +34,23 @@ def read(folder: Path) -> LocalState:
         raise ModelosError(f"{FILE}: não consegui ler {path} ({type(e).__name__})") from None
     local = raw.get("local", {})
     ativo, instalados = local.get("ativo", ""), local.get("instalados", [])
+    backend, url, idle = local.get("backend", "mlx"), local.get("url", ""), local.get("idle_minutes", 15)
+    pensar = local.get("pensar", False)
     if not isinstance(ativo, str) or not isinstance(instalados, list) or not all(isinstance(t, str) for t in instalados):
         raise ModelosError(f'{FILE}: [local] precisa de ativo = "tag" e instalados = ["tag", ...]')
-    return LocalState(ativo, tuple(instalados))
+    if not isinstance(pensar, bool):
+        raise ModelosError(f'{FILE}: [local] pensar deve ser true ou false')
+    if backend not in BACKENDS or not isinstance(url, str) or isinstance(idle, bool) or not isinstance(idle, int) or idle < 1:
+        raise ModelosError(f'{FILE}: [local] backend deve ser "mlx" ou "openai", url um texto e idle_minutes um número inteiro a partir de 1')
+    return LocalState(ativo, tuple(instalados), backend, url, idle, pensar)
 
 
 def _block(state: LocalState) -> str:
     listed = ", ".join(f'"{tag}"' for tag in state.instalados)
-    return f'[local]\nativo = "{state.ativo}"\ninstalados = [{listed}]\n'
+    extra = f'backend = "{state.backend}"\n' + (f'url = "{state.url}"\n' if state.url else "")
+    extra += f"idle_minutes = {state.idle_minutes}\n" if state.idle_minutes != 15 else ""
+    extra += "pensar = true\n" if state.pensar else ""
+    return f'[local]\nativo = "{state.ativo}"\ninstalados = [{listed}]\n{extra}'
 
 
 def render(text: str, state: LocalState) -> str:
@@ -60,8 +74,8 @@ def write(folder: Path, state: LocalState) -> None:
 
 
 def with_installed(state: LocalState, tag: str) -> LocalState:
-    return LocalState(state.ativo, state.instalados if tag in state.instalados else (*state.instalados, tag))
+    return replace(state, instalados=state.instalados if tag in state.instalados else (*state.instalados, tag))
 
 
 def with_active(state: LocalState, tag: str) -> LocalState:
-    return LocalState(tag, state.instalados)
+    return replace(state, ativo=tag)

@@ -1,0 +1,386 @@
+{
+  "cases": [
+    {
+      "expect": {
+        "bandwidth_gbs": 67,
+        "best": {
+          "name": "Qwen3 4B",
+          "reason": "cabe com folga em 8 GB; ~22 palavras/s (estimativa); erra mais ao usar ferramentas",
+          "size_bytes": 2278969756,
+          "tag": "qwen3:4b",
+          "tokens_per_second": 29,
+          "words_per_second": 22
+        },
+        "chip": "Apple M1",
+        "chip_family": "M1",
+        "fastest": null,
+        "free_disk_bytes": 100000000000,
+        "memory_bytes": 8589934592,
+        "notes": [
+          "nenhum modelo que use ferramentas direito cabe com folga na memória e no disco deste Mac"
+        ]
+      },
+      "input": {
+        "chip": "Apple M1",
+        "free_disk_bytes": 100000000000,
+        "memory_bytes": 8589934592
+      },
+      "name": "m1-8gb"
+    },
+    {
+      "expect": {
+        "bandwidth_gbs": 100,
+        "best": {
+          "name": "Qwen3 8B",
+          "reason": "cabe com folga em 16 GB; ~16 palavras/s (estimativa)",
+          "size_bytes": 4623782544,
+          "tag": "qwen3:8b",
+          "tokens_per_second": 22,
+          "words_per_second": 16
+        },
+        "chip": "Apple M2",
+        "chip_family": "M2",
+        "fastest": {
+          "name": "Qwen3 8B",
+          "reason": "o menor que ainda usa ferramentas direito; ~16 palavras/s (estimativa)",
+          "size_bytes": 4623782544,
+          "tag": "qwen3:8b",
+          "tokens_per_second": 22,
+          "words_per_second": 16
+        },
+        "free_disk_bytes": 100000000000,
+        "memory_bytes": 17179869184,
+        "notes": []
+      },
+      "input": {
+        "chip": "Apple M2",
+        "free_disk_bytes": 100000000000,
+        "memory_bytes": 17179869184
+      },
+      "name": "m2-16gb"
+    },
+    {
+      "expect": {
+        "bandwidth_gbs": 150,
+        "best": {
+          "name": "Qwen3 14B",
+          "reason": "cabe com folga em 36 GB; ~14 palavras/s (estimativa)",
+          "size_bytes": 8323868085,
+          "tag": "qwen3:14b",
+          "tokens_per_second": 18,
+          "words_per_second": 14
+        },
+        "chip": "Apple M3 Pro",
+        "chip_family": "M3 Pro",
+        "fastest": {
+          "name": "Qwen3 8B",
+          "reason": "o menor que ainda usa ferramentas direito; ~24 palavras/s (estimativa)",
+          "size_bytes": 4623782544,
+          "tag": "qwen3:8b",
+          "tokens_per_second": 32,
+          "words_per_second": 24
+        },
+        "free_disk_bytes": 200000000000,
+        "memory_bytes": 38654705664,
+        "notes": []
+      },
+      "input": {
+        "chip": "Apple M3 Pro",
+        "free_disk_bytes": 200000000000,
+        "memory_bytes": 38654705664
+      },
+      "name": "m3-pro-36gb"
+    },
+    {
+      "expect": {
+        "bandwidth_gbs": 120,
+        "best": {
+          "name": "Qwen3 8B",
+          "reason": "cabe com folga em 16 GB; ~19 palavras/s (estimativa)",
+          "size_bytes": 4623782544,
+          "tag": "qwen3:8b",
+          "tokens_per_second": 26,
+          "words_per_second": 19
+        },
+        "chip": "Apple M4",
+        "chip_family": "M4",
+        "fastest": {
+          "name": "Qwen3 8B",
+          "reason": "o menor que ainda usa ferramentas direito; ~19 palavras/s (estimativa)",
+          "size_bytes": 4623782544,
+          "tag": "qwen3:8b",
+          "tokens_per_second": 26,
+          "words_per_second": 19
+        },
+        "free_disk_bytes": 158000000000,
+        "memory_bytes": 17179869184,
+        "notes": []
+      },
+      "input": {
+        "chip": "Apple M4",
+        "free_disk_bytes": 158000000000,
+        "memory_bytes": 17179869184
+      },
+      "name": "m4-16gb"
+    },
+    {
+      "expect": {
+        "bandwidth_gbs": 410,
+        "best": {
+          "name": "Qwen3 32B",
+          "reason": "cabe com folga em 128 GB; ~17 palavras/s (estimativa)",
+          "size_bytes": 18445872022,
+          "tag": "qwen3:32b",
+          "tokens_per_second": 22,
+          "words_per_second": 17
+        },
+        "chip": "Apple M4 Max",
+        "chip_family": "M4 Max",
+        "fastest": {
+          "name": "Qwen3 8B",
+          "reason": "o menor que ainda usa ferramentas direito; ~67 palavras/s (estimativa)",
+          "size_bytes": 4623782544,
+          "tag": "qwen3:8b",
+          "tokens_per_second": 89,
+          "words_per_second": 67
+        },
+        "free_disk_bytes": 500000000000,
+        "memory_bytes": 137438953472,
+        "notes": []
+      },
+      "input": {
+        "chip": "Apple M4 Max",
+        "free_disk_bytes": 500000000000,
+        "memory_bytes": 137438953472
+      },
+      "name": "m4-max-128gb"
+    },
+    {
+      "expect": {
+        "bandwidth_gbs": null,
+        "best": {
+          "name": "Qwen3 8B",
+          "reason": "cabe com folga em 16 GB; sem estimativa de velocidade neste chip",
+          "size_bytes": 4623782544,
+          "tag": "qwen3:8b",
+          "tokens_per_second": null,
+          "words_per_second": null
+        },
+        "chip": "Apple M9 Hyper",
+        "chip_family": "M9",
+        "fastest": {
+          "name": "Qwen3 8B",
+          "reason": "o menor que ainda usa ferramentas direito; sem estimativa de velocidade neste chip",
+          "size_bytes": 4623782544,
+          "tag": "qwen3:8b",
+          "tokens_per_second": null,
+          "words_per_second": null
+        },
+        "free_disk_bytes": 100000000000,
+        "memory_bytes": 17179869184,
+        "notes": []
+      },
+      "input": {
+        "chip": "Apple M9 Hyper",
+        "free_disk_bytes": 100000000000,
+        "memory_bytes": 17179869184
+      },
+      "name": "unknown-chip-16gb"
+    },
+    {
+      "expect": {
+        "bandwidth_gbs": 120,
+        "best": {
+          "name": "Qwen3 4B",
+          "reason": "cabe com folga em 16 GB; ~39 palavras/s (estimativa); erra mais ao usar ferramentas",
+          "size_bytes": 2278969756,
+          "tag": "qwen3:4b",
+          "tokens_per_second": 53,
+          "words_per_second": 39
+        },
+        "chip": "Apple M4",
+        "chip_family": "M4",
+        "fastest": null,
+        "free_disk_bytes": 9000000000,
+        "memory_bytes": 17179869184,
+        "notes": [
+          "nenhum modelo que use ferramentas direito cabe com folga na memória e no disco deste Mac"
+        ]
+      },
+      "input": {
+        "chip": "Apple M4",
+        "free_disk_bytes": 9000000000,
+        "memory_bytes": 17179869184
+      },
+      "name": "m4-16gb-low-disk"
+    },
+    {
+      "expect": {
+        "bandwidth_gbs": 120,
+        "best": {
+          "name": "Qwen3 4B",
+          "reason": "cabe com folga em 8 GB; ~39 palavras/s (estimativa); erra mais ao usar ferramentas",
+          "size_bytes": 2278969756,
+          "tag": "qwen3:4b",
+          "tokens_per_second": 53,
+          "words_per_second": 39
+        },
+        "chip": "Apple M4",
+        "chip_family": "M4",
+        "fastest": null,
+        "free_disk_bytes": 100000000000,
+        "memory_bytes": 8589934592,
+        "notes": [
+          "nenhum modelo que use ferramentas direito cabe com folga na memória e no disco deste Mac"
+        ]
+      },
+      "input": {
+        "chip": "Apple M4",
+        "free_disk_bytes": 100000000000,
+        "memory_bytes": 8589934592
+      },
+      "name": "m4-8gb-no-reliable-fit"
+    },
+    {
+      "expect": {
+        "bandwidth_gbs": 67,
+        "best": null,
+        "chip": "Apple M1",
+        "chip_family": "M1",
+        "fastest": null,
+        "free_disk_bytes": 100000000000,
+        "memory_bytes": 4294967296,
+        "notes": [
+          "nenhum modelo local cabe com folga na memória deste Mac (4 GB); use o Claude ou o Codex, que rodam na assinatura"
+        ]
+      },
+      "input": {
+        "chip": "Apple M1",
+        "free_disk_bytes": 100000000000,
+        "memory_bytes": 4294967296
+      },
+      "name": "m1-4gb-nothing-fits"
+    },
+    {
+      "expect": {
+        "bandwidth_gbs": null,
+        "best": null,
+        "chip": "",
+        "chip_family": null,
+        "fastest": null,
+        "free_disk_bytes": 100000000000,
+        "memory_bytes": 17179869184,
+        "notes": [
+          "o MLX local precisa de um Mac com Apple silicon e este não tem; aponte para um servidor compatível com OpenAI (wisp local backend openai --url ENDEREÇO --model MODELO) ou use o Claude ou o Codex, que rodam na assinatura"
+        ]
+      },
+      "input": {
+        "chip": "",
+        "free_disk_bytes": 100000000000,
+        "memory_bytes": 17179869184
+      },
+      "name": "empty-chip"
+    },
+    {
+      "expect": {
+        "bandwidth_gbs": null,
+        "best": null,
+        "chip": "Intel(R) Core(TM) i7-9750H CPU @ 2.60GHz",
+        "chip_family": null,
+        "fastest": null,
+        "free_disk_bytes": 100000000000,
+        "memory_bytes": 17179869184,
+        "notes": [
+          "o MLX local precisa de um Mac com Apple silicon e este não tem; aponte para um servidor compatível com OpenAI (wisp local backend openai --url ENDEREÇO --model MODELO) ou use o Claude ou o Codex, que rodam na assinatura"
+        ]
+      },
+      "input": {
+        "chip": "Intel(R) Core(TM) i7-9750H CPU @ 2.60GHz",
+        "free_disk_bytes": 100000000000,
+        "memory_bytes": 17179869184
+      },
+      "name": "intel"
+    }
+  ],
+  "catalog": {
+    "disk_margin_bytes": 5000000000,
+    "models": [
+      {
+        "context_tokens": 8192,
+        "library_url": "https://huggingface.co/mlx-community/Qwen3-4B-4bit",
+        "limitations": "Bom para resumir e escrever textos curtos; erra com frequência ao encadear ferramentas e perde o fio em conversas longas.",
+        "memory_bytes": 3778969756,
+        "memory_overhead_bytes": 1500000000,
+        "name": "Qwen3 4B",
+        "params": "4B",
+        "repo": "mlx-community/Qwen3-4B-4bit",
+        "size_bytes": 2278969756,
+        "speed": "rapido",
+        "tag": "qwen3:4b",
+        "tier": "pequeno",
+        "tools_reliable": false
+      },
+      {
+        "context_tokens": 8192,
+        "library_url": "https://huggingface.co/mlx-community/Qwen3-8B-4bit",
+        "limitations": "Bom para ler e resumir e-mails e redigir rascunhos; fraco em código longo e em tarefas com muitos passos.",
+        "memory_bytes": 6123782544,
+        "memory_overhead_bytes": 1500000000,
+        "name": "Qwen3 8B",
+        "params": "8B",
+        "repo": "mlx-community/Qwen3-8B-4bit",
+        "size_bytes": 4623782544,
+        "speed": "rapido",
+        "tag": "qwen3:8b",
+        "tier": "pequeno",
+        "tools_reliable": true
+      },
+      {
+        "context_tokens": 16384,
+        "library_url": "https://huggingface.co/mlx-community/Qwen3-14B-4bit",
+        "limitations": "Segue instruções e usa ferramentas melhor que os menores; ainda fraco em código longo e em planos de muitos passos.",
+        "memory_bytes": 11323868085,
+        "memory_overhead_bytes": 3000000000,
+        "name": "Qwen3 14B",
+        "params": "14B",
+        "repo": "mlx-community/Qwen3-14B-4bit",
+        "size_bytes": 8323868085,
+        "speed": "medio",
+        "tag": "qwen3:14b",
+        "tier": "medio",
+        "tools_reliable": true
+      },
+      {
+        "context_tokens": 16384,
+        "library_url": "https://huggingface.co/mlx-community/Qwen3-30B-A3B-4bit",
+        "limitations": "Bom para o dia a dia e para editar arquivos; usa só ~3B parâmetros por resposta, então pode falhar em cadeias longas de ferramentas.",
+        "memory_bytes": 20190783781,
+        "memory_overhead_bytes": 3000000000,
+        "name": "Qwen3 30B",
+        "params": "30B (MoE, ~3B ativos)",
+        "repo": "mlx-community/Qwen3-30B-A3B-4bit",
+        "size_bytes": 17190783781,
+        "speed": "medio",
+        "tag": "qwen3:30b",
+        "tier": "medio",
+        "tools_reliable": true
+      },
+      {
+        "context_tokens": 16384,
+        "library_url": "https://huggingface.co/mlx-community/Qwen3-32B-4bit",
+        "limitations": "O mais capaz do catálogo local; lento e pesado, e ainda abaixo do Claude e do Codex em tarefas longas.",
+        "memory_bytes": 21445872022,
+        "memory_overhead_bytes": 3000000000,
+        "name": "Qwen3 32B",
+        "params": "32B",
+        "repo": "mlx-community/Qwen3-32B-4bit",
+        "size_bytes": 18445872022,
+        "speed": "lento",
+        "tag": "qwen3:32b",
+        "tier": "medio",
+        "tools_reliable": true
+      }
+    ],
+    "source": "Hugging Face mlx-community 4-bit repos, file lists and sizes read from https://huggingface.co/api/models/<repo>/tree/main at the pinned revision on 2026-11-21 (README.md and .gitattributes are not downloaded); the 30b repo is Qwen3-30B-A3B-4bit; tools_reliable is a Wisp judgement, not a source"
+  }
+}
