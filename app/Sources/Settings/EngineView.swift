@@ -22,6 +22,12 @@ struct EngineSettingsCard: View {
                     .foregroundStyle(Theme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
+            if let notice = model.notice {
+                Text(notice)
+                    .font(Theme.Font.caption)
+                    .foregroundStyle(Theme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             if let error = model.error {
                 Text(error)
                     .font(Theme.Font.caption)
