@@ -241,10 +241,11 @@ def test_a_local_engine_that_is_not_ready_falls_back_to_claude_and_says_why(wisp
 def test_a_readiness_check_that_cannot_run_or_hangs_falls_back(wisp, monkeypatch, tmp_path):
     monkeypatch.setattr(local_runner, "launch", lambda: [str(tmp_path / "missing")])
     assert asyncio.run(local_runner.readiness()) == (False, "não achei o comando do Wisp")
-    monkeypatch.setattr(local_runner, "launch", lambda: fake_wisp(tmp_path, "sleep 30"))
+    import subprocess, uuid
+    marker = f"sleep 30.{uuid.uuid4().int % 10**9:09d}"
+    monkeypatch.setattr(local_runner, "launch", lambda: fake_wisp(tmp_path, marker))
     assert asyncio.run(local_runner.readiness(timeout=0.3)) == (False, "o servidor local não respondeu a tempo")
-    import subprocess
-    assert subprocess.run(["pgrep", "-f", "sleep 30"], capture_output=True).returncode != 0
+    assert subprocess.run(["pgrep", "-f", marker], capture_output=True).returncode != 0
 
 
 def test_claude_and_codex_selection_is_unchanged(wisp, monkeypatch):
