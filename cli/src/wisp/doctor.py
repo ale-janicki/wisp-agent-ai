@@ -107,7 +107,7 @@ def _check_homebrew(runner: Runner, **_) -> Check:
 
 
 def _check_brain(cfg: WispConfig, **_) -> Check:
-    ok = bool(cfg.brain) and Path(cfg.brain).is_dir()
+    ok = bool(cfg.brain) and Path(cfg.brain).expanduser().is_dir()
     return Check("brain", ok, "cérebro pronto" if ok else "o cérebro ainda não foi criado", "brain")
 
 
