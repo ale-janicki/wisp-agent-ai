@@ -146,6 +146,7 @@ struct CalendarTab: View {
             Button { model.quickOpen.toggle() } label: { Image(systemName: "plus") }
                 .buttonStyle(CircleButtonStyle(kind: .accent, size: 26))
                 .help("Novo evento (N)")
+            TabSettingsButton(tab: .agenda)
         }
         .padding(.horizontal, Theme.Space.m)
         .padding(.vertical, Theme.Space.s)
