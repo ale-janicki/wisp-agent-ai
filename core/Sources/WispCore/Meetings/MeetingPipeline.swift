@@ -60,20 +60,15 @@ public struct MeetingPipeline: Sendable {
     public var transcriber: MeetingTranscriber
     public var notes: MeetingNoteWriter
     public var brain: MeetingBrainWriter?
-    public var liveTrustSeconds: Double
 
-    public init(
-        transcriber: MeetingTranscriber, notes: MeetingNoteWriter, brain: MeetingBrainWriter? = nil, liveTrustSeconds: Double = 600
-    ) {
+    public init(transcriber: MeetingTranscriber, notes: MeetingNoteWriter, brain: MeetingBrainWriter? = nil) {
         self.transcriber = transcriber
         self.notes = notes
         self.brain = brain
-        self.liveTrustSeconds = liveTrustSeconds
     }
 
     func trustedLive(folder: URL, meta: RecordingMeta) -> MeetingTranscriptDocument? {
-        guard (meta.durationSeconds ?? 0) > liveTrustSeconds,
-              var live = try? MeetingTranscriptFile.read(in: folder, live: true), !live.segments.isEmpty else { return nil }
+        guard var live = try? MeetingTranscriptFile.read(in: folder, live: true), !live.segments.isEmpty else { return nil }
         live.durationSeconds = max(live.durationSeconds, meta.durationSeconds ?? 0)
         live.segments = TranscriptTidy.mergeAdjacent(live.segments)
         return live
