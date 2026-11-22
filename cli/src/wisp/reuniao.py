@@ -14,7 +14,9 @@ from pathlib import Path
 from wisp.brain_colher import claude_bin
 from wisp.config import WispConfig
 from wisp.engines import read_active
-from wisp.local import modelos, ollama
+from wisp.local import backend as backends
+from wisp.local import catalog as catalogs
+from wisp.local import modelos
 from wisp.runner import Runner, SubprocessRunner
 
 ATTEMPTS = 2
@@ -68,7 +70,14 @@ CODEX_REFUSED = (
     "o motor ativo é o Codex, que lê qualquer arquivo do Mac e por isso não escreve notas; "
     "o Claude e o modelo local também não estão disponíveis"
 )
-make_client = ollama.OllamaClient
+
+
+def make_client(cfg: WispConfig):
+    folder = Path(cfg.wisp_dir).expanduser()
+    try:
+        return backends.make_backend(folder, modelos.read(folder), catalogs.load())
+    except (modelos.ModelosError, backends.BackendError):
+        return None
 
 
 class Falha(Exception):
@@ -151,13 +160,13 @@ def claude_available(cfg: WispConfig, runner: Runner) -> bool:
 
 
 def local_model(cfg: WispConfig, client) -> str | None:
+    if client is None:
+        return None
     try:
         active = modelos.read(Path(cfg.wisp_dir).expanduser()).ativo
-        if not active or not client.running():
-            return None
-        return active if active in client.tags() else None
-    except (modelos.ModelosError, ollama.OllamaError):
+    except modelos.ModelosError:
         return None
+    return active if active and client.readiness(active) is None else None
 
 
 def pick_backend(requested: str, cfg: WispConfig, runner: Runner, client) -> tuple[str | None, str | None]:
@@ -203,7 +212,7 @@ def ask_local(cfg: WispConfig, client, system: str, prompt: str, attempts: int =
     for _ in range(attempts):
         try:
             reply = client.chat(model, [{"role": "system", "content": system}, {"role": "user", "content": prompt}], [], {})
-        except ollama.OllamaError as problem:
+        except backends.BackendError as problem:
             last = str(problem)
             continue
         if reply.content.strip():
@@ -359,7 +368,7 @@ def write_note(cfg: WispConfig, runner: Runner, folder: Path) -> dict:
     if not transcript:
         raise Falha("a transcrição está vazia")
     requested = read_active(Path(cfg.wisp_dir).expanduser())
-    client = make_client()
+    client = make_client(cfg)
     engine, reason = pick_backend(requested, cfg, runner, client)
     fallback = "Reunião"
     body = None

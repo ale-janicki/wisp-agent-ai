@@ -120,8 +120,7 @@ class OpenAIClient:
 
     def chat(self, model: str, messages: list[dict], tools: list[dict], options: dict) -> ChatReply:
         body = {"model": model, "messages": to_openai_messages(messages), "stream": True, "stream_options": {"include_usage": True}}
-        if tools:
-            body["tools"] = tools
+        body["tools"] = tools
         if self.think is not None:
             body["chat_template_kwargs"] = {"enable_thinking": self.think}
         reply = ChatReply()

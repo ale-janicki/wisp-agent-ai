@@ -4,10 +4,10 @@ from pathlib import Path
 
 import pytest
 
-from local_fakes import FakeOllama, reply
+from local_fakes import FakeLLM, reply
 
 from wisp import reuniao
-from wisp.local import modelos, ollama
+from wisp.local import modelos
 from wisp.cli import main
 from wisp.config import WispConfig
 from wisp.runner import RunResult
@@ -347,9 +347,9 @@ def test_codex_active_without_claude_uses_the_local_engine_with_an_empty_tool_li
     use_codex(wisp_dir)
     modelos.write(wisp_dir, modelos.LocalState("qwen3:8b", ("qwen3:8b",)))
     runner = NoClaude()
-    with FakeOllama(script=[reply(NOTE)], tags={"qwen3:8b": 5}) as fake:
+    with FakeLLM(script=[reply(NOTE)], tags={"qwen3:8b": 5}) as fake:
         fake.repeat_last = True
-        monkeypatch.setattr(reuniao, "make_client", lambda: fake.client())
+        monkeypatch.setattr(reuniao, "make_client", lambda cfg: fake.client())
         report = reuniao.make_note(cfg, runner, folder)
         chats = fake.chats()
     assert report["motor"] == "local" and report["gerada"] is True
@@ -367,8 +367,8 @@ def test_codex_active_with_no_claude_and_no_local_model_skips_the_note_with_the_
     folder, wisp_dir, cfg = world
     use_codex(wisp_dir)
     runner = NoClaude()
-    with FakeOllama(tags={}) as fake:
-        monkeypatch.setattr(reuniao, "make_client", lambda: fake.client())
+    with FakeLLM(tags={}) as fake:
+        monkeypatch.setattr(reuniao, "make_client", lambda cfg: fake.client())
         report = reuniao.make_note(cfg, runner, folder)
         assert fake.chats() == []
     assert report["gerada"] is False and report["motor"] == "codex"
@@ -412,3 +412,14 @@ def test_the_lock_is_released_after_a_note_even_when_the_engine_fails(world):
     folder, _, cfg = world
     reuniao.make_note(cfg, Scripted((1, "", "x")), folder)
     assert reuniao.make_note(cfg, Routed(), folder)["gerada"] is True
+
+
+def test_the_default_note_client_is_the_mlx_backend_and_a_broken_settings_file_means_no_local_model(world):
+    from wisp.local import backend as backends
+
+    folder, wisp_dir, cfg = world
+    assert isinstance(reuniao.make_client(cfg), backends.MlxBackend)
+    (wisp_dir / "modelos.toml").write_text("[local]\nbackend = 3\n")
+    assert reuniao.make_client(cfg) is None and reuniao.local_model(cfg, None) is None
+    (wisp_dir / "modelos.toml").write_text('[local]\nbackend = "openai"\n')
+    assert reuniao.make_client(cfg) is None
