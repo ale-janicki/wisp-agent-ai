@@ -212,12 +212,12 @@ public struct BrainFiles: Sendable {
         try data.write(to: temporary)
         let handle = try FileHandle(forWritingTo: temporary)
         defer { try? handle.close() }
-        guard fcntl(handle.fileDescriptor, F_FULLFSYNC) == 0 || (try? handle.synchronize()) != nil else {
-            throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno), userInfo: [NSLocalizedDescriptionKey: "fsync falhou"])
-        }
         try copyAttributes(from: source, to: temporary)
         guard futimens(handle.fileDescriptor, nil) == 0 else {
             throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno), userInfo: [NSLocalizedDescriptionKey: "não consegui atualizar a data de modificação"])
+        }
+        guard fcntl(handle.fileDescriptor, F_FULLFSYNC) == 0 || (try? handle.synchronize()) != nil else {
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno), userInfo: [NSLocalizedDescriptionKey: "fsync falhou"])
         }
     }
 
