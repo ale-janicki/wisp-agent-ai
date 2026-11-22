@@ -1250,7 +1250,8 @@ def _migrar_encerradas() -> None:
     if marca.exists() or not _CFG.conversations_file.is_file():
         return
     vivas = {t.session_id for t in store.all()}
-    conversa.marcar_antigas(_CFG.conversations_file, vivas, topicos.encerrados())
+    fechadas = conversa.marcar_antigas(_CFG.conversations_file, vivas, topicos.encerrados())
+    log.info("conversas de topicos ja encerrados fechadas: %d %s", len(fechadas), fechadas)
     marca.parent.mkdir(parents=True, exist_ok=True)
     marca.write_text("1\n", "utf-8")
 

@@ -82,24 +82,28 @@ def encerrar_conversa(indice: Path, conversation: str, session_id: str, origem: 
         return achou
 
 
-def marcar_antigas(indice: Path, vivas: set[str], encerradas: list[dict]) -> int:
+def marcar_antigas(indice: Path, vivas: set[str], encerradas: list[dict]) -> list[str]:
     with file_lock(indice):
         registros = _registros(indice)
         if registros is None:
-            return 0
-        n = 0
+            return []
+        fechadas: list[str] = []
         for nota in encerradas:
             sid = str(nota.get("session_id") or "")
             if not sid or sid in vivas:
                 continue
+            quando = float(nota.get("session_last") or 0)
             for r in registros:
-                if _casa(r, "", sid) and not r.get("closedAt"):
-                    r["closedAt"] = _iso(float(nota.get("session_last") or 0) or None)
-                    r["closedFrom"] = "telegram"
-                    n += 1
-        if n:
+                if not _casa(r, "", sid) or r.get("closedAt"):
+                    continue
+                if quando and _epoch(str(r.get("updatedAt") or "")) > quando:
+                    continue
+                r["closedAt"] = _iso(quando or None)
+                r["closedFrom"] = "telegram"
+                fechadas.append(str(r.get("id") or ""))
+        if fechadas:
             _gravar_indice(indice, registros)
-        return n
+        return fechadas
 
 
 def garantir(store, transcripts: Transcripts, key: str, reason: str = "new", indice: Path | None = None) -> str:

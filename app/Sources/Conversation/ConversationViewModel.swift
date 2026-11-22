@@ -315,11 +315,8 @@ final class ConversationViewModel {
     var currentClosed: Bool { records.first { $0.id == currentId }?.isClosed ?? false }
 
     func reopen(_ record: ConversationRecord) {
-        var reopened = record
-        reopened.closedAt = nil
-        reopened.closedFrom = nil
         do {
-            try store.upsert(reopened)
+            try store.reopen(id: record.id)
         } catch {
             log.error("conversation reopen failed: \(error.localizedDescription, privacy: .public)")
             current.appendSystem("não consegui reabrir a conversa: \(error.localizedDescription)")
