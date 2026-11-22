@@ -517,12 +517,14 @@ def run_calls(fake_home, mode, calls, outcome="allow", fail=frozenset(), session
         (folder / sub).mkdir(parents=True, exist_ok=True)
     for name in ("guardrails.toml", "modelos.toml"):
         shutil.copy(WISP_FOLDER / name, folder / name)
+    for old in (folder / "conversas").glob("*.private"):
+        old.unlink()
     asked = Asked(outcome)
     engine = leak_engine(folder, asked)
     rails = guardrails.load(folder)
     tier = rails.tier("grande")
     guard = TurnGuard(dataclasses.replace(tier, tools=tier.tools | {"agenda_list", "notion_page"}), rails.repeat_limit)
-    host = FakeHost(["read_file", "list_files", "write_file", "run_shell", "web_search", "web_fetch", "brain_search", "brain_read", "brain_links", "email_list", "email_read", "agenda_list", "notion_page"])
+    host = FakeHost(["read_file", "list_files", "write_file", "run_shell", "web_search", "web_fetch", "brain_search", "brain_read", "brain_links", "email_list", "email_read", "agenda_list", "notion_page", "mac_open_url", "mac_open"])
     host.fail = fail
     session = session or engine.start("c1", "qwen3:8b", mode)
     results = []
@@ -634,9 +636,10 @@ def test_the_mark_survives_a_new_process_through_the_conversation_and_clears_wit
     assert later.private is True
     asyncio.run(second._execute(later, rails, TurnGuard(rails.tier("grande"), 3), FakeHost(["web_search"]), "web_search", {"query": "curta"}, [], "t"))
     assert [c[0] for c in asked.calls] == ["web_search"]
-    fresh = second.start("c9", "qwen3:8b")
-    assert fresh.private is False and not mark.exists()
-    assert second.resume("c9", "qwen3:8b").private is False
+    fresh = second.start(None, "qwen3:8b")
+    assert fresh.private is False and fresh.conversation != "c9"
+    again = second.start("c9", "qwen3:8b")
+    assert again.private is True and mark.exists()
 
 
 def test_a_conversation_with_no_private_read_never_gets_a_mark(fake_home):
@@ -676,3 +679,133 @@ def test_a_mac_tool_that_is_not_read_only_never_runs_without_a_card(tmp_path):
     for tool in writers:
         assert guardrails.needs_card(rails, rails.tier("grande"), "default", tool) or tool in rails.irreversible
         assert not guardrails.needs_card(rails, rails.tier("grande"), "auto", tool) or tool in rails.irreversible or tool in rails.tier("grande").approve
+
+
+@pytest.mark.parametrize("mode", ["default", "auto", "bypassPermissions"])
+def test_opening_a_url_after_the_conversation_turned_private_asks_for_the_card_with_the_url_in_every_mode(fake_home, mode):
+    url = "https://exemplo.test/?q=segredo"
+    asked, host, _ = run_calls(fake_home, mode, [("read_file", {"path": "x"}), ("mac_open_url", {"url": url})])
+    assert [c for c in asked.calls if c[0] == "mac_open_url"] == [("mac_open_url", {"url": url})]
+    asked, host, results = run_calls(fake_home, mode, [("read_file", {"path": "x"}), ("mac_open_url", {"url": url})], outcome="deny")
+    assert host.ran == ["read_file"] and results[-1][0] is True
+
+
+@pytest.mark.parametrize("mode", ["auto", "bypassPermissions"])
+def test_opening_a_short_url_in_a_clean_conversation_needs_no_card_but_a_long_one_does(fake_home, mode):
+    asked, host, _ = run_calls(fake_home, mode, [("mac_open_url", {"site": "youtube", "busca": "gatos"})])
+    assert asked.calls == [] and host.ran == ["mac_open_url"]
+    long = {"url": "https://exemplo.test/?" + "a" * 120}
+    asked, host, _ = run_calls(fake_home, mode, [("mac_open_url", long)])
+    assert asked.calls == [("mac_open_url", long)]
+    asked, host, _ = run_calls(fake_home, mode, [("mac_open_url", {"site": "google", "busca": "b" * 121})])
+    assert len(asked.calls) == 1
+    asked, host, _ = run_calls(fake_home, mode, [("mac_open_url", {"url": ["x"]})])
+    assert len(asked.calls) == 1
+
+
+def test_a_conversation_id_that_climbs_out_of_the_folder_is_refused_and_deletes_nothing(fake_home):
+    folder = conversation(fake_home)
+    outside = folder / "x.private"
+    outside.write_text("")
+    engine = leak_engine(folder, Asked("allow"))
+    from wisp.local.engine import EngineError
+
+    for bad in ("../x", "../../x", "a/b", "", "x" * 65):
+        with pytest.raises(EngineError):
+            engine.start(bad, "qwen3:8b")
+        with pytest.raises(EngineError):
+            engine._mark_path(bad)
+    assert outside.exists()
+
+
+def test_a_fixed_conversation_id_keeps_its_mark_between_calls_that_record_no_transcript(fake_home):
+    folder = conversation(fake_home)
+    first = leak_engine(folder, Asked("allow"))
+    session = first.start("fixa", "qwen3:8b")
+    rails = guardrails.load(folder)
+    from wisp.local.guardrails import TurnGuard
+
+    asyncio.run(first._execute(session, rails, TurnGuard(rails.tier("grande"), 3), FakeHost(["run_shell"]), "run_shell", {"command": "cat n"}, [], "t"))
+    assert (folder / "conversas/fixa.private").is_file()
+    asked = Asked("allow")
+    second = leak_engine(folder, asked)
+    later = second.start("fixa", "qwen3:8b")
+    assert later.private is True
+    asyncio.run(second._execute(later, rails, TurnGuard(rails.tier("grande"), 3), FakeHost(["web_search"]), "web_search", {"query": "curta"}, [], "t"))
+    assert [c[0] for c in asked.calls] == ["web_search"]
+
+
+def test_when_the_mark_cannot_be_written_the_session_stays_private_logs_and_asks_for_the_card(fake_home, caplog):
+    folder = conversation(fake_home)
+    (folder / "conversas").chmod(0o500)
+    try:
+        asked = Asked("allow")
+        engine = leak_engine(folder, asked)
+        session = engine.start("c1", "qwen3:8b", "bypassPermissions")
+        rails = guardrails.load(folder)
+        from wisp.local.guardrails import TurnGuard
+
+        host = FakeHost(["read_file", "web_search", "mac_open_url"])
+        guard = TurnGuard(rails.tier("grande"), 3)
+        with caplog.at_level("WARNING"):
+            asyncio.run(engine._execute(session, rails, guard, host, "read_file", {"path": "n"}, [], "t"))
+        assert session.private is True and not (folder / "conversas/c1.private").exists() and "marca" in caplog.text
+        asyncio.run(engine._execute(session, rails, guard, host, "web_search", {"query": "curta"}, [], "t"))
+        asyncio.run(engine._execute(session, rails, guard, host, "mac_open_url", {"site": "youtube"}, [], "t"))
+        assert [c[0] for c in asked.calls] == ["web_search", "mac_open_url"]
+    finally:
+        (folder / "conversas").chmod(0o700)
+
+
+@pytest.mark.parametrize("mode", ["default", "auto", "bypassPermissions"])
+@pytest.mark.parametrize("target", ["https://evil.example/?d=nota", "http://evil.example", "mailto:a@evil.example", "evil.example/p?d=1", "evil.example"])
+def test_mac_open_of_an_address_asks_for_the_card_even_in_a_clean_conversation(fake_home, mode, target):
+    asked, host, _ = run_calls(fake_home, mode, [("mac_open", {"alvo": target})])
+    assert asked.calls == [("mac_open", {"alvo": target})] and host.ran == ["mac_open"]
+    asked, host, results = run_calls(fake_home, mode, [("mac_open", {"alvo": target})], outcome="deny")
+    assert host.ran == [] and results[0][0] is True
+
+
+@pytest.mark.parametrize("mode", ["auto", "bypassPermissions"])
+def test_mac_open_after_the_taint_asks_and_a_local_target_in_a_clean_session_does_not(fake_home, mode, monkeypatch):
+    asked, host, _ = run_calls(fake_home, mode, [("read_file", {"path": "x"}), ("mac_open", {"alvo": "/Applications/Safari.app"})])
+    assert [c[0] for c in asked.calls] == ["mac_open"]
+    (fake_home / "nota.md").write_text("x")
+    monkeypatch.chdir(fake_home)
+    for target in ("Safari", "~/Documents/relatorio final.pdf", "/etc/hosts", "nota.md"):
+        asked, host, _ = run_calls(fake_home, mode, [("mac_open", {"alvo": target, "com": "Preview"})])
+        assert asked.calls == [] and host.ran == ["mac_open"]
+    asked, host, _ = run_calls(fake_home, mode, [("mac_open", {"alvo": "a" * 121})])
+    assert len(asked.calls) == 1
+    asked, host, _ = run_calls(fake_home, mode, [("mac_open", {"alvo": ["x"]})])
+    assert len(asked.calls) == 1
+
+
+@pytest.mark.parametrize("mode", ["auto", "bypassPermissions"])
+@pytest.mark.parametrize("field", ["site", "navegador", "busca", "url"])
+def test_a_long_site_or_browser_in_a_clean_session_asks_like_a_long_url(fake_home, mode, field):
+    asked, host, _ = run_calls(fake_home, mode, [("mac_open_url", {field: "x" * 121})])
+    assert len(asked.calls) == 1
+    asked, host, _ = run_calls(fake_home, mode, [("mac_open_url", {field: "x" * 120})])
+    assert asked.calls == []
+
+
+def test_resuming_a_history_that_ran_a_private_tool_without_a_mark_is_private_and_writes_the_mark(fake_home, monkeypatch):
+    from wisp.local import engine as engine_module
+
+    folder = conversation(fake_home)
+    (folder / "conversas/c5.jsonl").write_text(json.dumps({"v": 1, "at": "2026-11-21T10:00:00.000Z", "kind": "user", "surface": "app", "text": "oi"}) + "\n")
+    history = [{"role": "user", "content": "oi"}, {"role": "tool", "tool_name": "run_shell", "content": "segredo"}]
+    monkeypatch.setattr(engine_module, "history_from", lambda path: history)
+    asked = Asked("allow")
+    engine = leak_engine(folder, asked)
+    session = engine.resume("c5", "qwen3:8b", "bypassPermissions")
+    assert session.private is True and (folder / "conversas/c5.private").is_file()
+    rails = guardrails.load(folder)
+    from wisp.local.guardrails import TurnGuard
+
+    asyncio.run(engine._execute(session, rails, TurnGuard(rails.tier("grande"), 3), FakeHost(["web_search"]), "web_search", {"query": "curta"}, [], "t"))
+    assert [c[0] for c in asked.calls] == ["web_search"]
+    history[:] = [{"role": "tool", "tool_name": "web_search", "content": "x"}, {"role": "tool", "tool_name": "list_files", "content": "y"}]
+    (folder / "conversas/c5.private").unlink()
+    assert engine.resume("c5", "qwen3:8b").private is False
