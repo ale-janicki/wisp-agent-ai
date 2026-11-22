@@ -168,7 +168,16 @@ struct PanelView: View {
             }
         case .reminders: RemindersTab(profile: model.profile)
         case .agenda: AgendaTab(profile: model.profile)
-        case .meetings: MeetingsTab(model: controller.meetings)
+        case .meetings:
+            MeetingsTab(model: controller.meetings) { file in
+                let root = MeetingLibraryModel.brainRoot()
+                if let relative = MemorySearch.relativePath(ofFile: file, inRoot: root) {
+                    BrainModel.shared.openSource(relative, line: nil, inRoot: root)
+                    controller.tab = .brain
+                } else {
+                    NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: file)])
+                }
+            }
         case .brain:
             BrainTab(profile: model.profile) { question, context in
                 guard model.send(question, context: context) else { return false }

@@ -10,6 +10,7 @@ import tempfile
 from contextlib import contextmanager
 from datetime import datetime, tzinfo
 from pathlib import Path
+from stat import S_ISDIR
 from urllib.parse import quote
 
 from wisp import reuniao
@@ -322,9 +323,25 @@ def compose(
     return "\n".join(parts)
 
 
-def meetings_folder(brain: Path) -> Path:
-    if not brain.is_dir():
+NO_ACCESS = (
+    "sem permissão para acessar o brain; libere o Wisp em Ajustes do Sistema > "
+    "Privacidade e Segurança > Arquivos e Pastas (ou Acesso Total ao Disco)"
+)
+
+
+def check_brain_dir(brain: Path) -> None:
+    try:
+        stat = os.stat(brain)
+    except PermissionError:
+        raise reuniao.Falha(NO_ACCESS)
+    except OSError:
         raise reuniao.Falha("o brain não existe; não criei nada")
+    if not S_ISDIR(stat.st_mode):
+        raise reuniao.Falha("o brain não existe; não criei nada")
+
+
+def meetings_folder(brain: Path) -> Path:
+    check_brain_dir(brain)
     root = brain.resolve()
     folder = brain / MEETINGS_DIR
     try:

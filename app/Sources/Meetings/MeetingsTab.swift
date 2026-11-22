@@ -24,8 +24,11 @@ struct MeetingsTab: View {
     @ObservedObject private var library: MeetingLibraryModel
     @ObservedObject private var speech: SpeechModelModel
 
-    init(model: MeetingRecordingModel) {
+    private let openInBrain: (String) -> Void
+
+    init(model: MeetingRecordingModel, openInBrain: @escaping (String) -> Void = { _ in }) {
         self.model = model
+        self.openInBrain = openInBrain
         _library = ObservedObject(wrappedValue: model.library)
         _speech = ObservedObject(wrappedValue: model.speech)
     }
@@ -37,6 +40,7 @@ struct MeetingsTab: View {
             MeetingMainCard(model: model, library: library, speech: speech)
         }
         .onAppear {
+            library.openInBrain = openInBrain
             model.refreshPermissions()
             speech.refresh()
             library.reload(thenProcess: true)
@@ -481,7 +485,7 @@ private struct MeetingDetailView: View {
                     IssueLine(text: notice, help: notice, actionTitle: "Melhorar transcrição") { library.improveTranscript(entry) }
                 }
                 if let brainError = entry.meta.brainError {
-                    IssueLine(text: "Não gravei a nota no brain.", help: brainError, actionTitle: "Tentar de novo") {
+                    IssueLine(text: "Não gravei a nota no brain: \(brainError)", help: brainError, actionTitle: "Tentar de novo") {
                         library.brainAction(entry)
                     }
                 }
@@ -549,10 +553,10 @@ private struct MeetingDetailView: View {
         IconMenu(systemImage: "ellipsis", help: "Mais ações") {
             Button("Copiar") { library.copy(entry) }
                 .disabled(entry.hasNote ? false : !entry.hasTranscript)
-            if entry.hasNote {
+            if brain.opensNote {
                 Button("Abrir nota") { library.openNote(entry) }
             }
-            if primary != .brain, entry.hasNote || entry.hasTranscript {
+            if primary != .brain, !brain.opensNote, entry.hasNote || entry.hasTranscript {
                 Button(brain.label) { library.brainAction(entry) }
             }
             if entry.hasTranscript, stage == nil, primary != .generate {
