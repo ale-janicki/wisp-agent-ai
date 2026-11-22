@@ -223,3 +223,18 @@ def test_search_gives_the_sync_a_deadline_and_flags_a_partial_index_in_a_second_
 def test_a_complete_index_adds_no_note_block(index):
     result = asyncio.run(build_server(lambda: index).call_tool("brain_search", {"query": "plano"}))
     assert len(result.content) == 1
+def test_brain_search_command_prints_ranked_json(vault, tmp_path, capsys):
+    from wisp.brain_cli import run_search
+
+    paths = WispPaths(tmp_path, tmp_path / "c", tmp_path / "r", tmp_path / "state", tmp_path / "b", None)
+    code = run_search("plano financeiro", str(vault), 3, WispConfig(), paths)
+    rows = json.loads(capsys.readouterr().out)
+    assert code == 0 and rows[0]["path"] == "financas/plano-financeiro.md" and rows[0]["snippet"] and len(rows) <= 3
+
+
+def test_brain_search_command_without_a_folder_fails_in_one_line(tmp_path, capsys):
+    from wisp.brain_cli import run_search
+
+    paths = WispPaths(tmp_path, tmp_path / "c", tmp_path / "r", tmp_path / "state", tmp_path / "b", None)
+    assert run_search("x", str(tmp_path / "missing"), 3, WispConfig(), paths) == 1
+    assert "brain" in capsys.readouterr().err

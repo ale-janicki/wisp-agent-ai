@@ -62,6 +62,12 @@ def test_wikilinks_resolve_by_filename_case_insensitively(index):
     assert graph.resolve("plano-financeiro.md") == "financas/plano-financeiro.md"
 
 
+def test_a_path_with_dot_dot_resolves_relative_to_the_source_folder(index):
+    graph = index.graph()
+    assert graph.resolve("../financas/plano-financeiro", "produto/spec-motor.md") == "financas/plano-financeiro.md"
+    assert graph.resolve("../../x", "produto/spec-motor.md") is None
+
+
 def test_wikilinks_fall_back_to_frontmatter_aliases_then_titles(index):
     graph = index.graph()
     assert graph.resolve("Orçamento Mensal") == "financas/plano-financeiro.md"

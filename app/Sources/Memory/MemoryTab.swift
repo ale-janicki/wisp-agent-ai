@@ -7,6 +7,7 @@ struct MemoryTab: View {
     }
 
     let profile: Profile
+    var openNote: (String) -> Void
     @State private var query = Self.initialQuery
     @State private var mode = Self.lastMode
     private let memory = MemoryModel.shared
@@ -42,9 +43,6 @@ struct MemoryTab: View {
                         Spacer(minLength: 0)
                     }
                     modePicker
-                }
-                if let error = memory.openError {
-                    InlineError(text: error)
                 }
                 switch mode {
                 case .list: list
@@ -144,8 +142,7 @@ struct MemoryTab: View {
     }
 
     private func open(_ path: String) {
-        guard let root else { return }
-        memory.open(path, root: root)
+        openNote(path)
     }
 }
 

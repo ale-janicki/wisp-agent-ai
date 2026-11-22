@@ -2,11 +2,11 @@ import Foundation
 import WispCore
 
 enum PanelTab: String, CaseIterable, Identifiable {
-    case home, conversation, memory, tasks, reminders, agenda, meetings, routines, music, clipboard, myMac, settings
+    case home, conversation, memory, brain, tasks, reminders, agenda, meetings, routines, music, clipboard, myMac, settings
 
     var id: Self { self }
 
-    static let order: [PanelTab] = [.home, .conversation, .memory, .tasks, .reminders, .agenda, .meetings, .routines, .music, .clipboard, .myMac]
+    static let order: [PanelTab] = [.home, .conversation, .memory, .brain, .tasks, .reminders, .agenda, .meetings, .routines, .music, .clipboard, .myMac]
 
     static func nav(for profile: Profile) -> [PanelTab] {
         order.filter { $0.isAvailable(in: profile) }
@@ -16,7 +16,7 @@ enum PanelTab: String, CaseIterable, Identifiable {
         switch self {
         case .tasks: profile.blocks?.tasks?.file.isPresent ?? false
         case .reminders: profile.blocks?.alerts?.list.isPresent ?? false
-        case .memory: profile.blocks?.memory?.root.isPresent ?? false
+        case .memory, .brain: profile.blocks?.memory?.root.isPresent ?? false
         case .routines: (profile.blocks?.routines?.registry.isPresent ?? false) && (profile.blocks?.routines?.status.isPresent ?? false)
         default: true
         }
@@ -31,6 +31,7 @@ enum PanelTab: String, CaseIterable, Identifiable {
         case .agenda: "Agenda"
         case .meetings: "Reuniões"
         case .memory: "Memória"
+        case .brain: "Brain"
         case .routines: "Rotinas"
         case .music: "Música"
         case .clipboard: "Copiados"
@@ -48,6 +49,7 @@ enum PanelTab: String, CaseIterable, Identifiable {
         case .agenda: "calendar"
         case .meetings: "waveform"
         case .memory: "brain.head.profile"
+        case .brain: "books.vertical"
         case .routines: "clock.arrow.circlepath"
         case .music: "music.note"
         case .clipboard: "doc.on.clipboard.fill"
