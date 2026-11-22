@@ -22,6 +22,10 @@ public protocol MeetingNoteWriter: Sendable {
     func writeNote(folder: URL) async throws -> NoteOutcome
 }
 
+public protocol MeetingBrainWriter: Sendable {
+    func syncNote(folder: URL) async throws -> URL
+}
+
 public enum MeetingStage: Equatable, Sendable {
     case transcribing(Double)
     case writingNote
@@ -55,10 +59,12 @@ public enum MeetingNoteText {
 public struct MeetingPipeline: Sendable {
     public var transcriber: MeetingTranscriber
     public var notes: MeetingNoteWriter
+    public var brain: MeetingBrainWriter?
 
-    public init(transcriber: MeetingTranscriber, notes: MeetingNoteWriter) {
+    public init(transcriber: MeetingTranscriber, notes: MeetingNoteWriter, brain: MeetingBrainWriter? = nil) {
         self.transcriber = transcriber
         self.notes = notes
+        self.brain = brain
     }
 
     public func process(folder: URL, stage: @escaping @Sendable (MeetingStage) -> Void = { _ in }) async throws {
@@ -91,6 +97,10 @@ public struct MeetingPipeline: Sendable {
         }
         let document = try MeetingTranscriptFile.read(in: folder)
         guard !document.segments.isEmpty else { return }
+        if meta.summaryDeferred == true, !manager.fileExists(atPath: RecordingFolder.noteURL(in: folder).path) {
+            try await syncBrain(folder: folder)
+            return
+        }
         stage(.writingNote)
         try await writeNote(folder: folder, document: document, meta: meta)
     }
@@ -130,6 +140,22 @@ public struct MeetingPipeline: Sendable {
             $0.noteState = outcome.generated ? .generated : .raw
             $0.title = title ?? $0.title
             $0.failure = outcome.generated ? nil : outcome.reason.map { "nota não gerada: \($0)" }
+        }
+        try await syncBrain(folder: folder)
+    }
+
+    private func syncBrain(folder: URL) async throws {
+        guard let brain else { return }
+        do {
+            let saved = try await brain.syncNote(folder: folder)
+            _ = try? RecordingFolder.update(in: folder) {
+                $0.brainNote = saved.path
+                $0.brainError = nil
+            }
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            _ = try? RecordingFolder.update(in: folder) { $0.brainError = error.localizedDescription }
         }
     }
 }

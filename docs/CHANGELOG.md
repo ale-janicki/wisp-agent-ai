@@ -12,6 +12,10 @@ Entries are in descending chronological order (newest first).
 ### Added
 
 - Each tab with settings (Conversa, Brain, Agenda, Reuniões, Música, My Mac) has a gear in its header that opens that tab's settings inside the tab, with "Voltar" and "Todos os ajustes"; Ajustes keeps everything.
+- Meetings: the meeting note now goes into the brain by itself. When a recording starts and no event was picked, the Agenda is asked (only if Calendar access was already granted) for the event that overlaps the start, and its title, attendees, organizer, calendar, notes and call link are saved with the recording. When the meeting is processed, `wisp reuniao brain` writes `meetings/YYYY-MM-DD-HHhMMm-slug.md` (plus a line in `meetings/meetings-index.md` when that index exists) in the brain with the date, duration, attendees, calendar and recording path in the frontmatter, a "Participantes" line, the summary sections when they exist and a link to the transcript.
+- Meetings: attendees and the people, projects and clients named in the summary become `[[wikilinks]]` only when the brain index finds exactly one existing note by title, alias or file name; no match or more than one match stays plain text, and no note is ever created for a link.
+- Meetings: the "Salvar no brain" button now runs the same sync instead of copying the note, and reads "Abrir no brain" once the synced note exists.
+- Meetings: new setting "Gerar resumo logo após a chamada" in Ajustes > Geral > Reuniões and on the Reuniões tab (on by default). Off writes the brain note with participants and the transcript link right away and the finished meeting shows "Gerar resumo", which fills the same brain note.
 
 ### Changed
 
