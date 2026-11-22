@@ -70,6 +70,12 @@ public struct M4AFileConverter: AudioFileConverter {
 
     public init() {}
 
+    public static let encoderSlackFrames = 8192
+
+    public static func covers(written: Int, total: Int) -> Bool {
+        total - written <= encoderSlackFrames
+    }
+
     public func convert(from source: URL, to destination: URL) throws -> Double {
         try convert(from: source, to: destination, progress: { _ in })
     }
@@ -104,7 +110,7 @@ public struct M4AFileConverter: AudioFileConverter {
             }
             try sink.finish()
             let written = try AVAudioFile(forReading: destination)
-            guard Double(written.length) >= Double(total) * 0.98 else {
+            guard Self.covers(written: Int(written.length), total: total) else {
                 throw MeetingRecorderError.sink("o arquivo convertido ficou mais curto que a gravação")
             }
         } catch {
