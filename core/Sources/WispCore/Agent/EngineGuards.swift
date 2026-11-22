@@ -4,7 +4,8 @@ public enum EngineGuards {
     public static let matcher = "Bash|Read|Edit|MultiEdit|Write|NotebookEdit|Grep|Glob"
     public static let hooks = ["guard-secrets", "guard-telegram", "guard-destructive", "guard-lessons", "guard-agenda", "guard-outbound"]
     public static let recallTimeout = 5
-    public static let askRules = ["Bash(*aprender add*)", "Bash(*aprender confirmar*)", "Bash(*aprender descartar*)"]
+    public static let askRules = ["Bash(*aprender add*)", "Bash(*aprender confirmar*)", "Bash(*aprender descartar*)",
+                                    "Bash(*topic unir*--aplicar*)", "Bash(*topic unir*--forcar*)"]
 
     static let agendaAsk = ["criar-evento", "editar-evento", "apagar-evento", "criar-lembrete", "concluir-lembrete", "permissao --pedir"]
     static let agendaHeads = ["\"$WISP_BIN\" agenda", "$WISP_BIN agenda", "wisp agenda", "\"$WISP_AGENDA_BIN\""]

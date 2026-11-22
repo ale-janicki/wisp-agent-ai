@@ -13,6 +13,7 @@ from pathlib import Path
 from wisp_bot import conversa, ctl, hosting, sessao, store, topicos, transcript, unir
 from wisp_bot.config import BotConfig, load_settings
 
+CONFIRMA_ENV = "WISP_UNIR_CONFIRM"
 COMPARTILHAR_S = 30.0
 POSTAR_S = 30.0
 ENVIAR_S = 100.0
@@ -320,14 +321,30 @@ def cmd_unir(a) -> int:
         print("nada para juntar: cada conversa já tem um id só")
         return 0
     print("\n".join(unir.descrever(grupos, topicos_, transcritos)))
+    pid = unir.plano_id(grupos, transcritos)
+    acionaveis = [g for g in grupos if not g.recusado]
     if not a.aplicar:
-        print("\n(só o plano; nada foi gravado. Feche o app, pare o bot e rode de novo com --aplicar)")
+        print(f"\nid do plano: {pid}")
+        print("(só o plano; nada foi gravado. Feche o app, pare o bot e rode de novo com --aplicar)")
+        return 0
+    if not acionaveis:
+        print("nada a aplicar: só há grupos recusados")
         return 0
     if not a.forcar and bot_vivo():
         return erro("o bot do Telegram está rodando: pare o serviço antes de juntar (ou --forcar)")
     if not a.forcar and subprocess.run(["pgrep", "-x", "Wisp"], capture_output=True).returncode == 0:
         return erro("o app do Wisp está aberto: feche antes de juntar (ou --forcar)")
-    pasta = unir.aplicar(grupos, indice, store.STORE, transcritos, wisp_dir)
+    if sys.stdin.isatty():
+        digitado = input(f"digite o id do plano ({pid}) para aplicar: ").strip()
+    else:
+        digitado = os.environ.get(CONFIRMA_ENV, "").strip()
+    if digitado != pid:
+        return erro(f"confirmação ausente ou diferente do id do plano ({pid}): rode o plano e confirme "
+                    f"digitando o id num terminal, ou defina {CONFIRMA_ENV}={pid}")
+    try:
+        pasta = unir.aplicar(grupos, indice, store.STORE, transcritos, wisp_dir)
+    except unir.PlanoMudou as e:
+        return erro(str(e))
     print(f"\njuntado. cópia de segurança e log em {pasta}")
     return 0
 

@@ -16,6 +16,8 @@
       "Bash(*aprender add*)",
       "Bash(*aprender confirmar*)",
       "Bash(*aprender descartar*)",
+      "Bash(*topic unir*--aplicar*)",
+      "Bash(*topic unir*--forcar*)",
       "Bash(\"$WISP_BIN\" agenda criar-evento:*)",
       "Bash($WISP_BIN agenda criar-evento:*)",
       "Bash(wisp agenda criar-evento:*)",

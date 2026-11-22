@@ -1,5 +1,5 @@
 from __future__ import annotations
-import json, logging, shutil, time
+import hashlib, json, logging, shutil, time
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -17,7 +17,7 @@ _BACKUPS = "backup-conversas"
 class Grupo:
     sobrevivente: dict
     perdedores: list[dict]
-    topico: str | None
+    topicos: list[str]
     sessoes: list[str]
     arquivos: list[str]
     importar: list[str]
@@ -25,6 +25,26 @@ class Grupo:
     nao_importaveis: list[str] = field(default_factory=list)
     mantidos: list[dict] = field(default_factory=list)
     motivos: list[str] = field(default_factory=list)
+    recusado: bool = False
+
+    @property
+    def topico(self) -> str | None:
+        return self.topicos[0] if self.topicos else None
+
+
+class PlanoMudou(RuntimeError):
+    pass
+
+
+def _ligados(record: dict, topicos: dict[str, dict], transcripts: Transcripts) -> set[str]:
+    sid = record.get("sessionId")
+    out = set()
+    for k, t in topicos.items():
+        conv = str(t.get("conversation") or "")
+        if (sid and sid == t.get("session_id")) or (conv and conv == _id(record)) \
+                or (sid and conv and transcripts.find(sid) == conv):
+            out.add(k)
+    return out
 
 
 def _id(record: dict) -> str:
@@ -78,17 +98,14 @@ def plano(records: list[dict], topicos: dict[str, dict], transcripts: Transcript
             dono = next((x for x in records if _id(x) == stem), None)
             if dono is not None:
                 unir(("r", _id(r)), ("r", stem), f"arquivo de conversa {stem}")
+    ligados = {_id(r): _ligados(r, topicos, transcripts) for r in records}
     for k, t in topicos.items():
-        conv = str(t.get("conversation") or "")
         for r in records:
-            sid = r.get("sessionId")
-            if (sid and sid == t.get("session_id")) or (conv and conv == _id(r)):
+            if k in ligados[_id(r)]:
                 unir(("t", k), ("r", _id(r)), "sessão atual do tópico")
-            elif sid and conv and transcripts.find(sid) == conv:
-                unir(("t", k), ("r", _id(r)), "vinculada pela conversa do tópico")
         if k.rsplit(":", 1)[-1] == "0":
             for r in records:
-                if str(r.get("title") or "") == str(t.get("name") or "Geral"):
+                if str(r.get("title") or "") == str(t.get("name") or "Geral") and ligados[_id(r)] <= {k}:
                     unir(("t", k), ("r", _id(r)), "Geral é uma conversa só")
 
     grupos: dict = {}
@@ -99,6 +116,10 @@ def plano(records: list[dict], topicos: dict[str, dict], transcripts: Transcript
         recs = [r for r in records if ("r", _id(r)) in nos]
         tops = [k for kind, k in nos if kind == "t"]
         if not recs:
+            continue
+        if len(tops) > 1:
+            saida.append(Grupo(max(recs, key=_atualizado), [], sorted(tops), [], [], [], "", [], [],
+                               motivo.get(_raiz(pai, nos[0]), []), True))
             continue
         topico = tops[0] if tops else None
         ligado = [r for r in recs if topico and (r.get("sessionId") == topicos[topico].get("session_id")
@@ -126,7 +147,7 @@ def plano(records: list[dict], topicos: dict[str, dict], transcripts: Transcript
         importar = [s for s in faltam if sessao.achar_local(s) is not None]
         nao_importaveis = [s for s in faltam if s not in importar]
         mantidos = [r for r in perdedores if r.get("sessionId") in nao_importaveis]
-        saida.append(Grupo(vencedor, perdedores, topico, sessoes, arquivos, importar, conversa,
+        saida.append(Grupo(vencedor, perdedores, tops, sessoes, arquivos, importar, conversa,
                            nao_importaveis, mantidos, motivo.get(_raiz(pai, nos[0]), [])))
     return saida
 
@@ -182,6 +203,10 @@ def descrever(grupos: list[Grupo], topicos: dict[str, dict], transcripts: Transc
     linhas = []
     for g in grupos:
         v = g.sobrevivente
+        if g.recusado:
+            linhas.append(f"recusado: o grupo toca mais de um tópico ({', '.join(g.topicos)}) e o registro "
+                          f"{_id(v)} «{v.get('title')}»; nada será feito com ele")
+            continue
         linhas.append(f"conversa {g.conversa} «{v.get('title')}» (sessão {str(v.get('sessionId') or '-')[:8]}, "
                       f"atualizada {v.get('updatedAt')})")
         for r in g.perdedores:
@@ -213,15 +238,63 @@ def _gravar(path: Path, texto: str) -> None:
     tmp.replace(path)
 
 
+def assinatura(grupos: list[Grupo], transcripts: Transcripts) -> list:
+    def tamanho(arquivo: str) -> int:
+        try:
+            return transcripts.path(arquivo).stat().st_size
+        except OSError:
+            return -1
+    return sorted([g.conversa, sorted(_id(r) for r in g.perdedores), list(g.topicos), list(g.sessoes),
+                   [[a, tamanho(a)] for a in g.arquivos], list(g.importar), list(g.nao_importaveis), g.recusado]
+                  for g in grupos)
+
+
+def plano_id(grupos: list[Grupo], transcripts: Transcripts) -> str:
+    corpo = json.dumps(assinatura(grupos, transcripts), sort_keys=True, ensure_ascii=False)
+    return hashlib.sha256(corpo.encode("utf-8")).hexdigest()[:12]
+
+
 def aplicar(grupos: list[Grupo], indice: Path, store_path: Path, transcripts: Transcripts, wisp_dir: Path,
-            agora: float | None = None) -> Path:
+            agora: float | None = None) -> Path | None:
     with file_lock(store_path):
-        return _aplicar(grupos, indice, store_path, transcripts, wisp_dir, agora)
+        records = json.loads(indice.read_text("utf-8"))
+        topicos = json.loads(store_path.read_text("utf-8")) if store_path.exists() else {}
+        transcripts.found.clear()
+        atual = plano(records, topicos, transcripts)
+        if plano_id(atual, transcripts) != plano_id(grupos, transcripts):
+            raise PlanoMudou("os dados mudaram desde o plano; rode o plano de novo")
+        acionaveis = [g for g in atual if not g.recusado]
+        if not acionaveis:
+            return None
+        return _aplicar(acionaveis, records, topicos, indice, store_path, transcripts,
+                        wisp_dir, agora)
 
 
-def _aplicar(grupos: list[Grupo], indice: Path, store_path: Path, transcripts: Transcripts, wisp_dir: Path,
-             agora: float | None) -> Path:
+def _aplicar(grupos: list[Grupo], records: list[dict], topicos: dict, indice: Path, store_path: Path,
+             transcripts: Transcripts, wisp_dir: Path, agora: float | None) -> Path:
     agora = time.time() if agora is None else agora
+    trabalho = [(g, montar(g, transcripts)) for g in grupos]
+    remover: set[str] = set()
+    apagar: list[str] = []
+    log_linhas = []
+    for g, entradas in trabalho:
+        vivo = next(r for r in records if str(r.get("id") or "").lower() == g.conversa)
+        for r in g.perdedores:
+            if r in g.mantidos:
+                continue
+            remover.add(_id(r))
+            if _atualizado(r) > _atualizado(vivo):
+                vivo.update({k: r[k] for k in ("updatedAt", "lastPreview", "lastFrom") if r.get(k) is not None})
+        for k in g.topicos:
+            if k not in topicos:
+                continue
+            topicos[k]["conversation"] = g.conversa
+            vivo["sessionId"] = topicos[k].get("session_id") or vivo.get("sessionId")
+            topicos[k].setdefault("meta", {}).setdefault("espelhado_ate", stamp())
+        apagar += [a for a in g.arquivos if a != g.conversa]
+        log_linhas.append(f"{g.conversa}: {len(g.perdedores)} conversa(s) juntada(s), {len(entradas)} linhas no arquivo, "
+                          f"tópico {', '.join(g.topicos) or '-'}")
+    novos = [r for r in records if str(r.get("id") or "").lower() not in remover]
     pasta = wisp_dir / _BACKUPS / time.strftime("%Y%m%d-%H%M%S", time.localtime(agora))
     pasta.mkdir(parents=True, exist_ok=True)
     for origem in (indice, store_path):
@@ -232,35 +305,15 @@ def _aplicar(grupos: list[Grupo], indice: Path, store_path: Path, transcripts: T
             origem = transcripts.path(arquivo)
             if origem.exists():
                 shutil.copy2(origem, pasta / f"conversa-{origem.name}")
-    records = json.loads(indice.read_text("utf-8"))
-    topicos = json.loads(store_path.read_text("utf-8")) if store_path.exists() else {}
-    remover = set()
-    log_linhas = []
-    for g in grupos:
-        entradas = montar(g, transcripts)
+    for g, entradas in trabalho:
         if entradas and (g.perdedores or g.arquivos):
             _gravar(transcripts.path(g.conversa), "".join(encode(e) + "\n" for e in entradas))
-        for arquivo in g.arquivos:
-            if arquivo != g.conversa:
-                transcripts.path(arquivo).unlink(missing_ok=True)
-        transcripts.found.clear()
-        vivo = next(r for r in records if str(r.get("id") or "").lower() == g.conversa)
-        for r in g.perdedores:
-            if r in g.mantidos:
-                continue
-            remover.add(_id(r))
-            if _atualizado(r) > _atualizado(vivo):
-                vivo.update({k: r[k] for k in ("updatedAt", "lastPreview", "lastFrom") if r.get(k) is not None})
-        if g.topico and g.topico in topicos:
-            topicos[g.topico]["conversation"] = g.conversa
-            vivo["sessionId"] = topicos[g.topico].get("session_id") or vivo.get("sessionId")
-            topicos[g.topico].setdefault("meta", {}).setdefault("espelhado_ate", stamp())
-        log_linhas.append(f"{g.conversa}: {len(g.perdedores)} conversa(s) juntada(s), {len(entradas)} linhas no arquivo, "
-                          f"tópico {g.topico or '-'}")
-    records = [r for r in records if str(r.get("id") or "").lower() not in remover]
-    _gravar(indice, json.dumps(records, indent=2, sort_keys=True, ensure_ascii=False) + "\n")
+    _gravar(indice, json.dumps(novos, indent=2, sort_keys=True, ensure_ascii=False) + "\n")
     if topicos:
         _gravar(store_path, json.dumps(topicos, indent=2, ensure_ascii=False))
+    for arquivo in apagar:
+        transcripts.path(arquivo).unlink(missing_ok=True)
+    transcripts.found.clear()
     with (pasta / "unir.log").open("a", encoding="utf-8") as f:
         for linha in log_linhas:
             f.write(f"{stamp()} {linha}\n")
