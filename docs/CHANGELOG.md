@@ -19,6 +19,7 @@ Entries are in descending chronological order (newest first).
 
 ### Changed
 
+- Brain: the tab opens on the browse view (graph, or the list if that was the last mode) with the file tree hidden, instead of reopening the last note with the tree shown; the restored note tabs stay one click away.
 - Ajustes: the Motor card shows the connection status and its buttons only for the selected engine, the Modelo card only appears when IA local is selected, Telegram moved from Modelo to Integrações, and Perfil (name, how the Wisp calls you, image) moved from Geral to Aparência.
 - Reuniões: "Abrir nota" in the "…" menu opens the saved brain note inside the Brain tab instead of an external app, and is hidden until the note is saved; the duplicate "Abrir no brain" item is gone.
 - Reuniões: "Preparar a reunião" no longer shows an empty calendar dropdown when there are no events today: it says "Nenhum evento na agenda hoje" with a refresh button, and the description field is the way in. With events, the closed menu reads "Escolher evento".

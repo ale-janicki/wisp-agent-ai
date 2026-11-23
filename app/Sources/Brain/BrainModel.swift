@@ -124,9 +124,9 @@ final class BrainModel {
     var message: String?
     var showsSwitcher = false
     var showsGraph = AppSettings.shared.settings.brainShowsGraph
-    var browsing = false
+    var browsing = true
     private(set) var searchFocusTick = 0
-    var showsTree = true
+    var showsTree = false
     var sidePanel: BrainSidePanel?
     var searchError: String?
     var searchQuery = ""
