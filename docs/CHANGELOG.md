@@ -22,6 +22,8 @@ Entries are in descending chronological order (newest first).
 
 ### Changed
 
+- Brain: the side panel tabs (Backlinks, Links, Tópicos, Tags) are icon buttons with the open panel's name under them instead of truncated words, and backlink previews and outline entries show plain text, without markdown markers, wikilink brackets or table pipes.
+- Agenda: the toolbar is lighter. "Entrar" is an icon-only button shown only when the next meeting has a link, and search, Disponibilidade and the Agenda settings moved into a single "…" menu; "/" still opens the search.
 - Conversa: when a Wisp guard blocks a command, the conversation shows a short Portuguese sentence for that guard (for example, that a shortcut skipping your approval was blocked) instead of the guard's English text cut at 160 characters; the agent still gets the full reason.
 - Conversa: closed conversations no longer appear in the list (the "Encerradas" group is gone) but are found by the new "Buscar conversa" field above the list (matching title or last message, ignoring case and accents), where opening one shows it read-only with "Reabrir"; and any conversation can be pinned (right-click > Fixar) to stay at the top of its section, in the order pinned.
 - Brain: the tab opens on the browse view (graph, or the list if that was the last mode) with the file tree hidden, instead of reopening the last note with the tree shown; the restored note tabs stay one click away.

@@ -109,14 +109,18 @@ struct BrainSidePanelView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Space.s) {
-            HStack(spacing: 2) {
+            HStack(spacing: 0) {
                 ForEach(BrainSidePanel.allCases, id: \.self) { panel in
-                    Button(panel.title) { model.sidePanel = panel }
-                        .buttonStyle(CapsuleButtonStyle(kind: (model.sidePanel == panel) ? .accent : .ghost, size: .compact))
+                    Button { model.sidePanel = panel } label: { Image(systemName: panel.icon) }
+                        .buttonStyle(CircleButtonStyle(kind: (model.sidePanel ?? .backlinks) == panel ? .accent : .plain, size: Theme.Control.compactHeight))
+                        .frame(maxWidth: .infinity)
+                        .help(panel.title)
                 }
             }
-            .padding(3)
-            .background(Theme.surfaceHi, in: Capsule())
+            Text((model.sidePanel ?? .backlinks).title)
+                .font(Theme.Font.caption)
+                .foregroundStyle(Theme.textTertiary)
+                .padding(.horizontal, Theme.Space.s)
             ScrollView {
                 VStack(alignment: .leading, spacing: 2) {
                     switch model.sidePanel ?? .backlinks {
@@ -144,7 +148,7 @@ struct BrainSidePanelView: View {
                 .buttonStyle(RowButtonStyle(height: 26))
                 ForEach(link.contexts.prefix(3), id: \.line) { context in
                     Button { model.open(link.path, line: context.line) } label: {
-                        Text(context.text)
+                        Text(BrainPlainText.preview(context.text))
                             .font(Theme.Font.caption)
                             .foregroundStyle(Theme.textSecondary)
                             .lineLimit(2)
@@ -192,7 +196,7 @@ struct BrainSidePanelView: View {
             Button {
                 model.jump(toLine: heading.line)
             } label: {
-                Text(heading.text)
+                Text(BrainPlainText.preview(heading.text))
                     .font(heading.level == 1 ? Theme.Font.bodyMedium : Theme.Font.body)
                     .foregroundStyle(heading.level <= 2 ? Theme.textPrimary : Theme.textSecondary)
                     .lineLimit(1)

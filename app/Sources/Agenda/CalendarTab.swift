@@ -6,6 +6,7 @@ struct CalendarTab: View {
     let profile: Profile
     @Bindable private var model = CalendarModel.shared
     @FocusState private var gridFocus: Bool
+    @Environment(\.openTabSettings) private var openTabSettings
 
     var body: some View {
         VStack(spacing: 0) {
@@ -133,21 +134,22 @@ struct CalendarTab: View {
             }
             Spacer(minLength: Theme.Space.xs)
             if let next = model.upcoming, MeetingLinks.detect(next.event) != nil {
-                Button { model.join(next.event) } label: { Label("Entrar", systemImage: "video.fill").font(Theme.Font.caption) }
-                    .buttonStyle(CapsuleButtonStyle(kind: .accent, size: .compact))
+                Button { model.join(next.event) } label: { Image(systemName: "video.fill") }
+                    .buttonStyle(CircleButtonStyle(kind: .accent, size: Theme.Control.compactHeight))
                     .help("Entrar em \(next.event.title) (⌘J)")
             }
-            Button { model.searchOpen.toggle(); if model.searchOpen { model.loadForSearch() } } label: { Image(systemName: "magnifyingglass") }
-                .buttonStyle(CircleButtonStyle(kind: model.searchOpen ? .accent : .plain, size: Theme.Control.compactHeight))
-                .help("Buscar (/)")
             modePicker
-            Button { model.availabilityOn.toggle() } label: { Image(systemName: "clock.badge.checkmark") }
-                .buttonStyle(CircleButtonStyle(kind: model.availabilityOn ? .accent : .plain, size: Theme.Control.compactHeight))
-                .help("Disponibilidade")
             Button { model.quickOpen.toggle() } label: { Image(systemName: "plus") }
                 .buttonStyle(CircleButtonStyle(kind: .accent, size: Theme.Control.compactHeight))
                 .help("Novo evento (N)")
-            TabSettingsButton(tab: .agenda)
+            IconMenu(systemImage: "ellipsis", help: "Mais", compact: true) {
+                Button { model.searchOpen.toggle(); if model.searchOpen { model.loadForSearch() } } label: { Label("Buscar", systemImage: "magnifyingglass") }
+                Toggle(isOn: $model.availabilityOn) { Label("Disponibilidade", systemImage: "clock.badge.checkmark") }
+                if TabSettings.hasSettings(PanelTab.agenda.rawValue) {
+                    Divider()
+                    Button { openTabSettings(.agenda) } label: { Label("Ajustes da Agenda", systemImage: "gearshape") }
+                }
+            }
         }
         .padding(.horizontal, Theme.Space.m)
         .padding(.vertical, Theme.Space.s)
