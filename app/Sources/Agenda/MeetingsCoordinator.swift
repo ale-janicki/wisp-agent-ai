@@ -18,6 +18,9 @@ final class MeetingsCoordinator: NSObject, NSMenuDelegate, UNUserNotificationCen
     private var events: [CalEvent] = []
     private var calendars: [CalCalendar] = []
     private var scheduledKeys: [String] = []
+    private var noticePlan: [MeetingLinks.Alert] = []
+    private var noticePlanKey = ""
+    private var postedNotices: Set<String> = []
     private var authorization: UNAuthorizationStatus?
     private weak var shell: ShellController?
     private var started = false
@@ -41,9 +44,11 @@ final class MeetingsCoordinator: NSObject, NSMenuDelegate, UNUserNotificationCen
             while !Task.isCancelled {
                 await CalendarModel.shared.refreshUpcoming()
                 self?.refreshStatusItem()
+                self?.postDueNotices()
                 for _ in 0..<6 {
                     try? await Task.sleep(for: .seconds(10))
                     self?.refreshStatusItem()
+                    self?.postDueNotices()
                 }
             }
         }
@@ -53,7 +58,43 @@ final class MeetingsCoordinator: NSObject, NSMenuDelegate, UNUserNotificationCen
         self.events = events
         self.calendars = calendars
         refreshStatusItem()
+        replanNotices()
+        postDueNotices()
         Task { await scheduleNotifications() }
+    }
+
+    private func currentPlan() -> [MeetingLinks.Alert] {
+        MeetingLinks.alerts(for: events, now: Date(), leadMinutes: prefs.alertLeadMinutes, earlyMinutes: prefs.earlyAlertMinutes, hideTitles: prefs.hideTitlesInAlerts)
+    }
+
+    private var settingsKey: String { "\(prefs.meetingAlerts)|\(prefs.alertLeadMinutes)|\(prefs.earlyAlertMinutes)|\(prefs.hideTitlesInAlerts)" }
+
+    /// The plan is kept between ticks: a recomputed near-start alert is always "one second from now", so it would never come due.
+    private func replanNotices() {
+        noticePlan = prefs.meetingAlerts
+            ? MeetingNoticePlanner.carryOver(old: noticePlan, new: currentPlan(), posted: postedNotices, now: Date())
+            : []
+        noticePlanKey = settingsKey
+        postedNotices = MeetingNoticePlanner.remembered(posted: postedNotices, alerts: noticePlan)
+    }
+
+    private func postDueNotices() {
+        if settingsKey != noticePlanKey { replanNotices() }
+        guard let center = shell?.notices else { return }
+        let now = Date()
+        for alert in MeetingNoticePlanner.due(alerts: noticePlan, posted: postedNotices, now: now) {
+            postedNotices.insert(alert.id)
+            center.post(MeetingNoticePlanner.notice(for: alert, now: now))
+        }
+    }
+
+    /// True when the event was found and had a link to open.
+    func join(key: String) async -> Bool {
+        var found = events.first { $0.uid == key }
+        if found == nil { found = await CalendarModel.shared.eventNamed(key: key) }
+        guard let found, MeetingLinks.detect(found) != nil else { return false }
+        CalendarModel.shared.join(found)
+        return true
     }
 
     private var prefs: AgendaPreferences { AppSettings.shared.settings.agenda }
@@ -124,13 +165,13 @@ final class MeetingsCoordinator: NSObject, NSMenuDelegate, UNUserNotificationCen
     private func scheduleNotifications() async {
         let center = UNUserNotificationCenter.current()
         let existing = await center.pendingNotificationRequests().map(\.identifier).filter { $0.hasPrefix(Self.prefix) }
-        guard prefs.meetingAlerts else {
+        guard prefs.meetingAlerts, prefs.systemMeetingNotifications else {
             if !existing.isEmpty { center.removePendingNotificationRequests(withIdentifiers: existing) }
             scheduledKeys = []
             return
         }
-        let plan = MeetingLinks.alerts(for: events, now: Date(), leadMinutes: prefs.alertLeadMinutes, hideTitles: prefs.hideTitlesInAlerts)
-        let signature = plan.map { "\($0.key)|\($0.fireDate.timeIntervalSince1970)|\($0.title)" }
+        let plan = currentPlan()
+        let signature = plan.map { "\($0.id)|\($0.fireDate.timeIntervalSince1970)|\($0.title)" }
         guard signature != scheduledKeys else { return }
         guard await ensureAuthorization() else { return }
         center.removePendingNotificationRequests(withIdentifiers: existing)
@@ -139,12 +180,12 @@ final class MeetingsCoordinator: NSObject, NSMenuDelegate, UNUserNotificationCen
             content.title = alert.title
             let minutes = max(0, Int((alert.start.timeIntervalSince(alert.fireDate) / 60).rounded()))
             content.body = minutes == 0 ? "Começando agora" : "Começa em \(minutes) min"
-            content.categoryIdentifier = Self.category
+            if !alert.early { content.categoryIdentifier = Self.category }
             content.sound = .default
             content.userInfo = ["url": alert.url.absoluteString, "key": alert.key]
             let trigger = UNTimeIntervalNotificationTrigger(timeInterval: max(1, alert.fireDate.timeIntervalSinceNow), repeats: false)
             do {
-                try await center.add(UNNotificationRequest(identifier: Self.prefix + alert.key, content: content, trigger: trigger))
+                try await center.add(UNNotificationRequest(identifier: Self.prefix + alert.id, content: content, trigger: trigger))
             } catch {
                 log.error("notification not scheduled: \(error.localizedDescription, privacy: .public)")
             }

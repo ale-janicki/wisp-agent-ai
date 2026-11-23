@@ -316,4 +316,41 @@ final class NoticeQueueTests: XCTestCase {
             XCTAssertTrue(card.contains(band))
         }
     }
+
+    // MARK: Urgent meeting notice
+
+    private func meeting(_ uid: String, tone: Notice.Tone) -> Notice {
+        Notice(sourceId: "meeting:\(uid)", kind: .meeting, title: uid, preview: "p", time: t0, target: .event(uid), tone: tone)
+    }
+
+    func testNearStartMeetingNoticeJumpsTheQueue() {
+        var queue = NoticeQueue()
+        queue.offer(notice(.topic(1)), settings: all, visible: [], now: t0)
+        queue.offer(notice(.topic(2)), settings: all, visible: [], now: t0)
+        XCTAssertEqual(queue.offer(meeting("a", tone: .warning), settings: all, visible: [], now: at(1)), .shown)
+        XCTAssertEqual(queue.current?.target, .event("a"))
+        XCTAssertEqual(queue.pending.map(\.target), [.topic(1), .topic(2)])
+        XCTAssertEqual(queue.deadline, at(1 + NoticeQueue.showFor))
+    }
+
+    func testEarlyMeetingNoticeDoesNotJump() {
+        var queue = NoticeQueue()
+        queue.offer(notice(.topic(1)), settings: all, visible: [], now: t0)
+        XCTAssertEqual(queue.offer(meeting("a", tone: .normal), settings: all, visible: [], now: t0), .queued)
+        XCTAssertEqual(queue.current?.target, .topic(1))
+    }
+
+    func testNearStartMeetingNoticeIsNeverTheOneDropped() {
+        var queue = NoticeQueue()
+        queue.offer(notice(.topic(0)), settings: all, visible: [], now: t0)
+        queue.offer(meeting("a", tone: .warning), settings: all, visible: [], now: t0)
+        queue.offer(meeting("b", tone: .warning), settings: all, visible: [], now: t0)
+        for thread in 1...(NoticeQueue.maxPending + 2) {
+            queue.offer(notice(.topic(thread)), settings: all, visible: [], now: t0)
+        }
+        let all = [queue.current] + queue.pending.map { Optional($0) }
+        XCTAssertTrue(all.contains { $0?.target == .event("a") })
+        XCTAssertTrue(all.contains { $0?.target == .event("b") })
+        XCTAssertLessThanOrEqual(queue.pending.count, NoticeQueue.maxPending)
+    }
 }

@@ -111,4 +111,62 @@ final class MeetingLinksTests: XCTestCase {
         XCTAssertEqual(alerts.count, 1)
         XCTAssertEqual(alerts[0].fireDate, now.addingTimeInterval(1))
     }
+
+    private func linked(_ uid: String = "a", hour: Int = 10) -> CalEvent {
+        var e = makeEvent(uid, stamp(2026, 11, 23, hour), stamp(2026, 11, 23, hour + 1))
+        e.url = URL(string: "https://zoom.us/j/1")
+        return e
+    }
+
+    func testEarlyAndNearStartAlertsHaveDistinctIdsAndFireDates() {
+        let alerts = MeetingLinks.alerts(for: [linked()], now: stamp(2026, 11, 23, 9), leadMinutes: 1, earlyMinutes: 10)
+        XCTAssertEqual(alerts.map(\.id), ["a#early", "a#start"])
+        XCTAssertEqual(alerts.map(\.key), ["a", "a"])
+        XCTAssertEqual(alerts.map(\.fireDate), [stamp(2026, 11, 23, 9, 50), stamp(2026, 11, 23, 9, 59)])
+        XCTAssertEqual(alerts.map(\.early), [true, false])
+    }
+
+    func testEarlyAlertOffGivesOnlyNearStart() {
+        let alerts = MeetingLinks.alerts(for: [linked()], now: stamp(2026, 11, 23, 9), leadMinutes: 1, earlyMinutes: 0)
+        XCTAssertEqual(alerts.map(\.id), ["a#start"])
+    }
+
+    func testEarlyAlertWithinAMinuteOfNearStartIsDropped() {
+        let now = stamp(2026, 11, 23, 9)
+        XCTAssertEqual(MeetingLinks.alerts(for: [linked()], now: now, leadMinutes: 5, earlyMinutes: 5).map(\.id), ["a#start"])
+        XCTAssertEqual(MeetingLinks.alerts(for: [linked()], now: now, leadMinutes: 5, earlyMinutes: 3).map(\.id), ["a#start"])
+        XCTAssertEqual(MeetingLinks.alerts(for: [linked()], now: now, leadMinutes: 1, earlyMinutes: 1).map(\.id), ["a#start"])
+    }
+
+    func testEarlyAlertAlreadyPastKeepsNearStart() {
+        let alerts = MeetingLinks.alerts(for: [linked()], now: stamp(2026, 11, 23, 9, 55), leadMinutes: 1, earlyMinutes: 10)
+        XCTAssertEqual(alerts.map(\.id), ["a#start"])
+        XCTAssertEqual(alerts[0].fireDate, stamp(2026, 11, 23, 9, 59))
+    }
+
+    func testNearStartOffKeepsTheEarlyAlert() {
+        let alerts = MeetingLinks.alerts(for: [linked()], now: stamp(2026, 11, 23, 9), leadMinutes: 0, earlyMinutes: 10)
+        XCTAssertEqual(alerts.map(\.id), ["a#early"])
+        XCTAssertEqual(alerts[0].fireDate, stamp(2026, 11, 23, 9, 50))
+        XCTAssertTrue(MeetingLinks.alerts(for: [linked()], now: stamp(2026, 11, 23, 9), leadMinutes: 0, earlyMinutes: 0).isEmpty)
+    }
+
+    func testEventWithoutLinkHasNoAlerts() {
+        let plain = makeEvent("p", stamp(2026, 11, 23, 10), stamp(2026, 11, 23, 11))
+        XCTAssertTrue(MeetingLinks.alerts(for: [plain], now: stamp(2026, 11, 23, 9), leadMinutes: 1, earlyMinutes: 10).isEmpty)
+    }
+
+    func testAlertLimitCountsEventsNotAlerts() {
+        let events = [linked("a", hour: 10), linked("b", hour: 12), linked("c", hour: 14)]
+        let alerts = MeetingLinks.alerts(for: events, now: stamp(2026, 11, 23, 9), leadMinutes: 1, earlyMinutes: 10, limit: 2)
+        XCTAssertEqual(alerts.map(\.id), ["a#early", "a#start", "b#early", "b#start"])
+    }
+
+    func testEarlyAlertMinutesDefaultsAndClamps() throws {
+        XCTAssertEqual(AgendaPreferences().earlyAlertMinutes, 10)
+        XCTAssertEqual(try JSONDecoder().decode(AgendaPreferences.self, from: Data(#"{"mode":"week"}"#.utf8)).earlyAlertMinutes, 10)
+        XCTAssertEqual(try JSONDecoder().decode(AgendaPreferences.self, from: Data(#"{"earlyAlertMinutes":9999}"#.utf8)).earlyAlertMinutes, 120)
+        XCTAssertEqual(try JSONDecoder().decode(AgendaPreferences.self, from: Data(#"{"earlyAlertMinutes":-4}"#.utf8)).earlyAlertMinutes, 0)
+        XCTAssertEqual(try JSONDecoder().decode(AgendaPreferences.self, from: Data(#"{"earlyAlertMinutes":"x"}"#.utf8)).earlyAlertMinutes, 10)
+    }
 }
