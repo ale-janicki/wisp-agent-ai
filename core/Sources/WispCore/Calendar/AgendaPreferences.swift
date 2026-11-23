@@ -12,7 +12,9 @@ public struct AgendaPreferences: Codable, Equatable, Sendable {
     public var workingHours = WorkingHours.standard
     public var availabilityLanguage = AvailabilityLanguage.pt
     public var alertLeadMinutes = 1
+    public var earlyAlertMinutes = 10
     public var meetingAlerts = true
+    public var systemMeetingNotifications = false
     public var menuBarNext = true
     public var googleHintDismissed = false
     public var showSidebar = false
@@ -21,8 +23,8 @@ public struct AgendaPreferences: Codable, Equatable, Sendable {
     public init() {}
 
     private enum CodingKeys: String, CodingKey {
-        case mode, hiddenCalendars, hiddenSources, secondaryZones, workingHours, availabilityLanguage, alertLeadMinutes
-        case meetingAlerts, menuBarNext, googleHintDismissed, showSidebar, hideTitlesInAlerts
+        case mode, hiddenCalendars, hiddenSources, secondaryZones, workingHours, availabilityLanguage, alertLeadMinutes, earlyAlertMinutes
+        case meetingAlerts, systemMeetingNotifications, menuBarNext, googleHintDismissed, showSidebar, hideTitlesInAlerts
     }
 
     public init(from decoder: Decoder) throws {
@@ -34,7 +36,9 @@ public struct AgendaPreferences: Codable, Equatable, Sendable {
         workingHours = (try? c.decodeIfPresent(WorkingHours.self, forKey: .workingHours)) ?? .standard
         availabilityLanguage = (try? c.decodeIfPresent(AvailabilityLanguage.self, forKey: .availabilityLanguage)) ?? .pt
         alertLeadMinutes = min(max((try? c.decodeIfPresent(Int.self, forKey: .alertLeadMinutes)) ?? 1, 0), 120)
+        earlyAlertMinutes = min(max((try? c.decodeIfPresent(Int.self, forKey: .earlyAlertMinutes)) ?? 10, 0), 120)
         meetingAlerts = (try? c.decodeIfPresent(Bool.self, forKey: .meetingAlerts)) ?? true
+        systemMeetingNotifications = (try? c.decodeIfPresent(Bool.self, forKey: .systemMeetingNotifications)) ?? false
         menuBarNext = (try? c.decodeIfPresent(Bool.self, forKey: .menuBarNext)) ?? true
         googleHintDismissed = (try? c.decodeIfPresent(Bool.self, forKey: .googleHintDismissed)) ?? false
         showSidebar = (try? c.decodeIfPresent(Bool.self, forKey: .showSidebar)) ?? false

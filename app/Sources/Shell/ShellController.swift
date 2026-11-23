@@ -100,6 +100,9 @@ final class ShellController: ObservableObject {
         case .update:
             UpdateModel.shared.showUpdate()
             return
+        case .event(let uid):
+            MeetingsCoordinator.shared.openEvent(key: uid)
+            return
         }
         pillClicked()
     }
