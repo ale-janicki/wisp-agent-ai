@@ -80,6 +80,7 @@ final class MeetingRecordingModel: ObservableObject {
         library = MeetingLibraryModel(speech: speech)
         library.root = { [weak self] in self?.recordingsRoot ?? RecordingFolder.defaultRoot() }
         library.isRecording = { [weak self] in self?.phase != .idle }
+        library.startJanitor()
         refreshPermissions()
     }
 
