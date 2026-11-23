@@ -18,7 +18,7 @@ struct EngineSettingsCard: View {
             ForEach(EngineKind.allCases, id: \.self) { kind in
                 VStack(alignment: .leading, spacing: Theme.Space.s) {
                     row(kind)
-                    if let login = EngineLogin(kind) { EngineConnectBlock(login) }
+                    if kind == model.active, let login = EngineLogin(kind) { EngineConnectBlock(login) }
                 }
             }
             if model.active == .codex {
