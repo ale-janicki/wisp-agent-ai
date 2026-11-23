@@ -125,6 +125,20 @@ public struct ConversationSections: Sendable, Equatable {
     public var telegram: [TelegramEntry]
 }
 
+/// One row of the conversation search: an open Local conversation, a Telegram topic, or a closed conversation.
+public enum ConversationHit: Identifiable, Sendable, Equatable {
+    case local(ConversationRecord)
+    case topic(TelegramEntry)
+    case closed(ConversationRecord)
+
+    public var id: String {
+        switch self {
+        case .local(let record), .closed(let record): record.id.uuidString.lowercased()
+        case .topic(let entry): TelegramTopics.pinKey(thread: entry.topic.thread)
+        }
+    }
+}
+
 public enum TelegramTopics {
     public static func parseTopics(_ data: Data) throws -> [TelegramTopic] {
         try JSONDecoder().decode([TelegramTopic].self, from: data)
@@ -213,6 +227,36 @@ public enum TelegramTopics {
         var queue = unpinned[...]
         let merged = (fresh + saved).map { members.contains($0) ? queue.popFirst() ?? $0 : $0 }
         return DragResult(order: merged, pins: pins)
+    }
+
+    /// Case- and diacritic-insensitive containment of `query` in `text`.
+    public static func matches(_ text: String?, query: String) -> Bool {
+        guard let text else { return false }
+        let options: String.CompareOptions = [.caseInsensitive, .diacriticInsensitive]
+        return text.range(of: query, options: options) != nil
+    }
+
+    /// Search over the open conversations (in their section order: Local, then Telegram) followed by the closed
+    /// ones, newest `closedAt` first. A blank query finds nothing, so closed conversations are never listed without one.
+    public static func search(
+        query: String, sections: ConversationSections, allRecords: [ConversationRecord],
+        preview: (ConversationRecord) -> String?, topicPreview: (TelegramEntry) -> String?
+    ) -> [ConversationHit] {
+        let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return [] }
+        let local = sections.wisp
+            .filter { matches($0.title, query: query) || matches(preview($0), query: query) }
+            .map(ConversationHit.local)
+        let topics = sections.telegram
+            .filter {
+                matches($0.topic.name, query: query) || matches($0.record?.title, query: query)
+                    || matches(topicPreview($0), query: query)
+            }
+            .map(ConversationHit.topic)
+        let closed = allRecords.filter { $0.isClosed && (matches($0.title, query: query) || matches(preview($0), query: query)) }
+            .sorted { ($0.closedAt ?? .distantPast) > ($1.closedAt ?? .distantPast) }
+            .map(ConversationHit.closed)
+        return local + topics + closed
     }
 
     public static func sections(
