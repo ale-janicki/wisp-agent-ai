@@ -1,7 +1,7 @@
 import Foundation
 
 public enum NoticeKind: String, Codable, CaseIterable, Sendable {
-    case reply, telegram, reminder, update, approval
+    case reply, telegram, reminder, update, approval, meeting
 }
 
 public enum NoticeTarget: Hashable, Sendable {
@@ -9,6 +9,7 @@ public enum NoticeTarget: Hashable, Sendable {
     case topic(Int)
     case reminders
     case update
+    case event(String)
 
     var sourceId: String {
         switch self {
@@ -16,6 +17,7 @@ public enum NoticeTarget: Hashable, Sendable {
         case .topic(let thread): "topic:\(thread)"
         case .reminders: "reminders"
         case .update: "update"
+        case .event(let uid): "event:\(uid)"
         }
     }
 }
@@ -53,6 +55,7 @@ public struct NoticeSettings: Codable, Equatable, Sendable {
     public var reminder = true
     public var update = true
     public var approval = true
+    public var meeting = true
     public var doNotDisturb = false
 
     public init() {}
@@ -65,6 +68,7 @@ public struct NoticeSettings: Codable, Equatable, Sendable {
             case .reminder: reminder
             case .update: update
             case .approval: approval
+            case .meeting: meeting
             }
         }
         set {
@@ -74,13 +78,14 @@ public struct NoticeSettings: Codable, Equatable, Sendable {
             case .reminder: reminder = newValue
             case .update: update = newValue
             case .approval: approval = newValue
+            case .meeting: meeting = newValue
             }
         }
     }
 
     public func allows(_ kind: NoticeKind) -> Bool { !doNotDisturb && self[kind] }
 
-    private enum CodingKeys: String, CodingKey { case reply, telegram, reminder, update, approval, doNotDisturb }
+    private enum CodingKeys: String, CodingKey { case reply, telegram, reminder, update, approval, meeting, doNotDisturb }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -89,6 +94,7 @@ public struct NoticeSettings: Codable, Equatable, Sendable {
         reminder = try container.decodeIfPresent(Bool.self, forKey: .reminder) ?? true
         update = try container.decodeIfPresent(Bool.self, forKey: .update) ?? true
         approval = try container.decodeIfPresent(Bool.self, forKey: .approval) ?? true
+        meeting = try container.decodeIfPresent(Bool.self, forKey: .meeting) ?? true
         doNotDisturb = try container.decodeIfPresent(Bool.self, forKey: .doNotDisturb) ?? false
     }
 }
@@ -127,14 +133,30 @@ public struct NoticeQueue: Equatable, Sendable {
             pending[index] = notice
             return .updated
         }
-        guard current != nil else {
+        guard let shownNow = current else {
+            current = notice
+            restart(now: now)
+            return .shown
+        }
+        if Self.isUrgent(notice) {
+            pending.insert(shownNow, at: 0)
+            trimPending()
             current = notice
             restart(now: now)
             return .shown
         }
         pending.append(notice)
-        if pending.count > Self.maxPending { pending.removeFirst(pending.count - Self.maxPending) }
+        trimPending()
         return .queued
+    }
+
+    /// The near-start meeting notice carries the Entrar button: it must not wait behind other cards or be dropped.
+    private static func isUrgent(_ notice: Notice) -> Bool { notice.kind == .meeting && notice.tone == .warning }
+
+    private mutating func trimPending() {
+        while pending.count > Self.maxPending, let index = pending.firstIndex(where: { !Self.isUrgent($0) }) {
+            pending.remove(at: index)
+        }
     }
 
     public mutating func hover(_ on: Bool, now: Date) {

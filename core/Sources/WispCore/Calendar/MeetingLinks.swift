@@ -121,25 +121,44 @@ public enum MeetingLinks {
     }
 
     public struct Alert: Equatable, Sendable {
+        /// Notification identifier: unique per alert, so one event can carry two.
+        public let id: String
+        /// The event uid, used to find the event again on click.
         public let key: String
         public let title: String
         public let fireDate: Date
         public let start: Date
         public let url: URL
+        public let early: Bool
     }
 
-    public static func alerts(for events: [CalEvent], now: Date, leadMinutes: Int, horizon: TimeInterval = 48 * 3_600, limit: Int = 40, hideTitles: Bool = false) -> [Alert] {
+    /// Minimum gap between the early alert and the near-start one.
+    private static let earlyGap: TimeInterval = 60
+
+    /// Up to two alerts per event with a meeting link: an early one (`earlyMinutes`, 0 = off) and a near-start one.
+    /// `limit` counts events, so the notification count stays at most `2 * limit`.
+    public static func alerts(for events: [CalEvent], now: Date, leadMinutes: Int, earlyMinutes: Int = 0, horizon: TimeInterval = 48 * 3_600, limit: Int = 30, hideTitles: Bool = false) -> [Alert] {
         let lead = TimeInterval(max(0, leadMinutes) * 60)
+        let early = TimeInterval(max(0, earlyMinutes) * 60)
         return events
             .filter { !$0.allDay && !$0.declined && $0.start > now && $0.start.timeIntervalSince(now) <= horizon }
             .sorted { $0.start < $1.start }
-            .compactMap { event -> Alert? in
+            .compactMap { event -> [Alert]? in
                 guard let link = detect(event) else { return nil }
-                let fire = max(event.start.addingTimeInterval(-lead), now.addingTimeInterval(1))
-                guard fire < event.start else { return nil }
-                return Alert(key: event.uid, title: displayTitle(event.title, hidden: hideTitles), fireDate: fire, start: event.start, url: link.url)
+                let title = displayTitle(event.title, hidden: hideTitles)
+                let candidate = max(event.start.addingTimeInterval(-lead), now.addingTimeInterval(1))
+                let startFire: Date? = lead > 0 && candidate < event.start ? candidate : nil
+                var result: [Alert] = []
+                let earlyFire = event.start.addingTimeInterval(-early)
+                if early > lead, earlyFire > now, (startFire ?? event.start).timeIntervalSince(earlyFire) >= earlyGap {
+                    result.append(Alert(id: event.uid + "#early", key: event.uid, title: title, fireDate: earlyFire, start: event.start, url: link.url, early: true))
+                }
+                if let startFire {
+                    result.append(Alert(id: event.uid + "#start", key: event.uid, title: title, fireDate: startFire, start: event.start, url: link.url, early: false))
+                }
+                return result.isEmpty ? nil : result
             }
             .prefix(limit)
-            .map { $0 }
+            .flatMap { $0 }
     }
 }

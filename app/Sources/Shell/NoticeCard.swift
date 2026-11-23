@@ -15,6 +15,12 @@ struct NoticeCard: View {
 
     private static let iconSize: CGFloat = 32
 
+    /// Only the near-start meeting notice offers Entrar; the early one is just a heads-up.
+    private var joinKey: String? {
+        guard notice.kind == .meeting, notice.tone == .warning, case .event(let uid) = notice.target else { return nil }
+        return uid
+    }
+
     var body: some View {
         HStack(alignment: .center, spacing: Theme.Space.m) {
             icon
@@ -51,6 +57,13 @@ struct NoticeCard: View {
                     .truncationMode(.tail)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
+            if joinKey != nil {
+                Button("Entrar") {
+                    guard let joinKey else { return }
+                    Task { if await MeetingsCoordinator.shared.join(key: joinKey) { dismiss() } }
+                }
+                .buttonStyle(CapsuleButtonStyle(kind: .accent, size: .compact))
+            }
             Button(action: dismiss) {
                 Image(systemName: "xmark")
             }
@@ -73,6 +86,8 @@ struct NoticeCard: View {
             symbol("arrow.down.circle.fill", tint: Theme.accent)
         case .approval:
             symbol("hand.raised.fill", tint: Theme.busy)
+        case .meeting:
+            symbol("video.fill", tint: notice.tone == .warning ? Theme.busy : Theme.accent)
         }
     }
 
