@@ -21,6 +21,7 @@ Entries are in descending chronological order (newest first).
 
 ### Changed
 
+- Conversa: when a Wisp guard blocks a command, the conversation shows a short Portuguese sentence for that guard (for example, that a shortcut skipping your approval was blocked) instead of the guard's English text cut at 160 characters; the agent still gets the full reason.
 - Conversa: closed conversations no longer appear in the list (the "Encerradas" group is gone) but are found by the new "Buscar conversa" field above the list (matching title or last message, ignoring case and accents), where opening one shows it read-only with "Reabrir"; and any conversation can be pinned (right-click > Fixar) to stay at the top of its section, in the order pinned.
 - Brain: the tab opens on the browse view (graph, or the list if that was the last mode) with the file tree hidden, instead of reopening the last note with the tree shown; the restored note tabs stay one click away.
 - Ajustes: the Motor card shows the connection status and its buttons only for the selected engine, the Modelo card only appears when IA local is selected, Telegram moved from Modelo to Integrações, and Perfil (name, how the Wisp calls you, image) moved from Geral to Aparência.

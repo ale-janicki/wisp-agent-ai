@@ -147,7 +147,26 @@ final class SentFilesTests: XCTestCase {
         for event in ClaudeStreamDecoder.decode(line: blocked) { ConversationReducer.reduce(&state, .claude(event), statusPrefix: nil) }
         ConversationReducer.reduce(&state, .claude(.result(sessionId: "s", text: "ok", isError: false, denials: ["Bash"])), statusPrefix: nil)
         let notices = state.messages.filter { $0.role == .system }.map(\.text)
-        XCTAssertEqual(notices, ["Bloqueado pela trava do Wisp: files reach the user only through Wisp (curl)"])
+        XCTAssertEqual(notices, ["O Wisp tentou te mandar um arquivo por fora do app. A trava barrou, e o arquivo vai pelo Wisp."])
+    }
+
+    func testNoticeIsPortugueseForEachGuard() {
+        let approval = "O Wisp tentou um atalho que pularia a tua aprovação para enviar algo. A trava barrou, e ele segue pelo caminho que pede o teu ok."
+        XCTAssertEqual(ToolBlock.notice(reason: "blocked, calling the wisp-mac helper directly skips the check that keeps messages from being sent"), approval)
+        XCTAssertEqual(ToolBlock.notice(reason: "blocked, sending mail from a script skips the user's approval."), approval)
+        XCTAssertEqual(ToolBlock.notice(reason: "blocked, driving the screen with osascript, System Events or CGEvent"), approval)
+        XCTAssertEqual(ToolBlock.notice(reason: "blocked, starting the email server by hand or touching WISP_APPROVAL_SOCKET"), approval)
+        XCTAssertTrue(ToolBlock.notice(reason: "this changes the user's Calendar or Reminders (or cannot").contains("Agenda"))
+        XCTAssertTrue(ToolBlock.notice(reason: "blocked, this could destroy the user's data or Mac irreversibly (rm)").contains("sem volta"))
+        XCTAssertTrue(ToolBlock.notice(reason: "blocked access to the Wisp secrets folder (x)").contains("segredos"))
+        XCTAssertTrue(ToolBlock.notice(reason: "the Wisp bot's token and config are off limits (x)").contains("segredos"))
+        XCTAssertTrue(ToolBlock.notice(reason: "blocked, the learned-lessons files are the user's to change (x)").contains("lições"))
+        XCTAssertTrue(ToolBlock.notice(reason: "blocked, the brain harvest may only touch files inside the brain folder (x)").contains("brain"))
+        XCTAssertTrue(ToolBlock.notice(reason: "hook guard-outbound failed (KeyError)").contains("falhou"))
+        XCTAssertEqual(ToolBlock.notice(reason: "something new"), "A trava do Wisp barrou um comando.")
+        for reason in ["blocked, calling the wisp-mac helper directly", "something new"] {
+            XCTAssertFalse(ToolBlock.notice(reason: reason).contains("blocked"))
+        }
     }
 
     func testClassifier() {
