@@ -109,8 +109,22 @@ final class ConversationViewModel {
     }
 
     var sections: ConversationSections {
-        TelegramTopics.sections(allRecords: records, topics: telegram.loadedTopics, order: AppSettings.shared.settings.telegramOrder)
+        TelegramTopics.sections(allRecords: records, topics: telegram.loadedTopics, order: AppSettings.shared.settings.telegramOrder,
+            pins: AppSettings.shared.settings.pinnedConversations)
     }
+
+    var searchQuery = ""
+
+    var isSearching: Bool { !searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+
+    var searchHits: [ConversationHit] {
+        TelegramTopics.search(
+            query: searchQuery, sections: sections, allRecords: records,
+            preview: { [self] in preview($0) }, topicPreview: { [self] in preview($0) })
+    }
+
+    func isPinned(_ key: String) -> Bool { AppSettings.shared.settings.pinnedConversations.contains(key) }
+    func togglePin(_ key: String) { AppSettings.shared.togglePin(key) }
 
     // MARK: Last-message preview
 

@@ -56,7 +56,7 @@ final class OneConversationTests: XCTestCase {
         XCTAssertEqual(sections.wisp.map(\.id), [other])
     }
 
-    func testClosedConversationsLeaveLocalAndTelegramAndAreCounted() {
+    func testClosedConversationsAreNeverListed() {
         let closedLocal = UUID()
         let closedLinked = UUID()
         let when = Date(timeIntervalSince1970: 1_700_000_000)
@@ -70,15 +70,127 @@ final class OneConversationTests: XCTestCase {
             topics: [topic(session: "s-1", conversation: closedLinked.uuidString.lowercased())])
         XCTAssertEqual(sections.wisp.map(\.id), [open])
         XCTAssertNil(sections.telegram.first?.record)
-        XCTAssertEqual(sections.closed.map(\.id), [closedLinked, closedLocal])
     }
 
-    func testClosedConversationsAreCountedWithoutTopics() {
+    func testClosedConversationsAreNeverListedWithoutTopics() {
         var a = record(geral, session: "x")
         a.closedAt = Date()
         let sections = TelegramTopics.sections(allRecords: [a], topics: nil)
         XCTAssertTrue(sections.wisp.isEmpty)
-        XCTAssertEqual(sections.closed.count, 1)
+    }
+
+    func testPinnedConversationsComeFirstInPinOrderAndTheRestKeepsItsOrder() {
+        let ids = (0..<4).map { _ in UUID() }
+        let records = ids.map { record($0, session: "s-\($0)", title: $0.uuidString) }
+        let pins = [TelegramTopics.pinKey(conversation: ids[2]), "gone", TelegramTopics.pinKey(conversation: ids[0])]
+        let sections = TelegramTopics.sections(records: records, topics: nil, pins: pins)
+        XCTAssertEqual(sections.wisp.map(\.id), [ids[2], ids[0], ids[1], ids[3]])
+    }
+
+    func testPinsAreIgnoredForClosedAndMissingConversations() {
+        let open = UUID()
+        var closed = record(geral, session: "x")
+        closed.closedAt = Date()
+        let sections = TelegramTopics.sections(
+            allRecords: [record(open, session: "o"), closed], topics: nil,
+            pins: [TelegramTopics.pinKey(conversation: geral), TelegramTopics.pinKey(conversation: UUID())])
+        XCTAssertEqual(sections.wisp.map(\.id), [open])
+    }
+
+    func testPinnedTopicsGoFirstInsideTelegramByThreadAndKeepTheSavedOrder() {
+        let topics = [3, 7, 9, 12].map {
+            TelegramTopic(thread: $0, name: "t\($0)", sessionId: "s-\($0)", cwd: "/", fixed: false)
+        }
+        let sections = TelegramTopics.sections(
+            records: [], topics: topics, order: [3, 7, 9, 12],
+            pins: [TelegramTopics.pinKey(thread: 12), TelegramTopics.pinKey(thread: 7), TelegramTopics.pinKey(thread: 99)])
+        XCTAssertEqual(sections.telegram.map(\.id), [12, 7, 3, 9])
+    }
+
+    private func searchHits(_ query: String, _ records: [ConversationRecord], topics: [TelegramTopic]? = nil) -> [ConversationHit] {
+        TelegramTopics.search(
+            query: query, sections: TelegramTopics.sections(allRecords: records, topics: topics),
+            allRecords: records, preview: { $0.lastPreview }, topicPreview: { _ in nil })
+    }
+
+    private func closedRecord(title: String, preview: String? = nil, closedAt: Double) -> ConversationRecord {
+        var r = record(UUID(), session: nil, title: title)
+        r.lastPreview = preview
+        r.closedAt = Date(timeIntervalSince1970: closedAt)
+        return r
+    }
+
+    func testAClosedRecordIsAbsentFromTheSectionsButFoundBySearchByTitleAndPreview() {
+        let closed = closedRecord(title: "Plano de viagem", preview: "reservar hotel", closedAt: 10)
+        let open = record(UUID(), session: "o", title: "Outra")
+        let sections = TelegramTopics.sections(allRecords: [open, closed], topics: nil)
+        XCTAssertEqual(sections.wisp.map(\.id), [open.id])
+        XCTAssertEqual(searchHits("viagem", [open, closed]).map(\.id), [closed.id.uuidString.lowercased()])
+        XCTAssertEqual(searchHits("hotel", [open, closed]).map(\.id), [closed.id.uuidString.lowercased()])
+    }
+
+    func testAnEmptyQueryReturnsNothingExtra() {
+        let closed = closedRecord(title: "Velha", closedAt: 1)
+        XCTAssertTrue(searchHits("", [closed, record(UUID(), session: "o")]).isEmpty)
+        XCTAssertTrue(searchHits("   ", [closed]).isEmpty)
+    }
+
+    func testSearchIgnoresCaseAndDiacritics() {
+        let closed = closedRecord(title: "Reunião de AÇÃO", closedAt: 1)
+        XCTAssertEqual(searchHits("reuniao de acao", [closed]).count, 1)
+        XCTAssertEqual(searchHits("REUNIÃO", [closed]).count, 1)
+    }
+
+    func testSearchListsOpenFirstThenClosedNewestFirst() {
+        let old = closedRecord(title: "nota velha", closedAt: 10)
+        let recent = closedRecord(title: "nota recente", closedAt: 99)
+        let open = record(UUID(), session: "o", title: "nota aberta")
+        let hits = searchHits("nota", [old, open, recent])
+        XCTAssertEqual(hits.map(\.id), [open, recent, old].map { $0.id.uuidString.lowercased() })
+        if case .closed = hits[0] { XCTFail("open first") }
+        if case .local = hits[1] { XCTFail("closed after open") }
+    }
+
+    private func tg(_ threads: Int...) -> [String] { threads.map { TelegramTopics.pinKey(thread: $0) } }
+
+    func testDraggingUnpinnedRowsKeepsPinnedIdsWhereTheyWereInTheSavedOrder() {
+        // saved order 3,7,9,12 with 7 pinned: shown 7 | 3,9,12; drag 12 to the front of the unpinned block.
+        let result = TelegramTopics.applyDrag(
+            shown: [7, 3, 9, 12], final: [7, 12, 3, 9], pinnedCount: 1, order: [3, 7, 9, 12], pins: tg(7))
+        XCTAssertEqual(result?.order, [12, 7, 3, 9])
+        XCTAssertEqual(result?.pins, tg(7))
+    }
+
+    func testUnpinningReturnsARowToItsSavedSlot() {
+        let order = [3, 7, 9, 12]
+        let topics = [3, 7, 9, 12].map { TelegramTopic(thread: $0, name: "t\($0)", sessionId: "s-\($0)", cwd: "/", fixed: false) }
+        let pinned = TelegramTopics.sections(records: [], topics: topics, order: order, pins: tg(9))
+        XCTAssertEqual(pinned.telegram.map(\.id), [9, 3, 7, 12])
+        let unpinned = TelegramTopics.sections(records: [], topics: topics, order: order, pins: [])
+        XCTAssertEqual(unpinned.telegram.map(\.id), [3, 7, 9, 12])
+    }
+
+    func testDraggingPinnedRowsReordersOnlyThePins() {
+        let result = TelegramTopics.applyDrag(
+            shown: [7, 12, 3, 9], final: [12, 7, 3, 9], pinnedCount: 2, order: [3, 7, 9, 12], pins: [geral.uuidString.lowercased()] + tg(7, 12))
+        XCTAssertEqual(result?.pins, [geral.uuidString.lowercased()] + tg(12, 7))
+        XCTAssertEqual(result?.order, [3, 7, 9, 12])
+    }
+
+    func testADropAcrossThePinnedBoundaryChangesNothing() {
+        XCTAssertNil(TelegramTopics.applyDrag(
+            shown: [7, 3, 9], final: [3, 7, 9], pinnedCount: 1, order: [3, 7, 9], pins: tg(7)))
+        XCTAssertNil(TelegramTopics.applyDrag(
+            shown: [7, 3, 9], final: [7, 3, 9], pinnedCount: 1, order: [3, 7, 9], pins: tg(7)))
+    }
+
+    func testPinsRoundTripAndOldSettingsDefaultToNone() throws {
+        let old = try JSONDecoder().decode(WispSettings.self, from: Data(#"{"theme":"lime"}"#.utf8))
+        XCTAssertEqual(old.pinnedConversations, [])
+        var settings = WispSettings()
+        settings.pinnedConversations = ["tg:5", geral.uuidString.lowercased()]
+        let back = try JSONDecoder().decode(WispSettings.self, from: JSONEncoder().encode(settings))
+        XCTAssertEqual(back.pinnedConversations, ["tg:5", geral.uuidString.lowercased()])
     }
 
     func testPostPayloadCarriesTheConversationOnlyWhenKnown() throws {
