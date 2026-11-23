@@ -9,6 +9,7 @@ import secrets
 import sys
 import tempfile
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
 from pathlib import Path
 
 from wisp.brain_colher import claude_bin
@@ -105,7 +106,24 @@ def clock(seconds: float) -> str:
     return f"{hours}:{minutes:02d}:{secs:02d}" if hours else f"{minutes}:{secs:02d}"
 
 
-def render_transcript(document: dict) -> str:
+def pause_marker(pause: dict) -> tuple[float, str]:
+    position = float(pause.get("at_s") or 0)
+
+    def hour(value) -> str:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00")).astimezone().strftime("%H:%M")
+
+    try:
+        label = f"Pausado {hour(pause['started_at'])}"
+        label += f"–{hour(pause['ended_at'])}" if pause.get("ended_at") else " (sem retomar)"
+    except (KeyError, ValueError):
+        label = "Pausado"
+    return position, f"[{clock(position)}] — {label}"
+
+
+def render_transcript(document: dict, pauses=None) -> str:
+    markers = sorted(
+        (pause_marker(p) for p in pauses or [] if isinstance(p, dict)), key=lambda marker: marker[0]
+    ) if isinstance(pauses, list) else []
     lines = []
     for segment in document.get("segments") or []:
         if not isinstance(segment, dict):
@@ -113,8 +131,12 @@ def render_transcript(document: dict) -> str:
         text = str(segment.get("text") or "").strip()
         if not text:
             continue
+        start = float(segment.get("start") or 0)
+        while markers and markers[0][0] <= start:
+            lines.append(markers.pop(0)[1])
         speaker = SPEAKERS.get(str(segment.get("speaker")), str(segment.get("speaker") or "?"))
-        lines.append(f"[{clock(float(segment.get('start') or 0))}] {speaker}: {text}")
+        lines.append(f"[{clock(start)}] {speaker}: {text}")
+    lines.extend(marker[1] for marker in markers)
     return "\n".join(lines)
 
 
@@ -380,9 +402,9 @@ def write_note(cfg: WispConfig, runner: Runner, folder: Path) -> dict:
     document = read_json(folder / "transcript.json")
     meta = read_json(folder / "meta.json")
     meta.setdefault("started_at", document.get("started_at"))
-    transcript = render_transcript(document)
-    if not transcript:
+    if not render_transcript(document):
         raise Falha("a transcrição está vazia")
+    transcript = render_transcript(document, meta.get("pauses"))
     requested = read_active(Path(cfg.wisp_dir).expanduser())
     client = make_client(cfg)
     engine, reason = pick_backend(requested, cfg, runner, client)

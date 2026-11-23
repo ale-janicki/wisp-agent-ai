@@ -12,6 +12,7 @@ Entries are in descending chronological order (newest first).
 ### Added
 
 - Meeting alerts drop from the notch: an early one (10 min by default) and a near-start one (1 min) with an Entrar button, both adjustable in Settings > Agenda; the macOS notification is now opt-in.
+- Meetings: a Pausar button next to Parar while a meeting is recording. Pausing stops writing audio and live transcription (what was being said is finished and kept first); Retomar goes on in the same recording with no gap or silence for the paused span, the timer and the recording limit stand still meanwhile, and the transcript and the note show a "Pausado" line with the clock times. Parar works while paused. The microphone indicator stays on during a pause, because the devices stay open.
 
 ### Changed
 

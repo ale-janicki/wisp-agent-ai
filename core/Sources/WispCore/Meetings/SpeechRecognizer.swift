@@ -160,6 +160,22 @@ public final class LiveTranscriber: @unchecked Sendable {
         enqueue(jobs)
     }
 
+    /// Closes whatever speech is open on every channel and queues it as a final segment, keeping the transcriber
+    /// running. Used when the recording pauses, so nothing half-spoken waits for the resume.
+    public func flushOpenSegments() {
+        let jobs = lock.withLock { () -> [StreamJob] in
+            var made: [StreamJob] = []
+            for channel in AudioChannel.allCases {
+                decimators[channel] = Decimator48To16()
+                guard var streamer = streamers[channel] else { continue }
+                made += streamer.flush()
+                streamers[channel] = streamer
+            }
+            return made
+        }
+        enqueue(jobs)
+    }
+
     public func finish() async -> [MeetingSegment] {
         let jobs = lock.withLock { () -> [StreamJob] in
             var made: [StreamJob] = []

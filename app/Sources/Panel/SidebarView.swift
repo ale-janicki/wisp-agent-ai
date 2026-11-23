@@ -85,8 +85,8 @@ struct SidebarView: View {
                     .foregroundStyle(selected ? Theme.accentText : Theme.textSecondary)
                 Spacer(minLength: Theme.Space.xs)
                 if tab == .meetings, meetings.startedAt != nil {
-                    RecordingDot(warns: !meetings.warnings.isEmpty)
-                        .help("Gravando")
+                    RecordingDot(warns: !meetings.warnings.isEmpty, paused: meetings.isPaused)
+                        .help(meetings.isPaused ? "Gravação pausada" : "Gravando")
                 }
                 if listHint {
                     Image(systemName: "list.bullet")
