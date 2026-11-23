@@ -8,8 +8,9 @@ final class LoginPATHCacheTests: XCTestCase {
     func testFirstLookupRunsInlineAndIsCached() {
         let cache = LoginPATHCache()
         let calls = Counter()
-        XCTAssertEqual(cache.found(now: now, fetch: { calls.bump(); return "/a:/b" }, retry: inline), "/a:/b")
-        XCTAssertEqual(cache.found(now: now, fetch: { calls.bump(); return "/c" }, retry: inline), "/a:/b")
+        let first = cache.found(now: now, fetch: { calls.bump(); return "/a:/b" }, retry: inline)
+        XCTAssertEqual(first?.split(separator: ":").prefix(2).joined(separator: ":"), "/a:/b")
+        XCTAssertEqual(cache.found(now: now, fetch: { calls.bump(); return "/c" }, retry: inline), first)
         XCTAssertEqual(calls.value, 1)
     }
 
@@ -26,7 +27,7 @@ final class LoginPATHCacheTests: XCTestCase {
         XCTAssertEqual(scheduled.count, 1)
         scheduled[0]()
         XCTAssertEqual(calls.value, 2)
-        XCTAssertEqual(cache.found(now: now.addingTimeInterval(32), fetch: { calls.bump(); return "/y" }, retry: inline), "/x")
+        XCTAssertEqual(cache.found(now: now.addingTimeInterval(32), fetch: { calls.bump(); return "/y" }, retry: inline)?.split(separator: ":").first, "/x")
     }
 
     func testStopsRetryingAfterMaxAttempts() {
@@ -45,6 +46,14 @@ final class LoginPATHCacheTests: XCTestCase {
         XCTAssertEqual(parts.first, "/usr/local/bin")
         XCTAssertTrue(parts.contains("/h/.local/bin"))
         XCTAssertTrue(parts.contains("/opt/homebrew/bin"))
+    }
+
+    func testLoginPathWithoutUserBinGetsCommonFoldersAppended() {
+        let merged = LoginPATHCache.withCommonFolders("/usr/bin:/bin:/opt/homebrew/bin", home: "/h")
+        let parts = merged.split(separator: ":").map(String.init)
+        XCTAssertEqual(Array(parts.prefix(3)), ["/usr/bin", "/bin", "/opt/homebrew/bin"], "the login order wins")
+        XCTAssertTrue(parts.contains("/h/.local/bin"))
+        XCTAssertEqual(parts.count, Set(parts).count)
     }
 }
 
