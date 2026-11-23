@@ -56,12 +56,18 @@ public struct PlanLimitsSnapshot: Equatable, Sendable {
     public static func newest(_ a: PlanLimitsSnapshot?, _ b: PlanLimitsSnapshot?) -> PlanLimitsSnapshot? {
         guard let a else { return b }
         guard let b else { return a }
-        return b.capturedAt > a.capturedAt ? b : a
+        let (newer, older) = b.capturedAt > a.capturedAt ? (b, a) : (a, b)
+        var merged = newer
+        merged.limit.fiveHour = newer.limit.fiveHour ?? older.limit.fiveHour
+        merged.limit.sevenDay = newer.limit.sevenDay ?? older.limit.sevenDay
+        return merged
     }
 
     public func rows(now: Date) -> [PlanLimitRow] {
-        [(PlanLimitRow.Kind.session, limit.fiveHour), (.week, limit.sevenDay)].compactMap { kind, window in
-            guard let window else { return nil }
+        [(PlanLimitRow.Kind.session, limit.fiveHour), (.week, limit.sevenDay)].map { kind, window in
+            guard let window else {
+                return PlanLimitRow(kind: kind, state: .used(percent: 0, resetsAt: nil, severity: .normal))
+            }
             if let resetsAt = window.resetsAt, resetsAt <= now {
                 return PlanLimitRow(kind: kind, state: .renewed)
             }
