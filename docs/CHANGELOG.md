@@ -9,6 +9,10 @@ Entries are in descending chronological order (newest first).
 
 ## [Unreleased]
 
+## [0.4.10] - 2026-11-23
+
+- Version 0.4.10 (build 17).
+
 ### Added
 
 - Wisp em janela: a button in the panel header (or ⌘⇧W) opens Wisp as a regular macOS window that can be resized and sent to full screen (⌃⌘F or the green button) in its own Space. It shows the same tabs and conversation as the notch panel, appears in the Dock and ⌘Tab while open, and is reopened at launch if it was open at quit. While it is open, clicking the notch focuses the window instead of opening the panel. ⌘W closes it.
