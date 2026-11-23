@@ -24,6 +24,7 @@ public enum ClaudeStreamDecoder {
             let items = message?["content"] as? [[String: Any]] ?? []
             return items.flatMap(decodeContentItem)
         case "user":
+            if object["isReplay"] as? Bool == true { return [.userReplayed] }
             let message = object["message"] as? [String: Any]
             let items = message?["content"] as? [[String: Any]] ?? []
             let results: [ClaudeEvent] = items.compactMap { item in

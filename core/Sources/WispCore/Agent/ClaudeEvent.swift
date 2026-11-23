@@ -10,6 +10,8 @@ public enum ClaudeEvent: Sendable, Equatable {
     case permissionCancelled(id: String)
     case usage(RateLimit)
     case result(sessionId: String, text: String, isError: Bool, denials: [String])
+    /// Claude echoed a user message from stdin (`--replay-user-messages`): the engine consumed it.
+    case userReplayed
     case engineSession(engine: String, id: String)
     case ignored(type: String)
     case malformed(String)
