@@ -84,15 +84,9 @@ struct SidebarView: View {
                     .font(Theme.Font.bodyMedium)
                     .foregroundStyle(selected ? Theme.accentText : Theme.textSecondary)
                 Spacer(minLength: Theme.Space.xs)
-                if tab == .meetings, let startedAt = meetings.startedAt {
-                    HStack(spacing: 4) {
-                        Circle().fill(meetings.warnings.isEmpty ? Theme.error : Theme.busy).frame(width: 6, height: 6)
-                        TimelineView(.periodic(from: startedAt, by: 1)) { context in
-                            Text(ElapsedFormat.clock(context.date.timeIntervalSince(startedAt)))
-                                .font(Theme.Font.captionMono)
-                                .foregroundStyle(Theme.textSecondary)
-                        }
-                    }
+                if tab == .meetings, meetings.startedAt != nil {
+                    RecordingDot(warns: !meetings.warnings.isEmpty)
+                        .help("Gravando")
                 }
                 if listHint {
                     Image(systemName: "list.bullet")
