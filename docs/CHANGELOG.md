@@ -9,6 +9,10 @@ Entries are in descending chronological order (newest first).
 
 ## [Unreleased]
 
+## [0.4.7] - 2026-11-23
+
+- Version 0.4.7 (build 14).
+
 ### Fixed
 
 - Commands the app and the agent run still failed with "command not found" for tools in `~/.local/bin` after an update in 0.4.6: the login shell answers quickly, but its PATH does not include folders that only the interactive shell adds. The login PATH now gets `~/.local/bin`, Homebrew and `/usr/local/bin` appended when missing, after its own entries.
