@@ -134,12 +134,14 @@ public struct CalEvent: Identifiable, Equatable, Sendable {
     public var declined: Bool
     public var modified: Date?
     public var recurrenceRuleCount: Int
+    /// The iCalendar UID (`calendarItemExternalIdentifier`); every occurrence of a series shares it, and Google calls it `iCalUID`.
+    public var iCalUID: String?
 
     public init(
         id: String, calendarID: String, title: String, start: Date, end: Date, allDay: Bool = false, timeZoneID: String? = nil,
         location: String? = nil, url: URL? = nil, notes: String? = nil, attendees: [CalAttendee] = [], alarmOffsets: [Int] = [],
         recurrence: CalRecurrence? = nil, isRecurring: Bool = false, writable: Bool = true, busy: Bool = true, declined: Bool = false, modified: Date? = nil,
-        recurrenceRuleCount: Int = 0
+        recurrenceRuleCount: Int = 0, iCalUID: String? = nil
     ) {
         self.id = id
         self.calendarID = calendarID
@@ -160,6 +162,7 @@ public struct CalEvent: Identifiable, Equatable, Sendable {
         self.declined = declined
         self.modified = modified
         self.recurrenceRuleCount = recurrenceRuleCount
+        self.iCalUID = iCalUID
     }
 
     public var hasMultipleRules: Bool { recurrenceRuleCount > 1 }
