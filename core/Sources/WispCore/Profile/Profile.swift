@@ -36,10 +36,12 @@ public struct AgentConfig: Codable, Sendable, Equatable {
 public struct AlertsBlock: Codable, Sendable, Equatable {
     public var list: String?
     public var resolve: String?
+    public var discard: String?
 
-    public init(list: String? = nil, resolve: String? = nil) {
+    public init(list: String? = nil, resolve: String? = nil, discard: String? = nil) {
         self.list = list
         self.resolve = resolve
+        self.discard = discard
     }
 }
 
