@@ -126,6 +126,8 @@ public struct MeetingSettings: Codable, Equatable, Sendable {
     public var webhookSigns = false
     public var limitMinutes = defaultLimitMinutes
     public var autoSummary = true
+    /// Days before a meeting already saved in the brain is moved to the Trash; 0 (the default) keeps the cleanup off.
+    public var cleanupDays = 0
 
     public init() {}
 
@@ -135,11 +137,12 @@ public struct MeetingSettings: Codable, Equatable, Sendable {
         webhookSigns = (try? container.decodeIfPresent(Bool.self, forKey: .webhookSigns)) ?? false
         limitMinutes = (try? container.decodeIfPresent(Int.self, forKey: .limitMinutes)) ?? Self.defaultLimitMinutes
         autoSummary = (try? container.decodeIfPresent(Bool.self, forKey: .autoSummary)) ?? true
+        cleanupDays = MeetingJanitor.clamp(days: (try? container.decodeIfPresent(Int.self, forKey: .cleanupDays)) ?? 0)
     }
 
     public var limitSeconds: Double { Double(min(max(limitMinutes, 15), 720) * 60) }
 
-    private enum CodingKeys: String, CodingKey { case webhookEnabled, webhookSigns, limitMinutes, autoSummary }
+    private enum CodingKeys: String, CodingKey { case webhookEnabled, webhookSigns, limitMinutes, autoSummary, cleanupDays }
 }
 
 public struct WispSettings: Codable, Equatable, Sendable {
