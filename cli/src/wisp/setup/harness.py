@@ -21,12 +21,14 @@ from wisp.harness_merge import (
     install_tree,
     merge_claude_md,
     merge_settings,
+    remove_claude_md_block,
     render,
 )
 from wisp.paths import WispPaths, resources_root
 from wisp.report import Detail, StepReport
 from wisp.runner import Runner
 from wisp.setup.folder import seed_folder, wisp_root
+from wisp.soul_config import effective_source, load_soul
 
 MANIFEST_NAME = "harness-installed.json"
 FALLBACK_USER = "the user"
@@ -113,6 +115,21 @@ def _managed_elsewhere(claude_dir: Path) -> bool:
     return any(has_symlink(p, claude_dir) for p in guarded)
 
 
+def soul_source(paths: WispPaths) -> str:
+    return effective_source(load_soul(paths.config / "profile.json"), _managed_elsewhere(paths.home / ".claude"))
+
+
+def soul_injected(paths: WispPaths) -> bool:
+    """True when Wisp hands the personality to the engines itself (source wisp or both), so no persona block is installed."""
+    return soul_source(paths) != "assistant"
+
+
+TERMINAL_NOTE = "alma: o claude e o codex abertos no terminal não recebem mais a persona (a fonte é o Wisp); ela vale no app, no Telegram e no motor local"
+KEPT_NOTE = "alma: bloco editado mantido"
+REMOVED_NOTE = "alma: bloco antigo removido (backup em {backup})"
+WOULD_REMOVE_NOTE = "alma: bloco antigo seria removido"
+
+
 def _file_mode(path: Path) -> int:
     return os.stat(path).st_mode & 0o777 if path.exists() else 0o644
 
@@ -183,11 +200,22 @@ def setup_harness(runner: Runner, paths: WispPaths, cfg: WispConfig, *, dry_run:
         new_md = merge_claude_md(user_md, block)
     except (UnicodeDecodeError, ValueError):
         return _failed("o CLAUDE.md tem marcadores do Wisp quebrados ou não é texto; nada foi alterado")
-    block_conflict = existing is not None and new_md != user_md and block_digest(existing) != plan.files.get(BLOCK_KEY)
-    if block_conflict:
-        new_md = user_md
-    elif existing is None or new_md != user_md or block_digest(existing) == block_digest(block):
-        plan.files[BLOCK_KEY] = block_digest(block)
+    soul_src = soul_source(paths)
+    injected = soul_src != "assistant"
+    block_conflict = retire = kept = False
+    if injected:
+        new_md = user_md          # the soul is injected into the conversation: no persona block is installed
+        if existing is not None:
+            retire = block_digest(existing) == plan.files.get(BLOCK_KEY)
+            kept = not retire
+            if retire:
+                new_md = remove_claude_md_block(user_md)
+    else:
+        block_conflict = existing is not None and new_md != user_md and block_digest(existing) != plan.files.get(BLOCK_KEY)
+        if block_conflict:
+            new_md = user_md
+        elif existing is None or new_md != user_md or block_digest(existing) == block_digest(block):
+            plan.files[BLOCK_KEY] = block_digest(block)
     try:
         user_settings = json.loads(settings_path.read_text()) if settings_path.exists() else None
         if user_settings is not None and not isinstance(user_settings, dict):
@@ -207,7 +235,7 @@ def setup_harness(runner: Runner, paths: WispPaths, cfg: WispConfig, *, dry_run:
     new_settings, notes = merge_settings(user_settings or {}, ours)
 
     changes = install_tree(source, claude_dir, plan, values, dry_run=True, roots=_roots(cfg))
-    claude_md_kind = "conflict" if block_conflict else "added" if user_md is None else "merged" if new_md != user_md else "skipped"
+    claude_md_kind = "conflict" if block_conflict else "merged" if retire else "skipped" if injected else "added" if user_md is None else "merged" if new_md != user_md else "skipped"
     changes.append(Change("CLAUDE.md", claude_md_kind))
     changes.append(Change("settings.json", "added" if user_settings is None else "merged" if new_settings != user_settings else "skipped"))
 
@@ -216,7 +244,13 @@ def setup_harness(runner: Runner, paths: WispPaths, cfg: WispConfig, *, dry_run:
     data = {"backup": "", "added": str(sum(c.kind == "added" for c in changes)), "conflicts": str(len(conflicts))}
     details = [Detail("conflito", 0, f"{c.rel}: editado por você, mantido" if c.rel != "CLAUDE.md" else "CLAUDE.md: o bloco do Wisp foi editado por você, mantido") for c in conflicts]
     details += [Detail("settings", 0, note) for note in notes]
-    if agente_problem:
+    if soul_src == "wisp" and not kept:
+        details.append(Detail("alma", 0, TERMINAL_NOTE))
+    if kept:
+        details.append(Detail("alma", 0, KEPT_NOTE))
+    if retire and dry_run:
+        details.append(Detail("alma", 0, WOULD_REMOVE_NOTE))
+    if agente_problem and not injected:
         details.append(Detail("agente", 0, agente_problem))
     if email_problem:
         details.append(Detail("e-mail", 0, email_problem))
@@ -230,6 +264,10 @@ def setup_harness(runner: Runner, paths: WispPaths, cfg: WispConfig, *, dry_run:
     if pending:
         saved = backup(claude_dir, paths.state / "backups", datetime.now().strftime("%Y%m%d-%H%M%S"))
         data["backup"] = str(saved) if saved else ""
+        if retire:
+            details.append(Detail("alma", 0, REMOVED_NOTE.format(backup=data["backup"])))
+            manifest.files.pop(BLOCK_KEY, None)
+            plan.files.pop(BLOCK_KEY, None)
         install_tree(source, claude_dir, manifest, values, roots=_roots(cfg))
         if new_md != user_md:
             atomic_write(claude_md_path, new_md.encode(), mode=_file_mode(claude_md_path))

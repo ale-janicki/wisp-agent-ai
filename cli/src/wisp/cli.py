@@ -40,6 +40,7 @@ from wisp.setup.profile import setup_profile
 from wisp.setup.shim import setup_shim
 from wisp.setup.system import setup_system
 from wisp.setup.telegram import setup_telegram
+from wisp.soul import add_parser as add_soul_parser, run as run_soul
 from wisp.telegram_api import TelegramAPI
 from wisp.topic import add_parser as add_topic_parser, run as run_topic
 
@@ -485,6 +486,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_agenda_parser(sub)
     add_local_parser(sub)
     add_reuniao_parser(sub)
+    add_soul_parser(sub)
     hook = sub.add_parser("hook")
     hook.add_argument("which", choices=["boot", "recall", "aprendizados", "brain-commit", "guard-secrets", "guard-telegram", "guard-destructive", "guard-lessons", "guard-outbound", "guard-brain-scope", "guard-agenda"])
     return parser
@@ -558,6 +560,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return run_agenda(args)
     if args.command == "local":
         return run_local(args)
+    if args.command == "soul":
+        return run_soul(args)
     if args.command == "reuniao":
         return run_reuniao(args, _load_config_or_default()[0])
     print(f"wisp {args.command}: not implemented yet", file=sys.stderr)

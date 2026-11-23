@@ -10,6 +10,7 @@ from wisp.config import WispConfig
 from wisp.harness_merge import PLACEHOLDER
 from wisp.local import catalog as catalogs
 from wisp.local import guardrails, prompt
+from wisp.soul import NO_BRAIN
 
 TEMPLATE = (Path(__file__).parents[2] / "harness" / "claude-md-block.md").read_text()
 SMALL = catalogs.load().find("qwen3:8b")
@@ -28,7 +29,7 @@ def test_missing_profile_values_fall_back_and_unknown_placeholders_vanish():
     cfg = WispConfig(user_name="", persona="", language="", brain=None)
     text = prompt.render_agent(TEMPLATE + "\nx {{NOT_A_THING}} y", cfg)
     assert "{{" not in text and "the user" in text
-    assert "Wisp" in text and "pt-BR" in text and prompt.NO_BRAIN in text and "x  y" in text
+    assert "Wisp" in text and "pt-BR" in text and NO_BRAIN in text and "x  y" in text
 
 
 def test_agente_on_disk_is_never_rewritten(folder):  # noqa: F811
