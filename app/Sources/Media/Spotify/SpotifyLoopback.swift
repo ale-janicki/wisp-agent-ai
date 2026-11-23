@@ -16,6 +16,7 @@ final class SpotifyLoopback: @unchecked Sendable {
     private let port: UInt16
     private let path: String
     private let state: String
+    private let brand: String
     private var ready: CheckedContinuation<Void, Error>?
     private var waiter: CheckedContinuation<SpotifyCallback, Error>?
     private var outcome: Result<SpotifyCallback, Error>?
@@ -23,7 +24,7 @@ final class SpotifyLoopback: @unchecked Sendable {
 
     private static let headLimit = 16 * 1024
 
-    init(port: UInt16, path: String, state: String) throws {
+    init(port: UInt16, path: String, state: String, brand: String = "Spotify") throws {
         guard let nwPort = NWEndpoint.Port(rawValue: port) else { throw Failure.listener("porta inválida") }
         let parameters = NWParameters.tcp
         parameters.requiredLocalEndpoint = .hostPort(host: .ipv4(.loopback), port: nwPort)
@@ -32,6 +33,7 @@ final class SpotifyLoopback: @unchecked Sendable {
         self.port = port
         self.path = path
         self.state = state
+        self.brand = brand
     }
 
     func start() async throws {
@@ -125,7 +127,7 @@ final class SpotifyLoopback: @unchecked Sendable {
         do {
             let callback = try SpotifyCallback.parse(target: target, path: path, state: state)
             switch callback {
-            case .code: respond(connection, status: "200 OK", message: "Spotify conectado. Pode fechar esta aba e voltar ao Wisp.")
+            case .code: respond(connection, status: "200 OK", message: "\(brand) conectado. Pode fechar esta aba e voltar ao Wisp.")
             case .denied: respond(connection, status: "200 OK", message: "O Wisp não foi autorizado. Pode fechar esta aba.")
             }
             finish(.success(callback))
@@ -133,7 +135,7 @@ final class SpotifyLoopback: @unchecked Sendable {
             respond(connection, status: "404 Not Found", message: nil)
         } catch {
             let failure = (error as? SpotifyCallbackError) ?? .missingCode
-            respond(connection, status: "400 Bad Request", message: "A resposta do Spotify não confere. Volte ao Wisp e conecte de novo.")
+            respond(connection, status: "400 Bad Request", message: "A resposta do \(brand) não confere. Volte ao Wisp e conecte de novo.")
             finish(.failure(Failure.callback(failure)))
         }
     }
