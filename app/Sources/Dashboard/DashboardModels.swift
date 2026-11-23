@@ -116,7 +116,7 @@ final class AlertsModel {
             guard let self else { return }
             self.resolving = nil
             if case .failure(let error) = result {
-                self.actionError = "Não consegui resolver o alerta: \(error.localizedDescription)"
+                self.actionError = "Não consegui atualizar o lembrete: \(error.localizedDescription)"
             }
             self.refresh(command: listCommand, force: true)
         }
