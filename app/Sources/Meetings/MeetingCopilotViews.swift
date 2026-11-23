@@ -380,10 +380,16 @@ struct PrepCard: View {
                         Text("Nenhum evento na agenda hoje")
                             .font(Theme.Font.caption)
                             .foregroundStyle(Theme.textTertiary)
-                        Button { copilot.loadEvents() } label: { Image(systemName: "arrow.clockwise") }
-                            .buttonStyle(CapsuleButtonStyle(kind: .ghost, size: .compact))
-                            .help("Atualizar eventos")
                         Spacer(minLength: 0)
+                        Button { copilot.loadEvents() } label: {
+                            Image(systemName: "arrow.clockwise")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(Theme.accent)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .pointerStyle(.link)
+                        .help("Atualizar eventos")
                     }
                 } else {
                     HStack(spacing: 0) {
@@ -416,6 +422,7 @@ struct PrepCard: View {
                     .frame(maxWidth: .infinity, minHeight: Theme.Control.height, alignment: .leading)
                     .background(Theme.surfaceHi, in: RoundedRectangle(cornerRadius: Theme.Radius.nav, style: .continuous))
                 HStack(spacing: Theme.Space.s) {
+                    Spacer(minLength: 0)
                     if copilot.prepBusy {
                         ProgressView().controlSize(.small)
                         Button("Cancelar") { copilot.cancelPrep() }
@@ -426,7 +433,6 @@ struct PrepCard: View {
                             .disabled(!copilot.hasPrep)
                             .help("Usa o motor ativo (Claude ou modelo local), sem ferramentas e nunca o Codex. Título, notas e participantes do evento vão ao motor.")
                     }
-                    Spacer(minLength: 0)
                 }
             }
             if let message = copilot.prepMessage {
