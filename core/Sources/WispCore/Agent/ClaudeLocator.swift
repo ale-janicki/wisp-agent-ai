@@ -55,7 +55,7 @@ public enum ClaudeLocator {
         return found
     }
 
-    public static let cachedLoginShellPATH: String? = loginShellPATH()
+    public static var cachedLoginShellPATH: String? { LoginPATHCache.shared.value(fetch: { loginShellPATH() }) }
 
     public static func loginShellPATH(shell: String = "/bin/zsh") -> String? {
         guard let path = runShell(shell, script: "printf %s \"$PATH\"", timeout: 5), !path.isEmpty else {
@@ -88,5 +88,44 @@ public enum ClaudeLocator {
         let last = text.split(whereSeparator: \.isNewline).last.map(String.init) ?? ""
         let trimmed = last.trimmingCharacters(in: .whitespaces)
         return trimmed.isEmpty ? nil : trimmed
+    }
+}
+
+
+public final class LoginPATHCache: @unchecked Sendable {
+    public static let shared = LoginPATHCache()
+    public static let retryInterval: TimeInterval = 30
+    public static let maxAttempts = 3
+
+    private let lock = NSLock()
+    private var found: String?
+    private var lastAttempt: Date?
+    private var attempts = 0
+
+    public init() {}
+
+    public func value(now: Date = Date(), base: String? = ProcessInfo.processInfo.environment["PATH"],
+                      home: String = NSHomeDirectory(), fetch: () -> String?) -> String {
+        lock.lock()
+        defer { lock.unlock() }
+        if let found { return found }
+        if attempts < Self.maxAttempts, lastAttempt.map({ now.timeIntervalSince($0) >= Self.retryInterval }) ?? true {
+            lastAttempt = now
+            attempts += 1
+            if let path = fetch(), !path.isEmpty {
+                found = path
+                return path
+            }
+        }
+        return Self.fallback(base: base, home: home)
+    }
+
+    public static func fallback(base: String?, home: String) -> String {
+        let common = ["\(home)/.local/bin", "/opt/homebrew/bin", "/opt/homebrew/sbin", "/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"]
+        var parts: [String] = []
+        for entry in (base?.split(separator: ":").map(String.init) ?? []) + common where !entry.isEmpty && !parts.contains(entry) {
+            parts.append(entry)
+        }
+        return parts.joined(separator: ":")
     }
 }
