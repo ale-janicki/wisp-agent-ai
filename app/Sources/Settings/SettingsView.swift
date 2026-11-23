@@ -162,7 +162,7 @@ struct SettingsView: View {
 
     private static let noticeKinds: [(NoticeKind, String)] = [
         (.reply, "Respostas"), (.telegram, "Telegram"), (.reminder, "Lembretes"), (.update, "Atualizações"),
-        (.approval, "Aprovações"),
+        (.approval, "Aprovações"), (.meeting, "Reuniões"),
     ]
 
     private var notices: some View {
@@ -572,6 +572,7 @@ struct ProfileSettingsGroup: View {
 struct AgendaSettingsGroup: View {
     var body: some View {
         let access = AgendaAccessModel.shared
+        let agenda = AppSettings.shared.settings.agenda
         return SettingsGroup(title: "Agenda") {
             SettingsRow(title: "Agenda: permitir acesso", detail: access.sentence) {
                 if access.state != .granted {
@@ -592,8 +593,36 @@ struct AgendaSettingsGroup: View {
                 detail: "Mostra \"Reunião\" no lugar do título do evento.",
                 isOn: AppSettings.shared.settings.agenda.hideTitlesInAlerts
             ) { on in AppSettings.shared.setAgenda { $0.hideTitlesInAlerts = on } }
+            Divider().overlay(Theme.stroke)
+            ToggleRow(
+                title: "Também como notificação do macOS",
+                detail: "Os avisos de reunião descem do notch. Ligado, o macOS também manda a própria notificação, com o botão Entrar.",
+                isOn: agenda.systemMeetingNotifications
+            ) { on in AppSettings.shared.setAgenda { $0.systemMeetingNotifications = on } }
+            Divider().overlay(Theme.stroke)
+            SettingsRow(title: "Aviso antecipado", detail: "Aviso para se preparar, antes do aviso perto do início. Só vale se for maior que o aviso perto do início.") {
+                leadPicker("Aviso antecipado", current: agenda.earlyAlertMinutes, choices: [0, 5, 10, 15, 30]) { value in
+                    AppSettings.shared.setAgenda { $0.earlyAlertMinutes = value }
+                }
+            }
+            Divider().overlay(Theme.stroke)
+            SettingsRow(title: "Aviso perto do início", detail: "Aviso com o botão Entrar, só para reuniões com link.") {
+                leadPicker("Aviso perto do início", current: agenda.alertLeadMinutes, choices: [0, 1, 2, 5]) { value in
+                    AppSettings.shared.setAgenda { $0.alertLeadMinutes = value }
+                }
+            }
         }
         .onAppear { access.refresh() }
+    }
+
+    private func leadPicker(_ label: String, current: Int, choices: [Int], set: @escaping (Int) -> Void) -> some View {
+        Picker(label, selection: Binding(get: { current }, set: set)) {
+            ForEach(choices + (choices.contains(current) ? [] : [current]), id: \.self) { minutes in
+                Text(minutes == 0 ? "Desligado" : "\(minutes) min").tag(minutes)
+            }
+        }
+        .labelsHidden()
+        .frame(width: 110)
     }
 }
 
