@@ -58,6 +58,7 @@ private struct ReminderRow: View {
     let busy: Bool
     let resolve: (() -> Void)?
     @State private var hovering = false
+    @State private var hoveringCheck = false
 
     private var caption: String {
         var parts = [item.front, item.theme == item.id ? nil : item.theme].compactMap { $0 }
@@ -85,8 +86,20 @@ private struct ReminderRow: View {
                 }
             }
             Spacer(minLength: Theme.Space.xs)
-            if let resolve {
-                ConfirmAction(label: "Apagar lembrete", question: "Apagar?", busy: busy, icon: "trash", action: resolve)
+            if busy {
+                ProgressView().controlSize(.small).frame(width: 24, height: 24)
+            } else if let resolve {
+                Button(action: resolve) {
+                    Image(systemName: hoveringCheck ? "checkmark.circle.fill" : "circle")
+                        .font(.system(size: 16, weight: .regular))
+                        .foregroundStyle(hoveringCheck ? Theme.ok : Theme.textTertiary)
+                        .frame(width: 24, height: 24)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .pointerStyle(.link)
+                .onHover { hoveringCheck = $0 }
+                .help("Marcar como feito")
             }
         }
         .padding(.horizontal, Theme.Space.m)
