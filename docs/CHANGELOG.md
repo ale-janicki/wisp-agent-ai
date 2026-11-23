@@ -9,6 +9,10 @@ Entries are in descending chronological order (newest first).
 
 ## [Unreleased]
 
+## [0.4.9] - 2026-11-23
+
+- Version 0.4.9 (build 16).
+
 ### Changed
 
 - Tarefas: each task shows a check circle (accent on hover, one click marks it done and removes the line, as before) and a trash icon that asks "Apagar?" first, the same as Lembretes, instead of a "Feito" button that only appeared on hover.
