@@ -24,6 +24,10 @@ final class ConversationRuntime {
     @ObservationIgnored private var deliveries: [UUID: Task<Void, Never>] = [:]
     @ObservationIgnored private var lastTurnEnded: Date?
     private var turnsInFlight: Int { ledger.inFlight }
+
+    private func syncPending() {
+        state.pendingTurns = ledger.pending
+    }
     @ObservationIgnored private var followedSession: String?
     @ObservationIgnored private var earlierMessages: [ConversationMessage] = []
     @ObservationIgnored private var lastReplyAt: String?
@@ -146,6 +150,7 @@ final class ConversationRuntime {
         ConversationReducer.userSent(&state, text: text, id: id, time: Date())
         let user = caption.isEmpty ? text : caption
         ledger.submit(id: id, text: text, user: user, files: Self.attachedPaths(text))
+        syncPending()
         telegramNotice = nil
         sentAt = .now
         lastUsed = Date()
@@ -300,6 +305,7 @@ final class ConversationRuntime {
         eventTask = nil
         startTask = nil
         ConversationReducer.sessionDiscarded(&state)
+        syncPending()
         let old = session
         session = nil
         sessionKind = nil
@@ -311,13 +317,13 @@ final class ConversationRuntime {
         sessionMode = nil
         restartAfterTurn = false
         ledger.processRestarted()
-        state.pendingTurns = ledger.pending
         primeContext = nil
         waitingForTelegram = false
         eventTask?.cancel()
         eventTask = nil
         startTask = nil
         ConversationReducer.processRestarted(&state)
+        syncPending()
         let old = session
         session = nil
         sessionKind = nil
@@ -559,7 +565,12 @@ final class ConversationRuntime {
 
     private func deliver(_ text: String, user: String, id: UUID, record: Bool = true) async {
         var started = false
-        defer { if !started { ledger.writeFailed(id) } }
+        defer {
+            if !started {
+                ledger.writeFailed(id)
+                ConversationReducer.coveredSettled(&state, pending: ledger.pending)
+            }
+        }
         guard !Task.isCancelled else { return }
         var gen = generation
         do {
@@ -585,10 +596,13 @@ final class ConversationRuntime {
             do {
                 try await active.send(outgoing)
             } catch {
-                if gen == generation { ledger.writeFailed(id) }
+                if gen == generation {
+                    ledger.writeFailed(id)
+                    syncPending()
+                }
                 throw error
             }
-            if gen == generation { ledger.written(id) }
+            if gen == generation, let covered = ledger.written(id) { settleCovered(covered) }
         } catch is CancellationError {
             return
         } catch AgentError.claudeNotFound where EngineChoice.active() == .claude {
@@ -597,23 +611,32 @@ final class ConversationRuntime {
             host.setOnboarding(.claudeMissing)
             ledger.reset()
             ConversationReducer.sessionDiscarded(&state)
+            syncPending()
             state.phase = .idle
             host.syncPill(for: self)
         } catch let unavailable as GuardsUnavailable {
             guard gen == generation else { return }
             releaseTurn()
             ledger.reset()
-            state.pendingTurns = 0
+            syncPending()
             state.phase = .failed("não consegui ativar as travas do Wisp: \(unavailable.reason)")
             host.syncPill(for: self)
         } catch {
             guard gen == generation else { return }
             releaseTurn()
             ledger.reset()
-            state.pendingTurns = 0
+            syncPending()
             state.phase = .failed("não consegui falar com o \((sessionKind ?? EngineChoice.active()).rawValue): \(error.localizedDescription)")
             host.syncPill(for: self)
         }
+    }
+
+    private func settleCovered(_ entry: TurnLedger.Entry) {
+        if let post = TurnLedger.mirror(of: [entry]) { mirror(user: post.user, files: post.files) }
+        ConversationReducer.coveredSettled(&state, pending: ledger.pending)
+        if state.pendingTurns == 0 { releaseTurn() }
+        host.syncPill(for: self, result: true)
+        host.runtimeSettled()
     }
 
     // MARK: Events
@@ -627,9 +650,13 @@ final class ConversationRuntime {
            rebuildAfterLostSession() { return }
         let before = state.phase
         var closed: [TurnLedger.Entry] = []
-        if case .claude(.result) = event { closed = ledger.result(engine: sessionKind ?? .claude) }
+        if case .claude(.userReplayed) = event { ledger.consumed() }
+        if case .claude(.result(_, _, let isError, _)) = event {
+            closed = ledger.result(engine: sessionKind ?? .claude, isError: isError)
+        }
         ConversationReducer.reduce(
-            &state, event, statusPrefix: host.profile.agent.statusPrefix, pendingAfterResult: ledger.pending)
+            &state, event, statusPrefix: host.profile.agent.statusPrefix, pendingAfterResult: ledger.pending,
+            turnInFlight: ledger.inFlight > 0)
         noteTranscript(event)
         if case .claude(.usage(let limit)) = event { host.setRateLimit(limit) }
 
@@ -647,15 +674,14 @@ final class ConversationRuntime {
                 generateTitle()
             }
             logLatency()
-            if !isError, !closed.isEmpty {
-                mirror(user: closed.map(\.user).joined(separator: "\n"), files: closed.flatMap(\.files))
-            }
+            if !isError, let post = TurnLedger.mirror(of: closed) { mirror(user: post.user, files: post.files) }
             if state.pendingTurns == 0 { releaseTurn() }
             if !isError, !host.isCurrent(self) { unseenReply = true }
         }
         if case .exited = event {
             settled = true
             ledger.reset()
+            syncPending()
             releaseTurn()
         }
         if isResult || state.phase != before { host.syncPill(for: self, result: isResult) }
@@ -758,7 +784,7 @@ final class ConversationRuntime {
         discardSession(keepingDeliveries: true)
         primeContext = memory
         if kind == .claude { rebuiltFrom = lost } else { forgetEngineSession = true }
-        state.pendingTurns = ledger.pending
+        syncPending()
         state.phase = .thinking(step: nil)
         appendSystem(ConversationTranscript.rebuiltNote(engine: kind))
         let previous = deliveryTail

@@ -53,6 +53,13 @@ public enum ConversationReducer {
         s.phase = .thinking(step: nil)
     }
 
+    /// A message the engine covered while its write was still suspended closes without a result of
+    /// its own: nothing left pending means the turn is over.
+    public static func coveredSettled(_ s: inout ConversationState, pending: Int) {
+        s.pendingTurns = max(0, pending)
+        if pending == 0, case .thinking = s.phase, s.approvals.isEmpty { s.phase = .idle }
+    }
+
     public static func sessionDiscarded(_ s: inout ConversationState) {
         s.pendingTurns = 0
         s.approvals = []
@@ -96,14 +103,17 @@ public enum ConversationReducer {
         return authMarkers.contains { lowered.contains($0) }
     }
 
-    /// `pendingAfterResult` is what the runtime's ledger says is still waiting once a `result`
+    /// `turnInFlight` says the runtime still has a message with the engine, so late text is a new
+    /// turn and not what is left after a stop or an error. `pendingAfterResult` is what the
+    /// runtime's ledger says is still waiting once a `result`
     /// closes its messages; the reducer makes no engine decision.
     public static func reduce(
-        _ s: inout ConversationState, _ e: SessionEvent, statusPrefix: String?, pendingAfterResult: Int = 0
+        _ s: inout ConversationState, _ e: SessionEvent, statusPrefix: String?, pendingAfterResult: Int = 0,
+        turnInFlight: Bool = false
     ) {
         switch e {
         case .claude(let event):
-            reduce(&s, event, statusPrefix: statusPrefix, pendingAfterResult: pendingAfterResult)
+            reduce(&s, event, statusPrefix: statusPrefix, pendingAfterResult: pendingAfterResult, turnInFlight: turnInFlight)
         case .exited(let code, let stderrTail):
             let tail = stderrTail.trimmingCharacters(in: .whitespacesAndNewlines)
             s.pendingTurns = 0
@@ -116,7 +126,8 @@ public enum ConversationReducer {
     }
 
     private static func reduce(
-        _ s: inout ConversationState, _ event: ClaudeEvent, statusPrefix: String?, pendingAfterResult: Int
+        _ s: inout ConversationState, _ event: ClaudeEvent, statusPrefix: String?, pendingAfterResult: Int,
+        turnInFlight: Bool
     ) {
         switch event {
         case .initialized(let sessionId, _, let subscription):
@@ -133,7 +144,7 @@ public enum ConversationReducer {
         case .thinking:
             if s.phase == .idle { s.phase = .thinking(step: nil) }
         case .text(let rawText):
-            if s.phase == .idle { s.phase = .thinking(step: nil) }
+            if s.phase == .idle, turnInFlight { s.phase = .thinking(step: nil) }
             let text = TelegramHTML.markdown(rawText)
             if let last = s.messages.last, last.role == .assistant {
                 s.messages[s.messages.count - 1].text = last.text + "\n\n" + text
@@ -170,7 +181,7 @@ public enum ConversationReducer {
             clearTurnFiles(&s)
             s.sentToTelegram = sent
             if isError {
-                s.pendingTurns = 0
+                s.pendingTurns = max(0, pendingAfterResult)
                 s.phase = .failed(text.isEmpty ? "erro" : text)
                 return
             }
@@ -195,7 +206,7 @@ public enum ConversationReducer {
             }
             s.status = parts.status
             s.phase = s.pendingTurns == 0 ? .idle : .thinking(step: nil)
-        case .engineSession, .ignored, .malformed:
+        case .engineSession, .ignored, .malformed, .userReplayed:
             break
         }
     }
