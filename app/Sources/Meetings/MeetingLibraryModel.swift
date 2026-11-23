@@ -109,14 +109,19 @@ final class MeetingLibraryModel: ObservableObject {
                 try FileManager.default.trashItem(at: folder, resultingItemURL: nil)
             }
         }.value
-        guard result.removed > 0 || result.failed > 0 else { return }
-        log.info("cleanup: \(result.removed, privacy: .public) moved to Trash, \(result.failed, privacy: .public) failed")
-        if result.removed > 0 { reload() }
+        for name in result.removedNames { log.info("cleanup: \(name, privacy: .public) moved to Trash") }
+        for failure in result.failures { log.error("cleanup failed: \(failure, privacy: .public)") }
+        guard result.removed > 0 else { return }
+        notice = result.removed == 1
+            ? "Limpei 1 gravação antiga (foi para o Lixo)."
+            : "Limpei \(result.removed) gravações antigas (foram para o Lixo)."
+        reload()
     }
 
     /// Live check right before a folder is touched: recording, processing, queued or open.
     private func isBusy(_ id: String) -> Bool {
         isRecording() || working[id] != nil || queue.contains { $0.lastPathComponent == id } || selectedID == id
+            || webhookOffers.contains { $0.id == id }
     }
 
     func processPending() {
