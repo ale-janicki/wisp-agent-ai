@@ -67,6 +67,7 @@ final class AppSettings {
             let agenda = settings.agenda
             let meetings = settings.meetings
             let brainShowsGraph = settings.brainShowsGraph
+            let windowMode = settings.windowMode
             settings = .default
             settings.dashboardOrder = order
             settings.telegramOrder = topicOrder
@@ -81,6 +82,7 @@ final class AppSettings {
             settings.agenda = agenda
             settings.meetings = meetings
             settings.brainShowsGraph = brainShowsGraph
+            settings.windowMode = windowMode
         }
     }
 
@@ -124,6 +126,10 @@ final class AppSettings {
 
     func setGraph(_ change: (inout GraphControls) -> Void) {
         update { change(&$0.graph) }
+    }
+
+    func setWindowMode(_ on: Bool) {
+        update { $0.windowMode = on }
     }
 
     func setOpenAtLogin(_ on: Bool) {
