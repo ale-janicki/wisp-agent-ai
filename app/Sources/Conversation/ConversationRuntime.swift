@@ -19,11 +19,11 @@ final class ConversationRuntime {
     @ObservationIgnored weak var host: ConversationViewModel!
     @ObservationIgnored private let log = Logger(subsystem: AppIdentity.bundleID, category: "conversation")
     @ObservationIgnored private var turnLease: SessionLock.Lease?
-    @ObservationIgnored private var mirrorUsers: [(user: String, files: [String])] = []
+    @ObservationIgnored private var ledger = TurnLedger()
     @ObservationIgnored private var deliveryTail: Task<Void, Never>?
     @ObservationIgnored private var deliveries: [UUID: Task<Void, Never>] = [:]
     @ObservationIgnored private var lastTurnEnded: Date?
-    @ObservationIgnored private var turnsInFlight = 0
+    private var turnsInFlight: Int { ledger.inFlight }
     @ObservationIgnored private var followedSession: String?
     @ObservationIgnored private var earlierMessages: [ConversationMessage] = []
     @ObservationIgnored private var lastReplyAt: String?
@@ -50,7 +50,6 @@ final class ConversationRuntime {
     @ObservationIgnored private var primeContext: String?
     @ObservationIgnored private var rebuiltFrom: String?
     @ObservationIgnored private var engineModel: String?
-    @ObservationIgnored private var inFlight: [(text: String, user: String)] = []
     private static var transcriptFailureShown = false
 
     @ObservationIgnored private var titleGenerated: Bool
@@ -145,6 +144,8 @@ final class ConversationRuntime {
         if isFailed { discardSession() }
         let id = UUID()
         ConversationReducer.userSent(&state, text: text, id: id, time: Date())
+        let user = caption.isEmpty ? text : caption
+        ledger.submit(id: id, text: text, user: user, files: Self.attachedPaths(text))
         telegramNotice = nil
         sentAt = .now
         lastUsed = Date()
@@ -152,12 +153,11 @@ final class ConversationRuntime {
         log.notice("send: \(text, privacy: .public)")
         #endif
         host.syncPill(for: self)
-        let user = caption.isEmpty ? text : caption
         let previous = deliveryTail
         let deliveryId = UUID()
         let task = Task { [weak self] in
             await previous?.value
-            await self?.deliver(text, user: user)
+            await self?.deliver(text, user: user, id: id)
             self?.deliveries[deliveryId] = nil
         }
         deliveries[deliveryId] = task
@@ -288,11 +288,12 @@ final class ConversationRuntime {
             for task in deliveries.values { task.cancel() }
             deliveries = [:]
             deliveryTail = nil
+            ledger.reset()
+        } else {
+            ledger.requeueInFlight()
         }
         sessionMode = nil
         restartAfterTurn = false
-        turnsInFlight = 0
-        inFlight = []
         primeContext = nil
         releaseTurn()
         eventTask?.cancel()
@@ -309,8 +310,8 @@ final class ConversationRuntime {
         generation += 1
         sessionMode = nil
         restartAfterTurn = false
-        turnsInFlight = 0
-        inFlight = []
+        ledger.processRestarted()
+        state.pendingTurns = ledger.pending
         primeContext = nil
         waitingForTelegram = false
         eventTask?.cancel()
@@ -490,7 +491,6 @@ final class ConversationRuntime {
         lastTurnEnded = Date()
         turnLease?.release()
         turnLease = nil
-        mirrorUsers = []
         waitingForTelegram = false
     }
 
@@ -557,13 +557,14 @@ final class ConversationRuntime {
         } ?? []
     }
 
-    private func deliver(_ text: String, user: String, record: Bool = true) async {
+    private func deliver(_ text: String, user: String, id: UUID, record: Bool = true) async {
+        var started = false
+        defer { if !started { ledger.writeFailed(id) } }
         guard !Task.isCancelled else { return }
         var gen = generation
         do {
             guard try await acquireTurn() else { return }
             gen = generation
-            mirrorUsers.append((user, Self.attachedPaths(text)))
             let kind = await desiredEngine()
             if let sessionKind, sessionKind != kind, turnsInFlight == 0 {
                 restartProcess()
@@ -579,32 +580,36 @@ final class ConversationRuntime {
             let outgoing = ConversationTranscript.prime(primeContext, prompt: text)
             primeContext = nil
             if record { recordUser(user) }
-            inFlight.append((text, user))
+            ledger.writing(id)
+            started = true
             do {
                 try await active.send(outgoing)
             } catch {
-                if gen == generation, !inFlight.isEmpty { inFlight.removeLast() }
+                if gen == generation { ledger.writeFailed(id) }
                 throw error
             }
-            if gen == generation { turnsInFlight += 1 }
+            if gen == generation { ledger.written(id) }
         } catch is CancellationError {
             return
         } catch AgentError.claudeNotFound where EngineChoice.active() == .claude {
             guard gen == generation else { return }
             releaseTurn()
             host.setOnboarding(.claudeMissing)
+            ledger.reset()
             ConversationReducer.sessionDiscarded(&state)
             state.phase = .idle
             host.syncPill(for: self)
         } catch let unavailable as GuardsUnavailable {
             guard gen == generation else { return }
             releaseTurn()
+            ledger.reset()
             state.pendingTurns = 0
             state.phase = .failed("não consegui ativar as travas do Wisp: \(unavailable.reason)")
             host.syncPill(for: self)
         } catch {
             guard gen == generation else { return }
             releaseTurn()
+            ledger.reset()
             state.pendingTurns = 0
             state.phase = .failed("não consegui falar com o \((sessionKind ?? EngineChoice.active()).rawValue): \(error.localizedDescription)")
             host.syncPill(for: self)
@@ -621,7 +626,10 @@ final class ConversationRuntime {
         if case .claude(.result(_, let text, true, _)) = event, ConversationTranscript.isLostSession(text),
            rebuildAfterLostSession() { return }
         let before = state.phase
-        ConversationReducer.reduce(&state, event, statusPrefix: host.profile.agent.statusPrefix)
+        var closed: [TurnLedger.Entry] = []
+        if case .claude(.result) = event { closed = ledger.result(engine: sessionKind ?? .claude) }
+        ConversationReducer.reduce(
+            &state, event, statusPrefix: host.profile.agent.statusPrefix, pendingAfterResult: ledger.pending)
         noteTranscript(event)
         if case .claude(.usage(let limit)) = event { host.setRateLimit(limit) }
 
@@ -639,17 +647,15 @@ final class ConversationRuntime {
                 generateTitle()
             }
             logLatency()
-            turnsInFlight = max(0, turnsInFlight - 1)
-            if !inFlight.isEmpty { inFlight.removeFirst() }
-            let sent = mirrorUsers.isEmpty ? nil : mirrorUsers.removeFirst()
-            if !isError, let sent { mirror(user: sent.user, files: sent.files) }
+            if !isError, !closed.isEmpty {
+                mirror(user: closed.map(\.user).joined(separator: "\n"), files: closed.flatMap(\.files))
+            }
             if state.pendingTurns == 0 { releaseTurn() }
             if !isError, !host.isCurrent(self) { unseenReply = true }
         }
         if case .exited = event {
             settled = true
-            turnsInFlight = 0
-            inFlight = []
+            ledger.reset()
             releaseTurn()
         }
         if isResult || state.phase != before { host.syncPill(for: self, result: isResult) }
@@ -740,7 +746,7 @@ final class ConversationRuntime {
     }
 
     private func rebuildAfterLostSession() -> Bool {
-        let pending = inFlight
+        let pending = ledger.inFlightEntries
         let store = transcript()
         guard !pending.isEmpty, let lost = state.sessionId,
               let memory = store.context(
@@ -752,14 +758,14 @@ final class ConversationRuntime {
         discardSession(keepingDeliveries: true)
         primeContext = memory
         if kind == .claude { rebuiltFrom = lost } else { forgetEngineSession = true }
-        state.pendingTurns = pending.count
+        state.pendingTurns = ledger.pending
         state.phase = .thinking(step: nil)
         appendSystem(ConversationTranscript.rebuiltNote(engine: kind))
         let previous = deliveryTail
         let deliveryId = UUID()
         let task = Task { [weak self] in
             await previous?.value
-            for item in pending { await self?.deliver(item.text, user: item.user, record: false) }
+            for item in pending { await self?.deliver(item.text, user: item.user, id: item.id, record: false) }
             self?.deliveries[deliveryId] = nil
         }
         deliveries[deliveryId] = task
