@@ -74,7 +74,7 @@ final class PhoneModeRecordAndCommandTests: XCTestCase {
     func testDisallowedToolsComeBeforeThePermissionPromptTool() {
         XCTAssertEqual(
             ClaudeCommand.arguments(model: nil, resume: "abc", disallowedTools: ["AskUserQuestion"]),
-            ["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
+            ["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--replay-user-messages",
              "--resume", "abc", "--disallowedTools", "AskUserQuestion", "--permission-prompt-tool", "stdio"]
         )
     }
