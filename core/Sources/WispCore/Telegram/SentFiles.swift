@@ -131,5 +131,33 @@ public enum ToolBlock {
         return nil
     }
 
-    public static func notice(reason: String) -> String { "Bloqueado pela trava do Wisp: \(reason)" }
+    public static func notice(reason: String) -> String {
+        let text = reason.lowercased()
+        func has(_ parts: String...) -> Bool { parts.contains { text.contains($0) } }
+        if has("hook guard-") && has(" failed") {
+            return "Uma trava do Wisp falhou ao conferir um comando, então ele foi barrado por segurança."
+        }
+        if has("wisp-mac helper", "osascript", "system events", "sending mail from a script", "email server", "wisp_approval_socket") {
+            return "O Wisp tentou um atalho que pularia a tua aprovação para enviar algo. A trava barrou, e ele segue pelo caminho que pede o teu ok."
+        }
+        if has("files reach the user only through wisp") {
+            return "O Wisp tentou te mandar um arquivo por fora do app. A trava barrou, e o arquivo vai pelo Wisp."
+        }
+        if has("calendar or reminders") {
+            return "O Wisp tentou mudar a tua Agenda ou os Lembretes por fora. A trava barrou, e ele segue pelo caminho que pede o teu ok."
+        }
+        if has("could destroy") {
+            return "O Wisp tentou um comando que poderia apagar dados ou mexer no Mac sem volta. A trava barrou."
+        }
+        if has("secrets folder", "token and config") {
+            return "O Wisp tentou abrir a pasta de segredos do Wisp. A trava barrou."
+        }
+        if has("learned-lessons") {
+            return "O Wisp tentou mudar as lições aprendidas, que só tu alteras. A trava barrou."
+        }
+        if has("brain harvest") {
+            return "A coleta do brain tentou mexer fora da pasta do brain. A trava barrou."
+        }
+        return "A trava do Wisp barrou um comando."
+    }
 }
