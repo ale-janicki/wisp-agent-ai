@@ -25,6 +25,7 @@ final class MeetingRecordingModel: ObservableObject {
     @Published private(set) var micPermission: PermissionState = .unknown
     @Published private(set) var systemPermission: PermissionState
     @Published private(set) var liveLagging = false
+    @Published private(set) var isPaused = false
     @Published private(set) var systemSilent = false
     @Published var sources: RecordingSources {
         didSet { defaults.set(sources.rawValue, forKey: Self.sourcesKey) }
@@ -50,6 +51,7 @@ final class MeetingRecordingModel: ObservableObject {
     private var systemWatch = SystemAudioWatch()
     private var pendingLink: MeetingEventContext?
     private var recordingEvent: MeetingEventInfo?
+    private var switchingPause = false
 
     private(set) var savingProgress: Double?
 
@@ -57,8 +59,11 @@ final class MeetingRecordingModel: ObservableObject {
     var isBusy: Bool { phase == .starting || phase == .finishing }
 
     var control: RecordControl {
-        RecordControl(phase: controlPhase, elapsed: startedAt.map { Date().timeIntervalSince($0) } ?? 0, canRecord: true, savingProgress: savingProgress)
+        RecordControl(phase: controlPhase, elapsed: elapsed, canRecord: true, savingProgress: savingProgress, isPaused: isPaused)
     }
+
+    /// Recorded time: stops counting while paused (and so does the limit).
+    var elapsed: TimeInterval { copilot.liveElapsed }
 
     var permissionCards: [PermissionCard] {
         MeetingPermissions.cards(mic: micPermission, system: systemPermission, sources: sources)
@@ -100,6 +105,21 @@ final class MeetingRecordingModel: ObservableObject {
         }
     }
 
+    func togglePause() {
+        guard phase == .recording, !switchingPause, let recorder else { return }
+        switchingPause = true
+        let wasPaused = isPaused
+        Task { [weak self] in
+            let outcome = await Task.detached {
+                Result<RecordingPause?, any Error> {
+                    if wasPaused { return try recorder.resume() }
+                    return try recorder.pause()
+                }
+            }.value
+            self?.pauseSwitched(outcome, resumed: wasPaused)
+        }
+    }
+
     func dismissMessage() { message = nil }
 
     func start(linkedTo context: MeetingEventContext? = nil) {
@@ -112,6 +132,8 @@ final class MeetingRecordingModel: ObservableObject {
         liveLines = []
         liveNotice = nil
         liveLagging = false
+        isPaused = false
+        switchingPause = false
         systemWatch.startRecording()
         systemSilent = false
         micLevel = 0
@@ -137,6 +159,7 @@ final class MeetingRecordingModel: ObservableObject {
         watchTask = nil
         phase = .finishing
         startedAt = nil
+        isPaused = false
         warnings = []
         micLevel = 0
         systemLevel = 0
@@ -225,7 +248,7 @@ final class MeetingRecordingModel: ObservableObject {
             library.select(nil)
             log.info("recording started")
             let limit = AppSettings.shared.settings.meetings.limitSeconds
-            copilot.begin(startedAt: now, limitSeconds: limit, brainRoot: PathsModel.shared.url(.brain).path) { [weak self] in
+            copilot.begin(limitSeconds: limit, brainRoot: PathsModel.shared.url(.brain).path) { [weak self] in
                 self?.stop(reason: "chegou ao limite de \(Self.limitText(limit)) de gravação.")
             }
             startLive(folder: folder, startedAt: now)
@@ -236,6 +259,27 @@ final class MeetingRecordingModel: ObservableObject {
             message = error.localizedDescription
             refreshPermissions()
             log.error("recording refused: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    private func pauseSwitched(_ outcome: Result<RecordingPause?, any Error>, resumed: Bool) {
+        switchingPause = false
+        guard phase == .recording else { return }
+        switch outcome {
+        case .success(let pause):
+            isPaused = !resumed
+            if resumed {
+                copilot.resumed(pause)
+                log.info("recording resumed")
+            } else if let pause {
+                micLevel = 0
+                systemLevel = 0
+                bridge.flush()
+                copilot.paused(pause)
+                log.info("recording paused")
+            }
+        case .failure(let error):
+            message = error.localizedDescription
         }
     }
 
@@ -333,8 +377,10 @@ final class MeetingRecordingModel: ObservableObject {
                 guard !Task.isCancelled, let self, let recorder = self.recorder else { return }
                 let levels = await Task.detached { recorder.levels() }.value
                 guard !Task.isCancelled, self.phase == .recording else { return }
-                self.micLevel = levels.mic
-                self.systemLevel = levels.system
+                if !self.isPaused {
+                    self.micLevel = levels.mic
+                    self.systemLevel = levels.system
+                }
                 guard tick % Self.healthEvery == 0 else { continue }
                 let status = await Task.detached { (recorder.health(), recorder.warnings()) }.value
                 guard !Task.isCancelled, self.phase == .recording else { return }
@@ -385,6 +431,8 @@ private final class LiveBridge: @unchecked Sendable {
     }
 
     func detach() { lock.withLock { target = nil } }
+
+    func flush() { lock.withLock { target }?.flushOpenSegments() }
 
     func push(_ samples: [Float], channel: AudioChannel, time: Double) {
         let current = lock.withLock { (target, aligner) }

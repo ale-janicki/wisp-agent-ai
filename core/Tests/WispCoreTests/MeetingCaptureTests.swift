@@ -717,4 +717,106 @@ final class MeetingCaptureTests: XCTestCase {
         }
         XCTAssertFalse(RecordingFolder.hasActiveRecording(in: root))
     }
+
+    // MARK: pause
+
+    private final class AudioLog: @unchecked Sendable {
+        private let lock = NSLock()
+        private var seen: [(AudioChannel, Int, Double)] = []
+        func add(_ channel: AudioChannel, _ count: Int, _ time: Double) { lock.withLock { seen.append((channel, count, time)) } }
+        var all: [(AudioChannel, Int, Double)] { lock.withLock { seen } }
+    }
+
+    func testPauseCutsTheSpanOutOfTheAudioAndResumeContinuesInTheSameFile() throws {
+        let mic = FakeSource(name: "mic"), system = FakeSource(name: "sys"), sink = MemorySink(), clock = ClockBox()
+        let log = AudioLog()
+        let base = root!
+        let rec = MeetingRecorder(
+            mic: mic, system: system, root: { base }, makeSink: { _ in sink }, converter: FakeConverter(),
+            diskSpace: FixedDisk(bytes: 50_000_000_000), unsupportedMessage: { nil }, clock: { clock.now },
+            autoPump: false, timeZone: utc, onAudio: { log.add($0, $1.count, $2) }
+        )
+        let folder = try rec.start(now: t0)
+        let second = CaptureFormat.sampleRate
+        for _ in 0..<10 {
+            mic.emit([Float](repeating: 0.5, count: second / 10))
+            system.emit([Float](repeating: -0.5, count: second / 10))
+        }
+        mic.skip(seconds: 0.01)
+        system.skip(seconds: 0.01)
+        clock.now = 1.005
+        rec.pump()
+        let pausedAt = t0.addingTimeInterval(1)
+        let pause = try rec.pause(now: pausedAt)
+        XCTAssertTrue(rec.isPaused)
+        XCTAssertEqual(pause.position, 1, accuracy: 0.0001)
+        XCTAssertEqual(sink.frames.count, second * 2, "everything before the pause is already written")
+        let heardBefore = log.all.count
+        for _ in 0..<60 {
+            mic.emit([Float](repeating: 0.9, count: second / 10))
+            system.emit([Float](repeating: -0.9, count: second / 10))
+            clock.now += 0.1
+            rec.pump()
+        }
+        XCTAssertEqual(sink.frames.count, second * 2)
+        XCTAssertEqual(log.all.count, heardBefore, "the transcriber hears nothing while paused")
+        XCTAssertEqual(rec.warnings(), [], "a paused source is not a stalled one")
+        XCTAssertEqual(rec.levels().mic, 0)
+        XCTAssertEqual(try RecordingFolder.read(in: folder).pauses?.count, 1, "the pause is on disk before the recording ends")
+        clock.now = 7.005
+        let resumed = try rec.resume(now: t0.addingTimeInterval(7))
+        XCTAssertEqual(resumed?.endedAt, t0.addingTimeInterval(7))
+        XCTAssertFalse(rec.isPaused)
+        for _ in 0..<10 {
+            mic.emit([Float](repeating: 0.25, count: second / 10))
+            system.emit([Float](repeating: -0.25, count: second / 10))
+        }
+        clock.now = 8
+        rec.pump()
+        let result = try rec.stop()
+        XCTAssertEqual(sink.frames.count, second * 4)
+        XCTAssertEqual(result.durationSeconds, 2, accuracy: 0.0001)
+        let left = sink.frames.enumerated().filter { $0.offset % 2 == 0 }.map(\.element)
+        XCTAssertEqual(left.prefix(second).filter { $0 != 0.5 }.count, 0)
+        XCTAssertEqual(left.suffix(second - 4_800).filter { $0 != 0.25 }.count, 0, "nothing from the paused span and no silence after the join")
+        XCTAssertFalse(left.contains(0.9))
+        let heard = log.all.filter { $0.0 == .mic }
+        let afterResume = heard.dropFirst(20)
+        XCTAssertEqual(afterResume.first?.2 ?? 0, 1.01, accuracy: 0.001, "timestamps continue from the pause point")
+        let meta = try RecordingFolder.read(in: folder)
+        XCTAssertEqual(meta.pauses, [RecordingPause(startedAt: pausedAt, endedAt: t0.addingTimeInterval(7), position: 1)])
+    }
+
+    func testStoppingWhilePausedFinishesNormallyAndClosesThePause() throws {
+        let mic = FakeSource(name: "mic"), system = FakeSource(name: "sys"), sink = MemorySink(), converter = FakeConverter(), clock = ClockBox()
+        let rec = recorder(mic: mic, system: system, sink: sink, converter: converter, clock: clock)
+        let folder = try rec.start(now: t0)
+        mic.emit([Float](repeating: 0.5, count: CaptureFormat.sampleRate))
+        system.emit([Float](repeating: -0.5, count: CaptureFormat.sampleRate))
+        clock.now = 1
+        try rec.pause(now: t0)
+        clock.now = 30
+        let result = try rec.stop()
+        XCTAssertNil(result.failure)
+        XCTAssertEqual(result.durationSeconds, 1, accuracy: 0.0001)
+        XCTAssertEqual(converter.calls.count, 1)
+        let meta = try RecordingFolder.read(in: folder)
+        XCTAssertEqual(meta.status, .transcribing)
+        XCTAssertNotNil(meta.pauses?.first?.endedAt)
+        XCTAssertThrowsError(try rec.pause()) { XCTAssertEqual($0 as? MeetingRecorderError, .notRecording) }
+    }
+
+    func testAPausedRecordingThatNeverEndedIsRecoveredLikeAnyOther() throws {
+        let mic = FakeSource(name: "mic"), system = FakeSource(name: "sys"), clock = ClockBox()
+        let rec = recorder(mic: mic, system: system, sink: MemorySink(), clock: clock)
+        let folder = try rec.start(now: t0)
+        try Data("pcm".utf8).write(to: RecordingFolder.rawAudioURL(in: folder))
+        clock.now = 1
+        try rec.pause(now: t0)
+        let found = RecordingRecovery.recover(root: root, converter: FakeConverter())
+        XCTAssertEqual(found.map(\.failure), [nil])
+        let meta = try RecordingFolder.read(in: folder)
+        XCTAssertEqual(meta.status, .interrupted)
+        XCTAssertEqual(meta.pauses?.count, 1)
+    }
 }

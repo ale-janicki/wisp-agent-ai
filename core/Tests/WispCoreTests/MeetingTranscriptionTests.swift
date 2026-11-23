@@ -278,6 +278,23 @@ final class MeetingTranscriptionTests: XCTestCase {
         XCTAssertEqual(recognizer.seen, [96_000])
     }
 
+    func testFlushOpenSegmentsFinalizesHalfSpokenSpeechAndKeepsTheTimelineGoing() async throws {
+        let recognizer = ScriptedRecognizer()
+        let store = MeetingTranscriptStore(startedAt: t0, engine: recognizer.engineName)
+        let live = LiveTranscriber(recognizer: recognizer, store: store, onUpdate: { _ in })
+        live.push16k(tone(seconds: 1), channel: .mic)
+        XCTAssertEqual(store.finals, [])
+        live.flushOpenSegments()
+        for _ in 0..<200 where store.finals.isEmpty { try await Task.sleep(for: .milliseconds(10)) }
+        XCTAssertEqual(store.finals.map(\.speaker), ["eu"])
+        XCTAssertEqual(recognizer.seen, [16_000])
+        live.push16k(tone(seconds: 1), channel: .mic)
+        let result = await live.finish()
+        XCTAssertEqual(result.map(\.speaker), ["eu", "eu"])
+        XCTAssertEqual(recognizer.seen, [16_000, 16_000])
+        XCTAssertEqual(result[1].start, 1, accuracy: 0.001)
+    }
+
     // MARK: pipeline end to end
 
     private func writeWAV(to url: URL, seconds: Double, micRange: ClosedRange<Double>, systemRange: ClosedRange<Double>) throws {

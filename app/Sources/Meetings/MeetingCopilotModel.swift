@@ -45,7 +45,6 @@ final class MeetingCopilotModel: ObservableObject {
     private let client: MeetingEngineClient
     private var segments: [MeetingSegment] = []
     private var checkedFinals = 0
-    private var startedAt: Date?
     private var ticker: Task<Void, Never>?
     private var assistTask: Task<Void, Never>?
     private var prepTask: Task<Void, Never>?
@@ -55,6 +54,7 @@ final class MeetingCopilotModel: ObservableObject {
     private var nudgeShownAt = 0.0
     private var lookupGate = LookupGate()
     private var limitClock = RecordingLimitClock(limit: 0)
+    private var pauses: [RecordingPause] = []
     private var brainRoot = ""
     private var onLimit: (@MainActor () -> Void)?
     private var bookmarkKey: HotKey?
@@ -65,24 +65,24 @@ final class MeetingCopilotModel: ObservableObject {
 
     var selectedEvent: MeetingEvent? { events.first { $0.id == selectedEventID } }
     var hasPrep: Bool { selectedEvent != nil || !prepText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-    var liveElapsed: Double { startedAt.map { Date().timeIntervalSince($0) } ?? 0 }
+    var liveElapsed: Double { isLive ? limitClock.active(at: Self.clock()) : 0 }
     static let bookmarkShortcut = "⌃⌥B"
 
     var transcriptLines: [TranscriptLine] {
-        MeetingBookmarks.lines(segments: segments, bookmarks: bookmarks)
+        MeetingBookmarks.lines(segments: segments, bookmarks: bookmarks, pauses: pauses)
     }
 
-    func begin(startedAt now: Date, limitSeconds: Double, brainRoot root: String, onLimit stop: @escaping @MainActor () -> Void) {
+    func begin(limitSeconds: Double, brainRoot root: String, onLimit stop: @escaping @MainActor () -> Void) {
         end()
         assistOn = false
         nudgesOn = false
         brainOn = false
         brainOthersOn = false
-        startedAt = now
         segments = []
         checkedFinals = 0
         stats = MeetingStats(metrics: MeetingMetrics(), ongoing: nil, lastQuestionAt: nil)
         bookmarks = []
+        pauses = []
         nudges = []
         nudgeShownAt = 0
         brainHits = []
@@ -122,7 +122,6 @@ final class MeetingCopilotModel: ObservableObject {
         bookmarkKey = nil
         onLimit = nil
         isLive = false
-        startedAt = nil
         nudges = []
     }
 
@@ -134,6 +133,7 @@ final class MeetingCopilotModel: ObservableObject {
         prepText = ""
         prepMessage = nil
         segments = []
+        pauses = []
         return snapshot
     }
 
@@ -148,6 +148,20 @@ final class MeetingCopilotModel: ObservableObject {
         let fresh = Array(finals[checkedFinals...])
         checkedFinals = finals.count
         lookup(EntityDetector.candidates(in: fresh, includeOthers: brainOthersOn))
+    }
+
+    /// The recording was paused: the live clock and the limit stop counting until `resumed`.
+    func paused(_ pause: RecordingPause) {
+        guard isLive else { return }
+        limitClock.pause(at: Self.clock())
+        pauses = pauses.filter { $0.startedAt != pause.startedAt } + [pause]
+    }
+
+    func resumed(_ pause: RecordingPause?) {
+        guard isLive else { return }
+        limitClock.resume(at: Self.clock())
+        guard let pause else { return }
+        pauses = pauses.filter { $0.startedAt != pause.startedAt } + [pause]
     }
 
     func addBookmark() {

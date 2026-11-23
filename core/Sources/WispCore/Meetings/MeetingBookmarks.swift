@@ -16,19 +16,24 @@ public enum MeetingBookmarks {
     public static let linesBefore = 3
     public static let linesAfter = 2
 
-    public static func lines(segments: [MeetingSegment], bookmarks: [MeetingBookmark]) -> [TranscriptLine] {
-        let ordered = bookmarks.sorted { ($0.time, $0.id) < ($1.time, $1.id) }
+    public static func lines(
+        segments: [MeetingSegment], bookmarks: [MeetingBookmark], pauses: [RecordingPause] = [], timeZone: TimeZone = .current
+    ) -> [TranscriptLine] {
+        let pauseLines = pauses.map { (time: $0.position, line: TranscriptLine(pause: $0, timeZone: timeZone)) }
+        let marks = bookmarks.map { (time: $0.time, id: $0.id, line: TranscriptLine(bookmark: $0)) }
+            + pauseLines.map { (time: $0.time, id: $0.line.id, line: $0.line) }
+        let ordered = marks.sorted { ($0.time, $0.id) < ($1.time, $1.id) }
         var out: [TranscriptLine] = []
         var next = 0
         for segment in segments {
             while next < ordered.count, ordered[next].time < segment.start {
-                out.append(TranscriptLine(bookmark: ordered[next]))
+                out.append(ordered[next].line)
                 next += 1
             }
             out.append(TranscriptLine(segment))
         }
         while next < ordered.count {
-            out.append(TranscriptLine(bookmark: ordered[next]))
+            out.append(ordered[next].line)
             next += 1
         }
         return out

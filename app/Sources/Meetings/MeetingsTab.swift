@@ -284,22 +284,60 @@ private struct RecordButton: View {
     }
 }
 
+private struct PauseButton: View {
+    @ObservedObject var model: MeetingRecordingModel
+
+    var body: some View {
+        let control = model.control
+        if let title = control.pauseTitle {
+            Button {
+                model.togglePause()
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: control.isPaused ? "play.fill" : "pause.fill")
+                    Text(title)
+                        .lineLimit(1)
+                }
+                .fixedSize()
+            }
+            .buttonStyle(CapsuleButtonStyle(kind: .ghost))
+            .help(control.isPaused ? "Volta a gravar no mesmo arquivo." : "Para de gravar sem encerrar. O tempo parado não entra no áudio nem no limite.")
+        }
+    }
+}
+
 private struct RecorderBar: View {
     @ObservedObject var model: MeetingRecordingModel
 
     var body: some View {
-        HStack(spacing: Theme.Space.s) {
-            RecordButton(model: model)
-            if let startedAt = model.startedAt {
-                TimelineView(.periodic(from: startedAt, by: 1)) { context in
-                    Text(ElapsedFormat.clock(context.date.timeIntervalSince(startedAt)))
-                        .font(Theme.Font.captionMono)
-                        .foregroundStyle(Theme.textPrimary)
-                        .lineLimit(1)
-                        .fixedSize()
+        if let startedAt = model.startedAt {
+            VStack(alignment: .leading, spacing: Theme.Space.s) {
+                HStack(spacing: Theme.Space.s) {
+                    RecordButton(model: model)
+                    PauseButton(model: model)
                 }
-                LevelMeter(bar: LevelBar(level: max(model.micLevel, model.systemLevel), active: model.isRecording))
-            } else {
+                HStack(spacing: Theme.Space.s) {
+                    TimelineView(.periodic(from: startedAt, by: 1)) { _ in
+                        Text(ElapsedFormat.clock(model.elapsed))
+                            .font(Theme.Font.captionMono)
+                            .foregroundStyle(model.isPaused ? Theme.textTertiary : Theme.textPrimary)
+                            .lineLimit(1)
+                            .fixedSize()
+                    }
+                    if model.isPaused {
+                        Text("Pausado")
+                            .font(Theme.Font.caption)
+                            .foregroundStyle(Theme.textTertiary)
+                            .lineLimit(1)
+                        Spacer(minLength: 0)
+                    } else {
+                        LevelMeter(bar: LevelBar(level: max(model.micLevel, model.systemLevel), active: model.isRecording))
+                    }
+                }
+            }
+        } else {
+            HStack(spacing: Theme.Space.s) {
+                RecordButton(model: model)
                 Spacer(minLength: 0)
                 if model.phase == .idle {
                     SourceMenu(selection: $model.sources)
@@ -726,18 +764,18 @@ private struct TranscriptLineView: View {
     let line: TranscriptLine
 
     var body: some View {
-        if line.isBookmark {
+        if line.isBookmark || line.isPause {
             HStack(spacing: Theme.Space.s) {
                 Text(line.time)
                     .font(Theme.Font.captionMono)
                     .foregroundStyle(Theme.textTertiary)
                     .frame(width: 44, alignment: .trailing)
-                Image(systemName: "bookmark.fill")
+                Image(systemName: line.isPause ? "pause.fill" : "bookmark.fill")
                     .font(.system(size: 10))
-                    .foregroundStyle(Theme.accent)
+                    .foregroundStyle(line.isPause ? Theme.textTertiary : Theme.accent)
                 Text(line.text)
                     .font(Theme.Font.caption)
-                    .foregroundStyle(Theme.accentText)
+                    .foregroundStyle(line.isPause ? Theme.textSecondary : Theme.accentText)
                 Rectangle().fill(Theme.stroke).frame(height: 1)
             }
         } else {

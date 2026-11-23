@@ -87,6 +87,7 @@ public final class MeetingRecorder: @unchecked Sendable {
         var silence = SilenceDetector()
         var warnings: [RecordingWarning] = []
         var framesWritten = 0
+        var gate = CaptureGate()
         var micLevel: Float = 0
         var systemLevel: Float = 0
         var failure: String?
@@ -170,10 +171,48 @@ public final class MeetingRecorder: @unchecked Sendable {
             ending.timer = nil
             stopSources()
             pumpOnWriter(ending, flush: true)
+            closeOpenPause(ending, at: Date())
             session = nil
             try? ending.sink.finish()
             ending.meta.durationSeconds = Double(ending.framesWritten) / Double(CaptureFormat.sampleRate)
             try? RecordingFolder.write(ending.meta, in: ending.folder)
+        }
+    }
+
+    public var isPaused: Bool { writer.sync { session?.gate.isPaused ?? false } }
+
+    /// Stops feeding the files and the live transcriber until `resume`. The devices keep running (so the
+    /// microphone indicator stays on); their buffers are read and dropped. Everything captured before the call has
+    /// been written and handed to `onAudio` when it returns. Returns the pause as recorded in `meta.json`.
+    @discardableResult
+    public func pause(now: Date = Date()) throws -> RecordingPause {
+        try writer.sync {
+            guard let current = session else { throw MeetingRecorderError.notRecording }
+            if current.gate.isPaused, let open = current.meta.pauses?.last { return open }
+            pumpOnWriter(current, flush: true)
+            current.gate.pause(at: clock())
+            current.micLevel = 0
+            current.systemLevel = 0
+            let made = RecordingPause(startedAt: now, position: Double(current.framesWritten) / Double(CaptureFormat.sampleRate))
+            current.meta.pauses = (current.meta.pauses ?? []) + [made]
+            try? RecordingFolder.write(current.meta, in: current.folder)
+            return made
+        }
+    }
+
+    /// Continues writing to the same files. The paused span is cut out of the audio, not filled with silence.
+    @discardableResult
+    public func resume(now: Date = Date()) throws -> RecordingPause? {
+        try writer.sync {
+            guard let current = session else { throw MeetingRecorderError.notRecording }
+            guard current.gate.isPaused else { return nil }
+            let at = clock()
+            current.gate.resume(at: at)
+            current.micWatch = StallWatchdog()
+            current.systemWatch = StallWatchdog()
+            _ = current.micWatch.observe(totalFrames: current.micLane.frames, now: at)
+            _ = current.systemWatch.observe(totalFrames: current.systemLane.frames, now: at)
+            return closeOpenPause(current, at: now)
         }
     }
 
@@ -250,6 +289,7 @@ public final class MeetingRecorder: @unchecked Sendable {
         ending.timer = nil
         stopSources()
         pumpOnWriter(ending, flush: true)
+        closeOpenPause(ending, at: Date())
         session = nil
         do {
             try ending.sink.finish()
@@ -281,6 +321,15 @@ public final class MeetingRecorder: @unchecked Sendable {
         return RecordingResult(folder: ending.folder, audioURL: audio, durationSeconds: duration, failure: ending.failure)
     }
 
+    @discardableResult
+    private func closeOpenPause(_ current: Session, at date: Date) -> RecordingPause? {
+        guard var pauses = current.meta.pauses, let last = pauses.last, last.endedAt == nil else { return nil }
+        pauses[pauses.count - 1].endedAt = date
+        current.meta.pauses = pauses
+        try? RecordingFolder.write(current.meta, in: current.folder)
+        return pauses[pauses.count - 1]
+    }
+
     private func stopSources() {
         if sources.usesMic { mic.stop() }
         if sources.usesSystem { system.stop() }
@@ -309,27 +358,30 @@ public final class MeetingRecorder: @unchecked Sendable {
         var micPeak: Float = 0
         var systemPeak: Float = 0
         while current.micRing.pop({ slot in
+            guard let time = current.gate.admit(slot.time) else { return }
             let mono = current.micLane.mono(slot)
             micPeak = max(micPeak, SignalLevel.rms(mono))
-            onAudio?(.mic, mono, slot.time)
-            current.mixer.push(mic: mono, at: slot.time)
+            onAudio?(.mic, mono, time)
+            current.mixer.push(mic: mono, at: time)
         }) {}
         while current.systemRing.pop({ slot in
+            guard let time = current.gate.admit(slot.time) else { return }
             let mono = current.systemLane.mono(slot)
             systemPeak = max(systemPeak, SignalLevel.rms(mono))
             current.silence.feed(mono)
-            onAudio?(.system, mono, slot.time)
-            current.mixer.push(system: mono, at: slot.time)
+            onAudio?(.system, mono, time)
+            current.mixer.push(system: mono, at: time)
         }) {}
         current.micLevel = max(SignalLevel.normalized(rms: micPeak), current.micLevel * Self.levelDecay)
         current.systemLevel = max(SignalLevel.normalized(rms: systemPeak), current.systemLevel * Self.levelDecay)
         let now = clock()
-        let micStalled = sources.usesMic && current.micWatch.observe(totalFrames: current.micLane.frames, now: now)
-        let systemStalled = sources.usesSystem && current.systemWatch.observe(totalFrames: current.systemLane.frames, now: now)
+        let live = !current.gate.isPaused
+        let micStalled = live && sources.usesMic && current.micWatch.observe(totalFrames: current.micLane.frames, now: now)
+        let systemStalled = live && sources.usesSystem && current.systemWatch.observe(totalFrames: current.systemLane.frames, now: now)
         var raised: Set<RecordingWarning> = []
         if micStalled { raised.insert(.micStalled) }
         if systemStalled { raised.insert(.systemStalled) }
-        if sources.usesSystem, current.silence.isSilent, !systemStalled { raised.insert(.systemSilent) }
+        if live, sources.usesSystem, current.silence.isSilent, !systemStalled { raised.insert(.systemSilent) }
         if current.micRing.overrunCount > 0 || current.systemRing.overrunCount > 0 { raised.insert(.overrun) }
         current.warnings = RecordingWarning.allCases.filter(raised.contains)
         let frames = current.mixer.pull(flush: flush)
