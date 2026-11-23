@@ -1,7 +1,7 @@
-import pytest
 import json
 import tomllib
 
+import pytest
 from wisp.cli import main
 from wisp.config import WispConfig, save_config
 from wisp.doctor import run_doctor
@@ -9,6 +9,13 @@ from wisp.engines import read_active, write_active
 from wisp.paths import WispPaths
 from wisp.runner import FakeRunner, RunResult
 from wisp.setup.codex import render_agents_block, render_config_block, sync_codex
+
+
+@pytest.fixture(autouse=True)
+def persona_block_installed(monkeypatch):
+    """These tests cover the persona block (source `assistant`); the soul-injected path is in test_soul.py."""
+    monkeypatch.setattr("wisp.setup.harness.soul_source", lambda paths: "assistant")
+
 
 CONTRACT = __import__("pathlib").Path(__file__).parent / "fixtures/contract"
 

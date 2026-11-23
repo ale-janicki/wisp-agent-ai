@@ -15,6 +15,10 @@ What Wisp installs into a new user's `~/.claude`, and what it leaves out. Source
 | `harness/skills/save-to-brain/SKILL.md` | `skills/save-to-brain/SKILL.md` | Files into `{{BRAIN_DIR}}/arquivos/`; dropped the iCloud, PC-only, tax, company and chat-attachment specifics |
 | `harness/commands/diagnose.md` | `commands/diagnose.md` | Owner became `{{USER_NAME}}`; dropped the author's stack-status tool, the plugin reference and the Portuguese trigger phrases |
 
+## Soul and the persona block
+
+`claude-md-block.md` is also the template of the soul: `wisp soul render` fills it (or the user's `~/Wisp/agente.md` when it exists), adds a "Tom" section from `soul.tone` and `soul.emojis` and a "Regras extras" section from `soul.extra`, and the app, the bot and the local engine inject that text. When `soul.source` is `wisp` or `both` (default `wisp`, or `assistant` when `~/.claude` is managed outside Wisp), `wisp harness sync` no longer writes this block into `~/.claude/CLAUDE.md` or `~/.codex/AGENTS.md`; everything else in this manifest is still installed. A block installed earlier stays until the user removes it.
+
 ## Excluded
 
 | Item | Reason |
