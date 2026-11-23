@@ -3,16 +3,14 @@ from datetime import date
 from pathlib import Path
 
 from wisp.config import WispConfig
-from wisp.harness_merge import render_agente
 from wisp.local import guardrails
 from wisp.local.catalog import ModelEntry
-from wisp.setup.harness import _values
+from wisp.soul import fill, render as render_soul
+from wisp.soul_config import load_soul
 
 CONTEXT_TAG = re.compile(r"<(/?)contexto", re.IGNORECASE)
 
-LEFTOVER_PLACEHOLDER = re.compile(r"\{\{[A-Z_]+\}\}")
 SKILL_HEADER = re.compile(r"^(name|description):\s*(.+)$", re.MULTILINE)
-NO_BRAIN = "(sem brain configurado)"
 WEB_TOOLS = ("web_search", "web_fetch")
 CAPABILITIES = (
     (("web_search", "web_fetch"), "pesquisar e ler páginas na internet"),
@@ -40,12 +38,7 @@ def read_skills(folder: Path) -> list[tuple[str, str, Path]]:
 
 
 def render_agent(text: str, cfg: WispConfig) -> str:
-    values = _values(cfg)
-    values["PERSONA_NAME"] = values["PERSONA_NAME"] or "Wisp"
-    values["LANGUAGE"] = values["LANGUAGE"] or "pt-BR"
-    values["BRAIN_DIR"] = values["BRAIN_DIR"] or NO_BRAIN
-    values["TASKS_FILE"] = values["TASKS_FILE"] or f"{NO_BRAIN}/pendencias.md"
-    return LEFTOVER_PLACEHOLDER.sub("", render_agente(text, values)).strip()
+    return fill(text, cfg)
 
 
 def identity(model: ModelEntry | None, tag: str, tools: list[str]) -> str:
@@ -69,10 +62,7 @@ def capabilities(tools: list[str]) -> str:
 
 
 def system_prompt(folder: Path, cfg: WispConfig, tier: guardrails.Tier, tools: list[str], model: ModelEntry | None, tag: str) -> str:
-    try:
-        agent = render_agent((folder / "agente.md").read_text("utf-8"), cfg)
-    except (OSError, UnicodeDecodeError):
-        agent = ""
+    agent = render_soul(cfg, load_soul(), folder)
     skills = "\n".join(f"- {name}: {description} (leia {path} com read_file para usar)" for name, description, path in read_skills(folder))
     limits = (
         f"{identity(model, tag, tools)} Nível do modelo: {tier.label}.\n"

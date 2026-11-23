@@ -1,6 +1,8 @@
 import json
 from pathlib import Path
 
+import pytest
+
 from wisp.cli import main
 from wisp.config import WispConfig, load_config
 from wisp.harness_merge import BEGIN
@@ -12,6 +14,12 @@ from wisp.setup.profile_writer import set_telegram_block
 
 PNG = b"\x89PNG\r\n\x1a\n" + b"\0" * 16
 FIXTURE = Path(__file__).parent / "fixtures/contract/profile.json"
+
+
+@pytest.fixture(autouse=True)
+def persona_block_installed(monkeypatch):
+    """These tests cover the persona block (source `assistant`); the soul-injected path is in test_soul.py."""
+    monkeypatch.setattr("wisp.setup.harness.soul_source", lambda paths: "assistant")
 
 
 def _paths(home):

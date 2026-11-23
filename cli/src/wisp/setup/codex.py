@@ -1,19 +1,21 @@
 import json
 import os
+import shutil
 import tomllib
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 
 from wisp.config import WispConfig
 from wisp.send_gate import SOCKET_ENV
 from wisp.engines import read_active
-from wisp.fsops import atomic_write
+from wisp.fsops import atomic_write, ensure_dir
 from wisp.mac_control import READ_ONLY as MAC_READ_ONLY, TOOLS as MAC_TOOLS
-from wisp.harness_merge import END, block_digest, find_block, merge_block
+from wisp.harness_merge import END, block_digest, find_block, merge_block, remove_block
 from wisp.paths import WispPaths, resources_root
 from wisp.report import Detail
 from wisp.setup.folder import wisp_root
-from wisp.setup.harness import BRAIN_MCP_NAME, MAC_MCP_NAME, MANIFEST_NAME, MCP_NAME, _block, _file_mode, _load_manifest, _values
+from wisp.setup.harness import BRAIN_MCP_NAME, MAC_MCP_NAME, MANIFEST_NAME, MCP_NAME, _block, _file_mode, _load_manifest, _values, soul_injected, KEPT_NOTE, REMOVED_NOTE, WOULD_REMOVE_NOTE
 
 AGENTS_KEY = "codex/AGENTS.md#block"
 CONFIG_KEY = "codex/config.toml#block"
@@ -192,12 +194,20 @@ def sync_codex(paths: WispPaths, cfg: WispConfig, *, dry_run: bool) -> CodexSync
         return CodexSync("failed", [Detail("codex", 0, "o AGENTS.md ou o config.toml do Codex não é texto; nada foi alterado")])
 
     plans = []
+    retired: str | None = None
     block, problem = render_agents_block(cfg)
     if problem:
         result.details.append(Detail("agente", 0, problem))
     try:
-        plans.append((agents_path, AGENTS_KEY, user_agents, _merged(
-            user_agents, block, "<!-- wisp:begin -->", "<!-- wisp:end -->", "AGENTS.md", manifest.files.get(AGENTS_KEY))))
+        if not soul_injected(paths):
+            plans.append((agents_path, AGENTS_KEY, user_agents, _merged(
+                user_agents, block, "<!-- wisp:begin -->", "<!-- wisp:end -->", "AGENTS.md", manifest.files.get(AGENTS_KEY))))
+        else:          # the soul is injected into the conversation: no persona block is installed, an old one is retired
+            old = find_block(user_agents, "<!-- wisp:begin -->", "<!-- wisp:end -->", "AGENTS.md") if user_agents is not None else None
+            if old is not None and block_digest(old) == manifest.files.get(AGENTS_KEY):
+                retired = remove_block(user_agents, "<!-- wisp:begin -->", "<!-- wisp:end -->", "AGENTS.md")
+            elif old is not None:
+                result.details.append(Detail("alma", 0, KEPT_NOTE))
         outside = _outside_block(user_config) if user_config is not None else None
         foreign = outside is not None and _owns_server(outside)
         brain_foreign = outside is not None and _owns_server(outside, BRAIN_MCP_NAME)
@@ -236,13 +246,33 @@ def sync_codex(paths: WispPaths, cfg: WispConfig, *, dry_run: bool) -> CodexSync
     if problem:
         result.state = "failed"
         result.details.append(Detail("e-mail", 0, problem))
+    if retired is not None:
+        result.state = "updated"
+        pending[agents_path] = retired
+        if dry_run:
+            result.details.append(Detail("alma", 0, WOULD_REMOVE_NOTE))
     if dry_run:
         return result
+    if retired is not None:
+        saved = _backup_agents(paths, agents_path)
+        result.details.append(Detail("alma", 0, REMOVED_NOTE.format(backup=saved)))
+        manifest.files.pop(AGENTS_KEY, None)
     for path, text in pending.items():
         atomic_write(path, text.encode(), mode=_file_mode(path))
     if manifest != _load_manifest(manifest_path):
         atomic_write(manifest_path, json.dumps({"version": manifest.version, "files": manifest.files}, indent=2, sort_keys=True) + "\n")
     return result
+
+
+def _backup_agents(paths: WispPaths, agents_path: Path) -> Path:
+    base = paths.state / "backups" / f"codex-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
+    folder, suffix = base, 1
+    while folder.exists():
+        suffix += 1
+        folder = base.with_name(f"{base.name}-{suffix}")
+    ensure_dir(folder)
+    shutil.copy2(agents_path, folder / agents_path.name)
+    return folder
 
 
 def user_owned_servers(paths: WispPaths) -> frozenset[str]:

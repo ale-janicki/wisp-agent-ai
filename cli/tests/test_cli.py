@@ -6,6 +6,12 @@ from wisp.cli import main
 from wisp.paths import resources_root
 
 
+@pytest.fixture
+def persona_block_installed(monkeypatch):
+    """The persona block is written for source `assistant`; the soul-injected path is in test_soul.py."""
+    monkeypatch.setattr("wisp.setup.harness.soul_source", lambda paths: "assistant")
+
+
 def test_version(capsys):
     with pytest.raises(SystemExit) as e:
         main(["--version"])
@@ -90,7 +96,7 @@ def test_config_set_rejects_file_path(fake_home, monkeypatch, capsys):
     assert afile.read_text() == "x"
 
 
-def test_config_set_runs_sync(fake_home, monkeypatch, capsys):
+def test_config_set_runs_sync(fake_home, monkeypatch, capsys, persona_block_installed):
     runner = _fake_runner(monkeypatch)
     target = fake_home / "MeuWisp"
     brain = fake_home / "brain"
@@ -236,7 +242,7 @@ def test_config_set_brain_existing_dir_untouched(fake_home, monkeypatch, capsys)
     assert (vault / "sub/n.md").read_text() == "n"
 
 
-def test_config_set_sync_renders_from_new_folder(fake_home, monkeypatch, capsys):
+def test_config_set_sync_renders_from_new_folder(fake_home, monkeypatch, capsys, persona_block_installed):
     _fake_runner(monkeypatch)
     brain = fake_home / "brain"
     brain.mkdir()

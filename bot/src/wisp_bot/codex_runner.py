@@ -5,6 +5,7 @@ from typing import Awaitable, Callable
 
 from .claude_runner import (LIMITE_LINHA, TELEGRAM_STYLE, WISP_BIN, falha_de_auth, permission_mode, rotulo,
                             strip_status)
+from . import soul
 from .broker import SOCKET_ENV, Broker, PedirPermissao
 from .config import CURRENT as _CFG
 from .engine import Result, Status, run_process_status
@@ -235,6 +236,7 @@ async def run(prompt: str, *, session_id: str, cwd: str, started: bool, model: s
               no_tools: bool = False, on_event: Callable[[str], None] | None = None,
               on_text: Callable[[str], Awaitable[None] | None] | None = None,
               on_permission: PedirPermissao | None = None) -> Result:
+    extra_prompt = soul.append(extra_prompt, await soul.text("codex", WISP_BIN))
     broker = None
     if on_permission:
         try:
