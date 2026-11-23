@@ -88,6 +88,15 @@ enum BrainSidePanel: String, CaseIterable {
         case .tags: "Tags"
         }
     }
+
+    var icon: String {
+        switch self {
+        case .backlinks: "arrow.uturn.left"
+        case .outgoing: "link"
+        case .outline: "list.bullet.indent"
+        case .tags: "number"
+        }
+    }
 }
 
 @MainActor @Observable
