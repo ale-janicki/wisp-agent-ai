@@ -27,6 +27,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        Task.detached(priority: .utility) { _ = ClaudeLocator.cachedLoginShellPATH }
         TerminationSignal.routeToHandler()
         EngineConnectModel.removeOldCommandFiles()
         let source = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)

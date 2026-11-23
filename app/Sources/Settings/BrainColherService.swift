@@ -11,7 +11,7 @@ final class BrainColherService {
         scheduler = BrainColherScheduler {
             guard FileManager.default.isExecutableFile(atPath: wisp.path) else { return }
             let environment = BrainColher.environment(
-                wisp: wisp, base: ProcessInfo.processInfo.environment, loginPATH: ClaudeLocator.cachedLoginShellPATH)
+                wisp: wisp, base: ProcessInfo.processInfo.environment, loginPATH: ClaudeLocator.effectivePATH)
             if let counts = await BrainColher.run(wisp: wisp, environment: environment) {
                 log.info("colheita: colhidas=\(counts.harvested, privacy: .public) puladas=\(counts.skipped, privacy: .public)")
             } else {
