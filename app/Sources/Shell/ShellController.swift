@@ -27,6 +27,11 @@ final class ShellController: ObservableObject {
     let notices = NoticeCenter()
     let meetings = MeetingRecordingModel()
     private let panel = NotchPanel()
+    private(set) lazy var windowController: WispWindowController = {
+        let controller = WispWindowController(shell: self)
+        controller.onChange = { [weak self] in self?.windowChanged() }
+        return controller
+    }()
     private var anchorDisplayID: CGDirectDisplayID?
     private var openedByHover = false
     private var dwellTask: Task<Void, Never>?
@@ -54,6 +59,19 @@ final class ShellController: ObservableObject {
             self.openedByHover = false
             self.takeKey()
         }
+    }
+
+    // MARK: Window
+
+    var windowOpen: Bool { windowController.isOpen }
+
+    func openWindow() { windowController.show() }
+
+    /// The window took over (or gave back) the notch: fold an open panel and drop a pending hover.
+    private func windowChanged() {
+        dwellTask?.cancel()
+        dwellTask = nil
+        if windowOpen, state == .panel { show(restTarget()) }
     }
 
     // MARK: Notices
@@ -205,12 +223,20 @@ final class ShellController: ObservableObject {
 
     func toggle() {
         openedByHover = false
-        show(state == .panel ? restTarget() : .panel)
+        switch ShellSurface.toggle(panelOpen: state == .panel, windowOpen: windowOpen) {
+        case .openPanel: show(.panel)
+        case .closePanel: show(restTarget())
+        case .focusWindow: windowController.focus()
+        }
     }
 
     func pillClicked() {
         openedByHover = false
-        if state != .panel { show(.panel) } else { takeKey() }
+        switch ShellSurface.pillClick(panelOpen: state == .panel, windowOpen: windowOpen) {
+        case .openPanel: show(.panel)
+        case .focusPanel: takeKey()
+        case .focusWindow: windowController.focus()
+        }
     }
 
     private func reanchor() {
@@ -338,7 +364,9 @@ final class ShellController: ObservableObject {
         ) { monitors.append(m) }
         if let m = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: { [weak self] event in
             let handled = MainActor.assumeIsolated { () -> Bool in
-                guard let self, event.keyCode == 53, self.state != .rest else { return false }
+                guard let self, event.keyCode == 53 else { return false }
+                if self.windowController.owns(event) { return BrainModel.shared.dismissOverlay() }
+                guard self.state != .rest else { return false }
                 if self.state == .panel, BrainModel.shared.dismissOverlay() { return true }
                 self.show(self.state == .panel ? self.restTarget() : .rest)
                 return true
@@ -357,14 +385,14 @@ final class ShellController: ObservableObject {
         let p = NSEvent.mouseLocation
         switch state {
         case .rest:
-            let inside = !presentsNotice && restFrameContains(p)
+            let inside = ShellSurface.allowsHoverOpen(windowOpen: windowOpen) && !presentsNotice && restFrameContains(p)
             if inside, dwellTask == nil {
                 dwellTask = Task { [weak self] in
                     try? await Task.sleep(for: Self.dwell)
                     guard !Task.isCancelled, let self else { return }
                     self.dwellTask = nil
                     let still = self.restFrameContains(NSEvent.mouseLocation)
-                    guard still, self.state == .rest else { return }
+                    guard still, self.state == .rest, ShellSurface.allowsHoverOpen(windowOpen: self.windowOpen) else { return }
                     self.openedByHover = true
                     self.show(.panel)
                 }
