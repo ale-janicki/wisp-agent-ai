@@ -20,7 +20,7 @@ public enum BlockCommand {
         _ command: String,
         stdin: Data? = nil,
         timeout: TimeInterval = 5,
-        path: String? = ClaudeLocator.cachedLoginShellPATH,
+        path: String? = ClaudeLocator.effectivePATH,
         shell: String = "/bin/zsh"
     ) -> Result<Data, BlockCommandError> {
         var environment = ProcessInfo.processInfo.environment

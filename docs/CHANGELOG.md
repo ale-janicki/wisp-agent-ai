@@ -9,6 +9,10 @@ Entries are in descending chronological order (newest first).
 
 ## [Unreleased]
 
+### Fixed
+
+- Commands the app runs for blocks (Lembretes, Tarefas, meetings, brain) no longer fail with "command not found" when the login shell is slow to report its PATH at launch (for example right after an update): the app retries the lookup a few times and meanwhile uses a PATH with `~/.local/bin` and Homebrew, instead of keeping the bare launch PATH until restart.
+
 ## [0.4.5] - 2026-11-23
 
 - Version 0.4.5 (build 12).
