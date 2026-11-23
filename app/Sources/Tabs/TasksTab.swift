@@ -73,6 +73,7 @@ private struct TaskRow: View {
     let done: () -> Void
     let open: () -> Void
     @State private var hovering = false
+    @State private var hoveringCheck = false
 
     private var caption: String {
         [item.front, item.detail.isEmpty ? nil : item.detail].compactMap { $0 }.joined(separator: " · ")
@@ -105,8 +106,21 @@ private struct TaskRow: View {
                 }
             }
             Spacer(minLength: Theme.Space.xs)
-            if hovering || busy {
-                ConfirmAction(label: "Feito", question: "Apagar a linha?", busy: busy, action: done)
+            if busy {
+                ProgressView().controlSize(.small).frame(width: 24, height: 24)
+            } else {
+                ConfirmAction(label: "Apagar tarefa", question: "Apagar?", icon: "trash", action: done)
+                Button(action: done) {
+                    Image(systemName: hoveringCheck ? "checkmark.circle.fill" : "circle")
+                        .font(.system(size: 16, weight: .regular))
+                        .foregroundStyle(hoveringCheck ? Theme.accent : Theme.textTertiary)
+                        .frame(width: 24, height: 24)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .pointerStyle(.link)
+                .onHover { hoveringCheck = $0 }
+                .help("Marcar como feita")
             }
         }
         .padding(.horizontal, Theme.Space.m)
