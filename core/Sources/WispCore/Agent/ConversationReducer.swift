@@ -96,10 +96,14 @@ public enum ConversationReducer {
         return authMarkers.contains { lowered.contains($0) }
     }
 
-    public static func reduce(_ s: inout ConversationState, _ e: SessionEvent, statusPrefix: String?) {
+    /// `pendingAfterResult` is what the runtime's ledger says is still waiting once a `result`
+    /// closes its messages; the reducer makes no engine decision.
+    public static func reduce(
+        _ s: inout ConversationState, _ e: SessionEvent, statusPrefix: String?, pendingAfterResult: Int = 0
+    ) {
         switch e {
         case .claude(let event):
-            reduce(&s, event, statusPrefix: statusPrefix)
+            reduce(&s, event, statusPrefix: statusPrefix, pendingAfterResult: pendingAfterResult)
         case .exited(let code, let stderrTail):
             let tail = stderrTail.trimmingCharacters(in: .whitespacesAndNewlines)
             s.pendingTurns = 0
@@ -111,7 +115,9 @@ public enum ConversationReducer {
         }
     }
 
-    private static func reduce(_ s: inout ConversationState, _ event: ClaudeEvent, statusPrefix: String?) {
+    private static func reduce(
+        _ s: inout ConversationState, _ event: ClaudeEvent, statusPrefix: String?, pendingAfterResult: Int
+    ) {
         switch event {
         case .initialized(let sessionId, _, let subscription):
             if !sessionId.isEmpty { s.sessionId = sessionId }
@@ -127,6 +133,7 @@ public enum ConversationReducer {
         case .thinking:
             if s.phase == .idle { s.phase = .thinking(step: nil) }
         case .text(let rawText):
+            if s.phase == .idle { s.phase = .thinking(step: nil) }
             let text = TelegramHTML.markdown(rawText)
             if let last = s.messages.last, last.role == .assistant {
                 s.messages[s.messages.count - 1].text = last.text + "\n\n" + text
@@ -151,7 +158,7 @@ public enum ConversationReducer {
             s.rateLimit = rateLimit
         case .result(let sessionId, let text, let isError, let denials):
             if !sessionId.isEmpty { s.sessionId = sessionId }
-            s.pendingTurns = max(0, s.pendingTurns - 1)
+            s.pendingTurns = max(0, pendingAfterResult)
             s.approvals = []
             var denials = denials
             for tool in s.userDenials {
