@@ -105,20 +105,20 @@ struct SettingsView: View {
     private var pane: some View {
         switch section {
         case .appearance:
+            ProfileSettingsGroup()
             colors
             order
         case .model:
             EngineSettingsCard()
-            ModelPickerCard()
+            if EngineModel.shared.active == .local { ModelPickerCard() }
             PermissionSettingsCard()
-            TelegramSettingsGroup()
         case .notices:
             notices
         case .integrations:
             IntegrationsPane(media: media)
+            TelegramSettingsGroup()
         case .general:
             general
-            ProfileSettingsGroup()
             MeetingsSettingsGroup()
             BrainSettingsGroup()
             AgendaSettingsGroup()
