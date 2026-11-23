@@ -10,6 +10,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var terminationSignal: DispatchSourceSignal?
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        shell?.windowController.markQuitting()
         guard !QuitFlush.shared.isEmpty else { return .terminateNow }
         Task { @MainActor in
             await QuitFlush.shared.flushAll(timeout: QuitDeadline.flushTimeout)
@@ -118,6 +119,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         UpdateModel.shared.notices = shell.notices
         shell.start()
+        if AppSettings.shared.settings.windowMode { shell.openWindow() }
         shell.meetings.recoverInterrupted()
         #if DEBUG
         shell.runDebugArguments()

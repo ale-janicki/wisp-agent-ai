@@ -10,6 +10,7 @@ struct PanelView: View {
     @State private var listShown: Bool
     @State private var settingsTab: PanelTab?
     @State private var navCovered = false
+    @Environment(\.windowMode) private var windowMode
 
     #if DEBUG
     nonisolated(unsafe) static var snapshotNav = false
@@ -76,10 +77,21 @@ struct PanelView: View {
                             .foregroundStyle(Theme.textSecondary)
                     }
                 }
+                if !windowMode {
+                    Button {
+                        controller.openWindow()
+                    } label: {
+                        Image(systemName: "macwindow")
+                    }
+                    .buttonStyle(CircleButtonStyle(size: Theme.Control.compactHeight))
+                    .help("Abrir em janela (⌘⇧W)")
+                    .keyboardShortcut("w", modifiers: [.command, .shift])
+                    .padding(.leading, Theme.Space.s)
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            Color.clear.frame(width: controller.notchWidth + 2 * Theme.Space.xl)
+            Color.clear.frame(width: windowMode ? Theme.Space.xl : controller.notchWidth + 2 * Theme.Space.xl)
 
             Text(model.state.status ?? "")
                 .font(Theme.Font.caption)
