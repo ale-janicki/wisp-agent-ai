@@ -233,17 +233,26 @@ struct PanelView: View {
         ComposerView(
             text: $draft,
             placeholder: "Pergunte ao \(model.personaName)…",
-            disabled: model.inputBlocked || model.currentClosed,
+            disabled: model.inputBlocked,
             attachments: model.pendingAttachments,
             notice: model.attachmentNotice,
             onAttach: model.attach,
             onRemove: model.detach,
-            onSubmit: submit
+            onSubmit: submitFromHome
         )
     }
 
     private func submit() {
         if model.send(draft) { draft = "" }
+    }
+
+    private func submitFromHome() {
+        let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty || !model.pendingAttachments.isEmpty, !model.inputBlocked else { return }
+        if model.currentClosed { model.newConversation() }
+        guard model.send(draft) else { return }
+        draft = ""
+        controller.tab = .conversation
     }
 
     static let firstName: String = {
