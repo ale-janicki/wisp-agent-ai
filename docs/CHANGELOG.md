@@ -9,6 +9,10 @@ Entries are in descending chronological order (newest first).
 
 ## [Unreleased]
 
+## [0.4.8] - 2026-11-23
+
+- Version 0.4.8 (build 15).
+
 ### Added
 
 - Meeting alerts drop from the notch: an early one (10 min by default) and a near-start one (1 min) with an Entrar button, both adjustable in Settings > Agenda; the macOS notification is now opt-in.
