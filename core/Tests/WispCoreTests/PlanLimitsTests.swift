@@ -67,7 +67,26 @@ final class PlanLimitsTests: XCTestCase {
 
     func testWindowWithoutResetTimeStaysUsed() {
         let snapshot = PlanLimitsSnapshot(limit: RateLimit(fiveHour: RateLimitWindow(utilization: 0.8)), capturedAt: now)
-        XCTAssertEqual(snapshot.rows(now: now).map(\.state), [.used(percent: 80, resetsAt: nil, severity: .warning)])
+        XCTAssertEqual(snapshot.rows(now: now).first?.state, .used(percent: 80, resetsAt: nil, severity: .warning))
+    }
+
+    func testMissingWindowStillShowsItsRowAtZero() {
+        let onlyWeek = PlanLimitsSnapshot(limit: RateLimit(sevenDay: RateLimitWindow(utilization: 0.7)), capturedAt: now)
+        let rows = onlyWeek.rows(now: now)
+        XCTAssertEqual(rows.map(\.kind), [.session, .week])
+        XCTAssertEqual(rows[0].state, .used(percent: 0, resetsAt: nil, severity: .normal))
+        XCTAssertEqual(rows[1].state, .used(percent: 70, resetsAt: nil, severity: .normal))
+    }
+
+    func testNewestKeepsWindowsTheNewerSnapshotLacks() {
+        let session = RateLimitWindow(utilization: 0, resetsAt: Date(timeIntervalSince1970: 900))
+        let file = PlanLimitsSnapshot(limit: RateLimit(fiveHour: session, sevenDay: RateLimitWindow(utilization: 0.6)), capturedAt: Date(timeIntervalSince1970: 100))
+        let own = PlanLimitsSnapshot(limit: RateLimit(sevenDay: RateLimitWindow(utilization: 0.7)), capturedAt: Date(timeIntervalSince1970: 200))
+        let merged = PlanLimitsSnapshot.newest(file, own)
+        XCTAssertEqual(merged?.capturedAt, Date(timeIntervalSince1970: 200))
+        XCTAssertEqual(merged?.limit.fiveHour, session)
+        XCTAssertEqual(merged?.limit.sevenDay?.utilization ?? 0, 0.7, accuracy: 1e-9)
+        XCTAssertEqual(PlanLimitsSnapshot.newest(own, file), merged)
     }
 
     func testAgeCaption() {
