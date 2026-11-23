@@ -937,7 +937,7 @@ final class BrainModel {
             guard !Task.isCancelled else { return }
             let layout = RuntimeLayout(bundle: Bundle.main.bundleURL, home: FileManager.default.homeDirectoryForCurrentUser)
             let wisp = layout.wisp
-            let environment = BrainColher.environment(wisp: wisp, base: ProcessInfo.processInfo.environment, loginPATH: ClaudeLocator.cachedLoginShellPATH)
+            let environment = BrainColher.environment(wisp: wisp, base: ProcessInfo.processInfo.environment, loginPATH: ClaudeLocator.effectivePATH)
             let result = await Task.detached(priority: .userInitiated) {
                 BrainSearchClient.run(wisp: wisp, environment: environment, root: root, query: trimmed)
             }.value
