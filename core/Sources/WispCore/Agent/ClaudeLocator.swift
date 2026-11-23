@@ -136,12 +136,25 @@ public final class LoginPATHCache: @unchecked Sendable {
 
     private func store(_ value: String?) -> String? {
         guard let value, !value.isEmpty else { return nil }
-        lock.withLock { path = value }
-        return value
+        let merged = Self.withCommonFolders(value, home: NSHomeDirectory())
+        lock.withLock { path = merged }
+        return merged
+    }
+
+    public static func commonFolders(home: String) -> [String] {
+        ["\(home)/.local/bin", "/opt/homebrew/bin", "/opt/homebrew/sbin", "/usr/local/bin"]
+    }
+
+    public static func withCommonFolders(_ path: String, home: String) -> String {
+        var parts = path.split(separator: ":").map(String.init).filter { !$0.isEmpty }
+        for folder in commonFolders(home: home) where !parts.contains(folder) {
+            parts.append(folder)
+        }
+        return parts.joined(separator: ":")
     }
 
     public static func fallback(base: String?, home: String) -> String {
-        let common = ["\(home)/.local/bin", "/opt/homebrew/bin", "/opt/homebrew/sbin", "/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"]
+        let common = commonFolders(home: home) + ["/usr/bin", "/bin", "/usr/sbin", "/sbin"]
         var parts: [String] = []
         for entry in (base?.split(separator: ":").map(String.init) ?? []) + common where !entry.isEmpty && !parts.contains(entry) {
             parts.append(entry)
