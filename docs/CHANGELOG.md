@@ -11,7 +11,7 @@ Entries are in descending chronological order (newest first).
 
 ### Added
 
-- Reuniões: recordings already saved in the brain move to the Trash whole (audio, transcript and local note) after 7, 14 or 30 days, with the transcript link in the brain note replaced by a dated line; meetings without a brain note, failed ones and the one in use are never touched. Ajustes > Reuniões > "Apagar gravações antigas" turns it off.
+- Reuniões: an opt-in cleanup (Ajustes > Reuniões > "Apagar gravações antigas", off by default) moves recordings already saved in the brain to the Trash whole (audio, transcript and local note) after 7, 14 or 30 days, with the transcript link in the brain note replaced by a dated line; meetings without a brain note, failed ones and the one in use are never touched.
 
 ### Fixed
 
