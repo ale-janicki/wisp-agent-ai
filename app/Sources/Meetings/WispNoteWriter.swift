@@ -11,7 +11,7 @@ struct WispNoteWriter: MeetingNoteWriter {
         wisp = layout.wisp
         var environment = ProcessInfo.processInfo.environment.filter { !$0.key.hasPrefix("UV_") && $0.key != "PYTHONPATH" }
         environment["WISP_RESOURCES"] = layout.src.path
-        if let path = ClaudeLocator.cachedLoginShellPATH { environment["PATH"] = path }
+        environment["PATH"] = ClaudeLocator.effectivePATH
         self.environment = environment
     }
 

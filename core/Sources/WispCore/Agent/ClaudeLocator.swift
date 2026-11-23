@@ -55,7 +55,11 @@ public enum ClaudeLocator {
         return found
     }
 
-    public static var cachedLoginShellPATH: String? { LoginPATHCache.shared.value(fetch: { loginShellPATH() }) }
+    public static var cachedLoginShellPATH: String? { LoginPATHCache.shared.found(fetch: { loginShellPATH() }) }
+
+    public static var effectivePATH: String {
+        cachedLoginShellPATH ?? LoginPATHCache.fallback(base: ProcessInfo.processInfo.environment["PATH"], home: NSHomeDirectory())
+    }
 
     public static func loginShellPATH(shell: String = "/bin/zsh") -> String? {
         guard let path = runShell(shell, script: "printf %s \"$PATH\"", timeout: 5), !path.isEmpty else {
@@ -98,26 +102,42 @@ public final class LoginPATHCache: @unchecked Sendable {
     public static let maxAttempts = 3
 
     private let lock = NSLock()
-    private var found: String?
+    private var path: String?
     private var lastAttempt: Date?
     private var attempts = 0
+    private var retrying = false
 
     public init() {}
 
-    public func value(now: Date = Date(), base: String? = ProcessInfo.processInfo.environment["PATH"],
-                      home: String = NSHomeDirectory(), fetch: () -> String?) -> String {
+    public func found(now: Date = Date(), fetch: @escaping @Sendable () -> String?,
+                      retry: (@escaping @Sendable () -> Void) -> Void = { work in DispatchQueue.global(qos: .utility).async(execute: work) }) -> String? {
         lock.lock()
-        defer { lock.unlock() }
-        if let found { return found }
-        if attempts < Self.maxAttempts, lastAttempt.map({ now.timeIntervalSince($0) >= Self.retryInterval }) ?? true {
-            lastAttempt = now
-            attempts += 1
-            if let path = fetch(), !path.isEmpty {
-                found = path
-                return path
-            }
+        if let path {
+            lock.unlock()
+            return path
         }
-        return Self.fallback(base: base, home: home)
+        let first = attempts == 0
+        let due = attempts < Self.maxAttempts && !retrying
+            && (lastAttempt.map { now.timeIntervalSince($0) >= Self.retryInterval || now < $0 } ?? true)
+        if due {
+            attempts += 1
+            lastAttempt = now
+            if !first { retrying = true }
+        }
+        lock.unlock()
+        guard due else { return nil }
+        if first { return store(fetch()) }
+        retry { [weak self] in
+            _ = self?.store(fetch())
+            self?.lock.withLock { self?.retrying = false }
+        }
+        return nil
+    }
+
+    private func store(_ value: String?) -> String? {
+        guard let value, !value.isEmpty else { return nil }
+        lock.withLock { path = value }
+        return value
     }
 
     public static func fallback(base: String?, home: String) -> String {

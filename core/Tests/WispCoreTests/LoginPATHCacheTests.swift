@@ -2,41 +2,55 @@ import XCTest
 @testable import WispCore
 
 final class LoginPATHCacheTests: XCTestCase {
-    func testFoundPathIsCachedAndNotFetchedAgain() {
+    private let now = Date(timeIntervalSince1970: 1_000)
+    private func inline(_ work: @escaping @Sendable () -> Void) { work() }
+
+    func testFirstLookupRunsInlineAndIsCached() {
         let cache = LoginPATHCache()
-        var calls = 0
-        XCTAssertEqual(cache.value(fetch: { calls += 1; return "/a:/b" }), "/a:/b")
-        XCTAssertEqual(cache.value(fetch: { calls += 1; return "/c" }), "/a:/b")
-        XCTAssertEqual(calls, 1)
+        let calls = Counter()
+        XCTAssertEqual(cache.found(now: now, fetch: { calls.bump(); return "/a:/b" }, retry: inline), "/a:/b")
+        XCTAssertEqual(cache.found(now: now, fetch: { calls.bump(); return "/c" }, retry: inline), "/a:/b")
+        XCTAssertEqual(calls.value, 1)
     }
 
-    func testFailedFetchUsesFallbackAndRetriesLater() {
+    func testFailureReturnsNilAndRetriesOffTheCallerAfterTheInterval() {
         let cache = LoginPATHCache()
-        let start = Date(timeIntervalSince1970: 1_000)
-        var calls = 0
-        let first = cache.value(now: start, base: "/usr/bin:/bin", home: "/h", fetch: { calls += 1; return nil })
-        XCTAssertTrue(first.hasPrefix("/usr/bin:/bin:/h/.local/bin"))
-        XCTAssertTrue(first.contains("/opt/homebrew/bin"))
-        _ = cache.value(now: start.addingTimeInterval(5), base: nil, home: "/h", fetch: { calls += 1; return "/x" })
-        XCTAssertEqual(calls, 1, "no retry inside the interval")
-        let later = cache.value(now: start.addingTimeInterval(31), base: nil, home: "/h", fetch: { calls += 1; return "/x" })
-        XCTAssertEqual(later, "/x")
-        XCTAssertEqual(calls, 2)
-    }
-
-    func testFallbackHasNoDuplicates() {
-        let path = LoginPATHCache.fallback(base: "/usr/local/bin:/usr/bin", home: "/h")
-        let parts = path.split(separator: ":")
-        XCTAssertEqual(parts.count, Set(parts).count)
-        XCTAssertEqual(parts.first, "/usr/local/bin")
+        var scheduled: [@Sendable () -> Void] = []
+        let calls = Counter()
+        XCTAssertNil(cache.found(now: now, fetch: { calls.bump(); return nil }, retry: { scheduled.append($0) }))
+        XCTAssertNil(cache.found(now: now.addingTimeInterval(5), fetch: { calls.bump(); return "/x" }, retry: { scheduled.append($0) }))
+        XCTAssertEqual(calls.value, 1, "no retry inside the interval")
+        XCTAssertNil(cache.found(now: now.addingTimeInterval(31), fetch: { calls.bump(); return "/x" }, retry: { scheduled.append($0) }),
+                     "a retry never runs on the calling thread")
+        XCTAssertEqual(calls.value, 1)
+        XCTAssertEqual(scheduled.count, 1)
+        scheduled[0]()
+        XCTAssertEqual(calls.value, 2)
+        XCTAssertEqual(cache.found(now: now.addingTimeInterval(32), fetch: { calls.bump(); return "/y" }, retry: inline), "/x")
     }
 
     func testStopsRetryingAfterMaxAttempts() {
         let cache = LoginPATHCache()
-        var calls = 0
-        for step in 0..<6 {
-            _ = cache.value(now: Date(timeIntervalSince1970: Double(step) * 40), base: nil, home: "/h", fetch: { calls += 1; return nil })
+        let calls = Counter()
+        for step in 0..<8 {
+            _ = cache.found(now: now.addingTimeInterval(Double(step) * 40), fetch: { calls.bump(); return nil }, retry: inline)
         }
-        XCTAssertEqual(calls, LoginPATHCache.maxAttempts)
+        XCTAssertEqual(calls.value, LoginPATHCache.maxAttempts)
     }
+
+    func testFallbackKeepsBaseFirstAndHasNoDuplicates() {
+        let path = LoginPATHCache.fallback(base: "/usr/local/bin:/usr/bin", home: "/h")
+        let parts = path.split(separator: ":")
+        XCTAssertEqual(parts.count, Set(parts).count)
+        XCTAssertEqual(parts.first, "/usr/local/bin")
+        XCTAssertTrue(parts.contains("/h/.local/bin"))
+        XCTAssertTrue(parts.contains("/opt/homebrew/bin"))
+    }
+}
+
+private final class Counter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+    var value: Int { lock.withLock { count } }
+    func bump() { lock.withLock { count += 1 } }
 }
