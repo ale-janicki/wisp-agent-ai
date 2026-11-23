@@ -325,22 +325,22 @@ private struct RecordingIndicator: View {
     let warns: Bool
 
     var body: some View {
-        HStack(spacing: 3) {
-            Circle()
-                .fill(warns ? Theme.busy : Theme.error)
-                .frame(width: 6, height: 6)
-                .shadow(color: (warns ? Theme.busy : Theme.error).opacity(0.6), radius: 3)
-                .phaseAnimator([1.0, 0.35]) { dot, opacity in
-                    dot.opacity(opacity)
-                } animation: { _ in .easeInOut(duration: 0.8) }
-            TimelineView(.periodic(from: startedAt, by: 1)) { context in
-                Text(ElapsedFormat.clock(context.date.timeIntervalSince(startedAt)))
-                    .font(.system(size: 9, weight: .medium, design: .monospaced))
-                    .foregroundStyle(Theme.textPrimary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
-            }
-        }
-        .accessibilityLabel(warns ? "Gravando reunião, com aviso" : "Gravando reunião")
+        RecordingDot(warns: warns, size: 8)
+            .accessibilityLabel(warns ? "Gravando reunião, com aviso" : "Gravando reunião")
+    }
+}
+
+struct RecordingDot: View {
+    let warns: Bool
+    var size: CGFloat = 7
+
+    var body: some View {
+        Circle()
+            .fill(warns ? Theme.busy : Theme.error)
+            .frame(width: size, height: size)
+            .shadow(color: (warns ? Theme.busy : Theme.error).opacity(0.6), radius: 3)
+            .phaseAnimator([1.0, 0.35]) { dot, opacity in
+                dot.opacity(opacity)
+            } animation: { _ in .easeInOut(duration: 0.8) }
     }
 }

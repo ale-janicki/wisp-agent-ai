@@ -13,6 +13,10 @@ Entries are in descending chronological order (newest first).
 
 - Meeting alerts drop from the notch: an early one (10 min by default) and a near-start one (1 min) with an Entrar button, both adjustable in Settings > Agenda; the macOS notification is now opt-in.
 
+### Changed
+
+- Reuniões: while recording, the notch and the Reuniões tab show only a blinking red dot instead of the running time, so the tab name no longer wraps.
+
 ## [0.4.7] - 2026-11-23
 
 - Version 0.4.7 (build 14).
