@@ -107,6 +107,50 @@ final class OneConversationTests: XCTestCase {
         XCTAssertEqual(sections.telegram.map(\.id), [12, 7, 3, 9])
     }
 
+    private func searchHits(_ query: String, _ records: [ConversationRecord], topics: [TelegramTopic]? = nil) -> [ConversationHit] {
+        TelegramTopics.search(
+            query: query, sections: TelegramTopics.sections(allRecords: records, topics: topics),
+            allRecords: records, preview: { $0.lastPreview }, topicPreview: { _ in nil })
+    }
+
+    private func closedRecord(title: String, preview: String? = nil, closedAt: Double) -> ConversationRecord {
+        var r = record(UUID(), session: nil, title: title)
+        r.lastPreview = preview
+        r.closedAt = Date(timeIntervalSince1970: closedAt)
+        return r
+    }
+
+    func testAClosedRecordIsAbsentFromTheSectionsButFoundBySearchByTitleAndPreview() {
+        let closed = closedRecord(title: "Plano de viagem", preview: "reservar hotel", closedAt: 10)
+        let open = record(UUID(), session: "o", title: "Outra")
+        let sections = TelegramTopics.sections(allRecords: [open, closed], topics: nil)
+        XCTAssertEqual(sections.wisp.map(\.id), [open.id])
+        XCTAssertEqual(searchHits("viagem", [open, closed]).map(\.id), [closed.id.uuidString.lowercased()])
+        XCTAssertEqual(searchHits("hotel", [open, closed]).map(\.id), [closed.id.uuidString.lowercased()])
+    }
+
+    func testAnEmptyQueryReturnsNothingExtra() {
+        let closed = closedRecord(title: "Velha", closedAt: 1)
+        XCTAssertTrue(searchHits("", [closed, record(UUID(), session: "o")]).isEmpty)
+        XCTAssertTrue(searchHits("   ", [closed]).isEmpty)
+    }
+
+    func testSearchIgnoresCaseAndDiacritics() {
+        let closed = closedRecord(title: "Reunião de AÇÃO", closedAt: 1)
+        XCTAssertEqual(searchHits("reuniao de acao", [closed]).count, 1)
+        XCTAssertEqual(searchHits("REUNIÃO", [closed]).count, 1)
+    }
+
+    func testSearchListsOpenFirstThenClosedNewestFirst() {
+        let old = closedRecord(title: "nota velha", closedAt: 10)
+        let recent = closedRecord(title: "nota recente", closedAt: 99)
+        let open = record(UUID(), session: "o", title: "nota aberta")
+        let hits = searchHits("nota", [old, open, recent])
+        XCTAssertEqual(hits.map(\.id), [open, recent, old].map { $0.id.uuidString.lowercased() })
+        if case .closed = hits[0] { XCTFail("open first") }
+        if case .local = hits[1] { XCTFail("closed after open") }
+    }
+
     private func tg(_ threads: Int...) -> [String] { threads.map { TelegramTopics.pinKey(thread: $0) } }
 
     func testDraggingUnpinnedRowsKeepsPinnedIdsWhereTheyWereInTheSavedOrder() {
