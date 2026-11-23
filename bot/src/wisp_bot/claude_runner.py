@@ -3,7 +3,7 @@ import asyncio, json, logging, os, re, shutil, sys
 from pathlib import Path
 from typing import Awaitable, Callable
 
-from . import hosting
+from . import hosting, soul
 from .broker import SOCKET_ENV, Broker, _curto
 from .config import CURRENT as _CFG, config_path
 from .engine import Result, Status
@@ -268,6 +268,7 @@ async def run(prompt: str, *, session_id: str, cwd: str, started: bool,
               on_text: Callable[[str], Awaitable[None] | None] | None = None,
               on_permission: PedirPermissao | None = None) -> Result:
     global _auto_recusado
+    extra_prompt = soul.append(extra_prompt, await soul.text("claude", WISP_BIN))
     modo, fonte = permission_source()
     if modo == "auto" and _auto_recusado:
         modo, fonte = PERMISSAO_SEM_AUTO, f"{fonte}; a conta recusou auto"

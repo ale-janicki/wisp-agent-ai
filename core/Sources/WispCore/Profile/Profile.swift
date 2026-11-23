@@ -14,6 +14,49 @@ public struct Persona: Codable, Sendable, Equatable {
     }
 }
 
+public enum SoulSource: String, Codable, Sendable, CaseIterable {
+    /// The Wisp soul, edited in the app.
+    case wisp
+    /// The user's own assistant config (`~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`); Wisp injects nothing.
+    case assistant
+    /// The assistant config loads as usual and the Wisp soul is appended on top.
+    case both
+}
+
+public enum SoulTone: String, Codable, Sendable, CaseIterable {
+    case direto
+    case caloroso
+    case formal
+}
+
+/// Where the personality comes from and how it sounds. The CLI (`wisp soul render`) turns it into text; every field decodes tolerantly.
+public struct Soul: Codable, Sendable, Equatable {
+    /// nil until the user chooses: the CLI then picks `assistant` when `~/.claude` is managed outside Wisp, else `wisp`.
+    public var source: SoulSource?
+    public var tone: SoulTone
+    public var emojis: Bool
+    public var extra: String
+
+    public init(source: SoulSource? = nil, tone: SoulTone = .direto, emojis: Bool = false, extra: String = "") {
+        self.source = source
+        self.tone = tone
+        self.emojis = emojis
+        self.extra = extra
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case source, tone, emojis, extra
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        source = (try? container.decodeIfPresent(SoulSource.self, forKey: .source)) ?? nil
+        tone = (try? container.decodeIfPresent(SoulTone.self, forKey: .tone)) ?? .direto
+        emojis = (try? container.decodeIfPresent(Bool.self, forKey: .emojis)) ?? false
+        extra = (try? container.decodeIfPresent(String.self, forKey: .extra)) ?? ""
+    }
+}
+
 public struct AgentConfig: Codable, Sendable, Equatable {
     public var cwd: String
     public var model: String?
@@ -89,15 +132,17 @@ public struct Profile: Codable, Sendable, Equatable {
     public var persona: Persona
     public var agent: AgentConfig
     public var blocks: ProfileBlocks?
+    public var soul: Soul
 
-    public init(persona: Persona, agent: AgentConfig, blocks: ProfileBlocks? = nil) {
+    public init(persona: Persona, agent: AgentConfig, blocks: ProfileBlocks? = nil, soul: Soul = Soul()) {
         self.persona = persona
         self.agent = agent
         self.blocks = blocks
+        self.soul = soul
     }
 
     private enum CodingKeys: String, CodingKey {
-        case persona, agent, blocks
+        case persona, agent, blocks, soul
     }
 
     public init(from decoder: Decoder) throws {
@@ -105,6 +150,7 @@ public struct Profile: Codable, Sendable, Equatable {
         persona = try container.decode(Persona.self, forKey: .persona)
         agent = try container.decode(AgentConfig.self, forKey: .agent)
         blocks = try? container.decodeIfPresent(ProfileBlocks.self, forKey: .blocks)
+        soul = (try? container.decodeIfPresent(Soul.self, forKey: .soul)) ?? Soul()
     }
 
     public static let `default` = Profile(

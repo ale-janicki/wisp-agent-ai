@@ -86,6 +86,23 @@ def merge_block(user: str | None, block: str, begin: str, end: str, label: str) 
     return user[:start] + inner + user[start + len(existing) :]
 
 
+def remove_block(user: str, begin: str, end: str, label: str) -> str:
+    """`user` without the Wisp block and the blank line that separated it from the user's text."""
+    existing = find_block(user, begin, end, label)
+    if existing is None:
+        return user
+    start = user.index(existing)
+    head, tail = user[:start].rstrip("\r\n"), user[start + len(existing) :].lstrip("\r\n")
+    eol = detect_eol(user)
+    if head and tail:
+        return head + eol * 2 + tail
+    return head + eol if head else tail
+
+
+def remove_claude_md_block(user: str) -> str:
+    return remove_block(user, BEGIN, END, "CLAUDE.md")
+
+
 def current_block(user: str) -> str | None:
     return find_block(user, BEGIN, END, "CLAUDE.md")
 

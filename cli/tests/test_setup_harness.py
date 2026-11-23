@@ -1,12 +1,20 @@
 import hashlib
 import json
 
+import pytest
+
 from wisp.cli import main
 from wisp.config import WispConfig, save_config
 from wisp.harness_merge import render_agente
 from wisp.paths import WispPaths, resources_root
 from wisp.runner import FakeRunner
 from wisp.setup.harness import BRAIN_MCP_ALLOW, MAC_ALLOW, MCP_ALLOW, setup_harness
+
+
+@pytest.fixture(autouse=True)
+def persona_block_installed(monkeypatch):
+    """These tests cover the persona block (source `assistant`); the soul-injected path is in test_soul.py."""
+    monkeypatch.setattr("wisp.setup.harness.soul_source", lambda paths: "assistant")
 
 
 def _paths(home):

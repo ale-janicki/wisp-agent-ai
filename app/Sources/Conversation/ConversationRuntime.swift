@@ -367,6 +367,8 @@ final class ConversationRuntime {
             let mode = PermissionModel.shared.cliMode
             let context = agentContext()
             launchedContext = context
+            let soul = await soulText(for: kind)
+            guard gen == generation else { throw CancellationError() }
             let resume = prepareResume(kind: kind)
             let launch: EngineLaunch
             switch kind {
@@ -374,7 +376,8 @@ final class ConversationRuntime {
                 launch = EngineLaunch(
                     kind: .claude, executable: executable,
                     cwd: URL(fileURLWithPath: expandTilde(cwd ?? profile.agent.cwd)), model: profile.agent.model,
-                    resume: resume, claudePermissionMode: mode, instructions: context.prompt,
+                    resume: resume, claudePermissionMode: mode,
+                    instructions: SoulRenderer.appending(soul, to: context.prompt),
                     claudeSettingsPath: try guardSettingsPath(), disallowedTools: context.disallowedTools,
                     environment: context.environment)
             case .local:
@@ -390,7 +393,7 @@ final class ConversationRuntime {
                 launch = EngineLaunch(
                     kind: .codex, executable: executable, cwd: URL(fileURLWithPath: workspace), resume: resume,
                     permission: mode.flatMap(PermissionChoice.init(mode:)),
-                    instructions: context.prompt + AgentInstructions.codexNote,
+                    instructions: SoulRenderer.appending(soul, to: context.prompt + AgentInstructions.codexNote),
                     addDirs: CodexCommand.extraDirectories(
                         workspace: workspace, candidates: [wispDir, PathsModel.shared.url(.brain).path]),
                     environment: context.environment, wispBinary: wispBinary,
@@ -452,6 +455,30 @@ final class ConversationRuntime {
         EngineGuards.wispBinary(
             telegramBinary: host.telegram.wispBinary,
             layout: RuntimeLayout(bundle: Bundle.main.bundleURL, home: FileManager.default.homeDirectoryForCurrentUser))
+    }
+
+    /// The personality for a Claude or Codex session, rendered by the CLI (the local engine renders its own). Empty when the
+    /// user's own assistant supplies it. Taken at session start: an edit applies on the next one.
+    private func soulText(for kind: EngineKind) async -> String {
+        guard kind != .local, let wisp = resolvedWispBinary() else { return "" }
+        let environment = localEnvironment([:])
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        let layout = RuntimeLayout(bundle: Bundle.main.bundleURL, home: home)
+        let codexHome = ProcessInfo.processInfo.environment["CODEX_HOME"].flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0) }
+            ?? home.appendingPathComponent(".codex")
+        let files = [
+            ProfileLoader.defaultURL,
+            WispFolder.configURL(environment: ProcessInfo.processInfo.environment, home: home),
+            WispFolder.directory().appendingPathComponent("agente.md"),
+            layout.src.appendingPathComponent("harness/claude-md-block.md"),
+            home.appendingPathComponent(".claude/CLAUDE.md"),
+            codexHome.appendingPathComponent("AGENTS.md"),
+        ]
+        let state = SoulRenderer.managedElsewhere(home: home) ? "managed" : "own"
+        let engine = kind == .codex ? "codex" : "claude"
+        return await Task.detached {
+            SoulRenderer.text(wisp: URL(fileURLWithPath: wisp), environment: environment, engine: engine, watching: files, state: state)
+        }.value
     }
 
     private func localEnvironment(_ extra: [String: String]) -> [String: String] {
