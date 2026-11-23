@@ -22,6 +22,7 @@ Entries are in descending chronological order (newest first).
 
 ### Changed
 
+- Lembretes: each reminder shows a trash icon all the time (it was a "Resolver" button that only appeared on hover); it asks "Apagar?" and then removes the reminder through the configured resolve command.
 - Brain: the side panel tabs (Backlinks, Links, Tópicos, Tags) are icon buttons with the open panel's name under them instead of truncated words, and backlink previews and outline entries show plain text, without markdown markers, wikilink brackets or table pipes.
 - Agenda: the toolbar is lighter. "Entrar" is an icon-only button shown only when the next meeting has a link, and search, Disponibilidade and the Agenda settings moved into a single "…" menu; "/" still opens the search.
 - Conversa: when a Wisp guard blocks a command, the conversation shows a short Portuguese sentence for that guard (for example, that a shortcut skipping your approval was blocked) instead of the guard's English text cut at 160 characters; the agent still gets the full reason.

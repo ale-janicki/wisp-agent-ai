@@ -85,8 +85,8 @@ private struct ReminderRow: View {
                 }
             }
             Spacer(minLength: Theme.Space.xs)
-            if let resolve, hovering || busy {
-                ConfirmAction(label: "Resolver", question: "Resolver?", busy: busy, action: resolve)
+            if let resolve {
+                ConfirmAction(label: "Apagar lembrete", question: "Apagar?", busy: busy, icon: "trash", action: resolve)
             }
         }
         .padding(.horizontal, Theme.Space.m)
