@@ -130,6 +130,7 @@ struct ConfirmAction: View {
     let label: String
     let question: String
     var busy = false
+    var icon: String? = nil
     let action: () -> Void
     @State private var asking = false
 
@@ -149,6 +150,17 @@ struct ConfirmAction: View {
                 .buttonStyle(CapsuleButtonStyle(kind: .accent, size: .compact))
                 Button("Não") { asking = false }
                     .buttonStyle(CapsuleButtonStyle(kind: .ghost, size: .compact))
+            } else if let icon {
+                Button { asking = true } label: {
+                    Image(systemName: icon)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(Theme.textTertiary)
+                        .frame(width: 24, height: 24)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .pointerStyle(.link)
+                .help(label)
             } else {
                 Button(label) { asking = true }
                     .buttonStyle(CapsuleButtonStyle(kind: .ghost, size: .compact))
