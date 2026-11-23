@@ -56,6 +56,7 @@ final class AppSettings {
         update { settings in
             let order = settings.dashboardOrder
             let topicOrder = settings.telegramOrder
+            let pins = settings.pinnedConversations
             let capture = settings.clipboardCapture
             let spotify = settings.spotifyClientID
             let graph = settings.graph
@@ -69,6 +70,7 @@ final class AppSettings {
             settings = .default
             settings.dashboardOrder = order
             settings.telegramOrder = topicOrder
+            settings.pinnedConversations = pins
             settings.clipboardCapture = capture
             settings.spotifyClientID = spotify
             settings.graph = graph
@@ -92,6 +94,20 @@ final class AppSettings {
 
     func setTelegramOrder(_ order: [Int]) {
         update { $0.telegramOrder = order }
+    }
+
+    func setPinnedConversations(_ pins: [String]) {
+        update { $0.pinnedConversations = pins }
+    }
+
+    func togglePin(_ key: String) {
+        update { settings in
+            if settings.pinnedConversations.contains(key) {
+                settings.pinnedConversations.removeAll { $0 == key }
+            } else {
+                settings.pinnedConversations.append(key)
+            }
+        }
     }
 
     func restoreTelegramOrder() {

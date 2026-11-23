@@ -109,8 +109,12 @@ final class ConversationViewModel {
     }
 
     var sections: ConversationSections {
-        TelegramTopics.sections(allRecords: records, topics: telegram.loadedTopics, order: AppSettings.shared.settings.telegramOrder)
+        TelegramTopics.sections(allRecords: records, topics: telegram.loadedTopics, order: AppSettings.shared.settings.telegramOrder,
+            pins: AppSettings.shared.settings.pinnedConversations)
     }
+
+    func isPinned(_ key: String) -> Bool { AppSettings.shared.settings.pinnedConversations.contains(key) }
+    func togglePin(_ key: String) { AppSettings.shared.togglePin(key) }
 
     // MARK: Last-message preview
 

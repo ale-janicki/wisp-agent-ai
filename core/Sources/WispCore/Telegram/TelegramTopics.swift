@@ -117,12 +117,12 @@ public struct TelegramEntry: Identifiable, Sendable, Equatable {
     public var record: ConversationRecord?
 
     public var id: Int { topic.thread }
+    public var pinKey: String { TelegramTopics.pinKey(thread: topic.thread) }
 }
 
 public struct ConversationSections: Sendable, Equatable {
     public var wisp: [ConversationRecord]
     public var telegram: [TelegramEntry]
-    public var closed: [ConversationRecord] = []
 }
 
 public enum TelegramTopics {
@@ -171,14 +171,62 @@ public enum TelegramTopics {
         return fresh + kept
     }
 
-    public static func sections(allRecords: [ConversationRecord], topics: [TelegramTopic]?, order: [Int] = []) -> ConversationSections {
-        var sections = sections(records: allRecords.filter { !$0.isClosed }, topics: topics, order: order)
-        sections.closed = allRecords.filter(\.isClosed).sorted { ($0.closedAt ?? .distantPast) > ($1.closedAt ?? .distantPast) }
-        return sections
+    /// Pin identifiers: a Local conversation by its own id (the app owns it), a Telegram topic by its thread
+    /// (the bot keeps it across relaunches and rewrites of its conversations file, while the linked record can change).
+    public static func pinKey(conversation id: UUID) -> String { id.uuidString.lowercased() }
+    public static func pinKey(thread: Int) -> String { "tg:\(thread)" }
+
+    /// Pinned items first, in pin order; everything else keeps its order. Pins with no item are ignored.
+    public static func pinnedFirst<Item>(_ items: [Item], pins: [String], key: (Item) -> String) -> [Item] {
+        guard !pins.isEmpty else { return items }
+        var rank: [String: Int] = [:]
+        for (index, pin) in pins.enumerated() where rank[pin] == nil { rank[pin] = index }
+        let pinned = items.filter { rank[key($0)] != nil }.sorted { rank[key($0)]! < rank[key($1)]! }
+        return pinned + items.filter { rank[key($0)] == nil }
     }
 
-    public static func sections(records: [ConversationRecord], topics: [TelegramTopic]?, order: [Int] = []) -> ConversationSections {
-        guard let topics else { return ConversationSections(wisp: records, telegram: []) }
+    /// The result of a drag in the Telegram list: a new saved topic order, or a new pin order, never both.
+    public struct DragResult: Equatable, Sendable {
+        public var order: [Int]
+        public var pins: [String]
+    }
+
+    /// Applies a drag over the shown (pinned-first) thread ids. `pinnedCount` is the size of the pinned block.
+    /// Inside the unpinned block only the unpinned ids move in `order`, pinned ids keep their slots there;
+    /// inside the pinned block only the Telegram pins are reordered; a drop across the boundary changes nothing (nil).
+    public static func applyDrag(shown: [Int], final: [Int], pinnedCount: Int, order: [Int], pins: [String]) -> DragResult? {
+        guard final != shown, final.count == shown.count, Set(final) == Set(shown),
+              (0...shown.count).contains(pinnedCount),
+              Set(final.prefix(pinnedCount)) == Set(shown.prefix(pinnedCount)) else { return nil }
+        if Array(final.prefix(pinnedCount)) != Array(shown.prefix(pinnedCount)) {
+            let moved = final.prefix(pinnedCount).map { pinKey(thread: $0) }
+            let members = Set(moved)
+            var queue = moved[...]
+            let newPins = pins.map { members.contains($0) ? queue.popFirst() ?? $0 : $0 }
+            return DragResult(order: order, pins: newPins)
+        }
+        let unpinned = Array(final.dropFirst(pinnedCount))
+        let members = Set(unpinned)
+        var seen = Set<Int>()
+        let saved = order.filter { seen.insert($0).inserted }
+        let fresh = shown.dropFirst(pinnedCount).filter { !seen.contains($0) }
+        var queue = unpinned[...]
+        let merged = (fresh + saved).map { members.contains($0) ? queue.popFirst() ?? $0 : $0 }
+        return DragResult(order: merged, pins: pins)
+    }
+
+    public static func sections(
+        allRecords: [ConversationRecord], topics: [TelegramTopic]?, order: [Int] = [], pins: [String] = []
+    ) -> ConversationSections {
+        sections(records: allRecords.filter { !$0.isClosed }, topics: topics, order: order, pins: pins)
+    }
+
+    public static func sections(
+        records: [ConversationRecord], topics: [TelegramTopic]?, order: [Int] = [], pins: [String] = []
+    ) -> ConversationSections {
+        guard let topics else {
+            return ConversationSections(wisp: pinnedFirst(records, pins: pins) { pinKey(conversation: $0.id) }, telegram: [])
+        }
         var linked: [Int: ConversationRecord] = [:]
         var taken = Set<UUID>()
         for topic in topics {
@@ -190,8 +238,9 @@ public enum TelegramTopics {
             taken.formUnion((byConversation + bySession).map(\.id))
         }
         return ConversationSections(
-            wisp: records.filter { !taken.contains($0.id) },
-            telegram: ordered(topics, saved: order).map { TelegramEntry(topic: $0, record: linked[$0.thread]) }
+            wisp: pinnedFirst(records.filter { !taken.contains($0.id) }, pins: pins) { pinKey(conversation: $0.id) },
+            telegram: pinnedFirst(
+                ordered(topics, saved: order).map { TelegramEntry(topic: $0, record: linked[$0.thread]) }, pins: pins, key: \.pinKey)
         )
     }
 }
