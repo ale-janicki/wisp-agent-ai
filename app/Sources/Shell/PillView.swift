@@ -213,8 +213,8 @@ extension PillView {
 
     private var statusWing: some View {
         HStack(spacing: 5) {
-            if let startedAt = meetings.startedAt {
-                RecordingIndicator(startedAt: startedAt, warns: !meetings.warnings.isEmpty)
+            if meetings.startedAt != nil {
+                RecordingIndicator(warns: !meetings.warnings.isEmpty, paused: meetings.isPaused)
             } else if media.isPlaying, controller.statusColor == .ok {
                 EqualizerBars()
             }
@@ -321,26 +321,34 @@ private struct EqualizerBars: View {
 }
 
 private struct RecordingIndicator: View {
-    let startedAt: Date
     let warns: Bool
+    let paused: Bool
 
     var body: some View {
-        RecordingDot(warns: warns, size: 8)
-            .accessibilityLabel(warns ? "Gravando reunião, com aviso" : "Gravando reunião")
+        RecordingDot(warns: warns, paused: paused, size: 8)
+            .accessibilityLabel(paused ? "Gravação da reunião pausada" : (warns ? "Gravando reunião, com aviso" : "Gravando reunião"))
     }
 }
 
 struct RecordingDot: View {
     let warns: Bool
+    var paused = false
     var size: CGFloat = 7
 
     var body: some View {
-        Circle()
-            .fill(warns ? Theme.busy : Theme.error)
-            .frame(width: size, height: size)
-            .shadow(color: (warns ? Theme.busy : Theme.error).opacity(0.6), radius: 3)
-            .phaseAnimator([1.0, 0.35]) { dot, opacity in
-                dot.opacity(opacity)
-            } animation: { _ in .easeInOut(duration: 0.8) }
+        if paused {
+            Image(systemName: "pause.fill")
+                .font(.system(size: size - 1, weight: .bold))
+                .foregroundStyle(Theme.textSecondary)
+                .frame(width: size, height: size)
+        } else {
+            Circle()
+                .fill(warns ? Theme.busy : Theme.error)
+                .frame(width: size, height: size)
+                .shadow(color: (warns ? Theme.busy : Theme.error).opacity(0.6), radius: 3)
+                .phaseAnimator([1.0, 0.35]) { dot, opacity in
+                    dot.opacity(opacity)
+                } animation: { _ in .easeInOut(duration: 0.8) }
+        }
     }
 }

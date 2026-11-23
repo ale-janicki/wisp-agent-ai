@@ -172,6 +172,30 @@ def test_bookmark_context_is_three_lines_before_and_two_after():
     assert [s["text"] for s in reuniao.surrounding(segments, 0)] == ["linha 0", "linha 1", "linha 2"]
 
 
+def test_pauses_show_as_marker_lines_between_the_lines_around_them(world, monkeypatch):
+    import time
+
+    monkeypatch.setenv("TZ", "UTC")
+    time.tzset()
+    folder, _, cfg = world
+    meta = json.loads((folder / "meta.json").read_text())
+    meta["pauses"] = [
+        {"at_s": 30, "started_at": "2027-01-15T08:00:30Z", "ended_at": "2027-01-15T08:10:30Z"},
+        {"at_s": 3000, "started_at": "2027-01-15T09:00:00Z"},
+    ]
+    (folder / "meta.json").write_text(json.dumps(meta))
+    runner = Routed()
+    reuniao.make_note(cfg, runner, folder)
+    prompt = runner.calls[0]["stdin"].decode()
+    expected = (
+        "[0:00] Você: Vamos fechar o orçamento hoje.\n[0:30] — Pausado 08:00–08:10\n"
+        "[1:05] Outros: Pode ser, mando a planilha até sexta.\n[50:00] — Pausado 09:00 (sem retomar)"
+    )
+    assert expected in prompt
+    assert expected in (folder / "nota.md").read_text()
+    assert reuniao.render_transcript(DOCUMENT) == "[0:00] Você: Vamos fechar o orçamento hoje.\n[1:05] Outros: Pode ser, mando a planilha até sexta."
+
+
 def test_no_extras_means_no_extra_sections(world):
     folder, _, cfg = world
     reuniao.make_note(cfg, Routed(), folder)

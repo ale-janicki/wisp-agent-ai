@@ -69,6 +69,7 @@ public struct TranscriptLine: Identifiable, Equatable, Sendable {
     public var isPartial: Bool
     public var isMine: Bool
     public var isBookmark = false
+    public var isPause = false
 
     public init(bookmark: MeetingBookmark) {
         id = "bookmark-\(bookmark.id)"
@@ -78,6 +79,16 @@ public struct TranscriptLine: Identifiable, Equatable, Sendable {
         isPartial = false
         isMine = false
         isBookmark = true
+    }
+
+    public init(pause: RecordingPause, timeZone: TimeZone = .current) {
+        id = "pause-\(pause.startedAt.timeIntervalSince1970)"
+        time = ElapsedFormat.clock(pause.position)
+        speaker = "Pausa"
+        text = pause.label(timeZone: timeZone)
+        isPartial = false
+        isMine = false
+        isPause = true
     }
 
     public init(_ segment: MeetingSegment) {
@@ -127,8 +138,11 @@ public struct RecordControl: Equatable, Sendable {
     public var timer: String
     public var isEnabled: Bool
     public var isRecording: Bool
+    public var isPaused: Bool
+    /// "Pausar" / "Retomar" while recording; nil when there is nothing to pause.
+    public var pauseTitle: String?
 
-    public init(phase: Phase, elapsed: TimeInterval, canRecord: Bool, savingProgress: Double? = nil) {
+    public init(phase: Phase, elapsed: TimeInterval, canRecord: Bool, savingProgress: Double? = nil, isPaused: Bool = false) {
         switch phase {
         case .idle:
             title = "Gravar"
@@ -144,6 +158,8 @@ public struct RecordControl: Equatable, Sendable {
             isEnabled = false
         }
         isRecording = phase == .recording
+        self.isPaused = phase == .recording && isPaused
+        pauseTitle = phase == .recording ? (isPaused ? "Retomar" : "Pausar") : nil
         timer = ElapsedFormat.clock(phase == .recording ? elapsed : 0)
     }
 }
