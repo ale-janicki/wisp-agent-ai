@@ -15,6 +15,7 @@ Entries are in descending chronological order (newest first).
 
 ### Fixed
 
+- Conversa: sending a second message while the first is still being answered no longer leaves the conversation on "pensando…" forever; Claude answers both in one reply, and the app now closes both messages (and mirrors them to Telegram) with that reply. Conversations already stuck recover on their next reply.
 - Início: pressing Enter in the composer now sends and opens Conversa, instead of staying on Início; when the current conversation is closed, the message starts a new one instead of the composer being disabled.
 - Início: the usage card always shows both the 5-hour session and the week, at 0% when there is no data, instead of hiding the session; a newer reading that lacks one window no longer drops the value the other reading had.
 - Reuniões: the automatic save of the meeting note into the brain now uses the same brain folder as the Brain tab, with symlinks (for example a vault in iCloud Drive) resolved by the app before the command runs, so it no longer fails with "o brain não existe". When macOS denies access to the folder the message now says so and where to grant it (Privacidade e Segurança > Arquivos e Pastas), and a failed save shows its reason next to "Tentar de novo".

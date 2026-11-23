@@ -103,16 +103,79 @@ import Testing
         }
     }
 
-    @Test func queuedTurnStaysThinkingUntilLastResult() {
+    @Test func mergedMessagesCloseWithOneResult() {
         var state = ConversationState()
         ConversationReducer.userSent(&state, text: "um")
         ConversationReducer.userSent(&state, text: "dois")
         #expect(state.pendingTurns == 2)
+        reduce(&state, [.claude(.result(sessionId: "s", text: "um\ndois", isError: false, denials: []))])
+        #expect(state.phase == .idle)
+        #expect(state.pendingTurns == 0)
+    }
+
+    @Test func singleMessageClosesWithOneResult() {
+        var state = ConversationState()
+        ConversationReducer.userSent(&state, text: "um")
         reduce(&state, [.claude(.result(sessionId: "s", text: "a", isError: false, denials: []))])
+        #expect(state.phase == .idle)
+        #expect(state.pendingTurns == 0)
+    }
+
+    @Test func resultKeepsThinkingForWhatTheRuntimeSaysIsStillPending() {
+        var state = ConversationState()
+        ConversationReducer.userSent(&state, text: "um")
+        ConversationReducer.userSent(&state, text: "dois")
+        ConversationReducer.reduce(
+            &state, .claude(.result(sessionId: "s", text: "a", isError: false, denials: [])),
+            statusPrefix: "STATUS ·", pendingAfterResult: 1)
         #expect(state.phase == .thinking(step: nil))
         #expect(state.pendingTurns == 1)
         reduce(&state, [.claude(.result(sessionId: "s", text: "b", isError: false, denials: []))])
         #expect(state.phase == .idle)
+        #expect(state.pendingTurns == 0)
+    }
+
+    @Test func lateTextAfterAResultIsThinkingAgainWhileATurnIsInFlight() {
+        var state = ConversationState()
+        ConversationReducer.userSent(&state, text: "um")
+        reduce(&state, [.claude(.result(sessionId: "s", text: "a", isError: false, denials: []))])
+        #expect(state.phase == .idle)
+        ConversationReducer.reduce(&state, .claude(.text("novo turno")), statusPrefix: nil, turnInFlight: true)
+        #expect(state.phase == .thinking(step: nil))
+    }
+
+    @Test func lateTextWithNothingInFlightLeavesTheSpinnerOff() {
+        var state = ConversationState()
+        reduce(&state, [.claude(.text("depois do stop"))])
+        #expect(state.phase == .idle)
+    }
+
+    @Test func coveredMessageSettlesTheTurnWhenNothingIsPending() {
+        var state = ConversationState()
+        ConversationReducer.userSent(&state, text: "um")
+        ConversationReducer.coveredSettled(&state, pending: 1)
+        #expect(state.phase == .thinking(step: nil))
+        #expect(state.pendingTurns == 1)
+        ConversationReducer.coveredSettled(&state, pending: 0)
+        #expect(state.phase == .idle)
+        #expect(state.pendingTurns == 0)
+    }
+
+    @Test func errorResultKeepsWhatIsStillQueued() {
+        var state = ConversationState()
+        ConversationReducer.reduce(
+            &state, .claude(.result(sessionId: "s", text: "boom", isError: true, denials: [])),
+            statusPrefix: nil, pendingAfterResult: 1)
+        #expect(state.phase == .failed("boom"))
+        #expect(state.pendingTurns == 1)
+    }
+
+    @Test func errorResultStillFails() {
+        var state = ConversationState()
+        ConversationReducer.userSent(&state, text: "um")
+        ConversationReducer.userSent(&state, text: "dois")
+        reduce(&state, [.claude(.result(sessionId: "s", text: "boom", isError: true, denials: []))])
+        #expect(state.phase == .failed("boom"))
         #expect(state.pendingTurns == 0)
     }
 
@@ -144,8 +207,8 @@ import Testing
         #expect(state.pendingTurns == 2)
         #expect(state.phase == .thinking(step: nil))
         reduce(&state, [.claude(.result(sessionId: "s", text: "ok", isError: false, denials: []))])
-        #expect(state.pendingTurns == 1)
-        #expect(state.phase == .thinking(step: nil))
+        #expect(state.pendingTurns == 0)
+        #expect(state.phase == .idle)
     }
 
     @Test func userSentStampsTheTimeSoTheBadgeShowsAtOnce() {

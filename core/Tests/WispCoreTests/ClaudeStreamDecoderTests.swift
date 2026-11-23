@@ -39,6 +39,13 @@ final class ClaudeStreamDecoderTests: XCTestCase {
         XCTAssertEqual(Set(ids).count, 1)
     }
 
+    func testReplayedUserMessageIsTheEngineConsumingIt() {
+        let echo = #"{"type":"user","uuid":"e6cb0441","isReplay":true,"message":{"role":"user","content":"dois"}}"#
+        XCTAssertEqual(ClaudeStreamDecoder.decode(line: echo), [.userReplayed])
+        let other = #"{"type":"user","uuid":"f865143a","message":{"role":"user","content":[{"type":"text","text":"x"}]}}"#
+        XCTAssertEqual(ClaudeStreamDecoder.decode(line: other), [.ignored(type: "user")])
+    }
+
     func testToolUseSummary() {
         let line = #"{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"ls -la"}}]}}"#
         XCTAssertEqual(ClaudeStreamDecoder.decode(line: line), [.toolUse(name: "Bash", summary: "ls -la")])
