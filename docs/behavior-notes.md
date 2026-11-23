@@ -531,3 +531,9 @@ Sources: the user's Excalidraw plugin 2.25.3 (`.obsidian/plugins/obsidian-excali
 - Closing and quitting: `BrainDrawingModel.stop()` keeps the model and its host alive (strong captures, cleared in `finishClosing`) until the page's last save lands, at most 3 s. `QuitFlush` (WispCore) is a registry of async flushers: open drawing and canvas models register on start and stay registered until the close has finished (`DrawingClosingTracker`), and a flush that arrives meanwhile waits for it; `AppDelegate.applicationShouldTerminate` returns `.terminateLater` when the registry is not empty, runs `flushAll(timeout: 3 s)` and replies. The Brain tab can register its own `flushForQuit` in the same registry.
 - Meeting notch notices: relaunching the app inside the near-start window can show that notice again, because the set of posted ids lives in memory only. Accepted.
 - Meeting notch notices: a notice suppressed by Não perturbe or the "Reuniões" switch when it comes due is not retried later. Accepted.
+
+## app / Google Agenda (RSVP)
+
+- The Google login reuses `SpotifyLoopback`, which aborts the login when the callback `state` does not match. A local process can therefore abort a login (by hitting the loopback port with a wrong state) but cannot inject a code: without the right `state` its request never becomes a token exchange. Accepted.
+- `patchBody` refuses an event that comes back with `attendeesOmitted == true`: Google replaces `attendees` as a whole, so patching a truncated list would remove guests. The user gets "responda pelo Google Agenda" instead.
+- Disconnecting deletes the local token first and then revokes at Google with a 5 s cap, so a slow or failed revoke never leaves a token behind. Removing the client waits for every sign-out before deleting the client.

@@ -63,6 +63,9 @@ struct EventDetailView: View {
     @State private var form = EventForm()
     @State private var loadedKey = ""
     @FocusState private var titleFocused: Bool
+    @State private var rsvpBusy = false
+    @State private var rsvpError: String?
+    private let google = GoogleModel.shared
 
     private var event: CalEvent? {
         if case .event(let event) = detail { return event }
@@ -315,8 +318,56 @@ struct EventDetailView: View {
                             .lineLimit(1)
                     }
                 }
+                rsvpSection(event)
                 Text("O macOS não permite editar convidados por aqui.").font(Theme.Font.caption).foregroundStyle(Theme.textTertiary)
             }
+            .onChange(of: event.attendees) { _, _ in google.reconcile(event) }
+        }
+    }
+
+    private func isInvitee(_ event: CalEvent) -> Bool {
+        event.attendees.contains { $0.isMe && !$0.isOrganizer }
+    }
+
+    @ViewBuilder
+    private func rsvpSection(_ event: CalEvent) -> some View {
+        if isInvitee(event) {
+            VStack(alignment: .leading, spacing: 6) {
+                if google.account(for: event) != nil {
+                    let current = google.syncing(event) ?? event.attendees.first(where: \.isMe).flatMap { GoogleRSVPChoice($0.status) }
+                    HStack(spacing: 8) {
+                        Text("Vai?").font(Theme.Font.bodyMedium).foregroundStyle(Theme.textPrimary)
+                        Picker("", selection: Binding<GoogleRSVPChoice?>(get: { current }, set: { if let choice = $0 { respond(event, choice) } })) {
+                            ForEach(GoogleRSVPChoice.allCases, id: \.self) { choice in Text(choice.label).tag(Optional(choice)) }
+                        }
+                        .pickerStyle(.segmented)
+                        .labelsHidden()
+                        .disabled(rsvpBusy)
+                    }
+                    if google.syncing(event) != nil {
+                        Text("sincronizando com o macOS…").font(Theme.Font.caption).foregroundStyle(Theme.textTertiary)
+                    }
+                } else if !google.isConnected {
+                    Text("Conecte o Google em Ajustes > Integrações para responder").font(Theme.Font.caption).foregroundStyle(Theme.textTertiary)
+                    Button { MeetingsCoordinator.shared.openGoogleSettings() } label: { Label("Abrir Integrações", systemImage: "gearshape").font(Theme.Font.caption) }
+                        .buttonStyle(CapsuleButtonStyle(kind: .ghost))
+                } else {
+                    Text("Nenhuma conta Google conectada corresponde a este convite.").font(Theme.Font.caption).foregroundStyle(Theme.textTertiary)
+                }
+                if let rsvpError { InlineError(text: rsvpError) }
+            }
+        }
+    }
+
+    private func respond(_ event: CalEvent, _ choice: GoogleRSVPChoice) {
+        guard !rsvpBusy else { return }
+        rsvpBusy = true
+        rsvpError = nil
+        Task {
+            let failure = await google.respond(to: event, choice: choice, calendar: model.calendar) { model.invalidate() }
+            rsvpError = failure
+            rsvpBusy = false
+            if failure == nil { model.invalidate() }
         }
     }
 

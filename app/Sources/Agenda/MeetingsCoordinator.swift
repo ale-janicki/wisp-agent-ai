@@ -151,6 +151,15 @@ final class MeetingsCoordinator: NSObject, NSMenuDelegate, UNUserNotificationCen
         openEvent(key: key)
     }
 
+    /// Opens Settings > Integrações with the Google card expanded (the Agenda detail points here when no account is connected).
+    func openGoogleSettings() {
+        guard let shell else { return }
+        IntegrationsPane.expandOnOpen = .google
+        SettingsSection.integrations.open()
+        shell.tab = .settings
+        shell.pillClicked()
+    }
+
     func openEvent(key: String) {
         guard let shell else { return }
         shell.tab = .agenda

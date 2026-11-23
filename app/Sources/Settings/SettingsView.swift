@@ -649,7 +649,7 @@ struct MacControlSettingsGroup: View {
 // MARK: Integrações
 
 struct IntegrationsPane: View {
-    enum Integration: CaseIterable { case spotify, music }
+    enum Integration: CaseIterable { case spotify, music, google }
 
     @MainActor static var expandOnOpen: Integration?
 
@@ -725,6 +725,8 @@ struct IntegrationsPane: View {
             }
         case .music:
             AutomationPromptView(media: media, player: .music, showsGranted: true)
+        case .google:
+            GoogleSettingsCard()
         }
     }
 
@@ -732,6 +734,7 @@ struct IntegrationsPane: View {
         switch item {
         case .spotify: MediaPlayer.spotify.name
         case .music: MediaPlayer.music.name
+        case .google: "Google Agenda"
         }
     }
 
@@ -739,6 +742,7 @@ struct IntegrationsPane: View {
         switch item {
         case .spotify: "dot.radiowaves.left.and.right"
         case .music: "music.note"
+        case .google: "calendar.badge.checkmark"
         }
     }
 
@@ -757,6 +761,10 @@ struct IntegrationsPane: View {
             case .denied, .notDetermined: return ("Sem permissão", Theme.error)
             case .notRunning: return ("Não configurado", Theme.textTertiary)
             }
+        case .google:
+            let google = GoogleModel.shared
+            if google.isConnected { return ("Conectado", Theme.ok) }
+            return google.hasClient ? ("Não conectado", Theme.busy) : ("Não configurado", Theme.textTertiary)
         }
     }
 }
