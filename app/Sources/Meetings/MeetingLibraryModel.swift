@@ -37,6 +37,7 @@ final class MeetingLibraryModel: ObservableObject {
     private var noteTasks: [String: Task<Void, Never>] = [:]
     private var deferred: Set<String> = []
     private var reloadToken = 0
+    private var janitor: Task<Void, Never>?
     private var readiness: AnyCancellable?
     private var approval = WebhookApproval()
 
@@ -81,6 +82,46 @@ final class MeetingLibraryModel: ObservableObject {
             self.loadDetail()
             if thenProcess { self.processPending() }
         }
+    }
+
+    /// Moves meetings already saved in the brain to the Trash once they are older than the configured days: a few seconds
+    /// after launch, then every 24 h. Skips what is being recorded, processed or open.
+    func startJanitor() {
+        guard janitor == nil else { return }
+        janitor = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(8))
+            while !Task.isCancelled {
+                await self?.sweepOldRecordings()
+                try? await Task.sleep(for: .seconds(86_400))
+            }
+        }
+    }
+
+    private func sweepOldRecordings() async {
+        let days = AppSettings.shared.settings.meetings.cleanupDays
+        guard days > 0, !isRecording() else { return }
+        let roots = PathsModel.shared.recordingRoots()
+        let busy: @Sendable (String) async -> Bool = { [weak self] id in
+            await MainActor.run { self?.isBusy(id) ?? true }
+        }
+        let result = await Task.detached(priority: .utility) {
+            await MeetingJanitor.run(roots: roots, days: days, isExcluded: busy) { folder in
+                try FileManager.default.trashItem(at: folder, resultingItemURL: nil)
+            }
+        }.value
+        for name in result.removedNames { log.info("cleanup: \(name, privacy: .public) moved to Trash") }
+        for failure in result.failures { log.error("cleanup failed: \(failure, privacy: .public)") }
+        guard result.removed > 0 else { return }
+        notice = result.removed == 1
+            ? "Limpei 1 gravação antiga (foi para o Lixo)."
+            : "Limpei \(result.removed) gravações antigas (foram para o Lixo)."
+        reload()
+    }
+
+    /// Live check right before a folder is touched: recording, processing, queued or open.
+    private func isBusy(_ id: String) -> Bool {
+        isRecording() || working[id] != nil || queue.contains { $0.lastPathComponent == id } || selectedID == id
+            || webhookOffers.contains { $0.id == id }
     }
 
     func processPending() {

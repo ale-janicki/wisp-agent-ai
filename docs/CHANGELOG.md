@@ -9,6 +9,10 @@ Entries are in descending chronological order (newest first).
 
 ## [Unreleased]
 
+### Added
+
+- Reuniões: an opt-in cleanup (Ajustes > Reuniões > "Apagar gravações antigas", off by default) moves recordings already saved in the brain to the Trash whole (audio, transcript and local note) after 7, 14 or 30 days, with the transcript link in the brain note replaced by a dated line; meetings without a brain note, failed ones and the one in use are never touched.
+
 ### Fixed
 
 - Reuniões: the automatic save of the meeting note into the brain now uses the same brain folder as the Brain tab, with symlinks (for example a vault in iCloud Drive) resolved by the app before the command runs, so it no longer fails with "o brain não existe". When macOS denies access to the folder the message now says so and where to grant it (Privacidade e Segurança > Arquivos e Pastas), and a failed save shows its reason next to "Tentar de novo".

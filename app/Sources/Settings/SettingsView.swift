@@ -338,6 +338,27 @@ struct MeetingsSettingsGroup: View {
             ) { on in settings.setMeetings { $0.autoSummary = on } }
             Divider().overlay(Theme.stroke)
             ToggleRow(
+                title: "Apagar gravações antigas",
+                detail: "Depois do prazo, as reuniões já salvas no brain vão para o Lixo inteiras (áudio, transcrição e nota local). A nota do brain fica, sem o link da transcrição. Reuniões sem nota no brain nunca são apagadas.",
+                isOn: current.cleanupDays > 0
+            ) { on in settings.setMeetings { $0.cleanupDays = on ? MeetingJanitor.defaultDays : 0 } }
+            if current.cleanupDays > 0 {
+                Divider().overlay(Theme.stroke)
+                SettingsRow(title: "Apagar depois de", detail: "Contado desde o início da gravação.") {
+                    Picker("Apagar depois de", selection: Binding(
+                        get: { current.cleanupDays },
+                        set: { value in settings.setMeetings { $0.cleanupDays = value } }
+                    )) {
+                        ForEach(MeetingJanitor.dayChoices + (MeetingJanitor.dayChoices.contains(current.cleanupDays) ? [] : [current.cleanupDays]), id: \.self) { days in
+                            Text("\(days) dias").tag(days)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(width: 110)
+                }
+            }
+            Divider().overlay(Theme.stroke)
+            ToggleRow(
                 title: "Webhook ao terminar",
                 detail: "Quando a nota ficar pronta, o Wisp mostra um cartão com o destino e o tamanho e só envia quando você clicar em Permitir. Vai o título, a data, a duração, o resumo, os pontos principais, as ações e as métricas em números. Não vai a transcrição, os marcadores, a checklist nem o texto das métricas. O endereço fica no Keychain.",
                 isOn: current.webhookEnabled
