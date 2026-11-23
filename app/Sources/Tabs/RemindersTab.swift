@@ -10,6 +10,10 @@ struct RemindersTab: View {
         guard let command = profile.blocks?.alerts?.resolve, !command.isEmpty else { return nil }
         return command
     }
+    private var discardCommand: String? {
+        guard let command = profile.blocks?.alerts?.discard, !command.isEmpty else { return nil }
+        return command
+    }
 
     private var trailing: String? {
         guard case .loaded(let items) = alerts.state, !items.isEmpty else { return nil }
@@ -39,7 +43,7 @@ struct RemindersTab: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 2) {
                     ForEach(items) { item in
-                        ReminderRow(item: item, busy: alerts.resolving == item.id, resolve: action(for: item))
+                        ReminderRow(item: item, busy: alerts.resolving == item.id, resolve: action(for: item), discard: discardAction(for: item))
                     }
                 }
             }
@@ -51,12 +55,18 @@ struct RemindersTab: View {
         guard let resolveCommand, let listCommand else { return nil }
         return { alerts.resolve(item, template: resolveCommand, listCommand: listCommand) }
     }
+
+    private func discardAction(for item: AlertItem) -> (() -> Void)? {
+        guard let discardCommand, let listCommand else { return nil }
+        return { alerts.resolve(item, template: discardCommand, listCommand: listCommand) }
+    }
 }
 
 private struct ReminderRow: View {
     let item: AlertItem
     let busy: Bool
     let resolve: (() -> Void)?
+    var discard: (() -> Void)? = nil
     @State private var hovering = false
     @State private var hoveringCheck = false
 
@@ -88,18 +98,23 @@ private struct ReminderRow: View {
             Spacer(minLength: Theme.Space.xs)
             if busy {
                 ProgressView().controlSize(.small).frame(width: 24, height: 24)
-            } else if let resolve {
-                Button(action: resolve) {
-                    Image(systemName: hoveringCheck ? "checkmark.circle.fill" : "circle")
-                        .font(.system(size: 16, weight: .regular))
-                        .foregroundStyle(hoveringCheck ? Theme.ok : Theme.textTertiary)
-                        .frame(width: 24, height: 24)
-                        .contentShape(Rectangle())
+            } else {
+                if let discard {
+                    ConfirmAction(label: "Descartar lembrete", question: "Descartar?", icon: "trash", action: discard)
                 }
-                .buttonStyle(.plain)
-                .pointerStyle(.link)
-                .onHover { hoveringCheck = $0 }
-                .help("Marcar como feito")
+                if let resolve {
+                    Button(action: resolve) {
+                        Image(systemName: hoveringCheck ? "checkmark.circle.fill" : "circle")
+                            .font(.system(size: 16, weight: .regular))
+                            .foregroundStyle(hoveringCheck ? Theme.accent : Theme.textTertiary)
+                            .frame(width: 24, height: 24)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .pointerStyle(.link)
+                    .onHover { hoveringCheck = $0 }
+                    .help("Marcar como feito")
+                }
             }
         }
         .padding(.horizontal, Theme.Space.m)
