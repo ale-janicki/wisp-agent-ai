@@ -42,6 +42,8 @@ struct ConversationListColumn: View {
                             canShare: model.canShare(record),
                             away: model.isAway(record),
                             canPhone: model.canContinueOnPhone(record),
+                            pinned: model.isPinned(TelegramTopics.pinKey(conversation: record.id)),
+                            togglePin: { model.togglePin(TelegramTopics.pinKey(conversation: record.id)) },
                             open: { model.open(record) },
                             share: { model.share(record) },
                             phone: { model.continueOnPhone(record) },
@@ -66,10 +68,6 @@ struct ConversationListColumn: View {
                 }
                 TelegramSection(model: model, entries: sections.telegram)
                     .padding(.top, Theme.Space.m)
-                if !sections.closed.isEmpty {
-                    ClosedSection(model: model, records: sections.closed)
-                        .padding(.top, Theme.Space.m)
-                }
             }
             .padding(.top, Theme.Space.xs)
         }
@@ -89,42 +87,6 @@ private func section<Rows: View>(_ title: String, dot: Color? = nil, @ViewBuilde
         .padding(.leading, Theme.Space.m)
         .padding(.bottom, 4)
         rows()
-    }
-}
-
-private struct ClosedSection: View {
-    var model: ConversationViewModel
-    let records: [ConversationRecord]
-    @State private var expanded = false
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Button {
-                expanded.toggle()
-            } label: {
-                HStack(spacing: 5) {
-                    Image(systemName: expanded ? "chevron.down" : "chevron.right")
-                        .font(.system(size: 9, weight: .semibold))
-                    Text("Encerradas (\(records.count))")
-                        .font(Theme.Font.caption)
-                }
-                .foregroundStyle(Theme.textTertiary)
-                .padding(.leading, Theme.Space.m)
-                .padding(.bottom, 4)
-            }
-            .buttonStyle(.plain)
-            if expanded {
-                ForEach(records) { record in
-                    ConversationRow(
-                        record: record,
-                        selected: record.id == model.currentId,
-                        preview: model.preview(record),
-                        open: { model.open(record) },
-                        delete: { model.delete(record) }
-                    )
-                }
-            }
-        }
     }
 }
 
@@ -199,10 +161,15 @@ private struct TelegramSection: View {
 
     private var dragging: Bool { dragged != nil || Date().timeIntervalSince(lastDragEnd) < Self.clickGuard }
 
+    private var pinnedCount: Int { entries.prefix { model.isPinned($0.pinKey) }.count }
+
+    /// The drag moves a row only inside its own block (pinned or unpinned); the target is clamped to it.
     private var preview: [Int] {
         var ids = entries.map(\.id)
         guard let dragged, let target, let from = ids.firstIndex(of: dragged) else { return ids }
-        ids.move(fromOffsets: IndexSet(integer: from), toOffset: target > from ? target + 1 : target)
+        let block = from < pinnedCount ? 0..<pinnedCount : pinnedCount..<ids.count
+        let to = min(max(target, block.lowerBound), block.upperBound - 1)
+        ids.move(fromOffsets: IndexSet(integer: from), toOffset: to > from ? to + 1 : to)
         return ids
     }
 
@@ -231,6 +198,8 @@ private struct TelegramSection: View {
                         activity: model.activity(id: entry.record?.id, sessionId: entry.topic.sessionId),
                         away: model.isAway(entry),
                         canPhone: model.telegram.canPost && !model.isSharing,
+                        pinned: model.isPinned(entry.pinKey),
+                        togglePin: { model.togglePin(entry.pinKey) },
                         phone: { model.continueOnPhone(entry) },
                         backToMac: { model.returnToMac(entry) },
                         open: {
@@ -277,9 +246,12 @@ private struct TelegramSection: View {
                 let final = preview
                 lastDragEnd = Date()
                 withAnimation(Self.reflow) {
-                    if final != ids {
-                        let saved = AppSettings.shared.settings.telegramOrder
-                        AppSettings.shared.setTelegramOrder(final + saved.filter { !final.contains($0) })
+                    let settings = AppSettings.shared.settings
+                    if let result = TelegramTopics.applyDrag(
+                        shown: ids, final: final, pinnedCount: pinnedCount,
+                        order: settings.telegramOrder, pins: settings.pinnedConversations) {
+                        if result.order != settings.telegramOrder { AppSettings.shared.setTelegramOrder(result.order) }
+                        if result.pins != settings.pinnedConversations { AppSettings.shared.setPinnedConversations(result.pins) }
                     }
                     dragged = nil
                     target = nil
@@ -323,6 +295,8 @@ private struct TopicRow: View {
     var activity: RowActivity = .none
     var away = false
     var canPhone = false
+    var pinned = false
+    var togglePin: () -> Void = {}
     var phone: () -> Void = {}
     var backToMac: () -> Void = {}
     let open: () -> Void
@@ -364,6 +338,7 @@ private struct TopicRow: View {
                             .foregroundStyle(selected ? Theme.textPrimary : Theme.textSecondary)
                             .lineLimit(1)
                             .truncationMode(.tail)
+                        PinMark(pinned: pinned)
                         ActivityMark(activity: activity)
                         PhoneBadge(away: away)
                     }
@@ -400,6 +375,7 @@ private struct TopicRow: View {
             }
             .onHover { hovering = $0 }
             .contextMenu {
+                Button(pinned ? "Desafixar" : "Fixar", action: togglePin)
                 if away {
                     Button("Voltar ao Mac", action: backToMac)
                 } else {
@@ -415,6 +391,18 @@ private struct TopicRow: View {
         let turns = entry.topic.turns == 1 ? "1 turno" : "\(entry.topic.turns) turnos"
         guard let last = entry.topic.lastUsed else { return turns }
         return "\(ConversationRow.relative(last)) · \(turns)"
+    }
+}
+
+private struct PinMark: View {
+    let pinned: Bool
+
+    var body: some View {
+        if pinned {
+            Image(systemName: "pin.fill")
+                .font(.system(size: 9))
+                .foregroundStyle(Theme.textTertiary)
+        }
     }
 }
 
@@ -456,6 +444,8 @@ struct ConversationRow: View {
     var canShare = false
     var away = false
     var canPhone = false
+    var pinned = false
+    var togglePin: () -> Void = {}
     let open: () -> Void
     var share: () -> Void = {}
     var phone: () -> Void = {}
@@ -474,6 +464,7 @@ struct ConversationRow: View {
                         .foregroundStyle(selected ? Theme.textPrimary : Theme.textSecondary)
                         .lineLimit(1)
                         .truncationMode(.tail)
+                    PinMark(pinned: pinned)
                     ActivityMark(activity: activity)
                     PhoneBadge(away: away)
                 }
@@ -504,6 +495,7 @@ struct ConversationRow: View {
         }
         .onHover { hovering = $0 }
         .contextMenu {
+            Button(pinned ? "Desafixar" : "Fixar", action: togglePin)
             Button("Compartilhar no Telegram", action: share)
                 .disabled(!canShare)
             if away {

@@ -155,6 +155,8 @@ public struct WispSettings: Codable, Equatable, Sendable {
     }
     /// Telegram topic thread ids in the order the user dragged them; empty means the default order.
     public var telegramOrder: [Int] = []
+    /// Pinned conversations in pin order: a Local conversation's id, or "tg:<thread>" for a Telegram topic.
+    public var pinnedConversations: [String] = []
     public var clipboardCapture = true
     public var spotifyClientID = ""
     public var graph = GraphControls()
@@ -177,7 +179,7 @@ public struct WispSettings: Codable, Equatable, Sendable {
         self.dashboardOrder = DashboardTileID.normalized(dashboardOrder)
     }
 
-    private enum CodingKeys: String, CodingKey { case theme, custom, dashboardOrder, telegramOrder, clipboardCapture, spotifyClientID, graph, notices, openAtLogin, loginItemRegistered, permissionMode, settingsSection, recordingsPath, agenda, meetings, brainShowsGraph }
+    private enum CodingKeys: String, CodingKey { case theme, custom, dashboardOrder, telegramOrder, pinnedConversations, clipboardCapture, spotifyClientID, graph, notices, openAtLogin, loginItemRegistered, permissionMode, settingsSection, recordingsPath, agenda, meetings, brainShowsGraph }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -185,6 +187,7 @@ public struct WispSettings: Codable, Equatable, Sendable {
         custom = try container.decodeIfPresent(CustomTheme.self, forKey: .custom)
         dashboardOrder = DashboardTileID.normalized(try container.decodeIfPresent([String].self, forKey: .dashboardOrder) ?? [])
         telegramOrder = try container.decodeIfPresent([Int].self, forKey: .telegramOrder) ?? []
+        pinnedConversations = (try? container.decodeIfPresent([String].self, forKey: .pinnedConversations)) ?? []
         clipboardCapture = try container.decodeIfPresent(Bool.self, forKey: .clipboardCapture) ?? true
         spotifyClientID = try container.decodeIfPresent(String.self, forKey: .spotifyClientID) ?? ""
         notices = (try? container.decodeIfPresent(NoticeSettings.self, forKey: .notices)) ?? NoticeSettings()
