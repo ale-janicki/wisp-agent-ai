@@ -251,7 +251,7 @@ public final class EventKitCalendarBackend: CalendarBackend, @unchecked Sendable
             recurrence: event.recurrenceRules?.first.flatMap(recurrence), isRecurring: event.hasRecurrenceRules,
             writable: event.calendar?.allowsContentModifications ?? false, busy: event.availability != .free,
             declined: me?.participantStatus == .declined, modified: event.lastModifiedDate,
-            recurrenceRuleCount: event.recurrenceRules?.count ?? 0)
+            recurrenceRuleCount: event.recurrenceRules?.count ?? 0, iCalUID: nonEmpty(event.calendarItemExternalIdentifier))
     }
 
     private static func nonEmpty(_ text: String?) -> String? {
