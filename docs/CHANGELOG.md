@@ -9,6 +9,10 @@ Entries are in descending chronological order (newest first).
 
 ## [Unreleased]
 
+### Added
+
+- Settings > Integrações now shows what the AI can reach: the MCP servers the active engine is configured with (name, transport and scope only, never env, headers or arguments) and the command-line tools found on the login PATH, with version and, for `gh` and `aws`, a local "logado" / "perfil configurado" mark read without network. Nothing is started to read the servers; the CLIs are scanned when the pane opens, or on "Atualizar".
+
 ## [0.4.10] - 2026-11-23
 
 - Version 0.4.10 (build 17).
