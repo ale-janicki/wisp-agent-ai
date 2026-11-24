@@ -13,11 +13,18 @@ struct NoticeCard: View {
     let avatarPath: String?
     let dismiss: () -> Void
 
+    @State private var inviteError: String?
+
     private static let iconSize: CGFloat = 32
 
     /// Only the near-start meeting notice offers Entrar; the early one is just a heads-up.
     private var joinKey: String? {
         guard notice.kind == .meeting, notice.tone == .warning, case .event(let uid) = notice.target else { return nil }
+        return uid
+    }
+
+    private var inviteKey: String? {
+        guard notice.kind == .invite, notice.sourceId != Invites.moreSourceId, case .event(let uid) = notice.target else { return nil }
         return uid
     }
 
@@ -50,9 +57,9 @@ struct NoticeCard: View {
                         .font(Theme.Font.captionMono)
                         .foregroundStyle(Theme.textTertiary)
                 }
-                Text(notice.preview)
+                Text(inviteError ?? notice.preview)
                     .font(Theme.Font.body)
-                    .foregroundStyle(Theme.textSecondary)
+                    .foregroundStyle(inviteError == nil ? Theme.textSecondary : Theme.error)
                     .lineLimit(2)
                     .truncationMode(.tail)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -63,6 +70,9 @@ struct NoticeCard: View {
                     Task { if await MeetingsCoordinator.shared.join(key: joinKey) { dismiss() } }
                 }
                 .buttonStyle(CapsuleButtonStyle(kind: .accent, size: .compact))
+            }
+            if let inviteKey {
+                InviteActions(key: inviteKey, sourceId: notice.sourceId, error: $inviteError)
             }
             Button(action: dismiss) {
                 Image(systemName: "xmark")
@@ -88,6 +98,8 @@ struct NoticeCard: View {
             symbol("hand.raised.fill", tint: Theme.busy)
         case .meeting:
             symbol("video.fill", tint: notice.tone == .warning ? Theme.busy : Theme.accent)
+        case .invite:
+            symbol("calendar.badge.plus", tint: Theme.accent)
         }
     }
 

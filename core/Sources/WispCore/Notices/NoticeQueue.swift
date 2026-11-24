@@ -1,7 +1,7 @@
 import Foundation
 
 public enum NoticeKind: String, Codable, CaseIterable, Sendable {
-    case reply, telegram, reminder, update, approval, meeting
+    case reply, telegram, reminder, update, approval, meeting, invite
 }
 
 public enum NoticeTarget: Hashable, Sendable {
@@ -56,6 +56,7 @@ public struct NoticeSettings: Codable, Equatable, Sendable {
     public var update = true
     public var approval = true
     public var meeting = true
+    public var invite = true
     public var doNotDisturb = false
 
     public init() {}
@@ -69,6 +70,7 @@ public struct NoticeSettings: Codable, Equatable, Sendable {
             case .update: update
             case .approval: approval
             case .meeting: meeting
+            case .invite: invite
             }
         }
         set {
@@ -79,13 +81,14 @@ public struct NoticeSettings: Codable, Equatable, Sendable {
             case .update: update = newValue
             case .approval: approval = newValue
             case .meeting: meeting = newValue
+            case .invite: invite = newValue
             }
         }
     }
 
     public func allows(_ kind: NoticeKind) -> Bool { !doNotDisturb && self[kind] }
 
-    private enum CodingKeys: String, CodingKey { case reply, telegram, reminder, update, approval, meeting, doNotDisturb }
+    private enum CodingKeys: String, CodingKey { case reply, telegram, reminder, update, approval, meeting, invite, doNotDisturb }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -95,6 +98,7 @@ public struct NoticeSettings: Codable, Equatable, Sendable {
         update = try container.decodeIfPresent(Bool.self, forKey: .update) ?? true
         approval = try container.decodeIfPresent(Bool.self, forKey: .approval) ?? true
         meeting = try container.decodeIfPresent(Bool.self, forKey: .meeting) ?? true
+        invite = try container.decodeIfPresent(Bool.self, forKey: .invite) ?? true
         doNotDisturb = try container.decodeIfPresent(Bool.self, forKey: .doNotDisturb) ?? false
     }
 }
@@ -180,6 +184,15 @@ public struct NoticeQueue: Equatable, Sendable {
 
     public mutating func dismiss(now: Date) {
         advance(now: now)
+    }
+
+    /// Drops one notice wherever it is: if it is on screen the next one comes up, if it is waiting it just leaves.
+    public mutating func remove(sourceId: String, now: Date) {
+        if current?.sourceId == sourceId {
+            advance(now: now)
+        } else {
+            pending.removeAll { $0.sourceId == sourceId }
+        }
     }
 
     public mutating func take(now: Date) -> Notice? {

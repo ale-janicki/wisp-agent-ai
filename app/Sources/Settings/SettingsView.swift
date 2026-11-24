@@ -164,7 +164,7 @@ struct SettingsView: View {
 
     private static let noticeKinds: [(NoticeKind, String)] = [
         (.reply, "Respostas"), (.telegram, "Telegram"), (.reminder, "Lembretes"), (.update, "Atualizações"),
-        (.approval, "Aprovações"), (.meeting, "Reuniões"),
+        (.approval, "Aprovações"), (.meeting, "Reuniões"), (.invite, "Convites"),
     ]
 
     private var notices: some View {
