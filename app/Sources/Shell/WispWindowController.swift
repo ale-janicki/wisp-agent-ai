@@ -41,6 +41,7 @@ private final class WispWindow: NSWindow {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.capsLock, .numericPad, .function])
         let key = event.charactersIgnoringModifiers?.lowercased()
         if flags == .command, key == "w" {
+            if TerminalKeys.closeSession(in: self) { return true }
             performClose(nil)
             return true
         }

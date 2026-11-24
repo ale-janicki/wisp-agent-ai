@@ -204,6 +204,7 @@ struct PanelView: View {
                 controller.tab = .settings
             }
         case .clipboard: ClipboardView(clipboard: controller.clipboard)
+        case .terminal: TerminalTab()
         case .myMac: MyMacTab()
         case .settings: SettingsView(media: media)
         }

@@ -24,6 +24,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         runtime.cancel()
         brainColher?.stop()
         shell?.meetings.stopForQuit()
+        TerminalStore.shared.workspace.closeAll()
         AppSettings.shared.flush()
     }
 
