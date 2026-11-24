@@ -12,6 +12,8 @@ final class MeetingsCoordinator: NSObject, NSMenuDelegate, UNUserNotificationCen
     private static let joinAction = "WISP_JOIN"
     private static let prefix = "wisp.meeting."
 
+    private static let inviteLedgerURL = ConversationStore.defaultDirectory.appendingPathComponent("invites-seen.json")
+
     private let log = Logger(subsystem: AppIdentity.bundleID, category: "meetings-alert")
     private var statusItem: NSStatusItem?
     private var ticker: Task<Void, Never>?
@@ -21,6 +23,8 @@ final class MeetingsCoordinator: NSObject, NSMenuDelegate, UNUserNotificationCen
     private var noticePlan: [MeetingLinks.Alert] = []
     private var noticePlanKey = ""
     private var postedNotices: Set<String> = []
+    private var inviteLedgerDirty = false
+    private var inviteLedger = InviteLedger.load(from: MeetingsCoordinator.inviteLedgerURL)
     private var authorization: UNAuthorizationStatus?
     private weak var shell: ShellController?
     private var started = false
@@ -62,6 +66,29 @@ final class MeetingsCoordinator: NSObject, NSMenuDelegate, UNUserNotificationCen
         postDueNotices()
         Task { await scheduleNotifications() }
     }
+
+    /// Every calendar's invitations in the next 14 days feed the ledger, so unhiding a calendar announces nothing already seen;
+    /// only those on a shown calendar come down the notch.
+    func update(invites events: [CalEvent], isShown: (CalEvent) -> Bool) {
+        let now = Date()
+        PendingInvites.shared.events = Invites.pending(in: events, now: now)
+        let before = inviteLedger
+        let news = inviteLedger.fresh(from: events, now: now)
+        if inviteLedger != before || inviteLedgerDirty {
+            inviteLedgerDirty = !inviteLedger.save(to: Self.inviteLedgerURL)
+            if inviteLedgerDirty { log.error("invite ledger could not be saved") }
+        }
+        guard let center = shell?.notices else { return }
+        for notice in Invites.notices(for: news.filter(isShown), now: now, hideTitles: prefs.hideTitlesInAlerts) {
+            center.post(notice)
+        }
+    }
+
+    /// The pending invitation a notice points at, while it is still pending.
+    func invite(key: String) -> CalEvent? { PendingInvites.shared.event(key: key) }
+
+    /// Takes one invite's card off the notch, whether it is on screen or still waiting.
+    func dismissNotice(sourceId: String) { shell?.notices.dismiss(sourceId: sourceId) }
 
     private func currentPlan() -> [MeetingLinks.Alert] {
         MeetingLinks.alerts(for: events, now: Date(), leadMinutes: prefs.alertLeadMinutes, earlyMinutes: prefs.earlyAlertMinutes, hideTitles: prefs.hideTitlesInAlerts)
@@ -165,7 +192,7 @@ final class MeetingsCoordinator: NSObject, NSMenuDelegate, UNUserNotificationCen
         shell.tab = .agenda
         shell.pillClicked()
         Task {
-            var found = events.first { $0.uid == key }
+            var found = events.first { $0.uid == key } ?? invite(key: key)
             if found == nil { found = await CalendarModel.shared.eventNamed(key: key) }
             if let found { CalendarModel.shared.reveal(found) }
         }

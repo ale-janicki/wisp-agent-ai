@@ -54,6 +54,13 @@ final class NoticeCenter {
         changed()
     }
 
+    /// Dismisses one notice by source: the card on screen if it is that one, else just its place in the queue.
+    func dismiss(sourceId: String) {
+        queue.remove(sourceId: sourceId, now: Date())
+        if queue.current == nil { unseen = nil }
+        changed()
+    }
+
     func prune() {
         seen.settingsChanged(settings)
         if shell?.state == .panel || settings.doNotDisturb {

@@ -366,11 +366,17 @@ final class CalendarModel {
         }
         guard access == .granted else { return }
         let now = Date()
-        let found = (try? await backend.events(from: now.addingTimeInterval(-3_600), to: now.addingTimeInterval(48 * 3_600))) ?? []
+        let from = now.addingTimeInterval(-3_600)
+        let to = now.addingTimeInterval(48 * 3_600)
+        // One fetch feeds both: the 48 h list the meeting alerts rely on, and the 14-day invite scan.
+        let wide = try? await backend.events(from: from, to: now.addingTimeInterval(Invites.horizon))
         let visible = visibleCalendarIDs
-        let usable = found.filter { visible.contains($0.calendarID) || calendars.isEmpty }
+        let shown = { (event: CalEvent) in visible.contains(event.calendarID) || self.calendars.isEmpty }
+        let found = (wide ?? []).filter { $0.start <= to && $0.end >= from }
+        let usable = found.filter(shown)
         upcoming = MeetingLinks.next(in: usable, now: now).map { ($0.event, $0.link) }
         MeetingsCoordinator.shared.update(events: usable, calendars: calendars)
+        if let wide { MeetingsCoordinator.shared.update(invites: wide, isShown: shown) }
     }
 
     func meetingContext(at start: Date) async -> MeetingEventContext? {
