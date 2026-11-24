@@ -367,6 +367,7 @@ final class ShellController: ObservableObject {
                 guard let self, event.keyCode == 53 else { return false }
                 if self.windowController.owns(event) { return BrainModel.shared.dismissOverlay() }
                 guard self.state != .rest else { return false }
+                if TerminalKeys.hasFocus(in: event.window) { return false }
                 if self.state == .panel, BrainModel.shared.dismissOverlay() { return true }
                 self.show(self.state == .panel ? self.restTarget() : .rest)
                 return true

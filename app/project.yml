@@ -13,6 +13,9 @@ packages:
   FluidAudio:
     url: https://github.com/FluidInference/FluidAudio
     revision: e0c6103bc87a88d25276cad491c86e757f58c865
+  SwiftTerm:
+    url: https://github.com/migueldeicaza/SwiftTerm
+    exactVersion: 1.99.3
 targets:
   wisp-agenda:
     type: tool
@@ -88,6 +91,8 @@ targets:
         product: Sparkle
       - package: FluidAudio
         product: FluidAudio
+      - package: SwiftTerm
+        product: SwiftTerm
       - target: wisp-agenda
         embed: true
         codeSign: true

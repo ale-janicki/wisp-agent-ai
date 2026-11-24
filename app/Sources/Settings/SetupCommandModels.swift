@@ -6,7 +6,7 @@ import WispCore
 @MainActor
 func runWisp(_ arguments: [String], stdin: Data? = nil, timeout: TimeInterval) async -> Result<CommandOutput, BlockCommandError> {
     let layout = RuntimeLayout(bundle: Bundle.main.bundleURL, home: FileManager.default.homeDirectoryForCurrentUser)
-    var environment = ProcessInfo.processInfo.environment.filter { !$0.key.hasPrefix("UV_") && $0.key != "PYTHONPATH" }
+    var environment = RuntimeEnvironment.forRuntime()
     environment["WISP_RESOURCES"] = layout.src.path
     let executable = layout.wisp
     let final = environment

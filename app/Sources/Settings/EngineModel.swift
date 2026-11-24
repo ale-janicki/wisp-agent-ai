@@ -18,7 +18,7 @@ final class EngineModel {
     @ObservationIgnored private let environment: [String: String]
 
     private init() {
-        var environment = ProcessInfo.processInfo.environment.filter { !$0.key.hasPrefix("UV_") && $0.key != "PYTHONPATH" }
+        var environment = RuntimeEnvironment.forRuntime()
         environment["WISP_RESOURCES"] = layout.src.path
         self.environment = environment
         active = EngineChoice.active()
