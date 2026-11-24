@@ -13,6 +13,10 @@ Entries are in descending chronological order (newest first).
 
 - Settings > Integrações now shows what the AI can reach: the MCP servers the active engine is configured with (name, transport and scope only, never env, headers or arguments) and the command-line tools found on the login PATH, with version and, for `gh` and `aws`, a local "logado" / "perfil configurado" mark read without network. Nothing is started to read the servers; the CLIs are scanned when the pane opens, or on "Atualizar".
 
+### Fixed
+
+- Wisp em janela: the window no longer lets the content's own size drive it, so the layout follows the window while it is resized, the 900x600 minimum holds, and the header, the conversation list and the messages stay inside the window instead of sliding under the title bar buttons or off the left edge.
+
 ## [0.4.10] - 2026-11-23
 
 - Version 0.4.10 (build 17).

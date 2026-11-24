@@ -10,6 +10,102 @@ enum SnapshotRenderer {
         return URL(fileURLWithPath: arguments[index + 1], isDirectory: true)
     }
 
+    static func windowDirectory(from arguments: [String]) -> URL? {
+        guard let index = arguments.firstIndex(of: "-WispSnapshotWindow"), arguments.indices.contains(index + 1) else { return nil }
+        return URL(fileURLWithPath: arguments[index + 1], isDirectory: true)
+    }
+
+    /// Renders `PanelView` the way the window hosts it. Needs `-WispProfile <dir>/profile.json`: the conversation store and
+    /// the sessions then live next to that profile, so nothing of the running app's data is read, locked or written.
+    static func runWindow(into directory: URL) async {
+        guard ConversationViewModel.isolatedForSnapshot else {
+            print("snapshot: window mode needs -WispProfile <dir>/profile.json (isolated data)")
+            return
+        }
+        AppSettings.shared.persists = false
+        let now = Date()
+        let store = ConversationStore(directory: ConversationViewModel.dataDirectory)
+        var titles = ["Links Grafana e PostHog acme-client", "Telegram", "Geral", "Revisar PR do notch", "Ideias para o post de lançamento"]
+        if ProcessInfo.processInfo.arguments.contains("-WispSnapshotLong") {
+            titles += (1...40).map { "Conversa antiga número \($0)" }
+        }
+        for (index, title) in titles.enumerated() {
+            try? store.upsert(ConversationRecord(
+                id: UUID(), sessionId: "snap-\(index)", title: title, updatedAt: now.addingTimeInterval(-Double(index) * 3600),
+                lastPreview: "Preview da conversa \(index + 1)", lastFrom: .agent, titleGenerated: true))
+        }
+        let shell = ShellController()
+        let model = shell.conversation
+        let longConversation = ProcessInfo.processInfo.arguments.contains("-WispSnapshotLong")
+        let filler: [ConversationMessage] = !longConversation ? [] : (0..<14).flatMap { index in [
+            ConversationMessage(role: .user, text: "Pergunta \(index): " + String(repeating: "detalhe ", count: 12)),
+            ConversationMessage(role: .assistant, text: "Resposta \(index): " + String(repeating: "texto longo da resposta com várias palavras ", count: 14)
+                + "\n\nhttps://example.com/" + String(repeating: "caminho-sem-quebra-", count: 12)),
+            ConversationMessage(role: .tool, text: "Bash: git status"),
+        ] }
+        model.seedCurrentForSnapshot(title: titles[0], messages: filler + [
+            ConversationMessage(role: .user, text: "Me manda os links do Grafana e do PostHog da acme-client"),
+            ConversationMessage(role: .assistant, text: "Aqui estão os links:\n\n- Grafana: https://grafana.example.com/d/acme-client\n- PostHog: https://posthog.example.com/project/1\n\nQuer que eu abra algum deles?"),
+            ConversationMessage(role: .user, text: "Abre o do PostHog e me diz quantos usuários ativos tivemos ontem"),
+            ConversationMessage(role: .assistant, text: String(repeating: "Ontem foram 1.284 usuários ativos, 6% acima da média da semana. ", count: 6)),
+        ])
+        let sizes: [(String, CGSize, Bool)] = [
+            ("1440x900", CGSize(width: 1440, height: 900), false),
+            ("1280x820", CGSize(width: 1280, height: 820), false),
+            ("900x600", CGSize(width: 900, height: 600), false),
+            ("1728x1080", CGSize(width: 1728, height: 1080), false),
+            ("fullscreen-1470x956", CGSize(width: 1470, height: 956), true),
+        ]
+        let tabs: [PanelTab] = [.home, .conversation, .meetings, .brain, .tasks, .reminders, .agenda, .routines, .music, .clipboard, .myMac, .settings]
+        for (label, size, fullScreen) in sizes {
+            for tab in tabs {
+                shell.tab = tab
+                await renderWindowMode(shell, size: size, fullScreen: fullScreen, to: directory, name: "win-\(label)-\(tab.rawValue)")
+            }
+            shell.tab = .conversation
+            PanelView.snapshotNav = true
+            await renderWindowMode(shell, size: size, fullScreen: fullScreen, to: directory, name: "win-\(label)-conversation-nav")
+            PanelView.snapshotNav = false
+        }
+    }
+
+    private final class OffscreenWindow: NSWindow {
+        override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect { frameRect }
+    }
+
+    private static func renderWindowMode(_ shell: ShellController, size: CGSize, fullScreen: Bool, to directory: URL, name: String) async {
+        let style: NSWindow.StyleMask = fullScreen
+            ? [.borderless]
+            : [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
+        let window = OffscreenWindow(
+            contentRect: CGRect(origin: CGPoint(x: -20000, y: -20000), size: size),
+            styleMask: style, backing: .buffered, defer: false)
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
+        window.appearance = NSAppearance(named: .darkAqua)
+        window.backgroundColor = NSColor(Theme.bg)
+        let target = shell.tab
+        shell.tab = .home
+        window.contentView = WindowContentView.hostingView(for: shell)
+        window.setFrame(CGRect(origin: CGPoint(x: -20000, y: -20000), size: window.frameRect(forContentRect: CGRect(origin: .zero, size: size)).size), display: false)
+        window.orderFrontRegardless()
+        try? await Task.sleep(for: .milliseconds(500))
+        shell.tab = target
+        try? await Task.sleep(for: .milliseconds(1200))
+        window.contentView?.layoutSubtreeIfNeeded()
+        guard let frameView = window.contentView?.superview ?? window.contentView,
+              let rep = frameView.bitmapImageRepForCachingDisplay(in: frameView.bounds) else { return }
+        frameView.cacheDisplay(in: frameView.bounds, to: rep)
+        window.orderOut(nil)
+        let url = directory.appendingPathComponent("\(name).png")
+        do {
+            try rep.representation(using: .png, properties: [:])?.write(to: url)
+            print("snapshot: \(url.path) content=\(NSStringFromSize(window.contentView?.frame.size ?? .zero)) safeTop=\(window.contentView?.safeAreaInsets.top ?? -1)")
+        } catch {
+            print("snapshot: failed \(name): \(error.localizedDescription)")
+        }
+    }
+
     static func run(into directory: URL) async {
         if ProcessInfo.processInfo.arguments.contains("-WispSnapshotApproval") {
             await renderApproval(to: directory)

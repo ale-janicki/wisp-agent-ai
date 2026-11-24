@@ -14,15 +14,24 @@ extension EnvironmentValues {
     }
 }
 
-private struct WindowContentView: View {
+struct WindowContentView: View {
     @ObservedObject var controller: ShellController
 
     var body: some View {
         ZStack {
             Theme.bg.ignoresSafeArea()
             PanelView(controller: controller, media: controller.media, model: controller.conversation)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
         .environment(\.windowMode, true)
+    }
+
+    /// The window owns the size: the hosting view must not publish the content's min/ideal/max size to the window
+    /// (that replaced `contentMinSize` and let an ideal size taller than the window push the content out of it).
+    static func hostingView(for controller: ShellController) -> NSHostingView<WindowContentView> {
+        let host = NSHostingView(rootView: WindowContentView(controller: controller))
+        host.sizingOptions = []
+        return host
     }
 }
 
@@ -79,10 +88,10 @@ final class WispWindowController: NSObject, NSWindowDelegate {
         window.appearance = NSAppearance(named: .darkAqua)
         window.backgroundColor = NSColor(Theme.bg)
         window.collectionBehavior.insert(.fullScreenPrimary)
-        window.contentMinSize = Self.minimumSize
         window.isReleasedWhenClosed = false
         window.delegate = self
-        window.contentView = NSHostingView(rootView: WindowContentView(controller: shell))
+        window.contentView = WindowContentView.hostingView(for: shell)
+        window.contentMinSize = Self.minimumSize
         window.center()
         window.setFrameAutosaveName("WispWindow")
         self.window = window
@@ -116,6 +125,12 @@ final class WispWindowController: NSObject, NSWindowDelegate {
         case .regular: .regular
         case .accessory: .accessory
         }
+    }
+
+    /// The hosting view rewrites `contentMinSize` once it lays out, so the floor is enforced here.
+    func windowWillResize(_ sender: NSWindow, to frameSize: NSSize) -> NSSize {
+        let floor = sender.frameRect(forContentRect: CGRect(origin: .zero, size: Self.minimumSize)).size
+        return NSSize(width: max(frameSize.width, floor.width), height: max(frameSize.height, floor.height))
     }
 
     func windowWillClose(_ notification: Notification) {

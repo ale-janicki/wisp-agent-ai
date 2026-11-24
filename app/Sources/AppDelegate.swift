@@ -46,6 +46,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         #endif
+        #if DEBUG
+        if let directory = SnapshotRenderer.windowDirectory(from: ProcessInfo.processInfo.arguments) {
+            Task {
+                await SnapshotRenderer.runWindow(into: directory)
+                NSApp.terminate(nil)
+            }
+            return
+        }
+        #endif
         IdentityMigration.run()
         #if DEBUG
         if let directory = SnapshotRenderer.directory(from: ProcessInfo.processInfo.arguments) {

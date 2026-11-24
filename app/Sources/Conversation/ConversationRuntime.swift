@@ -141,6 +141,13 @@ final class ConversationRuntime {
         state.messages.append(ConversationMessage(role: .system, text: text))
     }
 
+    #if DEBUG
+    func seedForSnapshot(title: String, messages: [ConversationMessage]) {
+        self.title = title
+        state.messages = messages
+    }
+    #endif
+
     // MARK: Sending
 
     func submit(prompt text: String, caption: String) {
