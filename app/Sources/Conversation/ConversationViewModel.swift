@@ -81,6 +81,14 @@ final class ConversationViewModel {
 
     var linkedThread: Int? { current.linkedThread }
 
+    #if DEBUG
+    static var isolatedForSnapshot: Bool { debugProfile != nil }
+
+    func seedCurrentForSnapshot(title: String, messages: [ConversationMessage]) {
+        current.seedForSnapshot(title: title, messages: messages)
+    }
+    #endif
+
     init(
         store: ConversationStore = ConversationStore(directory: ConversationViewModel.dataDirectory),
         sessionLock: SessionLock = SessionLock()
