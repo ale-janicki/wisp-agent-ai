@@ -202,7 +202,7 @@ final class SetupModel {
     }
 
     private func childEnvironment() -> [String: String] {
-        var environment = ProcessInfo.processInfo.environment.filter { !$0.key.hasPrefix("UV_") && $0.key != "PYTHONPATH" }
+        var environment = RuntimeEnvironment.forRuntime()
         let runtimeRoot = wisp.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         environment["WISP_RESOURCES"] = runtimeRoot.appendingPathComponent("src").path
         if let homeOverride {

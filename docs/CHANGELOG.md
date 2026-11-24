@@ -12,6 +12,7 @@ Entries are in descending chronological order (newest first).
 ### Added
 
 - Settings > Integrações now shows what the AI can reach: the MCP servers the active engine is configured with (name, transport and scope only, never env, headers or arguments) and the command-line tools found on the login PATH, with version and, for `gh` and `aws`, a local "logado" / "perfil configurado" mark read without network. Nothing is started to read the servers; the CLIs are scanned when the pane opens, or on "Atualizar".
+- Terminal tab, in the notch panel and in the window: your own shell (`$SHELL` as a login shell, `/bin/zsh` when it is missing) in a real terminal with the Wisp colors, true color, full-screen programs (`vim`, `htop`, `claude`), copy and paste, ⌘-click on links and find with ⌘F. ⌘T opens another session and ⌘W closes the session (never the window while the Terminal tab has one); a session whose shell ended shows "[processo encerrado]" and a "Reabrir" button. Sessions are not restored at launch: each start opens one shell, in the last directory. While the tab is not on screen it stops drawing; the shells keep running and their output is kept.
 
 ### Fixed
 
