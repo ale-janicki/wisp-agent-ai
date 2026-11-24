@@ -116,6 +116,8 @@ struct SettingsView: View {
             notices
         case .integrations:
             IntegrationsPane(media: media)
+            McpServersGroup()
+            CliToolsGroup()
             TelegramSettingsGroup()
         case .general:
             general
@@ -766,6 +768,107 @@ struct IntegrationsPane: View {
             if google.isConnected { return ("Conectado", Theme.ok) }
             return google.hasClient ? ("Não conectado", Theme.busy) : ("Não configurado", Theme.textTertiary)
         }
+    }
+}
+
+// MARK: MCP e CLIs
+
+private struct McpServersGroup: View {
+    private let model = ToolsInventoryModel.shared
+
+    var body: some View {
+        SettingsGroup(title: "MCP", caption: caption) {
+            if model.servers.isEmpty {
+                Text(model.scanned ? "Nenhum servidor MCP configurado para este motor." : "Lendo a configuração…")
+                    .font(Theme.Font.body)
+                    .foregroundStyle(Theme.textSecondary)
+                    .padding(.vertical, Theme.Space.s)
+            }
+            ForEach(Array(model.servers.enumerated()), id: \.offset) { index, server in
+                if index > 0 { Divider().overlay(Theme.stroke) }
+                SettingsRow(title: server.name, detail: detail(server)) {
+                    HStack(spacing: Theme.Space.xs) {
+                        Circle().fill(server.disabled ? Theme.textTertiary : Theme.ok).frame(width: 6, height: 6)
+                        Text(server.disabled ? "desativado" : "configurado")
+                            .font(Theme.Font.body)
+                            .foregroundStyle(Theme.textSecondary)
+                    }
+                }
+            }
+        }
+    }
+
+    private var caption: String {
+        let engine = model.engine.displayName
+        return "Servidores que o motor \(engine) enxerga, lidos da configuração (nenhum é iniciado aqui). Env, cabeçalhos e argumentos nunca aparecem."
+    }
+
+    private func detail(_ server: McpServerInfo) -> String {
+        var parts = [server.transport, server.scope.rawValue]
+        if server.installedByWisp { parts.append("instalado pelo Wisp") }
+        return parts.joined(separator: " · ")
+    }
+}
+
+private struct CliToolsGroup: View {
+    private let model = ToolsInventoryModel.shared
+    @State private var showMissing = false
+
+    var body: some View {
+        SettingsGroup(
+            title: "CLIs",
+            caption: "A IA usa estas ferramentas pelo terminal dela; as travas do Wisp ainda valem.",
+            trailing: {
+                if model.scanning {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Button("Atualizar") { model.refresh(force: true) }
+                        .buttonStyle(CapsuleButtonStyle(kind: .ghost))
+                }
+            }
+        ) {
+            if model.scanned {
+                Text("Instaladas")
+                    .font(Theme.Font.caption)
+                    .foregroundStyle(Theme.textTertiary)
+                    .padding(.vertical, Theme.Space.xs)
+                ForEach(Array(model.installed.enumerated()), id: \.offset) { index, tool in
+                    if index > 0 { Divider().overlay(Theme.stroke) }
+                    SettingsRow(title: tool.name, detail: detail(tool)) {
+                        if let auth = tool.auth {
+                            HStack(spacing: Theme.Space.xs) {
+                                Circle().fill(Theme.ok).frame(width: 6, height: 6)
+                                Text(auth).font(Theme.Font.body).foregroundStyle(Theme.textSecondary)
+                            }
+                        }
+                    }
+                }
+                if !model.missing.isEmpty {
+                    DisclosureGroup("Não encontradas (\(model.missing.count))", isExpanded: $showMissing) {
+                        Text(model.missing.map(\.name).joined(separator: ", "))
+                            .font(Theme.Font.caption)
+                            .foregroundStyle(Theme.textSecondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.vertical, Theme.Space.xs)
+                    }
+                    .font(Theme.Font.caption)
+                    .foregroundStyle(Theme.textTertiary)
+                    .padding(.top, Theme.Space.s)
+                }
+            } else {
+                Text("Procurando as ferramentas…")
+                    .font(Theme.Font.body)
+                    .foregroundStyle(Theme.textSecondary)
+                    .padding(.vertical, Theme.Space.s)
+            }
+        }
+        .onAppear {
+            model.refresh()
+        }
+    }
+
+    private func detail(_ tool: CliStatus) -> String {
+        [tool.version, tool.directory].compactMap { $0 }.joined(separator: " · ")
     }
 }
 
