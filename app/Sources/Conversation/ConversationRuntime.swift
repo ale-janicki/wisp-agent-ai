@@ -490,7 +490,7 @@ final class ConversationRuntime {
 
     private func localEnvironment(_ extra: [String: String]) -> [String: String] {
         let layout = RuntimeLayout(bundle: Bundle.main.bundleURL, home: FileManager.default.homeDirectoryForCurrentUser)
-        var environment = ProcessInfo.processInfo.environment.filter { !$0.key.hasPrefix("UV_") && $0.key != "PYTHONPATH" }
+        var environment = RuntimeEnvironment.forRuntime()
         environment["WISP_RESOURCES"] = layout.src.path
         for (key, value) in extra { environment[key] = value }
         return environment

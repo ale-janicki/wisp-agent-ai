@@ -24,7 +24,7 @@ public enum BrainColher {
     }
 
     public static func environment(wisp: URL, base: [String: String], loginPATH: String?) -> [String: String] {
-        var environment = base.filter { !$0.key.hasPrefix("UV_") && $0.key != "PYTHONPATH" }
+        var environment = RuntimeEnvironment.forRuntime(base)
         let runtimeRoot = wisp.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         environment["WISP_RESOURCES"] = runtimeRoot.appendingPathComponent("src").path
         if let loginPATH { environment["PATH"] = loginPATH }

@@ -2,7 +2,7 @@ import Foundation
 import WispCore
 
 enum PanelTab: String, CaseIterable, Identifiable {
-    case home, conversation, brain, tasks, reminders, agenda, meetings, routines, music, clipboard, myMac, settings
+    case home, conversation, brain, tasks, reminders, agenda, meetings, routines, music, clipboard, terminal, myMac, settings
 
     var id: Self { self }
 
@@ -10,7 +10,7 @@ enum PanelTab: String, CaseIterable, Identifiable {
         raw == "memory" ? .brain : PanelTab(rawValue: raw)
     }
 
-    static let order: [PanelTab] = [.home, .conversation, .brain, .tasks, .reminders, .agenda, .meetings, .routines, .music, .clipboard, .myMac]
+    static let order: [PanelTab] = [.home, .conversation, .brain, .tasks, .reminders, .agenda, .meetings, .routines, .music, .clipboard, .terminal, .myMac]
 
     static func nav(for profile: Profile) -> [PanelTab] {
         order.filter { $0.isAvailable(in: profile) }
@@ -38,6 +38,7 @@ enum PanelTab: String, CaseIterable, Identifiable {
         case .routines: "Rotinas"
         case .music: "Música"
         case .clipboard: "Copiados"
+        case .terminal: "Terminal"
         case .myMac: "My Mac"
         case .settings: "Ajustes"
         }
@@ -55,6 +56,7 @@ enum PanelTab: String, CaseIterable, Identifiable {
         case .routines: "clock.arrow.circlepath"
         case .music: "music.note"
         case .clipboard: "doc.on.clipboard.fill"
+        case .terminal: "terminal"
         case .myMac: "laptopcomputer"
         case .settings: "gearshape.fill"
         }

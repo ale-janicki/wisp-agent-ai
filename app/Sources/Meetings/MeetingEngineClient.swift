@@ -13,7 +13,7 @@ struct MeetingEngineClient: Sendable {
 
     init(layout: RuntimeLayout) {
         wisp = layout.wisp
-        var environment = ProcessInfo.processInfo.environment.filter { !$0.key.hasPrefix("UV_") && $0.key != "PYTHONPATH" }
+        var environment = RuntimeEnvironment.forRuntime()
         environment["WISP_RESOURCES"] = layout.src.path
         environment["PATH"] = ClaudeLocator.effectivePATH
         self.environment = environment

@@ -18,7 +18,7 @@ final class EngineConnectModel {
 
     init(_ login: EngineLogin) {
         self.login = login
-        var environment = ProcessInfo.processInfo.environment.filter { !$0.key.hasPrefix("UV_") && $0.key != "PYTHONPATH" }
+        var environment = RuntimeEnvironment.forRuntime()
         environment["WISP_RESOURCES"] = layout.src.path
         self.environment = environment
     }

@@ -132,7 +132,7 @@ final class RuntimeInstaller {
     }
 
     nonisolated private static func runtimeEnvironment(_ layout: RuntimeLayout, base: [String: String]) -> [String: String] {
-        let clean = base.filter { !$0.key.hasPrefix("UV_") && $0.key != "PYTHONPATH" }
+        let clean = RuntimeEnvironment.forRuntime(base)
         return RuntimeBootstrap.processEnvironment(layout, base: clean).merging(["UV_PYTHON_PREFERENCE": "only-managed"]) {
             _, pinned in pinned
         }
