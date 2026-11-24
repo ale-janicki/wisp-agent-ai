@@ -339,6 +339,20 @@ struct MeetingsSettingsGroup: View {
                 isOn: current.autoSummary
             ) { on in settings.setMeetings { $0.autoSummary = on } }
             Divider().overlay(Theme.stroke)
+            SettingsRow(
+                title: "Cancelar eco do alto-falante",
+                detail: "Automático: liga só quando o som sai pelo alto-falante do Mac. Ligado, o macOS trata o áudio do microfone gravado (eco, ruído e ganho). Vale na próxima gravação."
+            ) {
+                Picker("Cancelar eco do alto-falante", selection: Binding(
+                    get: { current.echoCancel },
+                    set: { value in settings.setMeetings { $0.echoCancel = value } }
+                )) {
+                    ForEach(EchoCancelMode.allCases, id: \.self) { mode in Text(mode.label).tag(mode) }
+                }
+                .labelsHidden()
+                .frame(width: 130)
+            }
+            Divider().overlay(Theme.stroke)
             ToggleRow(
                 title: "Apagar gravações antigas",
                 detail: "Depois do prazo, as reuniões já salvas no brain vão para o Lixo inteiras (áudio, transcrição e nota local). A nota do brain fica, sem o link da transcrição. Reuniões sem nota no brain nunca são apagadas.",

@@ -17,6 +17,7 @@ Entries are in descending chronological order (newest first).
 
 ### Fixed
 
+- Reuniões: when the other person's voice came out of the Mac speakers, the microphone picked it up and the transcript labeled it "Você". Settings > Reuniões > "Cancelar eco do alto-falante" (Automático by default: only when the sound plays through the Mac speakers; or Sempre / Nunca) turns on Apple's echo cancellation, and with it active macOS processes the recorded microphone channel (echo, noise and gain). On top of that, a mic segment that is only the speakers' echo is left out of "Você" in the live and final transcripts; this filter changes only the transcript, never the audio.
 - Wisp em janela: the window no longer lets the content's own size drive it, so the layout follows the window while it is resized, the 900x600 minimum holds, and the header, the conversation list and the messages stay inside the window instead of sliding under the title bar buttons or off the left edge.
 
 ## [0.4.10] - 2026-11-23

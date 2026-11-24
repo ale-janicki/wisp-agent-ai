@@ -78,15 +78,17 @@ public struct MeetingTranscriber: Sendable {
     public var recognizer: SpeechRecognizer
     public var language: String?
     public var config: ChannelStreamerConfig
+    public var bleed: BleedConfig
     public var pause: (@Sendable () async throws -> Void)?
 
     public init(
         recognizer: SpeechRecognizer, language: String? = nil, config: ChannelStreamerConfig = .default,
-        pause: (@Sendable () async throws -> Void)? = nil
+        bleed: BleedConfig = .default, pause: (@Sendable () async throws -> Void)? = nil
     ) {
         self.recognizer = recognizer
         self.language = language
         self.config = config
+        self.bleed = bleed
         self.pause = pause
     }
 
@@ -101,12 +103,15 @@ public struct MeetingTranscriber: Sendable {
             streamers[channel] = ChannelStreamer(channel: channel, config: config)
         }
         var noise: [NoiseRange] = []
+        var systemHistory = ChannelHistory(capacity: Int(bleed.historySeconds * Double(SpeechAudio.sampleRate)))
         func run(_ jobs: [StreamJob], into merger: inout TranscriptMerger) async throws {
             for job in jobs where job.kind == .noise {
                 noise.append(NoiseRange(channel: job.channel, start: job.startSeconds, end: job.endSeconds))
             }
             for job in jobs where !job.samples.isEmpty {
                 try Task.checkCancellation()
+                if job.channel == .mic,
+                   BleedDetector.isBleed(mic: job.samples, micStart: job.startSample, system: systemHistory, config: bleed) { continue }
                 try await pause?()
                 let spans = try await recognizer.transcribe(job.samples, language: language).map {
                     RecognizedSpan(
@@ -117,7 +122,9 @@ public struct MeetingTranscriber: Sendable {
             }
         }
         try await StereoAudioReader().read(audio) { block, fraction in
-            for (channel, samples) in block {
+            // System first: the mic segments closing in this block are compared against system audio up to now.
+            for (channel, samples) in block.sorted(by: { $0.key == .system && $1.key != .system }) {
+                if channel == .system { systemHistory.append(samples) }
                 guard var streamer = streamers[channel] else { continue }
                 let jobs = streamer.append(samples)
                 streamers[channel] = streamer
@@ -168,8 +175,12 @@ public struct MeetingTranscriber: Sendable {
         let rate = Double(SpeechAudio.sampleRate)
         var position: [AudioChannel: Int] = [:]
         var pieces: [AudioChannel: Piece] = [:]
+        // Re-read mic noise can hold the speakers' echo too, so it gets the same bleed check as the main pass.
+        var systemHistory = ChannelHistory(capacity: Int(bleed.historySeconds * Double(SpeechAudio.sampleRate)))
         func transcribe(_ channel: AudioChannel, _ piece: Piece, into merger: inout TranscriptMerger) async throws {
             guard piece.fresh >= Self.minimumPieceSamples else { return }
+            if channel == .mic,
+               BleedDetector.isBleed(mic: piece.samples, micStart: piece.start, system: systemHistory, config: bleed) { return }
             try Task.checkCancellation()
             try await pause?()
             let offset = Double(piece.start) / rate
@@ -181,7 +192,9 @@ public struct MeetingTranscriber: Sendable {
         func inside(_ channel: AudioChannel, _ index: Int) -> Bool {
             ranges.contains { $0.channel == channel && Double(index) >= $0.start * rate && Double(index) < $0.end * rate }
         }
+        let checksMic = ranges.contains { $0.channel == .mic }
         try await StereoAudioReader().read(audio) { block, fraction in
+            if checksMic, let system = block[.system] { systemHistory.append(system) }
             for (channel, samples) in block where ranges.contains(where: { $0.channel == channel }) {
                 let first = position[channel] ?? 0
                 var piece = pieces[channel] ?? Piece()

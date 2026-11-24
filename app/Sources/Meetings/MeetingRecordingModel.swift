@@ -143,7 +143,7 @@ final class MeetingRecordingModel: ObservableObject {
         let now = Date()
         let bridge = bridge
         let next = MeetingRecorder(
-            mic: MicrophoneSource(), system: ProcessTapSource(), root: { [base = recordingsRoot] in base },
+            mic: MicrophoneSource(echoCancel: AppSettings.shared.settings.meetings.echoCancel), system: ProcessTapSource(), root: { [base = recordingsRoot] in base },
             makeSink: { try LiveEncodedSink(rawURL: $0) }, converter: LiveEncodedConverter(),
             sources: chosen, onAudio: { bridge.push($1, channel: $0, time: $2) }
         )

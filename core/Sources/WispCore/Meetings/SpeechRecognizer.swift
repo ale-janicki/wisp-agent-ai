@@ -103,6 +103,8 @@ public final class LiveTranscriber: @unchecked Sendable {
     private var decimators: [AudioChannel: Decimator48To16] = [:]
     private var streamers: [AudioChannel: ChannelStreamer]
     private var pending: [StreamJob] = []
+    private let bleed: BleedConfig
+    private var systemHistory: ChannelHistory
     private var failureReported = false
     private let signals: AsyncStream<Void>
     private let wake: AsyncStream<Void>.Continuation
@@ -110,11 +112,14 @@ public final class LiveTranscriber: @unchecked Sendable {
 
     public init(
         recognizer: SpeechRecognizer, store: MeetingTranscriptStore, language: String? = nil,
-        config: ChannelStreamerConfig = .default, channels: Set<AudioChannel> = Set(AudioChannel.allCases),
+        config: ChannelStreamerConfig = .default, bleed: BleedConfig = .default,
+        channels: Set<AudioChannel> = Set(AudioChannel.allCases),
         onUpdate: @escaping @Sendable ([MeetingSegment]) -> Void, onFailure: @escaping @Sendable (String) -> Void = { _ in },
         onLag: @escaping @Sendable (Bool) -> Void = { _ in }
     ) {
         self.onLag = onLag
+        self.bleed = bleed
+        systemHistory = ChannelHistory(capacity: Int(bleed.historySeconds * Double(SpeechAudio.sampleRate)))
         self.recognizer = recognizer
         self.store = store
         self.language = language
@@ -141,8 +146,10 @@ public final class LiveTranscriber: @unchecked Sendable {
     public func skipGap(seconds: Double, channel: AudioChannel) {
         let jobs = lock.withLock { () -> [StreamJob] in
             decimators[channel] = Decimator48To16()
+            let count = Int(seconds * Double(SpeechAudio.sampleRate))
+            if channel == .system { systemHistory.skip(count) }
             guard var streamer = streamers[channel] else { return [] }
-            let made = streamer.skipGap(samples: Int(seconds * Double(SpeechAudio.sampleRate)))
+            let made = streamer.skipGap(samples: count)
             streamers[channel] = streamer
             return made
         }
@@ -152,6 +159,7 @@ public final class LiveTranscriber: @unchecked Sendable {
     public func push16k(_ samples: [Float], channel: AudioChannel) {
         guard !samples.isEmpty else { return }
         let jobs = lock.withLock { () -> [StreamJob] in
+            if channel == .system { systemHistory.append(samples) }
             guard var streamer = streamers[channel] else { return [] }
             let made = streamer.append(samples)
             streamers[channel] = streamer
@@ -238,6 +246,15 @@ public final class LiveTranscriber: @unchecked Sendable {
         while let job = take() { await process(job) }
     }
 
+    /// Only the window is copied under the lock; copying the whole history would also force a full copy on the next push.
+    private func isBleed(_ job: StreamJob) -> Bool {
+        let window = lock.withLock {
+            BleedDetector.systemWindow(micStart: job.startSample, micCount: job.samples.count, system: systemHistory, config: bleed)
+        }
+        guard let window else { return false }
+        return BleedDetector.isBleed(mic: job.samples, systemWindow: window, config: bleed)
+    }
+
     private func process(_ job: StreamJob) async {
         if job.kind == .typing {
             store.setPartial(RecognizedSpan(text: "…", start: job.startSeconds, end: job.startSeconds), channel: job.channel)
@@ -249,6 +266,11 @@ public final class LiveTranscriber: @unchecked Sendable {
             return
         }
         if job.samples.isEmpty {
+            store.commit([], channel: job.channel)
+            onUpdate(store.snapshot)
+            return
+        }
+        if job.channel == .mic, isBleed(job) {
             store.commit([], channel: job.channel)
             onUpdate(store.snapshot)
             return
