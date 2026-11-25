@@ -82,7 +82,7 @@ struct TerminalTab: View {
     private var content: some View {
         if let session = workspace.selected, let engine = session.engine as? SwiftTermEngine {
             VStack(spacing: 0) {
-                TerminalSurface(engine: engine, fontSize: windowMode ? TerminalTheme.windowFontSize : TerminalTheme.compactFontSize)
+                TerminalSurface(engine: engine, session: session, fontSize: windowMode ? TerminalTheme.windowFontSize : TerminalTheme.compactFontSize)
                     .id(session.id)
                     .padding(.leading, Theme.Space.s)
                 if let note = endedNote(session) {
