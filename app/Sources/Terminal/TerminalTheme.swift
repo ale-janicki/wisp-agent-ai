@@ -2,14 +2,12 @@ import AppKit
 import SwiftTerm
 import WispCore
 
-/// The Wisp theme as a terminal's colors: background, text and caret from the theme, and a 16-color palette picked for a dark ground.
 @MainActor
 enum TerminalTheme {
     static let compactFontSize: CGFloat = 12
     static let windowFontSize: CGFloat = 13
 
-    /// Normal then bright, in ANSI order: black, red, green, yellow, blue, magenta, cyan, white.
-    private static let palette: [UInt32] = [
+    static let palette: [UInt32] = [
         0x4B5263, 0xF2555A, 0x5BD66E, 0xF5B83D, 0x61AFEF, 0xC678DD, 0x4FD1C5, 0xC9CDD6,
         0x7A8294, 0xFF7B80, 0x86E895, 0xFFD068, 0x8CC8FF, 0xDDA0F0, 0x7FE8DD, 0xFFFFFF,
     ]
@@ -27,7 +25,11 @@ enum TerminalTheme {
         if view.font.pointSize != fontSize { view.font = font(fontSize) }
     }
 
-    private static func ns(_ color: HexColor) -> NSColor {
+    static func ns(hex value: UInt32) -> NSColor {
+        NSColor(srgbRed: CGFloat((value >> 16) & 0xFF) / 255, green: CGFloat((value >> 8) & 0xFF) / 255, blue: CGFloat(value & 0xFF) / 255, alpha: 1)
+    }
+
+    static func ns(_ color: HexColor) -> NSColor {
         NSColor(srgbRed: CGFloat(color.red) / 255, green: CGFloat(color.green) / 255, blue: CGFloat(color.blue) / 255, alpha: 1)
     }
 }

@@ -15,7 +15,6 @@ final class AppSettings {
     @ObservationIgnored private var saveTask: Task<Void, Never>?
     @ObservationIgnored private let writeQueue = DispatchQueue(label: "\(AppIdentity.bundleID).settings.write", qos: .utility)
     @ObservationIgnored private var unsaved = false
-    /// False under the DEBUG setup walkthrough's fake HOME: nothing reaches the real settings file.
     @ObservationIgnored var persists = true
     @ObservationIgnored private let log = Logger(subsystem: AppIdentity.bundleID, category: "settings")
 
@@ -69,6 +68,7 @@ final class AppSettings {
             let brainShowsGraph = settings.brainShowsGraph
             let windowMode = settings.windowMode
             let terminalBlocks = settings.terminalBlocks
+            let terminalNativeBlocks = settings.terminalNativeBlocks
             settings = .default
             settings.dashboardOrder = order
             settings.telegramOrder = topicOrder
@@ -84,6 +84,7 @@ final class AppSettings {
             settings.meetings = meetings
             settings.brainShowsGraph = brainShowsGraph
             settings.terminalBlocks = terminalBlocks
+            settings.terminalNativeBlocks = terminalNativeBlocks
             settings.windowMode = windowMode
         }
     }
@@ -164,6 +165,10 @@ final class AppSettings {
 
     func setTerminalBlocks(_ on: Bool) {
         update { $0.terminalBlocks = on }
+    }
+
+    func setTerminalNativeBlocks(_ on: Bool) {
+        update { $0.terminalNativeBlocks = on }
     }
 
     func setSettingsSection(_ id: String) {

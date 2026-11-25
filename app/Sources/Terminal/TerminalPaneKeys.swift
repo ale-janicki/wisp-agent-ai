@@ -1,8 +1,6 @@
 import AppKit
 import WispCore
 
-/// The tab and pane shortcuts, in Warp's map. Asked before `TerminalKeys`, and only by the pane that holds the keyboard, so they never
-/// fire from another Wisp tab; ⌘T, ⌘W, find, copy and the block keys stay with `TerminalKeys`.
 @MainActor
 enum TerminalPaneKeys {
     private enum KeyCode {
@@ -15,12 +13,10 @@ enum TerminalPaneKeys {
         static let tab: UInt16 = 48
     }
 
-    /// Only when the terminal screen itself has the keyboard: with the find bar focused these keys belong to its text field.
     static func handle(_ event: NSEvent, in host: TerminalHostView) -> Bool {
-        guard event.type == .keyDown, let view = host.engine?.view, host.window?.firstResponder === view,
-              let session = host.session else { return false }
-        let workspace = TerminalStore.shared.workspace
-        // The keyboard is the truth: a click moved it into this pane even if no hover told the workspace yet.
+        guard event.type == .keyDown, host.hasFocus, !isFieldEditor(host.window?.firstResponder), let session = host.session
+        else { return false }
+        let workspace = host.workspace
         if workspace.selectedID != session.id { workspace.select(session.id) }
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.capsLock, .numericPad, .function])
         let key = event.charactersIgnoringModifiers?.lowercased()
@@ -80,11 +76,21 @@ enum TerminalPaneKeys {
         }
     }
 
-    /// Whether moving the focus by hover may take the keyboard: only from a terminal screen or from nothing, never from a text
-    /// field (the sidebar search, a tab's rename, a find bar).
     static func hoverMayMoveFocus(in window: NSWindow?) -> Bool {
         guard let responder = window?.firstResponder else { return true }
-        return responder is WispTerminalView || responder === window
+        if responder === window || responder is WispTerminalView || responder is InputEditorView || responder is BlockOutputTextView
+            || responder is BlockListView { return true }
+        guard !isFieldEditor(responder) else { return false }
+        var view = (responder as? NSView)?.superview
+        while let current = view {
+            if current is TerminalPaneView { return true }
+            view = current.superview
+        }
+        return false
+    }
+
+    private static func isFieldEditor(_ responder: NSResponder?) -> Bool {
+        (responder as? NSTextView)?.isFieldEditor == true
     }
 
     private static func direction(_ code: UInt16) -> TerminalLayout.Direction? {

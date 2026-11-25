@@ -17,4 +17,18 @@ final class BlockCopyTests: XCTestCase {
         XCTAssertEqual(BlockCopy.command.text(command: "echo a\necho b\n\n", output: ""), "echo a\necho b")
         XCTAssertEqual(BlockCopy.commandAndOutput.text(command: "echo a\necho b\n", output: "a\nb"), "echo a\necho b\na\nb")
     }
+
+    func testSeveralBlocksAreSeparatedByABlankLine() {
+        let blocks = [(command: "ls", output: "a\nb"), (command: "pwd", output: "/tmp")]
+        XCTAssertEqual(BlockCopy.commandAndOutput.text(blocks: blocks), "ls\na\nb\n\npwd\n/tmp")
+        XCTAssertEqual(BlockCopy.command.text(blocks: blocks), "ls\n\npwd")
+        XCTAssertEqual(BlockCopy.output.text(blocks: blocks), "a\nb\n\n/tmp")
+    }
+
+    func testABlockWithNothingToCopyLeavesNoGap() {
+        let blocks = [(command: "true", output: ""), (command: "pwd", output: "/tmp")]
+        XCTAssertEqual(BlockCopy.output.text(blocks: blocks), "/tmp")
+        XCTAssertEqual(BlockCopy.commandAndOutput.text(blocks: blocks), "true\n\npwd\n/tmp")
+        XCTAssertEqual(BlockCopy.output.text(blocks: []), "")
+    }
 }

@@ -1,14 +1,6 @@
 import AppKit
 import WispCore
 
-/// The blocks drawn over the terminal's screen: a header above each command's prompt, a red border and tint on a failed one's body,
-/// a highlight on the selected one. It sits above SwiftTerm's view with the same frame and lets every mouse event through except those on a
-/// header or the border. Nothing here polls: it is redrawn when the engine says the screen moved (scroll, resize, output) or when the
-/// blocks changed.
-///
-/// Alignment: SwiftTerm draws row `n` of the screen with its top at `n * cellHeight` from the view's top. `TerminalViewport` gives the
-/// first row on screen as a scroll-invariant row number (the cell height from `getOptimalFrameSize`, the position from `scrollPosition`
-/// and the snapshot's `liveTopRow`), and blocks are kept in the same numbering, so a block's y is `(row - top) * cellHeight`.
 @MainActor
 final class BlockOverlayView: NSView {
     private enum Action: CaseIterable {
@@ -35,12 +27,10 @@ final class BlockOverlayView: NSView {
     private var viewport: TerminalViewport?
     private var hovered: Int?
     private var reanchoring = false
-    /// What "Colar de novo" did instead of typing (copied the command) or why it did nothing, in that block's header for a moment.
     private var notice: (block: Int, text: String, isError: Bool)?
     private let spinner = NSProgressIndicator()
     private static let gutter: CGFloat = 6
 
-    /// The entries of the right-click menu; `tag` carries the case.
     private enum MenuEntry: Int {
         case command, output, both, top
 
@@ -93,7 +83,6 @@ final class BlockOverlayView: NSView {
         if session != nil { refresh() }
     }
 
-    /// One read of where the screen is, then one redraw.
     func refresh() {
         guard let session, let engine else { return }
         viewport = engine.viewport()
@@ -107,8 +96,6 @@ final class BlockOverlayView: NSView {
         needsDisplay = true
     }
 
-    /// The width changed and the terminal reflowed its rows: every block is found again by its command text. Waits for the size to
-    /// settle, reads the rows off the main thread, and draws nothing meanwhile (a stale header would sit on the wrong line).
     private func reanchor(engine: SwiftTermEngine, session: TerminalSession) {
         reanchoring = true
         let view = engine.view
@@ -120,7 +107,6 @@ final class BlockOverlayView: NSView {
             let snapshot = session.blocks.blocks
             let rows = await Task.detached { SwiftTermEngine.allRows(of: view) }.value
             let found = BlockText.reanchor(snapshot, rows: rows)
-            // Commands may have ended or started while the rows were read: the tracker as it is now wins, only the rows move.
             session.replaceBlocks(BlockText.merge(reanchored: found, snapshot: snapshot, current: session.blocks.blocks))
             self?.reanchoring = false
             self?.refresh()
@@ -187,7 +173,6 @@ final class BlockOverlayView: NSView {
         for geo in geometry() {
             let block = geo.block
             let color = Self.color(for: block)
-            // Only a failed block marks its body (red bar and a faint tint); a running or succeeded one shows its state in the header.
             if case .finished(let code) = block.status, code != 0 {
                 NSColor(Theme.error).withAlphaComponent(0.07).setFill()
                 geo.body.fill()
@@ -252,7 +237,6 @@ final class BlockOverlayView: NSView {
         }
     }
 
-    /// One line of text, vertically centered in `rect`, truncated at `width`. Returns the width it took.
     @discardableResult
     private static func draw(_ text: String, in rect: NSRect, x: CGFloat, width: CGFloat? = nil, font: NSFont, color: NSColor) -> CGFloat {
         let style = NSMutableParagraphStyle()
@@ -279,8 +263,6 @@ final class BlockOverlayView: NSView {
 
     override func hitTest(_ point: NSPoint) -> NSView? {
         let local = convert(point, from: superview)
-        // A right click (or Control-click) anywhere on a block is ours, for its menu; every other press in the body goes to the terminal.
-        // A program that tracks the mouse keeps its right clicks.
         let programTracksMouse = engine.map { $0.view.currentMouseMode != .off } ?? false
         let contextClick = !programTracksMouse && (NSApp.currentEvent.map { $0.type == .rightMouseDown || ($0.type == .leftMouseDown && $0.modifierFlags.contains(.control)) } ?? false)
         for geo in geometry() {
@@ -317,7 +299,6 @@ final class BlockOverlayView: NSView {
         guard let session else { return }
         let local = convert(event.locationInWindow, from: nil)
         guard let geo = geometry().last(where: { $0.body.contains(local) }) else { return }
-        // The keyboard stays with the terminal, so ⌘C and the block shortcuts act on what was just clicked.
         if let view = engine?.view, window?.firstResponder !== view { window?.makeFirstResponder(view) }
         if let hit = geo.actions.first(where: { $0.rect.contains(local) }) {
             perform(hit.action, on: geo.block)
@@ -394,8 +375,6 @@ final class BlockOverlayView: NSView {
         }
     }
 
-    /// The selected block's command, output or both, for ⇧⌘C, ⌥⇧⌘C and ⌘C. False when nothing is selected or the part is not
-    /// there yet (a running block has no output to copy).
     @discardableResult
     func copySelected(_ part: BlockCopy) -> Bool {
         guard let block = session?.blocks.block(id: session?.selectedBlockID), !(block.isRunning && part != .command) else { return false }
@@ -412,7 +391,6 @@ final class BlockOverlayView: NSView {
         Self.copy(part.text(command: block.command, output: output))
     }
 
-    /// ⌘↑ and ⌘↓: select the block before or after and scroll to it. False when there is none, so the key goes on.
     @discardableResult
     func jump(previous: Bool) -> Bool {
         guard let session, let engine, let viewport = engine.viewport(), !viewport.alternateScreen else { return false }

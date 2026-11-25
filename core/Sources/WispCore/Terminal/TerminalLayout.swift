@@ -1,13 +1,9 @@
 import CoreGraphics
 import Foundation
 
-/// The tabs of the Terminal tab and the panes inside each one: every tab holds a tree of splits whose leaves are session ids. Pure:
-/// the workspace owns the sessions, this only says where each one sits and which one has the keyboard.
 public struct TerminalLayout: Equatable, Sendable {
     public enum Axis: Equatable, Sendable {
-        /// Side by side: the second pane is to the right of the first.
         case horizontal
-        /// Stacked: the second pane is below the first.
         case vertical
     }
 
@@ -17,17 +13,14 @@ public struct TerminalLayout: Equatable, Sendable {
 
     public indirect enum Node: Equatable, Sendable {
         case leaf(UUID)
-        /// `ratio` is the share of the first child, along `axis`.
         case split(Axis, ratio: Double, first: Node, second: Node)
     }
 
     public struct Tab: Identifiable, Equatable, Sendable {
         public let id: UUID
-        /// The name the user gave the tab; nil shows the focused pane's command or folder.
         public var customTitle: String?
         public var root: Node
         public var focused: UUID
-        /// The focused pane fills the tab; the others keep running out of sight.
         public var maximized = false
 
         public init(id: UUID = UUID(), session: UUID) {
@@ -38,7 +31,6 @@ public struct TerminalLayout: Equatable, Sendable {
 
         public var sessions: [UUID] { root.leaves }
 
-        /// The same tab with other sessions in its panes (reopening a closed tab starts new shells in the same places).
         public func remapped(_ map: [UUID: UUID]) -> Tab {
             var tab = self
             tab.root = root.remapped(map)
@@ -46,12 +38,10 @@ public struct TerminalLayout: Equatable, Sendable {
             return tab
         }
 
-        /// Where each visible pane sits in a unit square (origin top left, y down); only the focused one while maximized.
         public var frames: [UUID: CGRect] {
             maximized ? [focused: Self.unit] : root.frames(in: Self.unit)
         }
 
-        /// The draggable lines between panes; none while maximized.
         public var dividers: [Divider] {
             maximized ? [] : root.dividers(in: Self.unit, path: [])
         }
@@ -59,15 +49,12 @@ public struct TerminalLayout: Equatable, Sendable {
         static let unit = CGRect(x: 0, y: 0, width: 1, height: 1)
     }
 
-    /// One split's dividing line. `path` names the split (0 = first child, 1 = second, from the root); `bounds` is the area the
-    /// split divides, so a drag position turns into a ratio.
     public struct Divider: Equatable, Sendable {
         public let path: [Int]
         public let axis: Axis
         public let ratio: Double
         public let bounds: CGRect
 
-        /// The ratio a point in the same unit space asks for.
         public func ratio(at point: CGPoint) -> Double {
             switch axis {
             case .horizontal: bounds.width > 0 ? Double((point.x - bounds.minX) / bounds.width) : ratio
@@ -76,7 +63,6 @@ public struct TerminalLayout: Equatable, Sendable {
         }
     }
 
-    /// What closing a session did: removed one pane of a tab, or the whole tab.
     public enum Removal: Equatable, Sendable {
         case pane
         case tab
@@ -93,7 +79,6 @@ public struct TerminalLayout: Equatable, Sendable {
 
     public var selectedIndex: Int? { tabs.firstIndex { $0.id == selectedTabID } }
 
-    /// The session with the keyboard: the focused pane of the selected tab.
     public var focusedSession: UUID? { selectedTab?.focused }
 
     public func tabIndex(containing session: UUID) -> Int? {
@@ -102,7 +87,6 @@ public struct TerminalLayout: Equatable, Sendable {
 
     // MARK: Tabs
 
-    /// A new tab holding one pane, after the others, and selected.
     public mutating func addTab(session: UUID, id: UUID = UUID()) {
         tabs.append(Tab(id: id, session: session))
         selectedTabID = id
@@ -115,7 +99,6 @@ public struct TerminalLayout: Equatable, Sendable {
         return true
     }
 
-    /// ⌘1…⌘9: `index` counts from zero; one past the tabs there are is nothing.
     @discardableResult
     public mutating func selectTab(at index: Int) -> Bool {
         guard tabs.indices.contains(index) else { return false }
@@ -123,7 +106,6 @@ public struct TerminalLayout: Equatable, Sendable {
         return true
     }
 
-    /// ⌘9: the last tab, however many there are.
     @discardableResult
     public mutating func selectLastTab() -> Bool {
         guard let last = tabs.last else { return false }
@@ -131,7 +113,6 @@ public struct TerminalLayout: Equatable, Sendable {
         return true
     }
 
-    /// ⌘⇧[ and ⌘⇧] (and ⌃Tab): the tab before or after the selected one, round the ends.
     @discardableResult
     public mutating func selectAdjacentTab(_ offset: Int) -> Bool {
         guard let index = selectedIndex, tabs.count > 1 else { return false }
@@ -145,7 +126,6 @@ public struct TerminalLayout: Equatable, Sendable {
         tabs.insert(tabs.remove(at: source), at: destination)
     }
 
-    /// ⌃⇧← and ⌃⇧→: the selected tab one place up or down the list; nothing past either end.
     @discardableResult
     public mutating func moveSelectedTab(_ offset: Int) -> Bool {
         guard let index = selectedIndex, tabs.indices.contains(index + offset), offset != 0 else { return false }
@@ -153,21 +133,18 @@ public struct TerminalLayout: Equatable, Sendable {
         return true
     }
 
-    /// Puts a tab back (a reopened one) at `index`, or at the end past it, and selects it.
     public mutating func insertTab(_ tab: Tab, at index: Int) {
         guard !tabs.contains(where: { $0.id == tab.id }) else { return }
         tabs.insert(tab, at: min(max(index, 0), tabs.count))
         selectedTabID = tab.id
     }
 
-    /// A blank or whitespace name gives the tab its automatic title back.
     public mutating func rename(_ id: UUID, to title: String?) {
         guard let index = tabs.firstIndex(where: { $0.id == id }) else { return }
         let trimmed = title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         tabs[index].customTitle = trimmed.isEmpty ? nil : trimmed
     }
 
-    /// Removes the tab and hands back its sessions so the caller can end them.
     @discardableResult
     public mutating func closeTab(_ id: UUID) -> [UUID] {
         guard let index = tabs.firstIndex(where: { $0.id == id }) else { return [] }
@@ -185,7 +162,6 @@ public struct TerminalLayout: Equatable, Sendable {
 
     // MARK: Panes
 
-    /// Clicking a pane: its tab is selected and the pane takes the keyboard.
     @discardableResult
     public mutating func focus(_ session: UUID) -> Bool {
         guard let index = tabIndex(containing: session) else { return false }
@@ -197,7 +173,6 @@ public struct TerminalLayout: Equatable, Sendable {
         return true
     }
 
-    /// ⌘D / ⌘⇧D: the focused pane of the selected tab is halved and `session` takes the new half and the focus.
     @discardableResult
     public mutating func split(_ axis: Axis, adding session: UUID) -> Bool {
         guard let index = selectedIndex, tabIndex(containing: session) == nil else { return false }
@@ -208,7 +183,6 @@ public struct TerminalLayout: Equatable, Sendable {
         return true
     }
 
-    /// Takes the pane out of its tab; its sibling fills the split's place. The last pane takes its tab with it.
     @discardableResult
     public mutating func close(_ session: UUID) -> Removal? {
         guard let index = tabIndex(containing: session) else { return nil }
@@ -222,7 +196,6 @@ public struct TerminalLayout: Equatable, Sendable {
         return .pane
     }
 
-    /// ⌘⌥ and an arrow: the pane next to the focused one on that side, by where they sit on screen.
     @discardableResult
     public mutating func moveFocus(_ direction: Direction) -> Bool {
         guard let index = selectedIndex, !tabs[index].maximized else { return false }
@@ -232,7 +205,6 @@ public struct TerminalLayout: Equatable, Sendable {
         return true
     }
 
-    /// ⌘[ and ⌘]: the pane before or after the focused one in reading order, round the ends.
     @discardableResult
     public mutating func focusAdjacentPane(_ offset: Int) -> Bool {
         guard let index = selectedIndex, !tabs[index].maximized else { return false }
@@ -242,7 +214,6 @@ public struct TerminalLayout: Equatable, Sendable {
         return true
     }
 
-    /// ⌃⌘ and an arrow: the nearest divider beside the focused pane on that axis moves `step` toward the arrow.
     @discardableResult
     public mutating func resizeFocused(_ direction: Direction, step: Double = 0.05) -> Bool {
         guard let index = selectedIndex, !tabs[index].maximized else { return false }
@@ -253,7 +224,6 @@ public struct TerminalLayout: Equatable, Sendable {
         return true
     }
 
-    /// ⌘⇧Enter: only a tab with more than one pane has anything to maximize.
     @discardableResult
     public mutating func toggleMaximize() -> Bool {
         guard let index = selectedIndex else { return false }
@@ -262,15 +232,12 @@ public struct TerminalLayout: Equatable, Sendable {
         return true
     }
 
-    /// Dragging a divider of the selected tab; the ratio stays within `ratioRange` so no pane collapses.
     public mutating func resize(_ path: [Int], to ratio: Double) {
         guard let index = selectedIndex, ratio.isFinite else { return }
         let clamped = min(max(ratio, Self.ratioRange.lowerBound), Self.ratioRange.upperBound)
         tabs[index].root = tabs[index].root.setting(ratio: clamped, at: path[...])
     }
 
-    /// The closest pane wholly on `direction`'s side of `session` that shares some of its edge; a tie goes to the one in line with
-    /// the focused pane's middle, then the top or left one.
     public static func neighbour(of session: UUID, toward direction: Direction, in frames: [UUID: CGRect]) -> UUID? {
         guard let from = frames[session] else { return nil }
         let epsilon: CGFloat = 1e-6
@@ -305,7 +272,6 @@ public struct TerminalLayout: Equatable, Sendable {
         return best?.id
     }
 
-    /// Whether a tab's row shows for a sidebar search: every word of `query` is in one of `fields`, case and accents aside.
     public static func matches(_ query: String, fields: [String]) -> Bool {
         let words = query.split(whereSeparator: \.isWhitespace)
         guard !words.isEmpty else { return true }
@@ -316,7 +282,6 @@ public struct TerminalLayout: Equatable, Sendable {
 }
 
 extension TerminalLayout.Node {
-    /// The sessions from left to right and top to bottom.
     public var leaves: [UUID] {
         switch self {
         case .leaf(let id): [id]
@@ -369,7 +334,6 @@ extension TerminalLayout.Node {
         }
     }
 
-    /// The path of the deepest split on `axis` that holds `session`; nil when no split of that axis does.
     func nearestSplit(on axis: TerminalLayout.Axis, around session: UUID, path: [Int]) -> [Int]? {
         guard case .split(let own, _, let first, let second) = self, contains(session) else { return nil }
         let inner = first.contains(session)
@@ -386,8 +350,6 @@ extension TerminalLayout.Node {
         }
     }
 
-    /// The tree without `session`, and the pane that inherits the focus (the sibling's pane nearest the one that went); nil when
-    /// `session` was the whole tree.
     func removing(_ session: UUID) -> (node: Self, heir: UUID)? {
         guard case .split(let axis, let ratio, let first, let second) = self else { return nil }
         if first == .leaf(session) { return (second, second.leaves.first ?? session) }
@@ -411,13 +373,10 @@ extension TerminalLayout.Node {
     }
 }
 
-/// Which key a shortcut names, by the character it types so it works on any layout (on ABNT2 the US bracket key codes type
-/// other characters).
 public enum TerminalShortcutKey {
     public static let leftBracketCode: UInt16 = 33
     public static let rightBracketCode: UInt16 = 30
 
-    /// -1 for `[` (or `{` with shift), +1 for `]` (or `}`); the key code is asked only when the event typed no character.
     public static func bracket(characters: String?, keyCode: UInt16) -> Int? {
         switch characters {
         case "[", "{": return -1
@@ -431,7 +390,6 @@ public enum TerminalShortcutKey {
     }
 }
 
-/// What a tab's row says: the user's name for it, else the command running or last run in its focused pane, else the pane's name.
 public enum TerminalTabTitle {
     public static func make(custom: String?, command: String?, fallback: String) -> String {
         if let custom, !custom.isEmpty { return custom }
@@ -439,7 +397,6 @@ public enum TerminalTabTitle {
         return fallback
     }
 
-    /// The program of a command line: `FOO=1 sudo /usr/bin/git log` is `git`.
     public static func commandName(_ command: String) -> String? {
         let words = command.split(whereSeparator: \.isWhitespace).map(String.init)
         let skipped: Set<String> = ["sudo", "env", "exec", "command", "builtin", "nohup", "time", "noglob"]
