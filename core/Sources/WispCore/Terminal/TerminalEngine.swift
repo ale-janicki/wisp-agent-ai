@@ -28,9 +28,14 @@ public protocol TerminalEngine: AnyObject {
     /// A program set the window title (OSC 0/2).
     var onTitle: (@MainActor (String) -> Void)? { get set }
 
-    /// Runs `shell` as a login shell in `cwd`. `env` is the whole environment of the child.
-    func start(shell: TerminalShell, cwd: String, env: [String: String], size: TerminalSize) throws
+    /// Marks the shell sent (command start, end, directory...) with where the cursor was at each. Only for an integrated launch.
+    var onShellEvents: (@MainActor ([StampedShellEvent]) -> Void)? { get set }
+
+    /// Runs `shell` in `cwd` the way `launch` says (`launch.environment` is the whole environment of the child).
+    func start(shell: TerminalShell, launch: TerminalLaunch, cwd: String, size: TerminalSize) throws
     func write(_ bytes: [UInt8])
+    /// The program on the terminal turned bracketed paste on (DEC mode 2004), as the terminal itself holds it now.
+    var bracketedPasteMode: Bool { get }
     /// Tells the pty its new size; the child gets SIGWINCH.
     func resize(_ size: TerminalSize)
     /// Asks the shell to end. The exit still arrives through `onExit` unless the engine is dropped.
@@ -40,4 +45,17 @@ public protocol TerminalEngine: AnyObject {
     func settle(by deadline: Date)
     /// The shell's current directory, read once from the system; nil when it is not running.
     func currentDirectory() -> String?
+}
+
+/// A shell event with the cursor position and time it happened.
+public struct StampedShellEvent: Equatable, Sendable {
+    public let event: ShellEvent
+    public let anchor: BlockAnchor
+    public let date: Date
+
+    public init(event: ShellEvent, anchor: BlockAnchor, date: Date = Date()) {
+        self.event = event
+        self.anchor = anchor
+        self.date = date
+    }
 }

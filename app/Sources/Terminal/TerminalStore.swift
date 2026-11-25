@@ -9,6 +9,10 @@ final class TerminalStore {
 
     let workspace: TerminalWorkspace
 
+    /// The shell hooks that ship in the app's resources; nil if the bundle lacks them (the terminal is then a plain one).
+    private static let integration = Bundle.main.url(forResource: "ShellIntegration", withExtension: nil)
+        .map { ShellIntegration(directory: $0) }
+
     private static let lastDirectoryKey = "terminal.lastDirectory"
 
     private init() {
@@ -22,7 +26,15 @@ final class TerminalStore {
             let shell = TerminalShell.resolve(shellVariable: Self.shellVariable())
             let env = TerminalEnvironment.build(
                 base: ProcessInfo.processInfo.environment, shell: shell, home: home, user: NSUserName(), version: version)
-            return TerminalSession(shell: shell, environment: env, directory: directory) { SwiftTermEngine() }
+            let session = TerminalSession(
+                shell: shell, environment: env, directory: directory, integration: Self.integration,
+                integrationEnabled: { AppSettings.shared.settings.terminalBlocks }
+            ) { SwiftTermEngine() }
+            session.measureHead = { [weak session] range in
+                guard let engine = session?.engine as? SwiftTermEngine else { return 1 }
+                return BlockText.lineCount(engine.rows(range))
+            }
+            return session
         }
     }
 
