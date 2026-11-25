@@ -1,14 +1,6 @@
 import AppKit
 import WispCore
 
-/// The blocks drawn over the terminal's screen: a header above each command's prompt, a colored border down its side, a highlight
-/// on the selected one. It sits above SwiftTerm's view with the same frame and lets every mouse event through except those on a
-/// header or the border. Nothing here polls: it is redrawn when the engine says the screen moved (scroll, resize, output) or when the
-/// blocks changed.
-///
-/// Alignment: SwiftTerm draws row `n` of the screen with its top at `n * cellHeight` from the view's top. `TerminalViewport` gives the
-/// first row on screen as a scroll-invariant row number (the cell height from `getOptimalFrameSize`, the position from `scrollPosition`
-/// and the snapshot's `liveTopRow`), and blocks are kept in the same numbering, so a block's y is `(row - top) * cellHeight`.
 @MainActor
 final class BlockOverlayView: NSView {
     private enum Action: CaseIterable {
@@ -35,10 +27,22 @@ final class BlockOverlayView: NSView {
     private var viewport: TerminalViewport?
     private var hovered: Int?
     private var reanchoring = false
-    /// What "Colar de novo" did instead of typing (copied the command) or why it did nothing, in that block's header for a moment.
     private var notice: (block: Int, text: String, isError: Bool)?
     private let spinner = NSProgressIndicator()
     private static let gutter: CGFloat = 6
+
+    private enum MenuEntry: Int {
+        case command, output, both, top
+
+        var title: String {
+            switch self {
+            case .command: "Copiar comando"
+            case .output: "Copiar saída"
+            case .both: "Copiar comando e saída"
+            case .top: "Ir para o topo do bloco"
+            }
+        }
+    }
 
     override var isFlipped: Bool { true }
 
@@ -79,7 +83,6 @@ final class BlockOverlayView: NSView {
         if session != nil { refresh() }
     }
 
-    /// One read of where the screen is, then one redraw.
     func refresh() {
         guard let session, let engine else { return }
         viewport = engine.viewport()
@@ -93,8 +96,6 @@ final class BlockOverlayView: NSView {
         needsDisplay = true
     }
 
-    /// The width changed and the terminal reflowed its rows: every block is found again by its command text. Waits for the size to
-    /// settle, reads the rows off the main thread, and draws nothing meanwhile (a stale header would sit on the wrong line).
     private func reanchor(engine: SwiftTermEngine, session: TerminalSession) {
         reanchoring = true
         let view = engine.view
@@ -106,7 +107,6 @@ final class BlockOverlayView: NSView {
             let snapshot = session.blocks.blocks
             let rows = await Task.detached { SwiftTermEngine.allRows(of: view) }.value
             let found = BlockText.reanchor(snapshot, rows: rows)
-            // Commands may have ended or started while the rows were read: the tracker as it is now wins, only the rows move.
             session.replaceBlocks(BlockText.merge(reanchored: found, snapshot: snapshot, current: session.blocks.blocks))
             self?.reanchoring = false
             self?.refresh()
@@ -173,13 +173,17 @@ final class BlockOverlayView: NSView {
         for geo in geometry() {
             let block = geo.block
             let color = Self.color(for: block)
+            if case .finished(let code) = block.status, code != 0 {
+                NSColor(Theme.error).withAlphaComponent(0.07).setFill()
+                geo.body.fill()
+                let borderTop = max(geo.body.minY + viewport.cellHeight, 0)
+                color.setFill()
+                NSRect(x: 0, y: borderTop, width: 3, height: max(0, geo.body.maxY - borderTop)).fill()
+            }
             if selected == block.id {
                 NSColor(Theme.accent).withAlphaComponent(0.10).setFill()
                 geo.body.fill()
             }
-            let borderTop = max(geo.body.minY + viewport.cellHeight, 0)
-            color.setFill()
-            NSRect(x: 0, y: borderTop, width: 3, height: max(0, geo.body.maxY - borderTop)).fill()
             if let header = geo.header { drawHeader(block, in: header, actions: geo.actions, selected: selected == block.id) }
         }
     }
@@ -189,8 +193,10 @@ final class BlockOverlayView: NSView {
         let path = NSBezierPath(roundedRect: bar, xRadius: 4, yRadius: 4)
         (selected ? NSColor(Theme.accentFill) : NSColor(Theme.surface).withAlphaComponent(0.92)).setFill()
         path.fill()
-        Self.color(for: block).setFill()
-        NSRect(x: 0, y: bar.minY, width: 3, height: bar.height).fill()
+        if case .finished(let code) = block.status, code != 0 {
+            Self.color(for: block).setFill()
+            NSRect(x: 0, y: bar.minY, width: 3, height: bar.height).fill()
+        }
 
         var left = bar.minX + 8
         switch block.status {
@@ -231,7 +237,6 @@ final class BlockOverlayView: NSView {
         }
     }
 
-    /// One line of text, vertically centered in `rect`, truncated at `width`. Returns the width it took.
     @discardableResult
     private static func draw(_ text: String, in rect: NSRect, x: CGFloat, width: CGFloat? = nil, font: NSFont, color: NSColor) -> CGFloat {
         let style = NSMutableParagraphStyle()
@@ -258,9 +263,12 @@ final class BlockOverlayView: NSView {
 
     override func hitTest(_ point: NSPoint) -> NSView? {
         let local = convert(point, from: superview)
+        let programTracksMouse = engine.map { $0.view.currentMouseMode != .off } ?? false
+        let contextClick = !programTracksMouse && (NSApp.currentEvent.map { $0.type == .rightMouseDown || ($0.type == .leftMouseDown && $0.modifierFlags.contains(.control)) } ?? false)
         for geo in geometry() {
             if let header = geo.header, header.contains(local) { return self }
             if local.x < Self.gutter, geo.body.contains(local) { return self }
+            if contextClick, geo.body.contains(local) { return self }
         }
         return nil
     }
@@ -291,6 +299,7 @@ final class BlockOverlayView: NSView {
         guard let session else { return }
         let local = convert(event.locationInWindow, from: nil)
         guard let geo = geometry().last(where: { $0.body.contains(local) }) else { return }
+        if let view = engine?.view, window?.firstResponder !== view { window?.makeFirstResponder(view) }
         if let hit = geo.actions.first(where: { $0.rect.contains(local) }) {
             perform(hit.action, on: geo.block)
             return
@@ -298,12 +307,51 @@ final class BlockOverlayView: NSView {
         session.selectBlock(session.selectedBlockID == geo.block.id ? nil : geo.block.id)
     }
 
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let local = convert(event.locationInWindow, from: nil)
+        guard let block = geometry().last(where: { $0.body.contains(local) })?.block else { return nil }
+        session?.selectBlock(block.id)
+        if let view = engine?.view, window?.firstResponder !== view { window?.makeFirstResponder(view) }
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+        for entry in [MenuEntry.command, .output, .both, .top] {
+            let item = NSMenuItem(title: entry.title, action: #selector(choose(_:)), keyEquivalent: "")
+            item.target = self
+            item.tag = entry.rawValue
+            item.representedObject = block.id
+            item.isEnabled = !(block.isRunning && (entry == .output || entry == .both))
+            switch entry {
+            case .command:
+                item.keyEquivalent = "c"
+                item.keyEquivalentModifierMask = [.command, .shift]
+            case .output:
+                item.keyEquivalent = "c"
+                item.keyEquivalentModifierMask = [.command, .shift, .option]
+            case .both, .top:
+                break
+            }
+            menu.addItem(item)
+        }
+        return menu
+    }
+
+    @objc private func choose(_ sender: NSMenuItem) {
+        guard let entry = MenuEntry(rawValue: sender.tag), let id = sender.representedObject as? Int,
+              let block = session?.blocks.block(id: id) else { return }
+        switch entry {
+        case .command: copy(.command, of: block)
+        case .output: copy(.output, of: block)
+        case .both: copy(.commandAndOutput, of: block)
+        case .top: engine?.scroll(toRow: block.promptRow - 1)
+        }
+    }
+
     // MARK: Actions
 
     private func perform(_ action: Action, on block: TerminalBlock) {
         switch action {
-        case .copyCommand: Self.copy(block.command)
-        case .copyOutput: copyOutput(of: block)
+        case .copyCommand: copy(.command, of: block)
+        case .copyOutput: copy(.output, of: block)
         case .rerun:
             switch session?.rerun(block.id) {
             case .success(.copy(let text)):
@@ -327,21 +375,22 @@ final class BlockOverlayView: NSView {
         }
     }
 
-    /// The output of the selected block, for ⌘⇧C. False when nothing is selected, so the key goes on.
     @discardableResult
-    func copySelectedOutput() -> Bool {
-        guard let block = session?.blocks.block(id: session?.selectedBlockID), !block.isRunning else { return false }
-        copyOutput(of: block)
+    func copySelected(_ part: BlockCopy) -> Bool {
+        guard let block = session?.blocks.block(id: session?.selectedBlockID), !(block.isRunning && part != .command) else { return false }
+        copy(part, of: block)
         return true
     }
 
-    private func copyOutput(of block: TerminalBlock) {
-        guard let engine else { return }
-        let end = block.outputEnd ?? block.outputStart
-        Self.copy(BlockText.output(engine.rows(block.outputStart..<max(block.outputStart, end))))
+    private func copy(_ part: BlockCopy, of block: TerminalBlock) {
+        var output = ""
+        if part != .command, let engine {
+            let end = block.outputEnd ?? block.outputStart
+            output = BlockText.output(engine.rows(block.outputStart..<max(block.outputStart, end)))
+        }
+        Self.copy(part.text(command: block.command, output: output))
     }
 
-    /// ⌘↑ and ⌘↓: select the block before or after and scroll to it. False when there is none, so the key goes on.
     @discardableResult
     func jump(previous: Bool) -> Bool {
         guard let session, let engine, let viewport = engine.viewport(), !viewport.alternateScreen else { return false }

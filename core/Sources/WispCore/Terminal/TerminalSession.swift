@@ -1,46 +1,54 @@
 import Foundation
 import Observation
 
-/// One shell in one pty. The engine does the drawing; this holds what the tab needs to show and to start the shell again.
 @MainActor @Observable
 public final class TerminalSession: Identifiable {
     public enum Phase: Equatable {
         case idle
         case running
-        /// The shell ended; nil when a signal ended it.
         case ended(Int32?)
         case failed(String)
     }
 
     public nonisolated let id: UUID
     public private(set) var phase: Phase = .idle
-    /// The last window title a program set (a running `vim` or `claude` sets one); empty when none did.
     public private(set) var title = ""
-    /// Where the shell is, as far as it reported (OSC 7) or the system answered.
     public private(set) var directory: String
     public private(set) var engine: any TerminalEngine
+    public private(set) var activity = TerminalActivity.idle
+    public private(set) var mode = PaneMode.grid(.plainShell)
+    public private(set) var promptLines = [StyledLine]()
+
+    @ObservationIgnored public private(set) var historyFile: String?
 
     @ObservationIgnored public let shell: TerminalShell
     @ObservationIgnored private let environment: [String: String]
     @ObservationIgnored private let integration: ShellIntegration?
     @ObservationIgnored private let integrationEnabled: () -> Bool
-    /// The commands of this session, as blocks. The tab draws them over the screen; it is told through `onBlocksChanged`.
+    @ObservationIgnored private let nativeBlocksEnabled: () -> Bool
+    @ObservationIgnored public private(set) var isNative = false
+    @ObservationIgnored private var atPrompt = false
+    @ObservationIgnored private var sawPrompt = false
+    @ObservationIgnored private var inAlternateScreen = false
+    @ObservationIgnored private var runningCommand: String?
+    @ObservationIgnored private var mouseTracking = false
+    @ObservationIgnored private var ranInGrid = false
+    @ObservationIgnored private var manualMode: PaneMode?
+    @ObservationIgnored private let allowlist: Set<String>
     @ObservationIgnored public private(set) var blocks = BlockTracker()
     @ObservationIgnored public private(set) var selectedBlockID: Int?
-    /// The shell was started with the hooks, so `blocks` fills in.
     @ObservationIgnored public private(set) var isIntegrated = false
     @ObservationIgnored public var onBlocksChanged: (() -> Void)?
-    /// How many lines the screen rows in a range make (a wrapped row continues the one above); set by the app, which holds the screen.
     @ObservationIgnored public var measureHead: ((Range<Int>) -> Int)?
     @ObservationIgnored private let makeEngine: () -> any TerminalEngine
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private var size = TerminalSize.standard
-    /// Called with every new directory so the workspace can remember the last one.
     @ObservationIgnored public var onDirectory: ((String) -> Void)?
 
     public init(
         id: UUID = UUID(), shell: TerminalShell, environment: [String: String], directory: String,
         integration: ShellIntegration? = nil, integrationEnabled: @escaping () -> Bool = { true },
+        nativeBlocks: @escaping () -> Bool = { false }, allowlist: Set<String> = PaneModeDecider.defaultAllowlist,
         makeEngine: @escaping () -> any TerminalEngine
     ) {
         self.id = id
@@ -48,6 +56,8 @@ public final class TerminalSession: Identifiable {
         self.environment = environment
         self.integration = integration
         self.integrationEnabled = integrationEnabled
+        nativeBlocksEnabled = nativeBlocks
+        self.allowlist = allowlist
         self.directory = directory
         self.makeEngine = makeEngine
         engine = makeEngine()
@@ -59,13 +69,16 @@ public final class TerminalSession: Identifiable {
 
     public var isRunning: Bool { phase == .running }
 
+    public var isCommandRunning: Bool { blocks.running != nil }
+
+    public var home: String? { environment["HOME"] }
+
     public func start(size: TerminalSize = .standard) {
         guard phase == .idle else { return }
         self.size = size
         launch()
     }
 
-    /// A fresh engine and screen in the directory the shell was last in; only after the shell ended or never started.
     public func reopen() {
         switch phase {
         case .ended, .failed: break
@@ -74,7 +87,9 @@ public final class TerminalSession: Identifiable {
         engine = makeEngine()
         blocks = BlockTracker()
         selectedBlockID = nil
+        syncActivity()
         launch()
+        onBlocksChanged?()
     }
 
     public func write(_ bytes: [UInt8]) {
@@ -88,7 +103,6 @@ public final class TerminalSession: Identifiable {
         engine.resize(size)
     }
 
-    /// Ends the shell for good: its exit is not reported as the shell ending by itself.
     public func close() {
         generation += 1
         refreshDirectory()
@@ -96,7 +110,6 @@ public final class TerminalSession: Identifiable {
         phase = .idle
     }
 
-    /// One read from the system, never a poll: the workspace calls it when a session closes, the tab hides or the app quits.
     public func refreshDirectory() {
         guard phase == .running, let current = engine.currentDirectory() else { return }
         setDirectory(current)
@@ -110,9 +123,9 @@ public final class TerminalSession: Identifiable {
             guard let self, self.generation == mine else { return }
             self.phase = .ended(code)
             self.blocks.shellEnded(at: self.blocks.running?.outputStart ?? 0)
+            self.syncActivity()
             self.onBlocksChanged?()
         }
-        // An integrated shell reports its folder in its own marks; a plain OSC 7 any program can print is not taken for it.
         engine.onDirectory = { [weak self] path in
             guard let self, self.generation == mine, !self.isIntegrated else { return }
             self.setDirectory(path)
@@ -129,9 +142,21 @@ public final class TerminalSession: Identifiable {
             guard let self, self.generation == mine else { return }
             self.apply(events)
         }
-        let plan = integration?.launch(shell: shell, environment: environment, enabled: integrationEnabled())
+        var plan = integration?.launch(shell: shell, environment: environment, enabled: integrationEnabled())
             ?? TerminalLaunch(arguments: shell.arguments, execName: shell.loginName, environment: environment, integrated: false)
         isIntegrated = plan.integrated
+        isNative = plan.integrated && nativeBlocksEnabled() && ShellIntegration.kind(of: shell) != nil
+        plan.nativeBlocks = isNative
+        atPrompt = false
+        sawPrompt = false
+        inAlternateScreen = false
+        runningCommand = nil
+        mouseTracking = false
+        ranInGrid = false
+        manualMode = nil
+        promptLines = []
+        historyFile = nil
+        refreshMode()
         do {
             try engine.start(shell: shell, launch: plan, cwd: directory, size: size)
             title = ""
@@ -145,17 +170,110 @@ public final class TerminalSession: Identifiable {
 
     private func apply(_ events: [StampedShellEvent]) {
         for stamped in events {
-            // The hooks did not go in: no blocks, and the folder may come as a plain OSC 7 again.
-            if stamped.event == .declined { isIntegrated = false }
+            if case .historyFile(let path) = stamped.event { historyFile = path }
+            if stamped.event == .declined {
+                isIntegrated = false
+                isNative = false
+            }
+            if isNative, case .cleared = stamped.event { continue }
+            let runningBefore = blocks.running?.id
             blocks.apply(stamped.event, anchor: stamped.anchor, at: stamped.date)
+            if isNative { applyNative(stamped, runningBefore: runningBefore) }
+            if stamped.event == .declined { refreshMode() }
         }
         if let directory = blocks.directory { setDirectory(directory) }
-        if events.contains(where: { $0.event == .commandStart }), let running = blocks.running, let measureHead,
+        if !isNative, events.contains(where: { $0.event == .commandStart }), let running = blocks.running, let measureHead,
            running.outputStart > running.promptRow {
             blocks.setHeadLines(measureHead(running.promptRow..<running.outputStart), id: running.id)
         }
         if let selectedBlockID, blocks.block(id: selectedBlockID) == nil { self.selectedBlockID = nil }
+        syncActivity()
         onBlocksChanged?()
+    }
+
+    private func applyNative(_ stamped: StampedShellEvent, runningBefore: Int?) {
+        switch stamped.event {
+        case .alternateScreen(let on):
+            inAlternateScreen = on
+            refreshMode()
+        case .mouseTracking(let on):
+            mouseTracking = on
+            refreshMode()
+        case .promptStart:
+            atPrompt = false
+            sawPrompt = true
+            if let runningBefore, let capture = stamped.capture { blocks.setOutput(ranInGrid ? .empty : capture, id: runningBefore) }
+            leaveGrid()
+        case .promptEnd:
+            if let capture = stamped.capture { promptLines = capture.lines }
+            atPrompt = blocks.running == nil
+        case .commandStart:
+            atPrompt = false
+            if let running = blocks.running {
+                blocks.setPrompt(promptLines, id: running.id)
+                runningCommand = running.command
+                refreshMode()
+            }
+        case .commandEnd:
+            if let runningBefore, blocks.block(id: runningBefore)?.isRunning == false, let capture = stamped.capture {
+                blocks.setOutput(ranInGrid ? .empty : capture, id: runningBefore)
+            }
+            if let runningBefore, let command = blocks.block(id: runningBefore)?.command, ClearCommand.isClear(command) {
+                blocks.replace([])
+            }
+            leaveGrid()
+        default:
+            break
+        }
+    }
+
+    private func leaveGrid() {
+        runningCommand = nil
+        inAlternateScreen = false
+        mouseTracking = false
+        ranInGrid = false
+        manualMode = nil
+        refreshMode()
+    }
+
+    public func toggleGrid() {
+        guard isNative, phase == .running else { return }
+        manualMode = mode.isGrid ? .blocks : .grid(.manual)
+        refreshMode()
+        onBlocksChanged?()
+    }
+
+    private func refreshMode() {
+        var next = PaneMode.grid(.plainShell)
+        if isNative {
+            next = PaneModeDecider.decide(
+                altScreen: inAlternateScreen, mouse: mouseTracking, command: runningCommand, allowlist: allowlist)
+            if next == .grid(.allowlisted) || next == .grid(.mouseTracking) { ranInGrid = true }
+        }
+        if isNative, let manualMode { next = manualMode }
+        if next != mode { mode = next }
+    }
+
+    @discardableResult
+    public func submit(_ text: String) -> Bool {
+        guard phase == .running, isNative, blocks.running == nil, atPrompt || sawPrompt else { return false }
+        atPrompt = false
+        engine.write(InputSender.bytes(text: text, bracketedPaste: engine.bracketedPasteMode))
+        return true
+    }
+
+    public func paste(_ text: String) {
+        let bytes = InputSender.pasteBytes(text: text, bracketedPaste: engine.bracketedPasteMode)
+        if !bytes.isEmpty { write(bytes) }
+    }
+
+    public func sendKeys(_ key: TerminalKey, control: Bool = false) {
+        write(KeyEncoder.bytes(key, control: control, applicationCursor: engine.applicationCursorMode))
+    }
+
+    private func syncActivity() {
+        let current = blocks.activity
+        if current != activity { activity = current }
     }
 
     public func selectBlock(_ id: Int?) {
@@ -164,21 +282,21 @@ public final class TerminalSession: Identifiable {
         onBlocksChanged?()
     }
 
-    /// Rows before `row` left the scrollback.
     public func trimBlocks(before row: Int) {
         let count = blocks.blocks.count
         blocks.trim(before: row)
-        if blocks.blocks.count != count { onBlocksChanged?() }
+        guard blocks.blocks.count != count else { return }
+        syncActivity()
+        onBlocksChanged?()
     }
 
     public func replaceBlocks(_ blocks: [TerminalBlock]) {
         self.blocks.replace(blocks)
         if let selectedBlockID, self.blocks.block(id: selectedBlockID) == nil { self.selectedBlockID = nil }
+        syncActivity()
         onBlocksChanged?()
     }
 
-    /// "Colar de novo" (see `BlockRerun`): a bracketed paste is typed here, at the prompt only, without Enter. A `.copy` is handed
-    /// back for the app to put on the clipboard; nothing reaches the shell.
     @discardableResult
     public func rerun(_ id: Int) -> Result<BlockRerun.Action, BlockRerun.Refusal> {
         guard let block = blocks.block(id: id) else { return .failure(.empty) }
@@ -198,7 +316,6 @@ public final class TerminalSession: Identifiable {
 }
 
 public enum TerminalSessionName {
-    /// What a title in the session strip says: the program's title when one set it, else the folder's name, else the shell.
     public static func make(title: String, directory: String?, home: String?, shell: TerminalShell) -> String {
         let title = title.trimmingCharacters(in: .whitespacesAndNewlines)
         if !title.isEmpty { return title }
@@ -208,5 +325,19 @@ public enum TerminalSessionName {
             return (directory as NSString).lastPathComponent
         }
         return shell.name
+    }
+}
+
+public enum ClearCommand {
+    public static func isClear(_ command: String) -> Bool {
+        guard !command.contains(where: { ";&|\n`$(".contains($0) }) else { return false }
+        let words = command.split(whereSeparator: \.isWhitespace).map(String.init)
+        guard let first = words.first else { return false }
+        let name = String(first.split(separator: "/").last ?? Substring(first))
+        switch name {
+        case "clear", "reset": return true
+        case "tput": return words.dropFirst().contains { $0 == "clear" || $0 == "reset" }
+        default: return false
+        }
     }
 }

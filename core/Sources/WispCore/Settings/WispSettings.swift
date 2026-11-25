@@ -126,9 +126,7 @@ public struct MeetingSettings: Codable, Equatable, Sendable {
     public var webhookSigns = false
     public var limitMinutes = defaultLimitMinutes
     public var autoSummary = true
-    /// Whether the mic runs through Apple's voice processing so the speakers' output is cancelled out of "Você".
     public var echoCancel = EchoCancelMode.automatic
-    /// Days before a meeting already saved in the brain is moved to the Trash; 0 (the default) keeps the cleanup off.
     public var cleanupDays = 0
 
     public init() {}
@@ -139,7 +137,6 @@ public struct MeetingSettings: Codable, Equatable, Sendable {
         webhookSigns = (try? container.decodeIfPresent(Bool.self, forKey: .webhookSigns)) ?? false
         limitMinutes = (try? container.decodeIfPresent(Int.self, forKey: .limitMinutes)) ?? Self.defaultLimitMinutes
         autoSummary = (try? container.decodeIfPresent(Bool.self, forKey: .autoSummary)) ?? true
-        // Earlier builds stored an on/off bool: on becomes automatic, off stays off.
         let legacy = try? decoder.container(keyedBy: LegacyKeys.self)
         if let mode = try? container.decodeIfPresent(EchoCancelMode.self, forKey: .echoCancel) {
             echoCancel = mode
@@ -164,27 +161,22 @@ public struct WispSettings: Codable, Equatable, Sendable {
     public var dashboardOrder: [String] {
         didSet { dashboardOrder = DashboardTileID.normalized(dashboardOrder) }
     }
-    /// Telegram topic thread ids in the order the user dragged them; empty means the default order.
     public var telegramOrder: [Int] = []
-    /// Pinned conversations in pin order: a Local conversation's id, or "tg:<thread>" for a Telegram topic.
     public var pinnedConversations: [String] = []
     public var clipboardCapture = true
     public var spotifyClientID = ""
     public var graph = GraphControls()
     public var notices = NoticeSettings()
     public var openAtLogin = true
-    /// Wisp registered itself once; from then on a removal in System Settings is respected.
     public var loginItemRegistered = false
-    /// The permission mode chosen in Wisp while the profile is a link Wisp does not write through; nil otherwise.
     public var permissionMode: String?
     public var settingsSection: String?
     public var recordingsPath: String?
     public var agenda = AgendaPreferences()
     public var meetings = MeetingSettings()
     public var brainShowsGraph = true
-    /// The terminal injects its shell hooks so each command becomes a block; off, it is a plain terminal.
     public var terminalBlocks = true
-    /// The window was open at quit; the next launch opens it again.
+    public var terminalNativeBlocks = true
     public var windowMode = false
     var graphWasInvalid = false
 
@@ -194,7 +186,7 @@ public struct WispSettings: Codable, Equatable, Sendable {
         self.dashboardOrder = DashboardTileID.normalized(dashboardOrder)
     }
 
-    private enum CodingKeys: String, CodingKey { case theme, custom, dashboardOrder, telegramOrder, pinnedConversations, clipboardCapture, spotifyClientID, graph, notices, openAtLogin, loginItemRegistered, permissionMode, settingsSection, recordingsPath, agenda, meetings, brainShowsGraph, windowMode, terminalBlocks }
+    private enum CodingKeys: String, CodingKey { case theme, custom, dashboardOrder, telegramOrder, pinnedConversations, clipboardCapture, spotifyClientID, graph, notices, openAtLogin, loginItemRegistered, permissionMode, settingsSection, recordingsPath, agenda, meetings, brainShowsGraph, windowMode, terminalBlocks, terminalNativeBlocks }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -216,6 +208,7 @@ public struct WispSettings: Codable, Equatable, Sendable {
         brainShowsGraph = (try? container.decodeIfPresent(Bool.self, forKey: .brainShowsGraph)) ?? true
         windowMode = (try? container.decodeIfPresent(Bool.self, forKey: .windowMode)) ?? false
         terminalBlocks = (try? container.decodeIfPresent(Bool.self, forKey: .terminalBlocks)) ?? true
+        terminalNativeBlocks = (try? container.decodeIfPresent(Bool.self, forKey: .terminalNativeBlocks)) ?? true
         do {
             graph = try container.decodeIfPresent(GraphControls.self, forKey: .graph) ?? GraphControls()
         } catch {

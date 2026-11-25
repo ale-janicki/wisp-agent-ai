@@ -1,6 +1,5 @@
 import Foundation
 
-/// One screen row as the engine copies it: its scroll-invariant number, its text and whether it continues the row above.
 public struct ScreenRow: Equatable, Sendable {
     public var row: Int
     public var text: String
@@ -13,14 +12,32 @@ public struct ScreenRow: Equatable, Sendable {
     }
 }
 
-/// What a block's rows say, read back from the screen: the output to copy, and the block found again after the width changed.
+public enum BlockCopy: CaseIterable, Sendable {
+    case command, output, commandAndOutput
+
+    public func text(command: String, output: String) -> String {
+        var typed = command
+        while typed.last == "\n" { typed.removeLast() }
+        switch self {
+        case .command: return typed
+        case .output: return output
+        case .commandAndOutput: return [typed, output].filter { !$0.isEmpty }.joined(separator: "\n")
+        }
+    }
+}
+
+extension BlockCopy {
+    public func text(blocks: [(command: String, output: String)]) -> String {
+        blocks.map { text(command: $0.command, output: $0.output) }.filter { !$0.isEmpty }.joined(separator: "\n\n")
+    }
+}
+
 public enum BlockText {
     struct Line: Equatable {
         var firstRow: Int
         var text: String
     }
 
-    /// Rows joined into the lines the program wrote: a wrapped row continues the one above. Trailing blanks of a line are dropped.
     static func lines(_ rows: [ScreenRow]) -> [Line] {
         var result = [Line]()
         for row in rows {
@@ -41,22 +58,16 @@ public enum BlockText {
         return String(text[..<end])
     }
 
-    /// How many lines the rows make: a wrapped row continues the one above.
     public static func lineCount(_ rows: [ScreenRow]) -> Int {
         max(1, rows.filter { !$0.isWrapped }.count)
     }
 
-    /// The text of the output rows, as one would paste it: lines joined by newlines, no blank lines at the end.
     public static func output(_ rows: [ScreenRow]) -> String {
         var texts = lines(rows).map(\.text)
         while texts.last?.isEmpty == true { texts.removeLast() }
         return texts.joined(separator: "\n")
     }
 
-    /// Where each block sits after the screen was reflowed to another width. `rows` is every row the terminal still holds. A block is
-    /// found again on its prompt line: the line that ends with the command's first line (the next lines ending with the command's
-    /// next lines), right below the blank header row, at or after the block before it. A line of output that merely contains the
-    /// command is never a match. A block with no such line, or with two before the next block's own, is dropped.
     public static func reanchor(_ blocks: [TerminalBlock], rows: [ScreenRow]) -> [TerminalBlock] {
         let all = lines(rows)
         guard let lastFilled = all.lastIndex(where: { !$0.text.isEmpty }) else { return [] }
@@ -94,13 +105,11 @@ public enum BlockText {
         return result
     }
 
-    /// The command's lines, trimmed at both ends (the screen drops trailing blanks).
     private static func commandLines(of block: TerminalBlock) -> [String] {
         let lines = block.command.split(separator: "\n", omittingEmptySubsequences: false).map { $0.trimmingCharacters(in: .whitespaces) }
         return lines.isEmpty ? [""] : lines
     }
 
-    /// Every line that could be the block's prompt line, in order.
     private static func promptLines(of block: TerminalBlock, in all: [Line], firstBlock: Bool) -> [Int] {
         let command = commandLines(of: block)
         guard let needle = command.first, !needle.isEmpty else { return [] }
@@ -112,16 +121,10 @@ public enum BlockText {
             }
             let first = index - promptOnly
             guard first >= 0 else { return false }
-            // Wisp puts a blank row above every prompt but the session's first.
             return firstBlock || first == 0 || all[first - 1].text.isEmpty
         }
     }
 
-    /// The re-anchored places over the tracker as it is now: the reflow is read off the main thread, and meanwhile commands may have
-    /// ended, started, or been trimmed. Status, end time, command and exit code come from `current`; the rows come from the re-anchor.
-    /// The end of a block that ended before the rows were read comes from the re-anchor (it was found again); one that ended after
-    /// keeps the end the tracker set, already in the new rows. A block of `snapshot` that was not found again is dropped; a block
-    /// newer than the snapshot is kept as it is.
     public static func merge(reanchored: [TerminalBlock], snapshot: [TerminalBlock], current: [TerminalBlock]) -> [TerminalBlock] {
         let placed = Dictionary(reanchored.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let known = Set(snapshot.map(\.id))

@@ -1,11 +1,8 @@
 import Foundation
 
-/// Where the terminal's cursor was when a mark went by. Rows count from the first line the terminal ever had, so they stay true
-/// when old lines leave the scrollback; they are not viewport rows.
 public struct BlockAnchor: Equatable, Sendable {
     public var row: Int
     public var column: Int
-    /// The first row of the live screen (the last `rows` rows of the buffer).
     public var liveTop: Int
 
     public init(row: Int, column: Int, liveTop: Int = 0) {
@@ -15,13 +12,10 @@ public struct BlockAnchor: Equatable, Sendable {
     }
 }
 
-/// One command and its output.
 public struct TerminalBlock: Identifiable, Equatable, Sendable {
     public enum Status: Equatable, Sendable {
         case running
-        /// Ended with the shell's own code (130 after Ctrl-C).
         case finished(Int)
-        /// The shell never said how it ended (killed, or the next prompt came first).
         case lost
     }
 
@@ -31,14 +25,12 @@ public struct TerminalBlock: Identifiable, Equatable, Sendable {
     public var startedAt: Date
     public var finishedAt: Date?
     public var status: Status
-    /// The row where the prompt starts. The row above it is the blank one the header sits on.
     public var promptRow: Int
-    /// The first row of the output.
     public var outputStart: Int
-    /// Just after the last row of the output; nil while it runs.
     public var outputEnd: Int?
-    /// How many lines the prompt and the typed command take, used to find the block again after a reflow.
     public var headLines: Int
+    public var output: BlockOutput? = nil
+    public var prompt: [StyledLine] = []
 
     public var isRunning: Bool { status == .running }
 
@@ -51,19 +43,35 @@ public struct TerminalBlock: Identifiable, Equatable, Sendable {
         finishedAt.map { max(0, $0.timeIntervalSince(startedAt)) }
     }
 
-    /// The rows the block covers, header row included, with the end still growing for a running block.
     public func rows(until last: Int) -> Range<Int> {
         (promptRow - 1)..<max(promptRow, outputEnd ?? last)
     }
 }
 
-/// Turns the marks of one shell into blocks. Pure: the engine says what happened and where, this keeps the list.
+public struct TerminalActivity: Equatable, Sendable {
+    public enum State: Equatable, Sendable {
+        case idle
+        case running
+        case succeeded
+        case failed(Int)
+    }
+
+    public var state: State
+    public var command: String?
+
+    public static let idle = TerminalActivity(state: .idle, command: nil)
+
+    public init(state: State, command: String?) {
+        self.state = state
+        self.command = command
+    }
+}
+
 public struct BlockTracker: Equatable, Sendable {
     public static let capacity = 500
 
     public private(set) var blocks = [TerminalBlock]()
     public private(set) var directory: String?
-    /// The alternate screen is up: nothing is tracked until it is left.
     public private(set) var suspended = false
 
     private var pendingPrompt: Int?
@@ -74,19 +82,30 @@ public struct BlockTracker: Equatable, Sendable {
 
     public var running: TerminalBlock? { blocks.last(where: \.isRunning) }
 
-    /// Applies one event. `anchor` is the cursor where the event's sequence ended; marks that need no place may pass nil.
+    public var activity: TerminalActivity {
+        guard let last = blocks.last else { return .idle }
+        let command = last.command.isEmpty ? nil : last.command
+        switch last.status {
+        case .running: return TerminalActivity(state: .running, command: command)
+        case .finished(0): return TerminalActivity(state: .succeeded, command: command)
+        case .finished(let code): return TerminalActivity(state: .failed(code), command: command)
+        case .lost: return TerminalActivity(state: .idle, command: command)
+        }
+    }
+
     public mutating func apply(_ event: ShellEvent, anchor: BlockAnchor?, at date: Date = Date()) {
         switch event {
         case .alternateScreen(let on):
             suspended = on
-        case .declined:
+        case .declined, .promptEnd, .mouseTracking, .historyFile:
             break
         case .directory(let report):
             if let path = TerminalDirectory.path(fromReport: report) { directory = path }
         case .cleared(let scrollback):
             clear(scrollback: scrollback, anchor: anchor)
         case .promptStart:
-            guard !suspended, let anchor else { return }
+            suspended = false
+            guard let anchor else { return }
             closeLost(at: anchor, date: date)
             pendingPrompt = anchor.row
             pendingCommand = nil
@@ -105,8 +124,8 @@ public struct BlockTracker: Equatable, Sendable {
             pendingCommand = nil
             if blocks.count > Self.capacity { blocks.removeFirst(blocks.count - Self.capacity) }
         case .commandEnd(let code):
-            // The end of a program that held the alternate screen arrives after it left it; one sent from inside is not its own.
-            guard !suspended, let anchor, let index = blocks.lastIndex(where: \.isRunning) else { return }
+            suspended = false
+            guard let anchor, let index = blocks.lastIndex(where: \.isRunning) else { return }
             let end = anchor.column > 0 ? anchor.row + 1 : anchor.row
             blocks[index].outputEnd = max(end, blocks[index].outputStart)
             blocks[index].finishedAt = date
@@ -114,7 +133,6 @@ public struct BlockTracker: Equatable, Sendable {
         }
     }
 
-    /// A prompt or a command arrived while one was still running: its end never came.
     private mutating func closeLost(at anchor: BlockAnchor, date: Date) {
         guard let index = blocks.lastIndex(where: \.isRunning) else { return }
         blocks[index].outputEnd = max(anchor.row, blocks[index].outputStart)
@@ -122,8 +140,6 @@ public struct BlockTracker: Equatable, Sendable {
         blocks[index].status = .lost
     }
 
-    /// A clear at the prompt (Ctrl-L) redraws the prompt where the cursor went, and no new prompt mark comes: the pending prompt moves
-    /// there, so the next command is still a block.
     private mutating func clear(scrollback: Bool, anchor: BlockAnchor?) {
         let liveTop = anchor?.liveTop ?? 0
         if pendingPrompt != nil { pendingPrompt = anchor?.row ?? liveTop }
@@ -134,13 +150,11 @@ public struct BlockTracker: Equatable, Sendable {
         }
     }
 
-    /// The scrollback no longer holds rows before `firstRow`: blocks whose header row went with them are dropped.
     public mutating func trim(before firstRow: Int) {
         guard let first = blocks.first, first.promptRow - 1 < firstRow else { return }
         blocks.removeAll { $0.promptRow - 1 < firstRow }
     }
 
-    /// The shell ended: a block still running is closed without a code.
     public mutating func shellEnded(at row: Int, date: Date = Date()) {
         closeLost(at: BlockAnchor(row: row, column: 0), date: date)
     }
@@ -148,6 +162,16 @@ public struct BlockTracker: Equatable, Sendable {
     public mutating func setHeadLines(_ lines: Int, id: Int) {
         guard let index = blocks.firstIndex(where: { $0.id == id }) else { return }
         blocks[index].headLines = max(1, lines)
+    }
+
+    public mutating func setOutput(_ output: BlockOutput, id: Int) {
+        guard let index = blocks.firstIndex(where: { $0.id == id }) else { return }
+        blocks[index].output = output
+    }
+
+    public mutating func setPrompt(_ prompt: [StyledLine], id: Int) {
+        guard let index = blocks.firstIndex(where: { $0.id == id }) else { return }
+        blocks[index].prompt = prompt
     }
 
     public mutating func replace(_ blocks: [TerminalBlock]) {
@@ -159,12 +183,25 @@ public struct BlockTracker: Equatable, Sendable {
         return blocks.first { $0.id == id }
     }
 
-    /// The block that holds `row`, the header row and the output included.
     public func block(containing row: Int, lastRow: Int) -> TerminalBlock? {
         blocks.last { $0.rows(until: lastRow).contains(row) }
     }
 
-    /// The block before `selected` (or the last one before `row` when nothing is selected), for ⌘↑.
+    public func index(of id: Int?) -> Int? {
+        guard let id else { return nil }
+        return blocks.firstIndex { $0.id == id }
+    }
+
+    public func previousID(before id: Int?) -> Int? {
+        guard let index = index(of: id) else { return blocks.last?.id }
+        return index > 0 ? blocks[index - 1].id : nil
+    }
+
+    public func nextID(after id: Int?) -> Int? {
+        guard let index = index(of: id), index + 1 < blocks.count else { return nil }
+        return blocks[index + 1].id
+    }
+
     public func previous(before selected: Int?, topRow: Int) -> TerminalBlock? {
         if let selected, let index = blocks.firstIndex(where: { $0.id == selected }) {
             return index > 0 ? blocks[index - 1] : nil
@@ -172,7 +209,6 @@ public struct BlockTracker: Equatable, Sendable {
         return blocks.last { $0.promptRow - 1 < topRow } ?? blocks.last
     }
 
-    /// The block after `selected` (or the first one below `row`), for ⌘↓.
     public func next(after selected: Int?, bottomRow: Int) -> TerminalBlock? {
         if let selected, let index = blocks.firstIndex(where: { $0.id == selected }) {
             return index + 1 < blocks.count ? blocks[index + 1] : nil
@@ -181,16 +217,9 @@ public struct BlockTracker: Equatable, Sendable {
     }
 }
 
-/// What "Colar de novo" does with a finished block's command. It never presses Enter: the user sees the line and runs it. Only a
-/// bracketed paste is typed into the shell (Ctrl-E, Ctrl-U as a best effort to empty the line, then the text between ESC[200~ and
-/// ESC[201~), because only then does the line editor take it as text. Without one, the letters would reach whatever mode the editor
-/// is in (bash vi command mode runs `v` as edit-and-execute), so nothing is typed: the command goes to the clipboard. Control
-/// characters other than newline and tab are dropped either way.
 public enum BlockRerun {
     public enum Action: Equatable, Sendable {
-        /// Bytes for the pty.
         case type([UInt8])
-        /// Text for the clipboard; the user pastes it.
         case copy(String)
     }
 
@@ -221,7 +250,6 @@ public enum BlockRerun {
         return .success(.type(clearLine + pasteStart + Array(text.utf8) + pasteEnd))
     }
 
-    /// C0 controls (ESC included, so the text cannot end the paste itself) other than newline and tab, DEL and C1 controls go.
     static func sanitized(_ command: String) -> String {
         var scalars = String.UnicodeScalarView()
         for scalar in command.unicodeScalars {
@@ -234,7 +262,6 @@ public enum BlockRerun {
     }
 }
 
-/// How long a block ran, for its header: "0,3 s", "1,2 s", "42 s", "3 min 5 s", "1 h 2 min".
 public enum BlockDuration {
     public static func text(_ seconds: TimeInterval) -> String {
         let value = max(0, seconds)
