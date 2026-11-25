@@ -81,14 +81,21 @@ public enum PaneModeDecider {
         var words = segment.split(whereSeparator: \.isWhitespace).map(String.init)[...]
         while let word = words.first, isAssignment(word) { words.removeFirst() }
         while let word = words.first, wrappers.contains(word) {
-            words.removeFirst()
-            while let flag = words.first, flag.hasPrefix("-") { words.removeFirst() }
+            let wrapper = words.removeFirst()
+            while let flag = words.first, flag.hasPrefix("-") {
+                words.removeFirst()
+                if wrapper == "sudo" {
+                    if flag == "--" { break }
+                    if sudoValueOptions.contains(flag), !words.isEmpty { words.removeFirst() }
+                }
+            }
             while let word = words.first, isAssignment(word) { words.removeFirst() }
         }
         guard let first = words.first else { return false }
         let name = String(first.split(separator: "/").last ?? Substring(first))
         guard allowlist.contains(name) else { return false }
         let args = Array(words.dropFirst())
+        if isNonInteractiveInvocation(name: name, args: args) { return false }
         switch name {
         case "docker": return runsInteractively(args, subcommands: ["run", "exec"])
         case "kubectl": return runsInteractively(args, subcommands: ["exec"])
@@ -101,11 +108,28 @@ public enum PaneModeDecider {
         }
     }
 
+    private static let sudoValueOptions: Set<String> = [
+        "-u", "-g", "-h", "-p", "-C", "-U", "-r", "-t", "-D",
+        "--user", "--group", "--host", "--prompt", "--close-from", "--other-user", "--role", "--type", "--chdir",
+    ]
+    private static let informationFlags: Set<String> = ["--version", "-V", "--help", "-h"]
     private static let sshValueOptions = Set("bcDEeFIiJLlmOopQRSWw")
     private static let manLookupFlags: Set<String> = ["-k", "-f", "-w", "--apropos", "--whatis", "--where", "--path"]
     private static let tmuxSessionCommands: Set<String> = [
         "attach", "attach-session", "a", "at", "new", "new-session", "n", "new-s",
     ]
+
+    private static func isNonInteractiveInvocation(name: String, args: [String]) -> Bool {
+        if args.count == 1, let only = args.first {
+            if informationFlags.contains(only) { return true }
+            if only == "-v", name != "ssh", name != "tmux" { return true }
+        }
+        switch name {
+        case "claude": return args.contains { $0 == "-p" || $0 == "--print" }
+        case "emacs": return args.contains { $0 == "--batch" || $0 == "-batch" }
+        default: return false
+        }
+    }
 
     private static func opensRemoteShell(_ args: [String]) -> Bool {
         var positional = 0

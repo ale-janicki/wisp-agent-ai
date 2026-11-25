@@ -42,7 +42,7 @@ __wisp_wrap_prompt_command() {
   esac
 }
 
-if [ -n "$__wisp_nonce" ] && [ -z "$(trap -p DEBUG)" ] && [ -z "$__wisp_hooked" ]; then
+if [ -n "$__wisp_nonce" ] && [ -z "$(trap -p DEBUG)" ] && [ -z "${__wisp_hooked-}" ]; then
   __wisp_hooked=1
   __wisp_ready=0
   __wisp_running=0
@@ -72,7 +72,7 @@ if [ -n "$__wisp_nonce" ] && [ -z "$(trap -p DEBUG)" ] && [ -z "$__wisp_hooked" 
       __wisp_running=0
     fi
     __wisp_cwd
-    if [ -z "$__wisp_hist_sent" ] && [ -n "${HISTFILE-}" ]; then
+    if [ -z "${__wisp_hist_sent-}" ] && [ -n "${HISTFILE-}" ]; then
       __wisp_hist_sent=1
       builtin printf '\e]6973;%s;hist=%s\a' "$__wisp_nonce" "$(builtin printf '%s' "$HISTFILE" | command base64 2>/dev/null | command tr -d '\n\r ')"
     fi
@@ -100,7 +100,7 @@ if [ -n "$__wisp_nonce" ] && [ -z "$(trap -p DEBUG)" ] && [ -z "$__wisp_hooked" 
 
   __wisp_wrap_prompt_command __wisp_capture __wisp_emit
   trap '__wisp_debug' DEBUG
-elif [ -n "$__wisp_nonce" ] && [ -z "$__wisp_hooked" ]; then
+elif [ -n "$__wisp_nonce" ] && [ -z "${__wisp_hooked-}" ]; then
   __wisp_hooked=1
   builtin printf '\e]6973;%s;declined\a' "$__wisp_nonce"
   __wisp_wrap_prompt_command "" __wisp_cwd

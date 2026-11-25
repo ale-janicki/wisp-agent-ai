@@ -130,7 +130,7 @@ final class InputEditorView: NSTextView {
     // MARK: Keys
 
     override func keyDown(with event: NSEvent) {
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting(.capsLock)
         if forwardsKeys {
             guard !flags.contains(.command) else { return }
             if hasMarkedText() {
