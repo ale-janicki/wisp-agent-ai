@@ -2,19 +2,27 @@ import AppKit
 import Darwin
 import SwiftTerm
 import WispCore
+import os
 
-/// SwiftTerm behind `TerminalEngine`: `LocalProcessTerminalView` forks the shell on a pty, parses its output and draws it.
+/// SwiftTerm behind `TerminalEngine`: `WispTerminalView` forks the shell on a pty, scans its output for the shell integration's
+/// marks, parses it and draws it.
 @MainActor
-final class SwiftTermEngine: NSObject, TerminalEngine, LocalProcessTerminalViewDelegate {
-    let view = LocalProcessTerminalView(frame: CGRect(x: 0, y: 0, width: 720, height: 420))
+final class SwiftTermEngine: NSObject, TerminalEngine {
+    let view = WispTerminalView(frame: CGRect(x: 0, y: 0, width: 720, height: 420))
 
-    var onOutput: (@Sendable () -> Void)? {
-        didSet { view.setProcessOutputHandler(onOutput) }
-    }
+    var onOutput: (@Sendable () -> Void)?
     var onExit: (@MainActor (Int32?) -> Void)?
     var onFailure: (@MainActor (String) -> Void)?
     var onDirectory: (@MainActor (String) -> Void)?
     var onTitle: (@MainActor (String) -> Void)?
+    var onShellEvents: (@MainActor ([StampedShellEvent]) -> Void)?
+    /// The screen moved or changed (scroll, resize, output): coalesced, never polled.
+    var onViewportChange: (() -> Void)?
+    /// The width changed since the blocks were last placed: the rows were reflowed, so the blocks have to be found again.
+    private(set) var reflowPending = false
+    private var columns = 0
+    private let pendingRefresh = OSAllocatedUnfairLock(initialState: false)
+    nonisolated private static let refreshDelay: DispatchTimeInterval = .milliseconds(30)
 
     private var themeApplied: (colors: ThemeColors, fontSize: CGFloat)?
     /// The shell this engine started, with its start time: a pid that ended and was reused never matches.
@@ -24,7 +32,68 @@ final class SwiftTermEngine: NSObject, TerminalEngine, LocalProcessTerminalViewD
 
     override init() {
         super.init()
-        view.processDelegate = self
+        view.bridge.onTerminated = { [weak self] code in self?.terminated(code) }
+        view.bridge.onFailed = { [weak self] error in self?.onFailure?(String(describing: error)) }
+        view.onTitle = { [weak self] title in self?.onTitle?(title) }
+        view.onDirectory = { [weak self] directory in
+            guard let path = TerminalDirectory.path(fromReport: directory) else { return }
+            self?.onDirectory?(path)
+        }
+        view.onScrolled = { [weak self] in self?.viewportMayHaveChanged() }
+        view.onResized = { [weak self] columns, _ in
+            guard let self else { return }
+            if self.columns != 0, self.columns != columns { self.reflowPending = true }
+            self.columns = columns
+            self.viewportMayHaveChanged()
+        }
+    }
+
+    // MARK: Screen for the blocks
+
+    func viewport() -> TerminalViewport? { view.viewport() }
+
+    var bracketedPasteMode: Bool {
+        view.terminalContentSnapshot(region: .rows(0..<0), buffer: .active)?.inputState.bracketedPasteMode ?? false
+    }
+
+    func rows(_ range: Range<Int>) -> [ScreenRow] { view.screenRows(range) }
+
+    /// Every row the terminal holds; for finding the blocks again after a reflow. Safe off the main thread.
+    nonisolated static func allRows(of view: WispTerminalView) -> [ScreenRow] {
+        guard let snapshot = view.terminalContentSnapshot(region: .all, buffer: .normal) else { return [] }
+        return snapshot.rows.map { ScreenRow(row: $0.absoluteRow, text: $0.text, isWrapped: $0.isWrapped) }
+    }
+
+    func reflowHandled() { reflowPending = false }
+
+    /// Scrolls so `row` (scroll-invariant) is the first on screen.
+    func scroll(toRow row: Int) {
+        guard let viewport = view.viewport() else { return }
+        view.scrollTo(row: max(0, row - viewport.firstRetained))
+    }
+
+    /// Output, scroll and resize all end here: at most one notification per `refreshDelay`.
+    nonisolated private func outputArrived() {
+        let first = pendingRefresh.withLock { pending -> Bool in
+            defer { pending = true }
+            return !pending
+        }
+        guard first else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.refreshDelay) { [weak self] in
+            MainActor.assumeIsolated { self?.viewportMayHaveChanged() }
+        }
+    }
+
+    private func viewportMayHaveChanged() {
+        pendingRefresh.withLock { $0 = false }
+        onViewportChange?()
+    }
+
+    private func terminated(_ code: Int32?) {
+        killTask?.cancel()
+        view.programStatusProcessExited()
+        view.feed(text: "\r\n\u{1B}[2m[processo encerrado]\u{1B}[0m\r\n")
+        onExit?(code)
     }
 
     /// Theme and font are applied again only when one of them changed: installing a palette repaints the whole screen.
@@ -37,10 +106,16 @@ final class SwiftTermEngine: NSObject, TerminalEngine, LocalProcessTerminalViewD
     // MARK: TerminalEngine
 
     /// The view's own layout decides the columns and rows the shell starts with; `size` is not needed here.
-    func start(shell: TerminalShell, cwd: String, env: [String: String], size: TerminalSize) throws {
+    func start(shell: TerminalShell, launch: TerminalLaunch, cwd: String, size: TerminalSize) throws {
+        view.bridge.configure(
+            nonce: launch.integrated ? launch.markNonce : nil,
+            onEvents: { @Sendable [weak self] events in
+                DispatchQueue.main.async { MainActor.assumeIsolated { self?.onShellEvents?(events) } }
+            },
+            onOutput: { @Sendable [weak self] in self?.outputArrived() })
         view.startProcess(
-            executable: shell.path, args: shell.arguments, environment: TerminalEnvironment.lines(env),
-            execName: shell.loginName, currentDirectory: cwd)
+            executable: shell.path, args: launch.arguments, environment: TerminalEnvironment.lines(launch.environment),
+            execName: launch.execName, currentDirectory: cwd)
         child = Child.capture(view.process.shellPid)
     }
 
@@ -103,28 +178,4 @@ final class SwiftTermEngine: NSObject, TerminalEngine, LocalProcessTerminalViewD
             return proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, size) == size ? info : nil
         }
     }
-
-    // MARK: LocalProcessTerminalViewDelegate
-
-    func processTerminated(source: TerminalView, exitCode: Int32?) {
-        killTask?.cancel()
-        view.feed(text: "\r\n\u{1B}[2m[processo encerrado]\u{1B}[0m\r\n")
-        onExit?(exitCode)
-    }
-
-    func processFailedToStart(source: TerminalView, error: LocalProcessError) {
-        onFailure?(String(describing: error))
-    }
-
-    func hostCurrentDirectoryUpdate(source: TerminalView, directory: String?) {
-        guard let path = TerminalDirectory.path(fromReport: directory) else { return }
-        onDirectory?(path)
-    }
-
-    func setTerminalTitle(source: LocalProcessTerminalView, title: String) {
-        onTitle?(title)
-    }
-
-    /// The pty follows the view's size by itself (SIGWINCH goes out through `LocalProcessTerminalView`).
-    func sizeChanged(source: LocalProcessTerminalView, newCols: Int, newRows: Int) {}
 }

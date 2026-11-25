@@ -9,17 +9,19 @@ final class FakeTerminalEngine: TerminalEngine {
     var settledBy: Date?
     var onDirectory: (@MainActor (String) -> Void)?
     var onTitle: (@MainActor (String) -> Void)?
+    var onShellEvents: (@MainActor ([StampedShellEvent]) -> Void)?
 
-    var started: (shell: TerminalShell, cwd: String, env: [String: String], size: TerminalSize)?
+    var started: (shell: TerminalShell, cwd: String, env: [String: String], size: TerminalSize, launch: TerminalLaunch)?
     var written = [UInt8]()
     var sizes = [TerminalSize]()
     var terminated = false
     var failure: Error?
     var liveDirectory: String?
+    var bracketedPasteMode = false
 
-    func start(shell: TerminalShell, cwd: String, env: [String: String], size: TerminalSize) throws {
+    func start(shell: TerminalShell, launch: TerminalLaunch, cwd: String, size: TerminalSize) throws {
         if let failure { throw failure }
-        started = (shell, cwd, env, size)
+        started = (shell, cwd, launch.environment, size, launch)
     }
 
     func write(_ bytes: [UInt8]) { written += bytes }
