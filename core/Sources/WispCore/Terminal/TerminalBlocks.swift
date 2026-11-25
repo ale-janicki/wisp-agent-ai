@@ -57,6 +57,27 @@ public struct TerminalBlock: Identifiable, Equatable, Sendable {
     }
 }
 
+/// What a session's commands are up to, for its tab's badge and title: the running command, or how the last one ended.
+public struct TerminalActivity: Equatable, Sendable {
+    public enum State: Equatable, Sendable {
+        case idle
+        case running
+        case succeeded
+        case failed(Int)
+    }
+
+    public var state: State
+    /// The running command, else the last one; nil before the first.
+    public var command: String?
+
+    public static let idle = TerminalActivity(state: .idle, command: nil)
+
+    public init(state: State, command: String?) {
+        self.state = state
+        self.command = command
+    }
+}
+
 /// Turns the marks of one shell into blocks. Pure: the engine says what happened and where, this keeps the list.
 public struct BlockTracker: Equatable, Sendable {
     public static let capacity = 500
@@ -73,6 +94,18 @@ public struct BlockTracker: Equatable, Sendable {
     public init() {}
 
     public var running: TerminalBlock? { blocks.last(where: \.isRunning) }
+
+    /// A block that ended without a code (killed, or lost) shows no badge but still names the tab.
+    public var activity: TerminalActivity {
+        guard let last = blocks.last else { return .idle }
+        let command = last.command.isEmpty ? nil : last.command
+        switch last.status {
+        case .running: return TerminalActivity(state: .running, command: command)
+        case .finished(0): return TerminalActivity(state: .succeeded, command: command)
+        case .finished(let code): return TerminalActivity(state: .failed(code), command: command)
+        case .lost: return TerminalActivity(state: .idle, command: command)
+        }
+    }
 
     /// Applies one event. `anchor` is the cursor where the event's sequence ended; marks that need no place may pass nil.
     public mutating func apply(_ event: ShellEvent, anchor: BlockAnchor?, at date: Date = Date()) {

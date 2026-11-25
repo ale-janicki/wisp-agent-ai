@@ -12,6 +12,14 @@ public enum TerminalDirectory {
         return path.hasPrefix("/") ? path : nil
     }
 
+    /// A path as a tab's subtitle shows it: home and what is under it start with `~`.
+    public static func abbreviated(_ path: String, home: String?) -> String {
+        guard let home, !home.isEmpty, home != "/" else { return path }
+        if path == home { return "~" }
+        if path.hasPrefix(home + "/") { return "~" + path.dropFirst(home.count) }
+        return path
+    }
+
     /// The current directory of one of our own children, read once. Nil when the pid is gone.
     public static func ofProcess(_ pid: pid_t) -> String? {
         guard pid > 0 else { return nil }

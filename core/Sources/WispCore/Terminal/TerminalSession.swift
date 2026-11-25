@@ -19,6 +19,8 @@ public final class TerminalSession: Identifiable {
     /// Where the shell is, as far as it reported (OSC 7) or the system answered.
     public private(set) var directory: String
     public private(set) var engine: any TerminalEngine
+    /// The tracker's running or last command, kept here so the tab's row redraws when it changes.
+    public private(set) var activity = TerminalActivity.idle
 
     @ObservationIgnored public let shell: TerminalShell
     @ObservationIgnored private let environment: [String: String]
@@ -59,6 +61,9 @@ public final class TerminalSession: Identifiable {
 
     public var isRunning: Bool { phase == .running }
 
+    /// The home the shell was given, for showing its folder with `~`.
+    public var home: String? { environment["HOME"] }
+
     public func start(size: TerminalSize = .standard) {
         guard phase == .idle else { return }
         self.size = size
@@ -74,6 +79,7 @@ public final class TerminalSession: Identifiable {
         engine = makeEngine()
         blocks = BlockTracker()
         selectedBlockID = nil
+        syncActivity()
         launch()
     }
 
@@ -110,6 +116,7 @@ public final class TerminalSession: Identifiable {
             guard let self, self.generation == mine else { return }
             self.phase = .ended(code)
             self.blocks.shellEnded(at: self.blocks.running?.outputStart ?? 0)
+            self.syncActivity()
             self.onBlocksChanged?()
         }
         // An integrated shell reports its folder in its own marks; a plain OSC 7 any program can print is not taken for it.
@@ -155,7 +162,14 @@ public final class TerminalSession: Identifiable {
             blocks.setHeadLines(measureHead(running.promptRow..<running.outputStart), id: running.id)
         }
         if let selectedBlockID, blocks.block(id: selectedBlockID) == nil { self.selectedBlockID = nil }
+        syncActivity()
         onBlocksChanged?()
+    }
+
+    /// Only a real change is published: the tracker sees every mark, the tab's row only cares about these two.
+    private func syncActivity() {
+        let current = blocks.activity
+        if current != activity { activity = current }
     }
 
     public func selectBlock(_ id: Int?) {
@@ -168,12 +182,15 @@ public final class TerminalSession: Identifiable {
     public func trimBlocks(before row: Int) {
         let count = blocks.blocks.count
         blocks.trim(before: row)
-        if blocks.blocks.count != count { onBlocksChanged?() }
+        guard blocks.blocks.count != count else { return }
+        syncActivity()
+        onBlocksChanged?()
     }
 
     public func replaceBlocks(_ blocks: [TerminalBlock]) {
         self.blocks.replace(blocks)
         if let selectedBlockID, self.blocks.block(id: selectedBlockID) == nil { self.selectedBlockID = nil }
+        syncActivity()
         onBlocksChanged?()
     }
 

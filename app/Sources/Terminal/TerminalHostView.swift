@@ -2,25 +2,30 @@ import AppKit
 import SwiftUI
 import WispCore
 
-/// Holds the engine's view while the Terminal tab is on screen. The engine's view outlives this container: leaving the tab only
+/// Holds one pane's engine view while its tab is on screen. The engine's view outlives this container: leaving the tab only
 /// detaches it, so nothing draws while it is away and the shell keeps its screen.
 final class TerminalHostView: NSView {
     private(set) var engine: SwiftTermEngine?
     private(set) var session: TerminalSession?
     private let overlay = BlockOverlayView(frame: .zero)
+    private var focused = false
 
-    func show(_ engine: SwiftTermEngine, session: TerminalSession) {
+    /// `focused` takes the keyboard when the pane becomes the focused one or comes on screen as it; otherwise the first responder is
+    /// left alone (the sidebar's search keeps it while the rows redraw).
+    func show(_ engine: SwiftTermEngine, session: TerminalSession, focused: Bool) {
         if self.engine !== engine { detach() }
         self.engine = engine
         self.session = session
         let view = engine.view
-        if view.superview !== self {
+        let attached = view.superview !== self
+        if attached {
             view.removeFromSuperview()
             view.frame = bounds
             view.autoresizingMask = [.width, .height]
             addSubview(view)
-            focusSoon(view)
         }
+        if focused, attached || !self.focused { focusSoon(view) }
+        self.focused = focused
         // The overlay is above the screen with the same frame, and takes only the mouse events on a header or border.
         if overlay.superview !== self {
             overlay.frame = bounds
@@ -36,6 +41,7 @@ final class TerminalHostView: NSView {
         if let view = engine?.view, view.superview === self { view.removeFromSuperview() }
         engine = nil
         session = nil
+        focused = false
     }
 
     func jumpBlock(previous: Bool) -> Bool { overlay.jump(previous: previous) }
@@ -56,7 +62,7 @@ final class TerminalHostView: NSView {
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        TerminalKeys.handle(event, in: self) || super.performKeyEquivalent(with: event)
+        TerminalPaneKeys.handle(event, in: self) || TerminalKeys.handle(event, in: self) || super.performKeyEquivalent(with: event)
     }
 }
 
@@ -137,6 +143,7 @@ struct TerminalSurface: NSViewRepresentable {
     let engine: SwiftTermEngine
     let session: TerminalSession
     let fontSize: CGFloat
+    var isFocused = true
 
     func makeNSView(context: Context) -> TerminalHostView {
         let host = TerminalHostView()
@@ -146,7 +153,7 @@ struct TerminalSurface: NSViewRepresentable {
 
     func updateNSView(_ host: TerminalHostView, context: Context) {
         engine.applyTheme(AppSettings.shared.colors, fontSize: fontSize)
-        host.show(engine, session: session)
+        host.show(engine, session: session, focused: isFocused)
     }
 
     static func dismantleNSView(_ host: TerminalHostView, coordinator: ()) {
