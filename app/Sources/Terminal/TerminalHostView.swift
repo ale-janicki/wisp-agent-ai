@@ -40,7 +40,7 @@ final class TerminalHostView: NSView {
 
     func jumpBlock(previous: Bool) -> Bool { overlay.jump(previous: previous) }
 
-    func copySelectedBlockOutput() -> Bool { overlay.copySelectedOutput() }
+    func copySelectedBlock(_ part: BlockCopy) -> Bool { overlay.copySelected(part) }
 
     private func focusSoon(_ view: NSView) {
         DispatchQueue.main.async { [weak self, weak view] in
@@ -69,8 +69,12 @@ enum TerminalKeys {
         if flags == .command, event.keyCode == 126 || event.keyCode == 125 {
             return host.jumpBlock(previous: event.keyCode == 126)
         }
-        if flags == [.command, .shift], event.charactersIgnoringModifiers?.lowercased() == "c" {
-            return host.copySelectedBlockOutput()
+        // Warp's mapping: ⇧⌘C copies the selected block's command, ⌥⇧⌘C its output.
+        if event.charactersIgnoringModifiers?.lowercased() == "c", flags == [.command, .shift] {
+            return host.copySelectedBlock(.command)
+        }
+        if event.charactersIgnoringModifiers?.lowercased() == "c", flags == [.command, .shift, .option] {
+            return host.copySelectedBlock(.output)
         }
         guard flags == .command, let key = event.charactersIgnoringModifiers?.lowercased() else { return false }
         let workspace = TerminalStore.shared.workspace
@@ -89,7 +93,14 @@ enum TerminalKeys {
         case "c", "v", "a":
             // In the find bar these belong to its text field.
             guard host.window?.firstResponder === view else { return false }
-            if key == "c" { view.copy(host) } else if key == "v" { view.paste(host) } else { view.selectAll(host) }
+            switch key {
+            case "c":
+                // Selected text first; with none, the selected block (command and output). Nothing selected copies nothing, and
+                // the clipboard stays as it was.
+                if view.selectionActive { view.copy(host) } else { _ = host.copySelectedBlock(.commandAndOutput) }
+            case "v": view.paste(host)
+            default: view.selectAll(host)
+            }
             return true
         default:
             return false

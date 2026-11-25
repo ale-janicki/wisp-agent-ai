@@ -116,6 +116,9 @@ final class WispTerminalView: TerminalView, TerminalViewDelegate {
     var onDirectory: ((String?) -> Void)?
     var onScrolled: (() -> Void)?
     var onResized: ((_ columns: Int, _ rows: Int) -> Void)?
+    /// A selection made with the mouse goes to the clipboard as soon as the button comes up (Warp's default).
+    var copyOnSelect = true
+    private var selectionBeforePress: String?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -134,6 +137,25 @@ final class WispTerminalView: TerminalView, TerminalViewDelegate {
         self.bridge = bridge
         process = LocalProcess(delegate: bridge, dispatchQueue: .main, directDelivery: true)
         bridge.updateWindowSize(windowSize())
+    }
+
+    /// A click anywhere on the screen gives it the keyboard (⌘C, ⌘V and ⌘A act only on the focused terminal). While the program
+    /// has mouse tracking on, the press goes to it; holding Shift (or Option for a block) selects in spite of it, in SwiftTerm.
+    /// Called on every press in the terminal, before selection starts: the pane that owns this view can take focus here.
+    var onMouseDown: (() -> Void)?
+
+    override func mouseDown(with event: NSEvent) {
+        onMouseDown?()
+        if window?.firstResponder !== self { window?.makeFirstResponder(self) }
+        selectionBeforePress = selectionActive ? getSelection() : nil
+        super.mouseDown(with: event)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        super.mouseUp(with: event)
+        guard copyOnSelect, selectionActive, let text = getSelection(), !text.isEmpty, text != selectionBeforePress else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
     }
 
     func windowSize() -> winsize {

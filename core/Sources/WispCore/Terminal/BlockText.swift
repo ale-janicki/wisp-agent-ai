@@ -13,6 +13,22 @@ public struct ScreenRow: Equatable, Sendable {
     }
 }
 
+/// What a block puts on the clipboard: its command, its output, or both (the command, a newline, the output).
+public enum BlockCopy: CaseIterable, Sendable {
+    case command, output, commandAndOutput
+
+    /// An empty command or output leaves no blank line behind.
+    public func text(command: String, output: String) -> String {
+        var typed = command
+        while typed.last == "\n" { typed.removeLast() }
+        switch self {
+        case .command: return typed
+        case .output: return output
+        case .commandAndOutput: return [typed, output].filter { !$0.isEmpty }.joined(separator: "\n")
+        }
+    }
+}
+
 /// What a block's rows say, read back from the screen: the output to copy, and the block found again after the width changed.
 public enum BlockText {
     struct Line: Equatable {
