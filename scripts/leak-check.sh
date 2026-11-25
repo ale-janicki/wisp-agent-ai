@@ -41,7 +41,7 @@ done
 rm -rf "$stage/app/Resources/runtime" "$stage/app/Resources/Excalidraw" "$stage/scripts/leak-patterns.txt" "$stage/scripts/leak-patterns.local.txt"
 
 # Invented home folders used by test fixtures and docs are not personal data: neutralise them in the staged copy only.
-fixture_homes='/Users/(test|ana|bob|rita|u|x|Maria Silva)([^A-Za-z0-9_]|$)'
+fixture_homes='/Users/(test|dev|ana|bob|rita|u|x|Maria Silva)([^A-Za-z0-9_]|$)'
 while IFS= read -r -d '' file; do
   sed -E -i '' "s#${fixture_homes}#/fixture-home\\2#g" "$file"
 done < <(grep -rIl --null -E "$fixture_homes" "$stage")

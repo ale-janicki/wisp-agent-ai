@@ -25,7 +25,7 @@ enum SnapshotRenderer {
         AppSettings.shared.persists = false
         let now = Date()
         let store = ConversationStore(directory: ConversationViewModel.dataDirectory)
-        var titles = ["Links Grafana e PostHog Delfin", "Telegram", "Geral", "Revisar PR do notch", "Ideias para o post de lançamento"]
+        var titles = ["Links Grafana e PostHog da loja", "Telegram", "Geral", "Revisar PR do notch", "Ideias para o post de lançamento"]
         if ProcessInfo.processInfo.arguments.contains("-WispSnapshotLong") {
             titles += (1...40).map { "Conversa antiga número \($0)" }
         }
@@ -44,8 +44,8 @@ enum SnapshotRenderer {
             ConversationMessage(role: .tool, text: "Bash: git status"),
         ] }
         model.seedCurrentForSnapshot(title: titles[0], messages: filler + [
-            ConversationMessage(role: .user, text: "Me manda os links do Grafana e do PostHog da Delfin"),
-            ConversationMessage(role: .assistant, text: "Aqui estão os links:\n\n- Grafana: https://grafana.example.com/d/delfin\n- PostHog: https://posthog.example.com/project/1\n\nQuer que eu abra algum deles?"),
+            ConversationMessage(role: .user, text: "Me manda os links do Grafana e do PostHog da loja"),
+            ConversationMessage(role: .assistant, text: "Aqui estão os links:\n\n- Grafana: https://grafana.example.com/d/loja\n- PostHog: https://posthog.example.com/project/1\n\nQuer que eu abra algum deles?"),
             ConversationMessage(role: .user, text: "Abre o do PostHog e me diz quantos usuários ativos tivemos ontem"),
             ConversationMessage(role: .assistant, text: String(repeating: "Ontem foram 1.284 usuários ativos, 6% acima da média da semana. ", count: 6)),
         ])
