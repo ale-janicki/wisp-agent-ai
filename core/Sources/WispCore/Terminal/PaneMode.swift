@@ -112,7 +112,12 @@ public enum PaneModeDecider {
         "-u", "-g", "-h", "-p", "-C", "-U", "-r", "-t", "-D",
         "--user", "--group", "--host", "--prompt", "--close-from", "--other-user", "--role", "--type", "--chdir",
     ]
-    private static let informationFlags: Set<String> = ["--version", "-V", "--help", "-h"]
+    private static let informationFlags: Set<String> = ["--version", "-V", "--help", "-h", "-v"]
+    private static let interactiveSoleFlags: [String: Set<String>] = [
+        "vim": ["-v", "-V"], "nvim": ["-v", "-V"], "vi": ["-v", "-V"],
+        "ssh": ["-v"], "tmux": ["-v"],
+        "less": ["-h", "--help"], "more": ["-h", "--help"],
+    ]
     private static let sshValueOptions = Set("bcDEeFIiJLlmOopQRSWw")
     private static let manLookupFlags: Set<String> = ["-k", "-f", "-w", "--apropos", "--whatis", "--where", "--path"]
     private static let tmuxSessionCommands: Set<String> = [
@@ -121,8 +126,7 @@ public enum PaneModeDecider {
 
     private static func isNonInteractiveInvocation(name: String, args: [String]) -> Bool {
         if args.count == 1, let only = args.first {
-            if informationFlags.contains(only) { return true }
-            if only == "-v", name != "ssh", name != "tmux" { return true }
+            if informationFlags.contains(only), interactiveSoleFlags[name]?.contains(only) != true { return true }
         }
         switch name {
         case "claude": return args.contains { $0 == "-p" || $0 == "--print" }
