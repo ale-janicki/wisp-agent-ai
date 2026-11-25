@@ -104,7 +104,8 @@ public struct BlockTracker: Equatable, Sendable {
         case .cleared(let scrollback):
             clear(scrollback: scrollback, anchor: anchor)
         case .promptStart:
-            guard !suspended, let anchor else { return }
+            suspended = false
+            guard let anchor else { return }
             closeLost(at: anchor, date: date)
             pendingPrompt = anchor.row
             pendingCommand = nil
@@ -123,7 +124,8 @@ public struct BlockTracker: Equatable, Sendable {
             pendingCommand = nil
             if blocks.count > Self.capacity { blocks.removeFirst(blocks.count - Self.capacity) }
         case .commandEnd(let code):
-            guard !suspended, let anchor, let index = blocks.lastIndex(where: \.isRunning) else { return }
+            suspended = false
+            guard let anchor, let index = blocks.lastIndex(where: \.isRunning) else { return }
             let end = anchor.column > 0 ? anchor.row + 1 : anchor.row
             blocks[index].outputEnd = max(end, blocks[index].outputStart)
             blocks[index].finishedAt = date

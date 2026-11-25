@@ -84,7 +84,7 @@ final class PaneModeDeciderTests: XCTestCase {
     func testAPipedProgramHasNoScreen() {
         XCTAssertEqual(mode("claude -p x | jq"), .blocks)
         XCTAssertEqual(mode("cd x && claude -p x | jq ."), .blocks)
-        XCTAssertEqual(mode("claude -p x || echo no"), .grid(.allowlisted))
+        XCTAssertEqual(mode("claude --resume || echo no"), .grid(.allowlisted))
     }
 
     func testSshWithARemoteCommandStaysInBlocks() {
@@ -117,6 +117,45 @@ final class PaneModeDeciderTests: XCTestCase {
         XCTAssertEqual(mode("man -k copy"), .blocks)
         XCTAssertEqual(mode("man -f ls"), .blocks)
         XCTAssertEqual(mode("man -w ls"), .blocks)
+    }
+
+    func testInformationAndBatchInvocationsStayInBlocks() {
+        XCTAssertEqual(mode("claude --version"), .blocks)
+        XCTAssertEqual(mode("vim --help"), .blocks)
+        XCTAssertEqual(mode("nvim -V"), .blocks)
+        XCTAssertEqual(mode("less -h"), .blocks)
+        XCTAssertEqual(mode("claude -p 'hi'"), .blocks)
+        XCTAssertEqual(mode("claude --print hi"), .blocks)
+        XCTAssertEqual(mode("emacs --batch -l x.el"), .blocks)
+        XCTAssertEqual(mode("emacs -batch -l x.el"), .blocks)
+        XCTAssertEqual(mode("vim -v"), .blocks)
+        XCTAssertEqual(mode("ssh -v host"), .grid(.allowlisted))
+        XCTAssertEqual(mode("claude"), .grid(.allowlisted))
+        XCTAssertEqual(mode("emacs file.txt"), .grid(.allowlisted))
+        XCTAssertEqual(mode("vim -p a b"), .grid(.allowlisted))
+    }
+
+    func testAnInformationFlagCountsOnlyAsTheSoleArgument() {
+        XCTAssertEqual(mode("ssh -h host"), .grid(.allowlisted))
+        XCTAssertEqual(mode("vim file -h"), .grid(.allowlisted))
+        XCTAssertEqual(mode("ssh host -V"), .grid(.allowlisted))
+        XCTAssertEqual(mode("less -h file"), .grid(.allowlisted))
+        XCTAssertEqual(mode("vim --version"), .blocks)
+        XCTAssertEqual(mode("claude -h"), .blocks)
+        XCTAssertEqual(mode("ssh -V"), .blocks)
+    }
+
+    func testSudoOptionsWithAValueAreSkipped() {
+        XCTAssertEqual(mode("sudo --user x vim"), .grid(.allowlisted))
+        XCTAssertEqual(mode("sudo --user x --group y vim"), .grid(.allowlisted))
+        XCTAssertEqual(mode("sudo --user=x vim"), .grid(.allowlisted))
+        XCTAssertEqual(mode("sudo -- vim"), .grid(.allowlisted))
+        XCTAssertEqual(mode("sudo -- ls -h"), .blocks)
+        XCTAssertEqual(mode("sudo -u user vim"), .grid(.allowlisted))
+        XCTAssertEqual(mode("sudo -u root -g wheel vim file"), .grid(.allowlisted))
+        XCTAssertEqual(mode("sudo -E -u user vim"), .grid(.allowlisted))
+        XCTAssertEqual(mode("sudo -u user ls"), .blocks)
+        XCTAssertEqual(mode("sudo -u user vim --version"), .blocks)
     }
 
     func testMouseTrackingAloneIsTheGridWithAnEmptyAllowlist() {

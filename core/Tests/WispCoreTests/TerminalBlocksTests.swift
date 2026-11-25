@@ -224,6 +224,20 @@ final class BlockTrackerTests: XCTestCase {
         XCTAssertEqual(tracker.blocks[0].outputStart, tracker.blocks[0].outputEnd)
     }
 
+    func testAProgramThatDiesInTheAlternateScreenDoesNotFreezeTheTracker() {
+        var tracker = BlockTracker()
+        tracker.apply(.alternateScreen(true), anchor: nil)
+        XCTAssertTrue(tracker.suspended)
+        run(&tracker, command: "ls", prompt: 3, at: t0)
+        XCTAssertFalse(tracker.suspended, "a new prompt means the full-screen program is gone")
+        tracker.apply(.commandEnd(exitCode: 0), anchor: anchor(6), at: t0)
+        XCTAssertEqual(tracker.blocks.count, 1)
+        XCTAssertEqual(tracker.blocks[0].command, "ls")
+        XCTAssertEqual(tracker.blocks[0].outputStart, 4)
+        XCTAssertEqual(tracker.blocks[0].outputEnd, 6)
+        XCTAssertEqual(tracker.blocks[0].status, .finished(0))
+    }
+
     func testCtrlCEndsWith130() {
         var tracker = BlockTracker()
         run(&tracker, command: "sleep 100", prompt: 0, at: t0)
@@ -259,14 +273,14 @@ final class BlockTrackerTests: XCTestCase {
         var tracker = BlockTracker()
         run(&tracker, command: "vim", prompt: 0, at: t0)
         tracker.apply(.alternateScreen(true), anchor: nil)
-        run(&tracker, command: "ls", prompt: 3, at: t0)
-        tracker.apply(.commandEnd(exitCode: 0), anchor: anchor(5), at: t0)
+        tracker.apply(.command("ls"), anchor: nil, at: t0)
+        tracker.apply(.commandStart, anchor: anchor(4), at: t0)
         XCTAssertTrue(tracker.suspended)
         tracker.apply(.alternateScreen(false), anchor: nil)
         XCTAssertFalse(tracker.suspended)
         XCTAssertEqual(tracker.blocks.count, 1, "the editor is one block")
         XCTAssertEqual(tracker.blocks[0].command, "vim")
-        XCTAssertTrue(tracker.blocks[0].isRunning, "an end sent from inside the alternate screen is not the editor's")
+        XCTAssertTrue(tracker.blocks[0].isRunning, "a command inside the alternate screen is not a block of its own")
     }
 
     func testTheEndOfAProgramThatHeldTheAlternateScreenStillCounts() {
