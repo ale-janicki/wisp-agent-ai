@@ -6,23 +6,41 @@ import WispCore
 /// detaches it, so nothing draws while it is away and the shell keeps its screen.
 final class TerminalHostView: NSView {
     private(set) var engine: SwiftTermEngine?
+    private(set) var session: TerminalSession?
+    private let overlay = BlockOverlayView(frame: .zero)
 
-    func show(_ engine: SwiftTermEngine) {
+    func show(_ engine: SwiftTermEngine, session: TerminalSession) {
         if self.engine !== engine { detach() }
         self.engine = engine
+        self.session = session
         let view = engine.view
-        guard view.superview !== self else { return }
-        view.removeFromSuperview()
-        view.frame = bounds
-        view.autoresizingMask = [.width, .height]
-        addSubview(view)
-        focusSoon(view)
+        if view.superview !== self {
+            view.removeFromSuperview()
+            view.frame = bounds
+            view.autoresizingMask = [.width, .height]
+            addSubview(view)
+            focusSoon(view)
+        }
+        // The overlay is above the screen with the same frame, and takes only the mouse events on a header or border.
+        if overlay.superview !== self {
+            overlay.frame = bounds
+            overlay.autoresizingMask = [.width, .height]
+            addSubview(overlay, positioned: .above, relativeTo: view)
+        }
+        overlay.attach(session: session, engine: engine)
     }
 
     func detach() {
+        overlay.detach()
+        overlay.removeFromSuperview()
         if let view = engine?.view, view.superview === self { view.removeFromSuperview() }
         engine = nil
+        session = nil
     }
+
+    func jumpBlock(previous: Bool) -> Bool { overlay.jump(previous: previous) }
+
+    func copySelectedBlockOutput() -> Bool { overlay.copySelectedOutput() }
 
     private func focusSoon(_ view: NSView) {
         DispatchQueue.main.async { [weak self, weak view] in
@@ -48,6 +66,12 @@ enum TerminalKeys {
     static func handle(_ event: NSEvent, in host: TerminalHostView) -> Bool {
         guard event.type == .keyDown, host.hasFocus, let engine = host.engine else { return false }
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.capsLock, .numericPad, .function])
+        if flags == .command, event.keyCode == 126 || event.keyCode == 125 {
+            return host.jumpBlock(previous: event.keyCode == 126)
+        }
+        if flags == [.command, .shift], event.charactersIgnoringModifiers?.lowercased() == "c" {
+            return host.copySelectedBlockOutput()
+        }
         guard flags == .command, let key = event.charactersIgnoringModifiers?.lowercased() else { return false }
         let workspace = TerminalStore.shared.workspace
         let view = engine.view
@@ -100,6 +124,7 @@ enum TerminalKeys {
 
 struct TerminalSurface: NSViewRepresentable {
     let engine: SwiftTermEngine
+    let session: TerminalSession
     let fontSize: CGFloat
 
     func makeNSView(context: Context) -> TerminalHostView {
@@ -110,7 +135,7 @@ struct TerminalSurface: NSViewRepresentable {
 
     func updateNSView(_ host: TerminalHostView, context: Context) {
         engine.applyTheme(AppSettings.shared.colors, fontSize: fontSize)
-        host.show(engine)
+        host.show(engine, session: session)
     }
 
     static func dismantleNSView(_ host: TerminalHostView, coordinator: ()) {

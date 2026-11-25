@@ -68,6 +68,7 @@ final class AppSettings {
             let meetings = settings.meetings
             let brainShowsGraph = settings.brainShowsGraph
             let windowMode = settings.windowMode
+            let terminalBlocks = settings.terminalBlocks
             settings = .default
             settings.dashboardOrder = order
             settings.telegramOrder = topicOrder
@@ -82,6 +83,7 @@ final class AppSettings {
             settings.agenda = agenda
             settings.meetings = meetings
             settings.brainShowsGraph = brainShowsGraph
+            settings.terminalBlocks = terminalBlocks
             settings.windowMode = windowMode
         }
     }
@@ -158,6 +160,10 @@ final class AppSettings {
 
     func setBrainShowsGraph(_ on: Bool) {
         update { $0.brainShowsGraph = on }
+    }
+
+    func setTerminalBlocks(_ on: Bool) {
+        update { $0.terminalBlocks = on }
     }
 
     func setSettingsSection(_ id: String) {

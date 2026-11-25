@@ -211,6 +211,12 @@ struct SettingsView: View {
                 isOn: settings.settings.clipboardCapture
             ) { settings.setClipboardCapture($0) }
             Divider().overlay(Theme.stroke)
+            ToggleRow(
+                title: "Integração do shell (blocos)",
+                detail: "O terminal liga ganchos no zsh, bash ou fish, sem tocar nos seus arquivos, e cada comando vira um bloco. Vale para as próximas sessões.",
+                isOn: settings.settings.terminalBlocks
+            ) { settings.setTerminalBlocks($0) }
+            Divider().overlay(Theme.stroke)
             PathRow(title: "Pasta do Wisp", key: .wispDir)
             DisclosureGroup("O que tem dentro") {
                 Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: Theme.Space.m, verticalSpacing: Theme.Space.xs) {

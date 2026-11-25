@@ -16,7 +16,7 @@ enum TerminalTheme {
 
     private static func font(_ size: CGFloat) -> NSFont { NSFont.monospacedSystemFont(ofSize: size, weight: .regular) }
 
-    static func apply(to view: LocalProcessTerminalView, colors: ThemeColors, fontSize: CGFloat) {
+    static func apply(to view: TerminalView, colors: ThemeColors, fontSize: CGFloat) {
         view.installColors(palette.map {
             SwiftTerm.Color(red8: UInt16(($0 >> 16) & 0xFF), green8: UInt16(($0 >> 8) & 0xFF), blue8: UInt16($0 & 0xFF))
         })

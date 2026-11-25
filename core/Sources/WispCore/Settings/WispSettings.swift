@@ -182,6 +182,8 @@ public struct WispSettings: Codable, Equatable, Sendable {
     public var agenda = AgendaPreferences()
     public var meetings = MeetingSettings()
     public var brainShowsGraph = true
+    /// The terminal injects its shell hooks so each command becomes a block; off, it is a plain terminal.
+    public var terminalBlocks = true
     /// The window was open at quit; the next launch opens it again.
     public var windowMode = false
     var graphWasInvalid = false
@@ -192,7 +194,7 @@ public struct WispSettings: Codable, Equatable, Sendable {
         self.dashboardOrder = DashboardTileID.normalized(dashboardOrder)
     }
 
-    private enum CodingKeys: String, CodingKey { case theme, custom, dashboardOrder, telegramOrder, pinnedConversations, clipboardCapture, spotifyClientID, graph, notices, openAtLogin, loginItemRegistered, permissionMode, settingsSection, recordingsPath, agenda, meetings, brainShowsGraph, windowMode }
+    private enum CodingKeys: String, CodingKey { case theme, custom, dashboardOrder, telegramOrder, pinnedConversations, clipboardCapture, spotifyClientID, graph, notices, openAtLogin, loginItemRegistered, permissionMode, settingsSection, recordingsPath, agenda, meetings, brainShowsGraph, windowMode, terminalBlocks }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -213,6 +215,7 @@ public struct WispSettings: Codable, Equatable, Sendable {
         meetings = (try? container.decodeIfPresent(MeetingSettings.self, forKey: .meetings)) ?? MeetingSettings()
         brainShowsGraph = (try? container.decodeIfPresent(Bool.self, forKey: .brainShowsGraph)) ?? true
         windowMode = (try? container.decodeIfPresent(Bool.self, forKey: .windowMode)) ?? false
+        terminalBlocks = (try? container.decodeIfPresent(Bool.self, forKey: .terminalBlocks)) ?? true
         do {
             graph = try container.decodeIfPresent(GraphControls.self, forKey: .graph) ?? GraphControls()
         } catch {

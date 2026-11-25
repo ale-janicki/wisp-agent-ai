@@ -83,6 +83,8 @@ targets:
         type: folder
       - path: Resources/Excalidraw
         type: folder
+      - path: Resources/ShellIntegration
+        type: folder
       - Resources/Assets.xcassets
     dependencies:
       - package: WispCore
