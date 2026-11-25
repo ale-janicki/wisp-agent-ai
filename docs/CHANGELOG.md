@@ -9,6 +9,10 @@ Entries are in descending chronological order (newest first).
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-25
+
+- Version 0.5.0 (build 18).
+
 ### Added
 
 - Terminal blocks: in zsh, bash and fish each command becomes a block, with a header above its prompt (command, folder, duration, a green ✓ or a red ✗ with the exit code), a colored border down its side, and hover actions: copy command, copy output, paste again. Click a header to select the block; ⌘↑ and ⌘↓ jump between blocks; ⌘⇧C copies the selected output. The hooks are injected when the shell starts and never touch your files (zsh through its own `ZDOTDIR`, bash through `--init-file`, fish through `XDG_DATA_DIRS`), full-screen programs (`vim`, `htop`) pause the blocks, and Settings > Geral has "Integração do shell (blocos)" to turn it off (the terminal is then a plain one, as before). The marks the shell sends carry a random key made for each session and hidden from the programs it runs, so output that imitates them (a file, a remote host) makes no block. "Colar de novo" never presses Enter: when the shell has bracketed paste on it puts the command back on the prompt line (emptied first, control characters dropped) for you to check and run; when it does not (bash 3.2, or a line editor in vi mode that would take the letters as commands), nothing is typed and the command is copied instead, with "Comando copiado — cole com ⌘V" in the block's header. A bash whose profile sets its own DEBUG trap keeps it: that session has no blocks, and its folder is still followed. The session's name now follows the shell's real folder as you `cd`. Collapsing a block's output is not there: the terminal engine cannot hide rows.
