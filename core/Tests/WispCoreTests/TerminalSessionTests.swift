@@ -246,6 +246,101 @@ final class TerminalWorkspaceTests: XCTestCase {
         XCTAssertEqual(workspace.selectedID, id)
     }
 
+    func testSplitOpensAShellInTheFocusedFolderAndFocusesIt() throws {
+        let workspace = workspace()
+        XCTAssertFalse(workspace.split(.horizontal), "no pane, nothing to split")
+        workspace.openFirstIfNeeded()
+        engines[0].liveDirectory = "/home/dev/live"
+        XCTAssertTrue(workspace.split(.horizontal))
+        XCTAssertEqual(directories.last, "/home/dev/live", "the split reads where the focused shell is now")
+        XCTAssertEqual(workspace.sessions.count, 2)
+        XCTAssertTrue(workspace.sessions[1].isRunning)
+        XCTAssertEqual(workspace.selectedID, workspace.sessions[1].id)
+        XCTAssertEqual(workspace.layout.tabs.count, 1)
+        XCTAssertEqual(try XCTUnwrap(workspace.layout.selectedTab).sessions, workspace.sessions.map(\.id))
+    }
+
+    func testClosingPanesThenTheLastClosesTheTabAndEndsEachShell() {
+        let workspace = workspace()
+        workspace.openFirstIfNeeded()
+        workspace.split(.vertical)
+        let ids = workspace.sessions.map(\.id)
+        XCTAssertTrue(workspace.closeSelected())
+        XCTAssertTrue(engines[1].terminated)
+        XCTAssertFalse(engines[0].terminated)
+        XCTAssertEqual(workspace.selectedID, ids[0])
+        XCTAssertEqual(workspace.layout.tabs.count, 1)
+        XCTAssertTrue(workspace.closeSelected())
+        XCTAssertTrue(workspace.layout.tabs.isEmpty)
+        XCTAssertNil(workspace.selectedID)
+    }
+
+    func testCloseTabEndsEveryPane() {
+        let workspace = workspace()
+        workspace.openFirstIfNeeded()
+        workspace.split(.horizontal)
+        workspace.split(.vertical)
+        workspace.openSession()
+        let first = workspace.layout.tabs[0].id
+        workspace.closeTab(first)
+        XCTAssertEqual(engines.prefix(3).map(\.terminated), [true, true, true])
+        XCTAssertFalse(engines[3].terminated)
+        XCTAssertEqual(workspace.sessions.count, 1)
+        XCTAssertEqual(workspace.layout.tabs.count, 1)
+    }
+
+    func testReopenClosedTabRestoresItsPanesInTheirFolders() throws {
+        let workspace = workspace()
+        workspace.openFirstIfNeeded()
+        engines[0].liveDirectory = "/home/dev/a"
+        workspace.split(.horizontal)
+        engines[1].liveDirectory = "/home/dev/b"
+        let tab = try XCTUnwrap(workspace.layout.selectedTab)
+        workspace.rename(tab.id, to: "api")
+        workspace.closeTab(tab.id)
+        XCTAssertTrue(workspace.layout.tabs.isEmpty)
+        XCTAssertTrue(workspace.reopenClosedTab())
+        XCTAssertEqual(Array(directories.suffix(2)), ["/home/dev/a", "/home/dev/b"])
+        let reopened = try XCTUnwrap(workspace.layout.selectedTab)
+        XCTAssertEqual(reopened.customTitle, "api")
+        XCTAssertEqual(reopened.sessions, workspace.sessions.map(\.id))
+        XCTAssertEqual(workspace.selectedID, workspace.sessions[1].id)
+        XCTAssertTrue(workspace.sessions.allSatisfy(\.isRunning))
+        XCTAssertFalse(workspace.reopenClosedTab(), "each closed tab comes back once")
+    }
+
+    func testClosingTheLastPaneWithCommandWRemembersTheTab() {
+        let workspace = workspace()
+        workspace.openFirstIfNeeded()
+        workspace.split(.vertical)
+        workspace.closeSelected()
+        XCTAssertFalse(workspace.reopenClosedTab(), "closing one of two panes closes no tab")
+        workspace.closeSelected()
+        XCTAssertTrue(workspace.reopenClosedTab())
+        XCTAssertEqual(workspace.sessions.count, 1)
+    }
+
+    func testRenameSelectedTabAsksTheSidebarAndRenamingEndsIt() throws {
+        let workspace = workspace()
+        XCTAssertFalse(workspace.renameSelectedTab())
+        workspace.openFirstIfNeeded()
+        XCTAssertTrue(workspace.renameSelectedTab())
+        let id = try XCTUnwrap(workspace.layout.selectedTabID)
+        XCTAssertEqual(workspace.renamingTabID, id)
+        workspace.rename(id, to: "x")
+        XCTAssertNil(workspace.renamingTabID)
+    }
+
+    func testSelectingASessionSelectsItsTab() {
+        let workspace = workspace()
+        workspace.openFirstIfNeeded()
+        workspace.split(.horizontal)
+        workspace.openSession()
+        workspace.select(workspace.sessions[0].id)
+        XCTAssertEqual(workspace.layout.selectedIndex, 0)
+        XCTAssertEqual(workspace.selectedID, workspace.sessions[0].id)
+    }
+
     func testCloseAllEndsEveryShell() {
         let workspace = workspace()
         workspace.openFirstIfNeeded()
@@ -253,6 +348,7 @@ final class TerminalWorkspaceTests: XCTestCase {
         workspace.closeAll()
         XCTAssertTrue(engines.allSatisfy(\.terminated))
         XCTAssertTrue(workspace.sessions.isEmpty)
+        XCTAssertTrue(workspace.layout.tabs.isEmpty)
         let deadlines = engines.compactMap(\.settledBy)
         XCTAssertEqual(deadlines.count, 2, "every running shell gets the quit grace")
         XCTAssertEqual(Set(deadlines).count, 1, "all of them share one deadline")

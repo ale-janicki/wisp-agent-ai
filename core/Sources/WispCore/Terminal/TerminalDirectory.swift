@@ -1,9 +1,7 @@
 import Darwin
 import Foundation
 
-/// Directory handling for terminal sessions: the OSC 7 report, the system's answer for a pid, and the one remembered directory.
 public enum TerminalDirectory {
-    /// `file://host/path` (the form OSC 7 carries) or a bare absolute path; nil for anything else.
     public static func path(fromReport report: String?) -> String? {
         guard let report = report?.trimmingCharacters(in: .whitespacesAndNewlines), !report.isEmpty else { return nil }
         if report.hasPrefix("/") { return report }
@@ -12,7 +10,13 @@ public enum TerminalDirectory {
         return path.hasPrefix("/") ? path : nil
     }
 
-    /// The current directory of one of our own children, read once. Nil when the pid is gone.
+    public static func abbreviated(_ path: String, home: String?) -> String {
+        guard let home, !home.isEmpty, home != "/" else { return path }
+        if path == home { return "~" }
+        if path.hasPrefix(home + "/") { return "~" + path.dropFirst(home.count) }
+        return path
+    }
+
     public static func ofProcess(_ pid: pid_t) -> String? {
         guard pid > 0 else { return nil }
         var info = proc_vnodepathinfo()
@@ -24,7 +28,6 @@ public enum TerminalDirectory {
         return path.isEmpty ? nil : path
     }
 
-    /// The last terminal directory, kept across launches. A directory that no longer exists falls back to home.
     public struct Memory {
         private let load: () -> String?
         private let save: (String) -> Void

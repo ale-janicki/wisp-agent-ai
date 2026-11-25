@@ -146,3 +146,21 @@ targets:
         NSMicrophoneUsageDescription: "O Wisp grava o seu microfone quando você clica em gravar uma reunião."
         NSAudioCaptureUsageDescription: "O Wisp grava o áudio do Mac (a outra ponta da call) quando você clica em gravar uma reunião."
         NSAppleEventsUsageDescription: "O Wisp controla a música (Spotify, Music) e os apps do Mac, como o navegador, quando você pede."
+  WispAppTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - Tests
+    dependencies:
+      - target: Wisp
+      - package: WispCore
+        product: WispCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: ai.wisp.app.tests
+        SWIFT_VERSION: "6.0"
+        SWIFT_STRICT_CONCURRENCY: complete
+        MACOSX_DEPLOYMENT_TARGET: "15.0"
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_HOST: $(BUILT_PRODUCTS_DIR)/Wisp.app/Contents/MacOS/Wisp
+        BUNDLE_LOADER: $(TEST_HOST)

@@ -2,26 +2,47 @@ import AppKit
 import SwiftUI
 import WispCore
 
-/// Holds the engine's view while the Terminal tab is on screen. The engine's view outlives this container: leaving the tab only
-/// detaches it, so nothing draws while it is away and the shell keeps its screen.
 final class TerminalHostView: NSView {
     private(set) var engine: SwiftTermEngine?
     private(set) var session: TerminalSession?
     private let overlay = BlockOverlayView(frame: .zero)
+    private var pane: TerminalPaneView?
+    private var focused = false
+    private var clickMonitor: Any?
+    var workspace = TerminalStore.shared.workspace
 
-    func show(_ engine: SwiftTermEngine, session: TerminalSession) {
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if let clickMonitor { NSEvent.removeMonitor(clickMonitor) }
+        clickMonitor = nil
+        guard window != nil else { return }
+        clickMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [weak self] event in
+            guard let self, let window = self.window, event.window === window, let session = self.session else { return event }
+            let point = self.convert(event.locationInWindow, from: nil)
+            if self.bounds.contains(point), self.workspace.selectedID != session.id { self.workspace.select(session.id) }
+            return event
+        }
+    }
+
+    func show(_ engine: SwiftTermEngine, session: TerminalSession, focused: Bool) {
         if self.engine !== engine { detach() }
         self.engine = engine
         self.session = session
+        if session.isNative {
+            showNative(engine, session: session, focused: focused)
+            return
+        }
+        dropPane()
         let view = engine.view
-        if view.superview !== self {
+        let attached = view.superview !== self
+        if attached {
             view.removeFromSuperview()
             view.frame = bounds
             view.autoresizingMask = [.width, .height]
             addSubview(view)
-            focusSoon(view)
         }
-        // The overlay is above the screen with the same frame, and takes only the mouse events on a header or border.
+        if focused, attached || !self.focused { focusSoon(view) }
+        self.focused = focused
         if overlay.superview !== self {
             overlay.frame = bounds
             overlay.autoresizingMask = [.width, .height]
@@ -30,37 +51,67 @@ final class TerminalHostView: NSView {
         overlay.attach(session: session, engine: engine)
     }
 
+    private func showNative(_ engine: SwiftTermEngine, session: TerminalSession, focused: Bool) {
+        if overlay.superview === self {
+            overlay.detach()
+            overlay.removeFromSuperview()
+        }
+        let pane = self.pane ?? TerminalPaneView(frame: bounds)
+        let attached = engine.view.superview !== pane
+        if pane.superview !== self {
+            pane.frame = bounds
+            pane.autoresizingMask = [.width, .height]
+            addSubview(pane)
+        }
+        self.pane = pane
+        pane.attach(engine: engine, session: session)
+        if focused, attached || !self.focused { focusSoon(pane) }
+        self.focused = focused
+    }
+
+    private func dropPane() {
+        guard let pane else { return }
+        pane.detach()
+        pane.removeFromSuperview()
+        self.pane = nil
+    }
+
     func detach() {
+        dropPane()
         overlay.detach()
         overlay.removeFromSuperview()
         if let view = engine?.view, view.superview === self { view.removeFromSuperview() }
         engine = nil
         session = nil
+        focused = false
     }
 
     func jumpBlock(previous: Bool) -> Bool { overlay.jump(previous: previous) }
 
-    func copySelectedBlockOutput() -> Bool { overlay.copySelectedOutput() }
+    func copySelectedBlock(_ part: BlockCopy) -> Bool { overlay.copySelected(part) }
 
     private func focusSoon(_ view: NSView) {
         DispatchQueue.main.async { [weak self, weak view] in
             guard let self, let view, view.superview === self, let window = self.window else { return }
-            window.makeFirstResponder(view)
+            if let pane = view as? TerminalPaneView {
+                pane.focus()
+            } else {
+                window.makeFirstResponder(view)
+            }
         }
     }
 
-    /// Whether the keyboard focus is the terminal or something inside it (its find bar).
     var hasFocus: Bool {
         guard let responder = window?.firstResponder as? NSView else { return false }
         return responder === self || responder.isDescendant(of: self)
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        TerminalKeys.handle(event, in: self) || super.performKeyEquivalent(with: event)
+        TerminalPaneKeys.handle(event, in: self) || pane?.performKeyEquivalent(with: event) == true
+            || TerminalKeys.handle(event, in: self) || super.performKeyEquivalent(with: event)
     }
 }
 
-/// The terminal's own shortcuts. The shell program may not claim these: they belong to the app around it.
 @MainActor
 enum TerminalKeys {
     static func handle(_ event: NSEvent, in host: TerminalHostView) -> Bool {
@@ -69,11 +120,14 @@ enum TerminalKeys {
         if flags == .command, event.keyCode == 126 || event.keyCode == 125 {
             return host.jumpBlock(previous: event.keyCode == 126)
         }
-        if flags == [.command, .shift], event.charactersIgnoringModifiers?.lowercased() == "c" {
-            return host.copySelectedBlockOutput()
+        if event.charactersIgnoringModifiers?.lowercased() == "c", flags == [.command, .shift] {
+            return host.copySelectedBlock(.command)
+        }
+        if event.charactersIgnoringModifiers?.lowercased() == "c", flags == [.command, .shift, .option] {
+            return host.copySelectedBlock(.output)
         }
         guard flags == .command, let key = event.charactersIgnoringModifiers?.lowercased() else { return false }
-        let workspace = TerminalStore.shared.workspace
+        let workspace = host.workspace
         let view = engine.view
         switch key {
         case "t":
@@ -87,16 +141,19 @@ enum TerminalKeys {
             view.performFindPanelAction(item)
             return true
         case "c", "v", "a":
-            // In the find bar these belong to its text field.
             guard host.window?.firstResponder === view else { return false }
-            if key == "c" { view.copy(host) } else if key == "v" { view.paste(host) } else { view.selectAll(host) }
+            switch key {
+            case "c":
+                if view.selectionActive { view.copy(host) } else { _ = host.copySelectedBlock(.commandAndOutput) }
+            case "v": view.paste(host)
+            default: view.selectAll(host)
+            }
             return true
         default:
             return false
         }
     }
 
-    /// Whether the keyboard focus of `window` is a terminal (or its find bar): Esc then belongs to the program in it.
     static func hasFocus(in window: NSWindow?) -> Bool {
         var view = window?.firstResponder as? NSView
         while let current = view {
@@ -106,10 +163,9 @@ enum TerminalKeys {
         return false
     }
 
-    /// ⌘W in the window: while the Terminal tab is up and has a session, it closes the session and never the window.
     static func closeSession(in window: NSWindow) -> Bool {
         guard let host = find(in: window.contentView), host.engine != nil else { return false }
-        return TerminalStore.shared.workspace.closeSelected()
+        return host.workspace.closeSelected()
     }
 
     private static func find(in view: NSView?) -> TerminalHostView? {
@@ -126,16 +182,19 @@ struct TerminalSurface: NSViewRepresentable {
     let engine: SwiftTermEngine
     let session: TerminalSession
     let fontSize: CGFloat
+    var isFocused = true
+    var workspace = TerminalStore.shared.workspace
 
     func makeNSView(context: Context) -> TerminalHostView {
         let host = TerminalHostView()
+        host.workspace = workspace
         host.wantsLayer = true
         return host
     }
 
     func updateNSView(_ host: TerminalHostView, context: Context) {
         engine.applyTheme(AppSettings.shared.colors, fontSize: fontSize)
-        host.show(engine, session: session)
+        host.show(engine, session: session, focused: isFocused)
     }
 
     static func dismantleNSView(_ host: TerminalHostView, coordinator: ()) {

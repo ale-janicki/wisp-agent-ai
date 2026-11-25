@@ -4,30 +4,24 @@ import SwiftTerm
 import WispCore
 import os
 
-/// What the terminal view shows of where it is: scroll-invariant rows (they do not change when old lines leave the scrollback).
 struct TerminalViewport: Equatable {
-    /// The first row on screen.
     var top: Int
     var rows: Int
     var columns: Int
-    /// The oldest row the terminal still holds.
     var firstRetained: Int
-    /// The first row of the live screen; the cursor is at or below it.
     var liveTop: Int
     var cursorRow: Int
     var cellHeight: CGFloat
     var alternateScreen: Bool
 }
 
-/// The bytes of the shell's pty, on their way into SwiftTerm. They are scanned for the integration's marks first (only those with the
-/// session's nonce count); the terminal is fed in pieces cut at each mark, so the cursor can be read exactly where the mark was.
 final class PTYBridge: LocalProcessDelegate, @unchecked Sendable {
     private struct Shared {
         var size = winsize(ws_row: 24, ws_col: 80, ws_xpixel: 0, ws_ypixel: 0)
         var onOutput: (@Sendable () -> Void)?
         var onEvents: (@Sendable ([StampedShellEvent]) -> Void)?
-        /// Nil for a plain shell: nothing is scanned.
         var nonce: String?
+        var native = false
     }
 
     private let shared = OSAllocatedUnfairLock(initialState: Shared())
@@ -35,16 +29,18 @@ final class PTYBridge: LocalProcessDelegate, @unchecked Sendable {
     var onTerminated: (@MainActor (Int32?) -> Void)?
     var onFailed: (@MainActor (LocalProcessError) -> Void)?
 
-    // Only the IO thread touches this; made from the nonce on the first read.
     private var stream: ShellStream?
+    private var promptTop: Int?
+    private var outputTop: Int?
 
     init(view: TerminalView) {
         self.view = view
     }
 
-    func configure(nonce: String?, onEvents: (@Sendable ([StampedShellEvent]) -> Void)?, onOutput: (@Sendable () -> Void)?) {
+    func configure(nonce: String?, native: Bool, onEvents: (@Sendable ([StampedShellEvent]) -> Void)?, onOutput: (@Sendable () -> Void)?) {
         shared.withLock {
             $0.nonce = nonce
+            $0.native = nonce != nil && native
             $0.onEvents = onEvents
             $0.onOutput = onOutput
         }
@@ -74,13 +70,18 @@ final class PTYBridge: LocalProcessDelegate, @unchecked Sendable {
 
     func dataReceived(slice: ArraySlice<UInt8>) {
         guard let view else { return }
-        let state = shared.withLock { ($0.nonce, $0.onEvents, $0.onOutput) }
-        defer { state.2?() }
+        let state = shared.withLock { ($0.nonce, $0.onEvents, $0.onOutput, $0.native) }
+        let started = TerminalPerf.now()
+        defer {
+            let spent = TerminalPerf.now() - started
+            TerminalPerf.record { $0.readNs += spent; $0.reads += 1 }
+            state.2?()
+        }
         guard let nonce = state.0 else {
             view.feed(byteArray: slice)
             return
         }
-        var stream = self.stream ?? ShellStream(nonce: nonce)
+        var stream = self.stream ?? ShellStream(nonce: nonce, nativeBlocks: state.3)
         let cut = stream.cut(slice)
         self.stream = stream
         let bytes = cut.bytes
@@ -91,22 +92,52 @@ final class PTYBridge: LocalProcessDelegate, @unchecked Sendable {
                 view.feed(byteArray: bytes[(bytes.startIndex + range.lowerBound)..<(bytes.startIndex + range.upperBound)])
             case .headerRow:
                 view.feed(text: Self.anchor(view).column > 0 ? "\r\n\r\n" : "\r\n")
+            case .resetGrid:
+                view.feed(text: "\u{1B}[H\u{1B}[2J\u{1B}[3J")
             case .event(let event):
-                stamped.append(StampedShellEvent(event: event, anchor: Self.anchor(view), date: Date()))
+                let anchor = Self.anchor(view)
+                let capture = state.3 ? capture(at: event, anchor: anchor, view: view) : nil
+                stamped.append(StampedShellEvent(event: event, anchor: anchor, date: Date(), capture: capture))
             }
         }
         if !stamped.isEmpty { state.1?(stamped) }
     }
 
-    /// The cursor of the normal screen, in rows that do not change when the scrollback trims.
+    private func capture(at event: ShellEvent, anchor: BlockAnchor, view: TerminalView) -> BlockOutput? {
+        let started = TerminalPerf.now()
+        defer {
+            let spent = TerminalPerf.now() - started
+            TerminalPerf.record { $0.captureNs += spent; $0.captures += 1 }
+        }
+        let end = anchor.column > 0 ? anchor.row + 1 : anchor.row
+        switch event {
+        case .promptStart:
+            promptTop = end
+            guard let top = outputTop else { return nil }
+            outputTop = nil
+            return SwiftTermStyle.capture(view, rows: top..<max(top, end))
+        case .promptEnd:
+            guard let top = promptTop else { return nil }
+            promptTop = nil
+            return SwiftTermStyle.capture(view, rows: max(top, anchor.row - 49)..<(anchor.row + 1))
+        case .commandStart:
+            outputTop = end
+            return nil
+        case .commandEnd:
+            guard let top = outputTop else { return nil }
+            outputTop = nil
+            return SwiftTermStyle.capture(view, rows: top..<max(top, end))
+        default:
+            return nil
+        }
+    }
+
     private static func anchor(_ view: TerminalView) -> BlockAnchor {
         guard let snapshot = view.terminalContentSnapshot(region: .rows(0..<0), buffer: .normal) else { return BlockAnchor(row: 0, column: 0) }
         return BlockAnchor(row: snapshot.cursorRow, column: snapshot.cursorColumn, liveTop: snapshot.liveTopRow)
     }
 }
 
-/// SwiftTerm's view with its own pty plumbing (`LocalProcessTerminalView` keeps the bytes to itself), so the marks of the shell
-/// integration can be read from them.
 @MainActor
 final class WispTerminalView: TerminalView, TerminalViewDelegate {
     private(set) var process: LocalProcess!
@@ -116,6 +147,8 @@ final class WispTerminalView: TerminalView, TerminalViewDelegate {
     var onDirectory: ((String?) -> Void)?
     var onScrolled: (() -> Void)?
     var onResized: ((_ columns: Int, _ rows: Int) -> Void)?
+    var copyOnSelect = true
+    private var selectionBeforePress: String?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -136,6 +169,22 @@ final class WispTerminalView: TerminalView, TerminalViewDelegate {
         bridge.updateWindowSize(windowSize())
     }
 
+    var onMouseDown: (() -> Void)?
+
+    override func mouseDown(with event: NSEvent) {
+        onMouseDown?()
+        if window?.firstResponder !== self { window?.makeFirstResponder(self) }
+        selectionBeforePress = selectionActive ? getSelection() : nil
+        super.mouseDown(with: event)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        super.mouseUp(with: event)
+        guard copyOnSelect, selectionActive, let text = getSelection(), !text.isEmpty, text != selectionBeforePress else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+    }
+
     func windowSize() -> winsize {
         let scale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 1
         let dimensions = terminalDimensions
@@ -154,7 +203,6 @@ final class WispTerminalView: TerminalView, TerminalViewDelegate {
             executable: executable, args: args, environment: environment, execName: execName, currentDirectory: currentDirectory)
     }
 
-    /// Where the view is, in rows that survive scrollback trimming. Nil before the view has a size.
     func viewport() -> TerminalViewport? {
         guard let snapshot = terminalContentSnapshot(region: .rows(0..<0), buffer: .active) else { return nil }
         let rows = snapshot.inputState.dimensions.rows
@@ -168,7 +216,6 @@ final class WispTerminalView: TerminalView, TerminalViewDelegate {
             alternateScreen: snapshot.inputState.isAlternateBuffer)
     }
 
-    /// The rows in `range`, as the terminal holds them now.
     nonisolated func screenRows(_ range: Range<Int>) -> [ScreenRow] {
         guard let snapshot = terminalContentSnapshot(region: .rows(range), buffer: .normal) else { return [] }
         return snapshot.rows.map { ScreenRow(row: $0.absoluteRow, text: $0.text, isWrapped: $0.isWrapped) }

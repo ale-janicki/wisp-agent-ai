@@ -107,7 +107,6 @@ final class ShellMarkScannerTests: XCTestCase {
     }
 
     func testAnUnterminatedSequenceDoesNotEatTheNextOne() {
-        // The first OSC is cut by a new ESC ]: the second one still counts.
         let stream = Array("\u{1B}]6973;".utf8) + mark("C")
         XCTAssertEqual(events(stream), [.commandStart])
     }
@@ -152,13 +151,12 @@ final class ShellStreamTests: XCTestCase {
         XCTAssertEqual(stream.cut(ArraySlice<UInt8>()).pieces, [])
     }
 
-    /// What the terminal is fed, in order, with the header rows as "⏎".
     private func fed(_ cut: ShellStreamCut) -> [UInt8] {
         cut.pieces.flatMap { piece -> [UInt8] in
             switch piece {
             case .bytes(let range): Array(cut.bytes[(cut.bytes.startIndex + range.lowerBound)..<(cut.bytes.startIndex + range.upperBound)])
             case .headerRow: Array("⏎".utf8)
-            case .event: []
+            case .event, .resetGrid: []
             }
         }
     }
@@ -188,7 +186,6 @@ final class BlockTrackerTests: XCTestCase {
 
     private func anchor(_ row: Int, _ column: Int = 0, liveTop: Int = 0) -> BlockAnchor { BlockAnchor(row: row, column: column, liveTop: liveTop) }
 
-    /// A prompt at `row`, the command typed, started at `row + 1`.
     private func run(_ tracker: inout BlockTracker, command: String, prompt row: Int, at date: Date) {
         tracker.apply(.promptStart, anchor: anchor(row), at: date)
         tracker.apply(.command(command), anchor: nil, at: date)
@@ -227,6 +224,20 @@ final class BlockTrackerTests: XCTestCase {
         XCTAssertEqual(tracker.blocks[0].outputStart, tracker.blocks[0].outputEnd)
     }
 
+    func testAProgramThatDiesInTheAlternateScreenDoesNotFreezeTheTracker() {
+        var tracker = BlockTracker()
+        tracker.apply(.alternateScreen(true), anchor: nil)
+        XCTAssertTrue(tracker.suspended)
+        run(&tracker, command: "ls", prompt: 3, at: t0)
+        XCTAssertFalse(tracker.suspended, "a new prompt means the full-screen program is gone")
+        tracker.apply(.commandEnd(exitCode: 0), anchor: anchor(6), at: t0)
+        XCTAssertEqual(tracker.blocks.count, 1)
+        XCTAssertEqual(tracker.blocks[0].command, "ls")
+        XCTAssertEqual(tracker.blocks[0].outputStart, 4)
+        XCTAssertEqual(tracker.blocks[0].outputEnd, 6)
+        XCTAssertEqual(tracker.blocks[0].status, .finished(0))
+    }
+
     func testCtrlCEndsWith130() {
         var tracker = BlockTracker()
         run(&tracker, command: "sleep 100", prompt: 0, at: t0)
@@ -262,15 +273,14 @@ final class BlockTrackerTests: XCTestCase {
         var tracker = BlockTracker()
         run(&tracker, command: "vim", prompt: 0, at: t0)
         tracker.apply(.alternateScreen(true), anchor: nil)
-        // Marks a nested shell inside the editor might send are ignored.
-        run(&tracker, command: "ls", prompt: 3, at: t0)
-        tracker.apply(.commandEnd(exitCode: 0), anchor: anchor(5), at: t0)
+        tracker.apply(.command("ls"), anchor: nil, at: t0)
+        tracker.apply(.commandStart, anchor: anchor(4), at: t0)
         XCTAssertTrue(tracker.suspended)
         tracker.apply(.alternateScreen(false), anchor: nil)
         XCTAssertFalse(tracker.suspended)
         XCTAssertEqual(tracker.blocks.count, 1, "the editor is one block")
         XCTAssertEqual(tracker.blocks[0].command, "vim")
-        XCTAssertTrue(tracker.blocks[0].isRunning, "an end sent from inside the alternate screen is not the editor's")
+        XCTAssertTrue(tracker.blocks[0].isRunning, "a command inside the alternate screen is not a block of its own")
     }
 
     func testTheEndOfAProgramThatHeldTheAlternateScreenStillCounts() {
@@ -316,7 +326,6 @@ final class BlockTrackerTests: XCTestCase {
     func testClearingAtThePromptKeepsItSoTheNextCommandIsABlock() {
         var tracker = BlockTracker()
         tracker.apply(.promptStart, anchor: anchor(10))
-        // Ctrl-L (zle clear-screen): cursor home, ED 2, the prompt redrawn at the top, no new prompt mark.
         tracker.apply(.cleared(scrollback: false), anchor: anchor(8, liveTop: 8))
         tracker.apply(.command("ls"), anchor: nil)
         tracker.apply(.commandStart, anchor: anchor(9))
@@ -395,7 +404,6 @@ final class BlockTextTests: XCTestCase {
                 outputStart: prompt + 1, outputEnd: prompt + 3, headLines: 1)
         }
         let before = [block(1, "ls", prompt: 1), block(2, "ls", prompt: 5), block(3, "echo done", prompt: 9, status: .running)]
-        // After the width shrank, the second prompt wraps into two rows and the output below it grew.
         let screen = rows([
             ("", false),
             ("~ % ls", false), ("a", false), ("b", false), ("", false),
@@ -431,7 +439,6 @@ final class BlockTextTests: XCTestCase {
     }
 
     func testReanchorDropsABlockWithTwoPossiblePromptLines() {
-        // The output of the first block has a blank line and a line ending with "ls": the second block cannot be told apart.
         let before = [finished(1, "cat notes", prompt: 0), finished(2, "ls", prompt: 4), finished(3, "pwd", prompt: 7)]
         let screen = rows([
             ("~ % cat notes", false), ("", false), ("try ls", false), ("", false),
@@ -457,7 +464,6 @@ final class BlockTextTests: XCTestCase {
         running.finishedAt = nil
         running.outputEnd = nil
         let snapshot = [finished(1, "ls", prompt: 0), running]
-        // Re-anchored from the rows read off the main thread.
         var movedOne = snapshot[0]
         movedOne.promptRow = 1
         movedOne.outputStart = 2
@@ -465,7 +471,6 @@ final class BlockTextTests: XCTestCase {
         var movedTwo = running
         movedTwo.promptRow = 7
         movedTwo.outputStart = 8
-        // Meanwhile make ended with 2 (its end already in the new rows) and a new command started.
         var ended = running
         ended.status = .finished(2)
         ended.finishedAt = Date(timeIntervalSince1970: 99)
@@ -677,7 +682,6 @@ final class TerminalSessionBlocksTests: XCTestCase {
         XCTAssertEqual(engines[0].written, [0x05, 0x15] + Array("\u{1B}[200~for f in a b\ndo echo $f\ndone\u{1B}[201~".utf8), "never Enter")
     }
 
-    /// A session started with hooks (a scratch script directory, removed by the caller).
     private func integratedSession() throws -> (TerminalSession, URL) {
         let scripts = FileManager.default.temporaryDirectory.appendingPathComponent("wisp-session-\(UUID().uuidString)")
         let rc = scripts.appendingPathComponent("zsh/.zshenv")

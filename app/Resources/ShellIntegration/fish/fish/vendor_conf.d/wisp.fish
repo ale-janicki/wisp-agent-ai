@@ -1,9 +1,5 @@
 set -g __wisp_nonce $WISP_MARK_NONCE
 set -e WISP_MARK_NONCE
-# Wisp shell integration (fish). The two lines above run first: the marks' nonce moves into an unexported variable, so no child
-# sees it. Wisp puts its directory first in XDG_DATA_DIRS, so fish loads this file as a vendor configuration; nothing of yours is
-# changed. The variable is put back right here. Every mark is Wisp's own OSC with the nonce (`OSC 6973;<nonce>;…`): output that
-# imitates one makes no block.
 if set -q WISP_XDG_DATA_DIRS_ORIG
     if test -n "$WISP_XDG_DATA_DIRS_ORIG"
         set -gx XDG_DATA_DIRS $WISP_XDG_DATA_DIRS_ORIG
@@ -18,11 +14,33 @@ test -n "$__wisp_nonce"; or exit
 
 function __wisp_prompt --on-event fish_prompt
     set -l url "file://"(hostname)(string escape --style=url -- $PWD)
-    # Plain OSC 7 too, for the terminal's own use (links are opened relative to it); Wisp takes the folder only from `cwd=`.
     printf '\e]7;%s\a\e]6973;%s;cwd=%s\a\e]6973;%s;A\a' "$url" "$__wisp_nonce" "$url" "$__wisp_nonce"
+    if not set -q __wisp_hist_sent; and test "$fish_history" != ""
+        set -g __wisp_hist_sent 1
+        set -l data "$HOME/.local/share"
+        test -n "$XDG_DATA_HOME"; and set data "$XDG_DATA_HOME"
+        set -l name fish
+        test -n "$fish_history"; and set name "$fish_history"
+        printf '\e]6973;%s;hist=%s\a' "$__wisp_nonce" (printf '%s' "$data/fish/$name"_history | command base64 | string join '')
+    end
+    __wisp_wrap_prompt
 end
 
-# The whole command line, newlines kept: it goes to base64 as one argument, never split into a list.
+function __wisp_wrap_prompt
+    functions -q fish_prompt; or return
+    string match -q '*__wisp_prompt_end*' (functions fish_prompt | string collect); and return
+    functions -e __wisp_orig_prompt
+    functions -c fish_prompt __wisp_orig_prompt
+    function fish_prompt --description 'prompt wrapped by Wisp'
+        __wisp_orig_prompt
+        __wisp_prompt_end
+    end
+end
+
+function __wisp_prompt_end
+    printf '\e]6973;%s;B\a' "$__wisp_nonce"
+end
+
 function __wisp_preexec --on-event fish_preexec
     set -l encoded (printf '%s' "$argv[1]" | command head -c 4096 | command base64 | string join '')
     printf '\e]6973;%s;cmd=%s\a\e]6973;%s;C\a' "$__wisp_nonce" "$encoded" "$__wisp_nonce"

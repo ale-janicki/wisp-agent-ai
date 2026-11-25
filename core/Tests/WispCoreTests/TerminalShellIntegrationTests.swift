@@ -1,8 +1,6 @@
 import XCTest
 @testable import WispCore
 
-/// The shell scripts, run by the real shells on a real pty with a scratch HOME: what they emit, and that the user's own files still
-/// run and the environment is left as the user had it.
 final class TerminalShellIntegrationTests: XCTestCase {
     private var home: URL!
 
@@ -25,16 +23,18 @@ final class TerminalShellIntegrationTests: XCTestCase {
         try text.write(to: url, atomically: true, encoding: .utf8)
     }
 
-    /// The marks of a run, as short names, with the commands the shell reported.
     private struct Run {
         var output: String
         var events: [ShellEvent]
         var nonce: String
 
-        var marks: [String] {
+        var marks: [String] { allMarks.filter { $0 != "B" } }
+
+        var allMarks: [String] {
             events.compactMap { event in
                 switch event {
                 case .promptStart: "A"
+                case .promptEnd: "B"
                 case .commandStart: "C"
                 case .commandEnd(let code): "D\(code.map(String.init) ?? "-")"
                 default: nil
@@ -46,8 +46,6 @@ final class TerminalShellIntegrationTests: XCTestCase {
         var directories: [String] { events.compactMap { if case .directory(let text) = $0 { text } else { nil } } }
     }
 
-    /// Starts the shell the way the terminal does, types each line once its prompt is up (the nonce's A mark, then `prompt`), and
-    /// ends with `exit`.
     private func run(
         shell path: String, prompt: String, waitFor markBody: String = "A\u{07}", extraEnvironment: [String: String] = [:], lines: [String]
     ) throws -> Run {
@@ -74,7 +72,6 @@ final class TerminalShellIntegrationTests: XCTestCase {
         return Run(output: output, events: scanner.scan(Array(output.utf8)[...]).map(\.event), nonce: nonce)
     }
 
-    /// Reads until, after byte `start`, the prompt mark has come and the prompt was drawn after it.
     private func waitForPrompt(_ pty: TestPTY, after start: Int, output: inout String, mark: String, prompt: String) -> Bool {
         let deadline = Date().addingTimeInterval(20)
         repeat {
@@ -93,7 +90,6 @@ final class TerminalShellIntegrationTests: XCTestCase {
         XCTAssertTrue(run.directories.first?.hasPrefix("file://") ?? false, file: file, line: line)
     }
 
-    /// No child of the shell sees the nonce: not by name, not by value.
     private static let nonceCheck = "echo \"E[$(/usr/bin/env | /usr/bin/grep -c WISP_MARK_NONCE)]\""
 
     private func assertNonceHidden(_ run: Run, file: StaticString = #filePath, line: UInt = #line) {
@@ -125,6 +121,16 @@ final class TerminalShellIntegrationTests: XCTestCase {
         XCTAssertTrue(result.output.contains("Z[unset][unset][unset]"), "children must see no ZDOTDIR: \(result.output.debugDescription)")
         XCTAssertTrue(result.output.contains("H[\(home.path)/.zsh_history]") || result.output.contains("H[]"), result.output.debugDescription)
         XCTAssertFalse(result.output.contains(Self.scripts.path + "/zsh/.zsh_history"))
+    }
+
+    func testZshSendsAThenBThenCThenDAndPutsBInPS1Once() throws {
+        try write("PS1='%# '\n", to: ".zshrc")
+        let result = try run(shell: "/bin/zsh", prompt: "% ", lines: [
+            "true", "false", "p=(\"${(@s:6973;:)PS1}\"); print -r -- \"P[$#p]\"",
+        ])
+        let expected = ["A", "B", "C", "D0", "A", "B", "C", "D1", "A", "B", "C", "D0"]
+        XCTAssertEqual(Array(result.allMarks.prefix(expected.count)), expected, result.output.debugDescription)
+        XCTAssertTrue(result.output.contains("P[2]"), "PS1 holds one B mark after three prompts: \(result.output.debugDescription)")
     }
 
     func testZshKeepsTheUsersOwnZdotdir() throws {
@@ -175,12 +181,10 @@ final class TerminalShellIntegrationTests: XCTestCase {
         XCTAssertEqual(
             Array(events.prefix(5)), [.promptStart, .cleared(scrollback: false), .command("true"), .commandStart, .promptStart],
             output.debugDescription)
-        // What the tracker does with exactly that order is `BlockTrackerTests.testClearingAtThePromptKeepsItSoTheNextCommandIsABlock`.
     }
 
     // MARK: Paste again
 
-    /// vi command mode takes typed letters as commands, and Ctrl-E Ctrl-U do not empty its line: the paste must run nothing.
     private func assertPasteAgainRunsNothingInViMode(
         shell path: String, rc: String, rcName: String, prompt: String, bracketedPaste: Bool, file: StaticString = #filePath, line: UInt = #line
     ) throws {
@@ -213,7 +217,6 @@ final class TerminalShellIntegrationTests: XCTestCase {
         }
         XCTAssertEqual(ran, [], "the paste ran something: \(after.debugDescription)", file: file, line: line)
         XCTAssertFalse(after.contains("DANGER\r\n"), after.debugDescription, file: file, line: line)
-        // The line is left as it is: the pty's owner kills the shell when it goes.
     }
 
     func testZshPasteAgainInViCommandModeRunsNothing() throws {
@@ -249,6 +252,34 @@ final class TerminalShellIntegrationTests: XCTestCase {
         assertNonceHidden(result)
         XCTAssertTrue(result.output.contains("V[from_bash_profile]"), result.output.debugDescription)
         XCTAssertTrue(result.output.contains("S[unset]"), result.output.debugDescription)
+    }
+
+    func testBashSendsAThenBThenCThenDAndPutsBInPS1Once() throws {
+        try write("PS1='$ '\n", to: ".bash_profile")
+        let result = try run(shell: "/bin/bash", prompt: "$ ", lines: ["true", "false", "echo \"P[${PS1//[^B]/}]\""])
+        let expected = ["A", "B", "C", "D0", "A", "B", "C", "D1", "A", "B", "C", "D0"]
+        XCTAssertEqual(Array(result.allMarks.prefix(expected.count)), expected, result.output.debugDescription)
+        let marks = result.output.components(separatedBy: "\u{1B}]6973;\(result.nonce);B\u{07}").count - 1
+        XCTAssertEqual(marks, result.allMarks.filter { $0 == "B" }.count)
+        XCTAssertFalse(result.output.contains("\\["), "the \\[ \\] wrapping must not show: \(result.output.debugDescription)")
+    }
+
+    func testBash32PlainPathKeepsATabAndRunsEachLine() throws {
+        try write("PS1='$ '\n", to: ".bash_profile")
+        let tabbed = String(decoding: InputSender.bytes(text: "echo a\tb", bracketedPaste: false), as: UTF8.self)
+        let result = try run(shell: "/bin/bash", prompt: "$ ", lines: [tabbed])
+        XCTAssertEqual(result.commands.first, "echo a\tb", result.output.debugDescription)
+    }
+
+    func testZshAndBashReportTheirHistoryFileOnce() throws {
+        try write("PS1='$ '\nHISTFILE=\(home.path)/my_hist\n", to: ".bash_profile")
+        try write("PS1='%# '\nHISTFILE=\(home.path)/my_hist\n", to: ".zshrc")
+        for (shell, prompt) in [("/bin/bash", "$ "), ("/bin/zsh", "% ")] {
+            let result = try run(shell: shell, prompt: prompt, lines: ["true", "true"])
+            let files = result.events.compactMap { event -> String? in if case .historyFile(let path) = event { path } else { nil } }
+            XCTAssertEqual(files.count, 1, "\(shell): \(result.output.debugDescription)")
+            XCTAssertTrue(files.first?.hasSuffix("/my_hist") ?? false, "\(shell): \(files)")
+        }
     }
 
     func testBashRecordsTheWholeLineTyped() throws {
