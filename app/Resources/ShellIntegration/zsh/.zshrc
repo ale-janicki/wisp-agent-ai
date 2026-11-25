@@ -1,15 +1,11 @@
-# Wisp shell integration (zsh): your .zshrc runs as it would without Wisp, then the hooks are added.
 if [[ -n $_wisp_user_zd_set ]]; then export ZDOTDIR=$_wisp_user_zd; else unset ZDOTDIR; fi
-# zsh may have picked its default history file while ZDOTDIR pointed here.
 if [[ $HISTFILE == $WISP_ZDOTDIR/* ]]; then HISTFILE=${ZDOTDIR:-$HOME}/${HISTFILE:t}; fi
 if [[ -r ${ZDOTDIR:-$HOME}/.zshrc ]]; then builtin source ${ZDOTDIR:-$HOME}/.zshrc; fi
 if [[ -n ${ZDOTDIR+x} ]]; then _wisp_user_zd_set=1; _wisp_user_zd=$ZDOTDIR; else _wisp_user_zd_set=; _wisp_user_zd=; fi
 
-# Every mark is Wisp's own OSC with this session's nonce (`OSC 6973;<nonce>;…`): output that imitates one makes no block.
 if [[ -o interactive && -z $_wisp_hooked && -n $_wisp_nonce ]]; then
   typeset -g _wisp_hooked=1 _wisp_running=0 _wisp_status=0
 
-  # The exit status of the command, before any other precmd function can change it.
   _wisp_capture() { _wisp_status=$? }
 
   _wisp_precmd() {
@@ -21,11 +17,17 @@ if [[ -o interactive && -z $_wisp_hooked && -n $_wisp_nonce ]]; then
       _wisp_running=0
     fi
     url="file://$HOST${PWD//(#m)[^a-zA-Z0-9\/._~-]/%${(l:2::0:)$(( [##16] #MATCH ))}}"
-    # Plain OSC 7 too, for the terminal's own use (links are opened relative to it); Wisp takes the folder only from `cwd=`.
     builtin printf '\e]7;%s\a\e]6973;%s;cwd=%s\a\e]6973;%s;A\a' "$url" $_wisp_nonce "$url" $_wisp_nonce
+    if [[ -z $_wisp_hist_sent && -n $HISTFILE ]]; then
+      typeset -g _wisp_hist_sent=1
+      local hist=$(builtin printf %s $HISTFILE | command base64 2>/dev/null)
+      builtin printf '\e]6973;%s;hist=%s\a' $_wisp_nonce ${hist//[$'\n\r ']/}
+    fi
+    local bmark=$'%{\e]6973;'$_wisp_nonce$';B\a%}'
+    PS1=${PS1//"$bmark"/}
+    PS1+=$bmark
   }
 
-  # The command text goes first, so the block knows its header when the command starts.
   _wisp_preexec() {
     emulate -L zsh
     _wisp_running=1

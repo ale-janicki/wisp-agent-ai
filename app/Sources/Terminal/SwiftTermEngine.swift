@@ -4,8 +4,6 @@ import SwiftTerm
 import WispCore
 import os
 
-/// SwiftTerm behind `TerminalEngine`: `WispTerminalView` forks the shell on a pty, scans its output for the shell integration's
-/// marks, parses it and draws it.
 @MainActor
 final class SwiftTermEngine: NSObject, TerminalEngine {
     let view = WispTerminalView(frame: CGRect(x: 0, y: 0, width: 720, height: 420))
@@ -16,16 +14,18 @@ final class SwiftTermEngine: NSObject, TerminalEngine {
     var onDirectory: (@MainActor (String) -> Void)?
     var onTitle: (@MainActor (String) -> Void)?
     var onShellEvents: (@MainActor ([StampedShellEvent]) -> Void)?
-    /// The screen moved or changed (scroll, resize, output): coalesced, never polled.
     var onViewportChange: (() -> Void)?
-    /// The width changed since the blocks were last placed: the rows were reflowed, so the blocks have to be found again.
     private(set) var reflowPending = false
     private var columns = 0
     private let pendingRefresh = OSAllocatedUnfairLock(initialState: false)
-    nonisolated private static let refreshDelay: DispatchTimeInterval = .milliseconds(30)
+    nonisolated private static let minimumRefreshDelay: UInt64 = 30_000_000
+    nonisolated private static let maximumRefreshDelay: UInt64 = 300_000_000
+    private let lastTickCost = OSAllocatedUnfairLock<UInt64>(initialState: 0)
+
+    nonisolated static let scrollback = 100_000
+    nonisolated static let maxLiveRows = 500
 
     private var themeApplied: (colors: ThemeColors, fontSize: CGFloat)?
-    /// The shell this engine started, with its start time: a pid that ended and was reused never matches.
     private var child: Child?
     private var killTask: Task<Void, Never>?
     private static let killDelay: Duration = .seconds(3)
@@ -56,9 +56,29 @@ final class SwiftTermEngine: NSObject, TerminalEngine {
         view.terminalContentSnapshot(region: .rows(0..<0), buffer: .active)?.inputState.bracketedPasteMode ?? false
     }
 
+    var applicationCursorMode: Bool {
+        view.terminalContentSnapshot(region: .rows(0..<0), buffer: .active)?.inputState.applicationCursor ?? false
+    }
+
+    var cursorColumn: Int {
+        view.terminalContentSnapshot(region: .rows(0..<0), buffer: .normal)?.cursorColumn ?? 0
+    }
+
+    func liveOutput(from row: Int) -> BlockOutput {
+        let started = TerminalPerf.now()
+        defer {
+            let spent = TerminalPerf.now() - started
+            TerminalPerf.record { $0.liveNs += spent; $0.liveTicks += 1 }
+        }
+        guard let snapshot = view.terminalContentSnapshot(region: .rows(0..<0), buffer: .normal) else { return .empty }
+        let end = snapshot.cursorRow + 1
+        let start = min(max(row, end - Self.maxLiveRows), end)
+        let output = SwiftTermStyle.capture(view, rows: start..<end)
+        return BlockOutput(lines: output.lines, droppedLines: output.droppedLines + max(0, start - row))
+    }
+
     func rows(_ range: Range<Int>) -> [ScreenRow] { view.screenRows(range) }
 
-    /// Every row the terminal holds; for finding the blocks again after a reflow. Safe off the main thread.
     nonisolated static func allRows(of view: WispTerminalView) -> [ScreenRow] {
         guard let snapshot = view.terminalContentSnapshot(region: .all, buffer: .normal) else { return [] }
         return snapshot.rows.map { ScreenRow(row: $0.absoluteRow, text: $0.text, isWrapped: $0.isWrapped) }
@@ -66,27 +86,30 @@ final class SwiftTermEngine: NSObject, TerminalEngine {
 
     func reflowHandled() { reflowPending = false }
 
-    /// Scrolls so `row` (scroll-invariant) is the first on screen.
     func scroll(toRow row: Int) {
         guard let viewport = view.viewport() else { return }
         view.scrollTo(row: max(0, row - viewport.firstRetained))
     }
 
-    /// Output, scroll and resize all end here: at most one notification per `refreshDelay`.
     nonisolated private func outputArrived() {
         let first = pendingRefresh.withLock { pending -> Bool in
             defer { pending = true }
             return !pending
         }
         guard first else { return }
-        DispatchQueue.main.asyncAfter(deadline: .now() + Self.refreshDelay) { [weak self] in
+        let delay = min(max(lastTickCost.withLock { $0 } * 4, Self.minimumRefreshDelay), Self.maximumRefreshDelay)
+        DispatchQueue.main.asyncAfter(deadline: .now() + .nanoseconds(Int(delay))) { [weak self] in
             MainActor.assumeIsolated { self?.viewportMayHaveChanged() }
         }
     }
 
     private func viewportMayHaveChanged() {
         pendingRefresh.withLock { $0 = false }
+        let started = TerminalPerf.now()
         onViewportChange?()
+        let spent = TerminalPerf.now() - started
+        lastTickCost.withLock { $0 = spent }
+        TerminalPerf.record { $0.tickNs += spent; $0.ticks += 1 }
     }
 
     private func terminated(_ code: Int32?) {
@@ -96,7 +119,6 @@ final class SwiftTermEngine: NSObject, TerminalEngine {
         onExit?(code)
     }
 
-    /// Theme and font are applied again only when one of them changed: installing a palette repaints the whole screen.
     func applyTheme(_ colors: ThemeColors, fontSize: CGFloat) {
         if let themeApplied, themeApplied.colors == colors, themeApplied.fontSize == fontSize { return }
         themeApplied = (colors, fontSize)
@@ -105,10 +127,10 @@ final class SwiftTermEngine: NSObject, TerminalEngine {
 
     // MARK: TerminalEngine
 
-    /// The view's own layout decides the columns and rows the shell starts with; `size` is not needed here.
     func start(shell: TerminalShell, launch: TerminalLaunch, cwd: String, size: TerminalSize) throws {
+        if launch.nativeBlocks { view.changeScrollback(Self.scrollback) }
         view.bridge.configure(
-            nonce: launch.integrated ? launch.markNonce : nil,
+            nonce: launch.integrated ? launch.markNonce : nil, native: launch.nativeBlocks,
             onEvents: { @Sendable [weak self] events in
                 DispatchQueue.main.async { MainActor.assumeIsolated { self?.onShellEvents?(events) } }
             },
@@ -128,8 +150,6 @@ final class SwiftTermEngine: NSObject, TerminalEngine {
         _ = view.process.updateWindowSize(&window)
     }
 
-    /// SIGHUP to the shell's process group (an interactive shell ignores SIGTERM and leaves on SIGHUP), then SIGKILL once, three
-    /// seconds later, if that same child is still ours and alive.
     func terminate() {
         guard let child, child.isAlive else { return }
         killpg(child.pid, SIGHUP)
@@ -141,7 +161,6 @@ final class SwiftTermEngine: NSObject, TerminalEngine {
         }
     }
 
-    /// Quit: the app is about to exit and a later task would never run, so this waits (10 ms steps, bounded by `deadline`).
     func settle(by deadline: Date) {
         killTask?.cancel()
         guard let child else { return }
@@ -154,8 +173,6 @@ final class SwiftTermEngine: NSObject, TerminalEngine {
         return TerminalDirectory.ofProcess(child.pid)
     }
 
-    /// A child of this app, named by pid and start time. `isAlive` is false once it ended (a zombie waiting to be reaped counts
-    /// as ended) and for a pid that was reused by another process.
     private struct Child: Sendable {
         let pid: pid_t
         let startSeconds: UInt64

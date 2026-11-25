@@ -1,10 +1,8 @@
 import SwiftUI
 import WispCore
 
-/// The Terminal tab: a sidebar of tabs on the left (Warp's vertical tabs) and the selected tab's panes beside it. Compact in the
-/// notch panel, with a bigger font in the window; the panes fill whatever room the container has.
 struct TerminalTab: View {
-    private let workspace = TerminalStore.shared.workspace
+    private let workspace: TerminalWorkspace
     @Environment(\.windowMode) private var windowMode
     @AppStorage("terminal.sidebarCollapsed") private var collapsed = false
     @AppStorage("terminal.sidebarWidth") private var sidebarWidth = Double(Theme.Layout.sidebarWidth)
@@ -14,15 +12,25 @@ struct TerminalTab: View {
     @State private var resizeStart: Double?
     @FocusState private var renameFocused: Bool
 
+    init(workspace: TerminalWorkspace = TerminalStore.shared.workspace) {
+        self.workspace = workspace
+    }
+
     private static let widthRange = 160.0...320.0
     private static let rowHeight: CGFloat = 44
     private static let dividerHit: CGFloat = 6
 
     var body: some View {
         HStack(spacing: 0) {
-            if collapsed { rail } else { sidebar }
-            Divider().overlay(Theme.stroke)
-            content
+            if !collapsed {
+                sidebar
+                Divider().overlay(Theme.stroke)
+            }
+            VStack(spacing: 0) {
+                toolbar
+                Divider().overlay(Theme.stroke)
+                content
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Theme.bg)
@@ -43,11 +51,6 @@ struct TerminalTab: View {
 
     private var sidebar: some View {
         VStack(spacing: Theme.Space.s) {
-            HStack(spacing: Theme.Space.xs) {
-                collapseButton
-                Spacer(minLength: 0)
-                newTabButton
-            }
             SearchField(text: $query, placeholder: "Buscar abas…")
             ScrollView(.vertical) {
                 VStack(spacing: 2) {
@@ -63,25 +66,20 @@ struct TerminalTab: View {
         .overlay(alignment: .trailing) { resizeHandle }
     }
 
-    /// The collapsed sidebar: only the buttons to open it again and to add a tab.
-    private var rail: some View {
-        VStack(spacing: Theme.Space.s) {
-            collapseButton
+    private var toolbar: some View {
+        HStack(spacing: Theme.Space.xs) {
+            Button {
+                collapsed.toggle()
+            } label: {
+                Image(systemName: "sidebar.left")
+            }
+            .buttonStyle(CircleButtonStyle(kind: collapsed ? .plain : .accent, size: Theme.Control.compactHeight))
+            .help(collapsed ? "Mostrar abas" : "Esconder abas")
             newTabButton
             Spacer(minLength: 0)
         }
-        .padding(.vertical, Theme.Space.s)
-        .frame(width: Theme.Control.compactHeight + 2 * Theme.Space.s)
-    }
-
-    private var collapseButton: some View {
-        Button {
-            collapsed.toggle()
-        } label: {
-            Image(systemName: "sidebar.left")
-        }
-        .buttonStyle(CircleButtonStyle(size: Theme.Control.compactHeight))
-        .help(collapsed ? "Mostrar abas" : "Esconder abas")
+        .padding(.horizontal, Theme.Space.s)
+        .padding(.vertical, Theme.Space.xs)
     }
 
     private var newTabButton: some View {
@@ -113,7 +111,6 @@ struct TerminalTab: View {
                     .onEnded { _ in resizeStart = nil })
     }
 
-    /// The tabs the search leaves, each with its place among all of them (⌘1…⌘9 count every tab, not the ones shown).
     private var visibleTabs: [(index: Int, tab: TerminalLayout.Tab)] {
         workspace.layout.tabs.enumerated().compactMap { index, tab in
             let info = info(tab)
@@ -135,7 +132,6 @@ struct TerminalTab: View {
         let isHovered = hovered == tab.id
         return ZStack(alignment: .trailing) {
             if renaming == tab.id {
-                // The field lives outside the row's button, so its clicks and keys reach the text and not the button.
                 rowLabel(info, title: renameField(tab), shortcut: nil)
                     .padding(.horizontal, Theme.Space.m)
                     .frame(height: Self.rowHeight)
@@ -218,7 +214,6 @@ struct TerminalTab: View {
         renameFocused = true
     }
 
-    /// An empty name gives the tab its automatic title back; leaving the automatic title as it was keeps it automatic.
     private func finishRenaming(_ id: UUID) {
         guard let tab = workspace.layout.tabs.first(where: { $0.id == id }) else { return }
         if tab.customTitle == nil, draft == info(tab).title {
@@ -228,7 +223,6 @@ struct TerminalTab: View {
         }
     }
 
-    /// ⌘1…⌘8 name the first eight tabs and ⌘9 the last one, as in Warp.
     private func shortcut(_ index: Int) -> String? {
         if index < 8 { return "⌘\(index + 1)" }
         return index == workspace.layout.tabs.count - 1 ? "⌘9" : nil
@@ -257,7 +251,6 @@ struct TerminalTab: View {
 
     private static let paneSpace = "terminal.panes"
 
-    /// Every visible pane is keyed by its session, so a split or a close moves the existing screens instead of making new ones.
     private func panes(_ tab: TerminalLayout.Tab, size: CGSize) -> some View {
         let frames = tab.frames
         let split = frames.count > 1
@@ -281,7 +274,7 @@ struct TerminalTab: View {
             TerminalSurface(
                 engine: engine, session: session,
                 fontSize: windowMode ? TerminalTheme.windowFontSize : TerminalTheme.compactFontSize,
-                isFocused: focused)
+                isFocused: focused, workspace: workspace)
                 .padding(.leading, Theme.Space.s)
             if let note = endedNote(session) {
                 HStack(spacing: Theme.Space.m) {
@@ -303,14 +296,12 @@ struct TerminalTab: View {
                 ActivePaneMark().allowsHitTesting(false)
             }
         }
-        // Focus follows the pointer between panes, as in Warp; never away from a text field that has the keyboard.
         .onHover { inside in
             guard inside, !focused, workspace.renamingTabID == nil, TerminalPaneKeys.hoverMayMoveFocus(in: NSApp.keyWindow) else { return }
             workspace.select(session.id)
         }
     }
 
-    /// The line between two panes, with a wider strip to grab; dragging it sets the split's ratio from the pointer.
     private func dividerHandle(_ divider: TerminalLayout.Divider, size: CGSize) -> some View {
         let bounds = divider.bounds
         let horizontal = divider.axis == .horizontal
@@ -345,7 +336,6 @@ struct TerminalTab: View {
     }
 }
 
-/// The small accent triangle in the top left corner of the pane that has the keyboard.
 private struct ActivePaneMark: View {
     var body: some View {
         Path { path in
@@ -359,8 +349,6 @@ private struct ActivePaneMark: View {
     }
 }
 
-/// A tab's icon with what its focused pane's last command is doing: a half moon while one runs, a check or a red cross for how it
-/// ended, nothing when idle. Static on purpose: no animation runs for a long-lived server.
 private struct TabIcon: View {
     let state: TerminalActivity.State
 

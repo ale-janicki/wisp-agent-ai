@@ -5,7 +5,6 @@ import XCTest
 final class TerminalLayoutTests: XCTestCase {
     private let a = UUID(), b = UUID(), c = UUID(), d = UUID()
 
-    /// One tab: `a` on the left; `b` top right over `c` bottom right.
     private func threePanes() -> TerminalLayout {
         var layout = TerminalLayout()
         layout.addTab(session: a)
@@ -119,7 +118,6 @@ final class TerminalLayoutTests: XCTestCase {
     }
 
     func testFocusSkipsPanesThatShareNoEdge() {
-        // Left column a over b; right column c over d, with the right split lower than the left one.
         var layout = TerminalLayout()
         layout.addTab(session: a)
         layout.split(.horizontal, adding: c)
