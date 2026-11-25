@@ -9,6 +9,10 @@ Entries are in descending chronological order (newest first).
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-25
+
+- Version 0.5.0 (build 18).
+
 ### Added
 
 - Terminal tabs and split panes, with Warp's keys. The pill strip on top became a sidebar of tabs on the left: "Buscar abas…" filters by title or folder, "+" opens a tab, and each row shows a badge for its focused pane's last command (a half moon while it runs, a green ✓ or a red ✗ when it ended), the running or last command's name (or the folder's), the folder with `~`, and its shortcut (⌘1…⌘8, ⌘9 on the last tab). The selected tab is in the Wisp accent; hover shows × to close it; double-click or ⌘⇧R renames it (an empty name gives the automatic title back; names last until quit). A toolbar above the panes holds the sidebar button (accent while the list is open, like Brain and Agenda; hiding it removes the list entirely, remembered) and "+"; the sidebar edge drags between 160 and 320 pt. Tabs: ⌘T new, ⌘⇧[ / ⌘⇧] and ⌃Tab / ⌃⇧Tab previous and next, ⌃⇧← / ⌃⇧→ move the tab, ⌘⇧T reopens the last closed tab with its panes, each a new shell in the folder it was in. Panes: ⌘D splits the focused pane to the right and ⌘⇧D down, each new pane a new shell in the focused pane's folder; dividers drag (15–85%) and ⌃⌘ with an arrow moves the nearest one; ⌥⌘ with an arrow, ⌘[ / ⌘], or the pointer moving over a pane moves the focus, marked by a small accent triangle in the pane's corner; ⌘⇧Enter maximizes the focused pane and back; ⌘W closes the focused pane (the last one closes its tab; the last tab leaves the empty "Nova sessão" state, never closing the window). These keys answer while the keyboard is anywhere in a terminal pane (input line, a block, or a full-screen program). Panes keep their shell and scrollback across splits and closes, and tabs out of sight stop drawing while their shells keep running.
