@@ -29,11 +29,22 @@ dmgbuild_version="2.0.0"
 
 rm -rf "$build"
 xcodebuild -project "$root/app/Wisp.xcodeproj" -scheme Wisp -configuration Release \
-  -derivedDataPath "$build" -skipPackagePluginValidation build
+  -derivedDataPath "$build" -skipPackagePluginValidation \
+  ENABLE_CODE_COVERAGE=NO CLANG_COVERAGE_MAPPING=NO build
 
 [ -x "$uv" ] || { echo "build-release: $uv missing from the built app" >&2; exit 1; }
 [ -x "$agenda" ] || { echo "build-release: $agenda missing from the built app" >&2; exit 1; }
 [ -x "$mac" ] || { echo "build-release: $mac missing from the built app" >&2; exit 1; }
+
+# A shipped binary must not carry coverage counters (they embed every source path) or the builder's home folder.
+for binary in "$app/Contents/MacOS/Wisp" "$agenda" "$mac"; do
+  if LC_ALL=C grep -aq '__profc_' "$binary"; then
+    echo "build-release: $binary has code-coverage instrumentation" >&2; exit 1
+  fi
+  if LC_ALL=C grep -aqF "$HOME/" "$binary"; then
+    echo "build-release: $binary contains the builder's home path" >&2; exit 1
+  fi
+done
 
 developer_id=false
 [ "$sign_id" = "-" ] || [ "$sign_id" = "$self_signed_id" ] || developer_id=true
