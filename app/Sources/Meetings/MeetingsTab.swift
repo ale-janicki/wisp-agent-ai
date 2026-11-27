@@ -142,6 +142,7 @@ private struct MeetingRow: View {
 private enum MeetingStatusText {
     static func label(badge: MeetingStatusBadge, stage: MeetingStage?) -> String {
         if case .transcribing(let fraction)? = stage, fraction > 0 { return "\(badge.label) \(Int(fraction * 100))%" }
+        if case .refining(let fraction)? = stage { return "Revisando a transcrição \(Int(fraction * 100))%" }
         return badge.label
     }
 }
@@ -238,6 +239,7 @@ private struct MeetingMainCard: View {
                         .foregroundStyle(Theme.textSecondary)
                         .multilineTextAlignment(.center)
                     RecordButton(model: model)
+                    LanguagePicker()
                     Spacer(minLength: 0)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -281,6 +283,22 @@ private struct RecordButton: View {
         .buttonStyle(CapsuleButtonStyle(kind: control.isRecording ? .error : .accent))
         .disabled(!control.isEnabled)
         .help("Grava só quando você clica. O áudio fica no seu Mac.")
+    }
+}
+
+private struct LanguagePicker: View {
+    private let settings = AppSettings.shared
+
+    var body: some View {
+        Picker("Idioma da reunião", selection: Binding(
+            get: { settings.settings.meetings.language },
+            set: { value in settings.setMeetings { $0.language = value } }
+        )) {
+            ForEach(MeetingLanguage.allCases, id: \.self) { language in Text(language.label).tag(language) }
+        }
+        .labelsHidden()
+        .fixedSize()
+        .help("Idioma falado na reunião. Depois da chamada, o Whisper revisa a transcrição nesse idioma.")
     }
 }
 
