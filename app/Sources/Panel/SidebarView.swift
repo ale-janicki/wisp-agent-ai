@@ -4,15 +4,15 @@ import WispCore
 struct SidebarView: View {
     @ObservedObject var controller: ShellController
     var model: ConversationViewModel
-    var showConversations: () -> Void = {}
+    var compact = false
 
     @ObservedObject private var meetings: MeetingRecordingModel
     private let sources = TabSources.shared
 
-    init(controller: ShellController, model: ConversationViewModel, showConversations: @escaping () -> Void = {}) {
+    init(controller: ShellController, model: ConversationViewModel, compact: Bool = false) {
         self.controller = controller
         self.model = model
-        self.showConversations = showConversations
+        self.compact = compact
         _meetings = ObservedObject(wrappedValue: controller.meetings)
     }
 
@@ -35,13 +35,12 @@ struct SidebarView: View {
             navRow(.settings)
                 .padding(.top, Theme.Space.s)
         }
-        .padding(.trailing, Theme.Space.m)
+        .padding(.trailing, compact ? Theme.Space.s + 2 : Theme.Space.m)
         .padding(.top, Theme.Space.xs)
         .background {
             Button("") {
                 model.newConversation()
                 controller.tab = .conversation
-                showConversations()
             }
             .keyboardShortcut("n", modifiers: .command)
             .opacity(0)
@@ -61,7 +60,6 @@ struct SidebarView: View {
         let count: Int? = switch tab {
         case .conversation: conversationCount
         case .tasks: sources.tasks.openCount
-        case .reminders: sources.alertCount
         case .agenda: sources.agenda.remaining
         default: nil
         }
@@ -71,39 +69,52 @@ struct SidebarView: View {
 
     private func navRow(_ tab: PanelTab) -> some View {
         let selected = controller.tab == tab
-        let listHint = tab == .conversation && selected
         return Button {
-            if listHint { showConversations() } else { controller.tab = tab }
+            controller.tab = tab
         } label: {
             HStack(spacing: 10) {
                 Image(systemName: tab.icon)
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(selected ? Theme.accent : Theme.textSecondary)
                     .frame(width: 18)
-                Text(tab.title)
-                    .font(Theme.Font.bodyMedium)
-                    .foregroundStyle(selected ? Theme.accentText : Theme.textSecondary)
-                Spacer(minLength: Theme.Space.xs)
-                if tab == .meetings, meetings.startedAt != nil {
-                    RecordingDot(warns: !meetings.warnings.isEmpty, paused: meetings.isPaused)
-                        .help(meetings.isPaused ? "Gravação pausada" : "Gravando")
-                }
-                if listHint {
-                    Image(systemName: "list.bullet")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(Theme.accent)
-                }
-                if let count = badge(for: tab), !listHint {
-                    Text("\(count)")
-                        .font(Theme.Font.captionMono)
-                        .foregroundStyle(Theme.textSecondary)
-                        .padding(.horizontal, 7)
-                        .frame(height: 18)
-                        .background(Theme.surfaceHi, in: Capsule())
+                    .overlay(alignment: .topTrailing) {
+                        if compact, tab != .settings { compactMark(for: tab) }
+                    }
+                if !compact {
+                    Text(tab.title)
+                        .font(Theme.Font.bodyMedium)
+                        .foregroundStyle(selected ? Theme.accentText : Theme.textSecondary)
+                    Spacer(minLength: Theme.Space.xs)
+                    if tab == .meetings, meetings.startedAt != nil {
+                        RecordingDot(warns: !meetings.warnings.isEmpty, paused: meetings.isPaused)
+                            .help(meetings.isPaused ? "Gravação pausada" : "Gravando")
+                    }
+                    if let count = badge(for: tab) {
+                        Text("\(count)")
+                            .font(Theme.Font.captionMono)
+                            .foregroundStyle(Theme.textSecondary)
+                            .padding(.horizontal, 7)
+                            .frame(height: 18)
+                            .background(Theme.surfaceHi, in: Capsule())
+                    }
                 }
             }
         }
         .buttonStyle(RowButtonStyle(highlight: selected ? .accent : .none))
-        .help(listHint ? "Mostrar conversas" : "")
+        .help(compact ? tab.title : "")
+    }
+
+    /// Rail only: a recording shows its dot, a count shows as a small accent dot on the icon corner.
+    @ViewBuilder
+    private func compactMark(for tab: PanelTab) -> some View {
+        if tab == .meetings, meetings.startedAt != nil {
+            RecordingDot(warns: !meetings.warnings.isEmpty, paused: meetings.isPaused)
+                .offset(x: 5, y: -4)
+        } else if badge(for: tab) != nil {
+            Circle()
+                .fill(Theme.accent)
+                .frame(width: 7, height: 7)
+                .offset(x: 5, y: -4)
+        }
     }
 }

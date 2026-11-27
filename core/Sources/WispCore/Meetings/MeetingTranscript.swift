@@ -67,6 +67,7 @@ public struct NoiseRange: Codable, Equatable, Sendable {
 public struct MeetingTranscriptDocument: Codable, Equatable, Sendable {
     public static let fileName = "transcript.json"
     public static let liveFileName = "transcript.live.json"
+    public static let parakeetFileName = "transcript.parakeet.json"
 
     public var version = 1
     public var startedAt: Date
@@ -104,12 +105,19 @@ public enum MeetingTranscriptFile {
     }
 
     public static func write(_ document: MeetingTranscriptDocument, in folder: URL, live: Bool = false) throws {
+        try write(document, to: url(in: folder, live: live))
+    }
+
+    public static func write(_ document: MeetingTranscriptDocument, to target: URL) throws {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
-        let target = url(in: folder, live: live)
         try encoder.encode(document).write(to: target, options: .atomic)
         try RecordingFolder.restrictFile(at: target)
+    }
+
+    public static func parakeetBackupURL(in folder: URL) -> URL {
+        folder.appendingPathComponent(MeetingTranscriptDocument.parakeetFileName)
     }
 
     public static func read(in folder: URL, live: Bool = false) throws -> MeetingTranscriptDocument {

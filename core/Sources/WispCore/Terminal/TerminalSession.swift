@@ -268,6 +268,7 @@ public final class TerminalSession: Identifiable {
     }
 
     public func sendKeys(_ key: TerminalKey, control: Bool = false) {
+        if control, key == .text("c"), blocks.markInterrupted() { onBlocksChanged?() }
         write(KeyEncoder.bytes(key, control: control, applicationCursor: engine.applicationCursorMode))
     }
 

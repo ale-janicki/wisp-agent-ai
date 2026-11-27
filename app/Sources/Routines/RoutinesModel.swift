@@ -40,18 +40,20 @@ final class RoutinesModel {
     }
 
     func refresh(block: RoutinesBlock) {
-        guard let registry = block.registry, let status = block.status else { return }
+        guard let status = block.status, block.registry != nil || !(block.prefixes ?? []).isEmpty else { return }
         readGeneration += 1
         let current = readGeneration
         Task { [weak self] in
-            let state = await Task.detached(priority: .userInitiated) { Self.read(registry: registry, status: status) }.value
+            let state = await Task.detached(priority: .userInitiated) {
+                Self.read(registry: block.registry, prefixes: block.prefixes ?? [], agents: block.agents, status: status)
+            }.value
             guard let self, self.readGeneration == current else { return }
             self.state = state
         }
     }
 
     func toggle(_ row: Row, block: RoutinesBlock) {
-        guard toggling == nil, let loaded = try? row.status.get().isLoaded,
+        guard toggling == nil, row.job.installed, let loaded = try? row.status.get().isLoaded,
               let template = loaded ? block.stop : block.start
         else { return }
         toggling = row.id
@@ -83,18 +85,25 @@ final class RoutinesModel {
         }
     }
 
-    nonisolated private static func read(registry: String, status template: String) -> State {
-        let jobs: [RoutineJob]
-        do {
-            jobs = try RoutineRegistry.load(path: registry)
-        } catch {
-            return .failed("Não consegui ler as rotinas: \(error.localizedDescription)")
+    nonisolated private static func read(registry: String?, prefixes: [String], agents: String?, status template: String) -> State {
+        var registered: [RoutineJob] = []
+        if let registry {
+            do {
+                registered = try RoutineRegistry.load(path: registry)
+            } catch {
+                return .failed("Não consegui ler as rotinas: \(error.localizedDescription)")
+            }
         }
+        let jobs = RoutineDiscovery.merge(
+            registry: registered,
+            discovered: RoutineDiscovery.discover(agents: agents, prefixes: prefixes)
+        )
         let rows = jobs.map { job -> Row in
             var job = job
             if job.logs.isEmpty, let data = FileManager.default.contents(atPath: job.plist) {
                 job.logs = RoutineRegistry.logs(fromPlist: data)
             }
+            guard job.installed else { return Row(job: job, status: .success(.unloaded)) }
             let output = BlockCommand.run(RoutineCommand.build(template, job: job))
             return Row(job: job, status: RoutineStatusParser.interpret(output))
         }
@@ -104,6 +113,7 @@ final class RoutinesModel {
 
 extension RoutinesModel.Row {
     var summary: String {
+        if !job.installed { return "plist não instalado" }
         switch status {
         case .failure(let error): return error.message
         case .success(let status):

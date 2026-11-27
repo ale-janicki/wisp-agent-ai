@@ -27,6 +27,7 @@ private final class MenuAction: NSObject {
 final class BlockListView: NSView, NSTableViewDataSource, NSTableViewDelegate {
     private struct Seen: Equatable {
         var status: TerminalBlock.Status
+        var interrupted: Bool
         var command: String
         var prompt: [StyledLine]
         var output: BlockOutput?
@@ -209,7 +210,7 @@ final class BlockListView: NSView, NSTableViewDataSource, NSTableViewDelegate {
         var changed = [Int]()
         for block in blocks {
             let output = block.isRunning ? live : block.output
-            let now = Seen(status: block.status, command: block.command, prompt: block.prompt, output: output)
+            let now = Seen(status: block.status, interrupted: block.interrupted, command: block.command, prompt: block.prompt, output: output)
             if seen[block.id] != now {
                 seen[block.id] = now
                 revisions[block.id, default: 0] += 1

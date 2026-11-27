@@ -45,7 +45,7 @@ struct TasksTab: View {
         case .loaded(let groups) where groups.isEmpty:
             TabMessage(text: "Nada em aberto")
         case .loaded(let groups):
-            let shown = TaskList.filter(groups, query: query)
+            let shown = TaskList.urgentFirst(TaskList.filter(groups, query: query))
             if shown.isEmpty {
                 TabMessage(text: "Nenhuma tarefa com “\(query)”")
             } else {
@@ -81,6 +81,12 @@ private struct TaskRow: View {
 
     var body: some View {
         HStack(alignment: .center, spacing: Theme.Space.s) {
+            if item.urgent {
+                Circle()
+                    .fill(Theme.error)
+                    .frame(width: 8, height: 8)
+                    .frame(width: 18)
+            }
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     if let owner = item.owner {
@@ -132,6 +138,6 @@ private struct TaskRow: View {
         .contentShape(RoundedRectangle(cornerRadius: Theme.Radius.nav, style: .continuous))
         .onHover { hovering = $0 }
         .onTapGesture(perform: open)
-        .help(TaskList.plain(String(item.line.dropFirst(2))))
+        .help([item.title, item.detail].filter { !$0.isEmpty }.joined(separator: "\n"))
     }
 }

@@ -159,10 +159,6 @@ final class AppSettings {
         update { change(&$0.agenda) }
     }
 
-    func setBrainShowsGraph(_ on: Bool) {
-        update { $0.brainShowsGraph = on }
-    }
-
     func setTerminalBlocks(_ on: Bool) {
         update { $0.terminalBlocks = on }
     }

@@ -8,18 +8,11 @@ final class TabSources {
 
     let tasks = TasksModel()
     let agenda = AgendaModel()
-    var alerts: AlertsModel { Dashboard.shared.alerts }
 
     static let interval: Duration = .seconds(30)
 
-    var alertCount: Int? {
-        if case .loaded(let items) = alerts.state { return items.count }
-        return nil
-    }
-
     func refresh(profile: Profile) {
         if let file = profile.blocks?.tasks?.file, !file.isEmpty { tasks.refresh(file: file) }
-        if let command = profile.blocks?.alerts?.list, !command.isEmpty { alerts.refresh(command: command) }
         if let command = profile.blocks?.agenda?.list, !command.isEmpty { agenda.refresh(command: command) }
     }
 }
@@ -37,6 +30,12 @@ final class TasksModel {
     private(set) var completing: String?
 
     @ObservationIgnored private var generation = 0
+    @ObservationIgnored var onLoaded: (([TaskItem]) -> Void)?
+
+    var urgent: [TaskItem]? {
+        if case .loaded(let groups) = state { return groups.flatMap(\.items).filter(\.urgent) }
+        return nil
+    }
 
     var openCount: Int? {
         if case .loaded(let groups) = state { return TaskList.openCount(groups) }
@@ -53,7 +52,9 @@ final class TasksModel {
             }.value
             guard let self, self.generation == current else { return }
             switch result {
-            case .success(let groups): self.state = .loaded(groups)
+            case .success(let groups):
+                self.state = .loaded(groups)
+                self.onLoaded?(groups.flatMap(\.items).filter(\.urgent))
             case .failure: self.state = .failed("Não consegui ler \(url.lastPathComponent)")
             }
         }

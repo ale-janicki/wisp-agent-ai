@@ -324,6 +324,29 @@ final class NativeSessionTests: XCTestCase {
         XCTAssertTrue(session.isCommandRunning)
     }
 
+    func testCtrlCOnARunningBlockMarksItInterruptedEvenWithExitZero() {
+        let session = session()
+        session.start()
+        engines[0].onShellEvents?([stamp(.promptStart), stamp(.promptEnd), stamp(.command("sleep 9")), stamp(.commandStart)])
+        XCTAssertEqual(session.blocks.running?.interrupted, false)
+        session.sendKeys(.text("c"), control: true)
+        XCTAssertEqual(session.blocks.running?.interrupted, true)
+        engines[0].onShellEvents?([stamp(.commandEnd(exitCode: 0), capture: lines("x"))])
+        XCTAssertEqual(session.blocks.blocks[0].status, .finished(0))
+        XCTAssertTrue(session.blocks.blocks[0].interrupted)
+    }
+
+    func testABlockWithoutCtrlCIsNotInterruptedAndCtrlCAtThePromptFlagsNothing() {
+        let session = session()
+        session.start()
+        session.sendKeys(.text("c"), control: true)
+        engines[0].onShellEvents?([stamp(.promptStart), stamp(.promptEnd), stamp(.command("ls")), stamp(.commandStart)])
+        session.sendKeys(.up)
+        session.sendKeys(.text("c"))
+        engines[0].onShellEvents?([stamp(.commandEnd(exitCode: 0), capture: lines("x"))])
+        XCTAssertFalse(session.blocks.blocks[0].interrupted)
+    }
+
     func testKeysOfARunningCommandGoThroughTheEncoder() {
         let session = session()
         session.start()

@@ -7,43 +7,73 @@ struct PanelView: View {
     @ObservedObject var media: NowPlayingService
     var model: ConversationViewModel
     @State private var draft = ""
-    @State private var listShown: Bool
     @State private var settingsTab: PanelTab?
     @State private var navCovered = false
+    @State private var titlebarInset: CGFloat = 0
+    @State private var railHovered = false
     @Environment(\.windowMode) private var windowMode
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     #if DEBUG
-    nonisolated(unsafe) static var snapshotNav = false
+    nonisolated(unsafe) static var snapshotRailExpanded = false
     #endif
 
     init(controller: ShellController, media: NowPlayingService, model: ConversationViewModel) {
         self.controller = controller
         self.media = media
         self.model = model
-        #if DEBUG
-        let navHidden = Self.snapshotNav
-        #else
-        let navHidden = false
-        #endif
-        _listShown = State(initialValue: controller.tab == .conversation && !navHidden)
     }
 
     private static let headerHeight: CGFloat = 56
 
     private var padding: CGFloat { Theme.Layout.panelPadding }
 
+    private static let topInset: CGFloat = 2
+    private static let avatarSize: CGFloat = 36
+    /// Rail layout: icon rows are 42 wide plus a 10 gap to the content.
+    private static let railSlot: CGFloat = 52
+
+    private var railMode: Bool { controller.tab.hasSecondaryColumn }
+
+    private var railExpanded: Bool {
+        #if DEBUG
+        if Self.snapshotRailExpanded { return railMode }
+        #endif
+        return railMode && railHovered
+    }
+
+    private var railAnimation: Animation? { reduceMotion ? nil : Self.slide }
+
+    /// Only the notch reserves space at the top. The panel sits under the notch, so it clears `notchHeight`. The window
+    /// lays out from its very top (fullscreen already sits below the notch), so the content starts on the line of the
+    /// sidebar header's avatar top, below the titlebar like the sidebar column.
+    private var contentTopInset: CGFloat {
+        if windowMode { return titlebarInset + Self.topInset + (Self.headerHeight - Self.avatarSize) / 2 }
+        guard controller.notchWidth > 0 else { return padding }
+        return max(controller.notchHeight, padding)
+    }
+
     var body: some View {
-        VStack(spacing: 0) {
-            header
+        Group {
             if model.profileError != nil {
-                OnboardingView(model: model) {}
+                VStack(spacing: 0) {
+                    header()
+                    OnboardingView(model: model) {}
+                }
+                .padding(.top, titlebarInset)
             } else {
                 HStack(alignment: .top, spacing: 0) {
-                    leftColumn
-                        .frame(width: navCovered ? 0 : Theme.Layout.sidebarWidth - padding)
-                        .clipped()
-                        .allowsHitTesting(!navCovered)
+                    sidebarSlot
+                        .zIndex(1)
+                    if railMode, controller.tab == .conversation {
+                        ConversationListColumn(controller: controller, model: model)
+                            .padding(.trailing, Theme.Space.m)
+                            .padding(.top, contentTopInset)
+                            .frame(width: Theme.Layout.sidebarWidth - padding)
+                            .frame(maxHeight: .infinity, alignment: .topLeading)
+                    }
                     content
+                        .padding(.top, contentTopInset)
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 }
             }
@@ -52,56 +82,66 @@ struct PanelView: View {
         .environment(\.navCover, NavCover(isCovered: navCovered) { covered in
             withAnimation(Self.slide) { navCovered = covered }
         })
-        .onChange(of: controller.tab) { _, tab in
+        .onChange(of: controller.tab) { old, tab in
             settingsTab = nil
+            if !(old.hasSecondaryColumn && tab.hasSecondaryColumn) { railHovered = false }
             if tab != .meetings { navCovered = false }
         }
         .padding(.horizontal, padding)
         .padding(.bottom, padding)
+        .background {
+            if windowMode { TitlebarInsetReader(inset: $titlebarInset) }
+        }
     }
 
     // MARK: Header
 
-    private var header: some View {
-        HStack(spacing: 0) {
-            HStack(spacing: 10) {
-                WispAvatar(size: 36, busy: controller.statusColor == .busy, imagePath: model.profile.persona.avatar)
+    private func header(compact: Bool = false) -> some View {
+        HStack(spacing: 10) {
+            WispAvatar(size: Self.avatarSize, busy: controller.statusColor == .busy, imagePath: model.profile.persona.avatar)
+            if !compact {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(model.personaName)
                         .font(Theme.Font.title)
                         .foregroundStyle(Theme.textPrimary)
+                        .lineLimit(1)
                     HStack(spacing: 5) {
                         Circle().fill(statusColor).frame(width: 6, height: 6)
                         Text(statusLabel)
                             .font(Theme.Font.caption)
                             .foregroundStyle(Theme.textSecondary)
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
+                            .layoutPriority(1)
+                        if let status = model.state.status, !status.isEmpty {
+                            Text(status)
+                                .font(Theme.Font.caption)
+                                .foregroundStyle(Theme.textTertiary)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                        }
                     }
                 }
-                if !windowMode {
-                    Button {
-                        controller.openWindow()
-                    } label: {
-                        Image(systemName: "macwindow")
-                    }
-                    .buttonStyle(CircleButtonStyle(size: Theme.Control.compactHeight))
-                    .help("Abrir em janela (⌘⇧W)")
-                    .keyboardShortcut("w", modifiers: [.command, .shift])
-                    .padding(.leading, Theme.Space.s)
-                }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            Color.clear.frame(width: windowMode ? Theme.Space.xl : controller.notchWidth + 2 * Theme.Space.xl)
-
-            Text(model.state.status ?? "")
-                .font(Theme.Font.caption)
-                .foregroundStyle(Theme.textTertiary)
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .frame(maxWidth: .infinity, alignment: .trailing)
+            if !windowMode {
+                Button {
+                    controller.openWindow()
+                } label: {
+                    Image(systemName: "macwindow")
+                }
+                .buttonStyle(CircleButtonStyle(size: Theme.Control.compactHeight))
+                .help("Abrir em janela (⌘⇧W)")
+                .keyboardShortcut("w", modifiers: [.command, .shift])
+                .opacity(compact ? 0 : 1)
+                .frame(width: compact ? 0 : nil)
+                .allowsHitTesting(!compact)
+                .accessibilityHidden(compact)
+            }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .frame(height: Self.headerHeight)
-        .padding(.top, 2)
+        .padding(.top, Self.topInset)
     }
 
     private var statusColor: Color {
@@ -120,27 +160,58 @@ struct PanelView: View {
 
     // MARK: Left column
 
-    private static let slide = Animation.spring(duration: 0.35, bounce: 0.1)
-
-    private var leftColumn: some View {
-        ZStack(alignment: .topLeading) {
-            SidebarView(controller: controller, model: model) { setList(true) }
-            if listShown {
-                ConversationListColumn(controller: controller, model: model) { setList(false) }
-                    .padding(.trailing, Theme.Space.m)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                    .background(Theme.bg)
-                    .transition(.move(edge: .trailing))
-                    .zIndex(1)
+    /// Holds the layout footprint of the sidebar. On a rail tab the footprint stays rail-narrow and the expanded sidebar
+    /// floats over the content as a glass overlay, so hovering never pushes the page.
+    private var sidebarSlot: some View {
+        let full = Theme.Layout.sidebarWidth - padding
+        let slot = navCovered ? 0 : (railMode ? Self.railSlot : full)
+        let width = railMode && !railExpanded ? Self.railSlot : full
+        let compact = railMode && !railExpanded
+        return Color.clear
+            .frame(width: slot)
+            .frame(maxHeight: .infinity)
+            .overlay(alignment: .topLeading) {
+                VStack(spacing: 0) {
+                    header(compact: compact)
+                    leftColumn(compact: compact)
+                }
+                .padding(.top, titlebarInset)
+                .frame(width: width, alignment: .topLeading)
+                .frame(maxHeight: .infinity, alignment: .topLeading)
+                .contentShape(Rectangle())
+                .background {
+                    if railMode {
+                        Color.clear
+                            .glass(cornerRadius: Theme.Radius.card)
+                            .padding(.top, max(titlebarInset - Theme.Space.s, 0))
+                            .padding(.leading, -Theme.Space.s)
+                            .padding(.trailing, Theme.Space.xs)
+                            .padding(.bottom, -Theme.Space.s)
+                            .opacity(railExpanded ? 1 : 0)
+                            .allowsHitTesting(false)
+                    }
+                }
+                .onContinuousHover { phase in
+                    guard railMode else { return }
+                    switch phase {
+                    case .active:
+                        railHovered = true
+                    case .ended:
+                        railHovered = false
+                    }
+                }
+                .allowsHitTesting(!navCovered)
             }
-        }
-        .onChange(of: controller.tab) { _, tab in
-            setList(tab == .conversation)
-        }
+            .mask { Rectangle().padding(railMode ? -400 : 0) }
+            .opacity(navCovered ? 0 : 1)
+            .animation(railAnimation, value: railExpanded)
+            .animation(railAnimation, value: railMode)
     }
 
-    private func setList(_ shown: Bool) {
-        withAnimation(Self.slide) { listShown = shown }
+    private static let slide = Animation.spring(duration: 0.35, bounce: 0.1)
+
+    private func leftColumn(compact: Bool) -> some View {
+        SidebarView(controller: controller, model: model, compact: compact)
     }
 
     // MARK: Tabs
@@ -178,7 +249,6 @@ struct PanelView: View {
                 BrainModel.shared.openSource(path, line: line, inRoot: root)
                 controller.tab = .brain
             }
-        case .reminders: RemindersTab(profile: model.profile)
         case .agenda: AgendaTab(profile: model.profile)
         case .meetings:
             MeetingsTab(model: controller.meetings) { file in
@@ -196,7 +266,6 @@ struct PanelView: View {
                 controller.tab = .conversation
                 return true
             }
-        case .routines: RoutinesTab(profile: model.profile)
         case .music:
             MusicTab(media: media) {
                 IntegrationsPane.expandOnOpen = .spotify
@@ -206,7 +275,7 @@ struct PanelView: View {
         case .clipboard: ClipboardView(clipboard: controller.clipboard)
         case .terminal: TerminalTab()
         case .myMac: MyMacTab()
-        case .settings: SettingsView(media: media)
+        case .settings: SettingsView(media: media, profile: model.profile)
         }
     }
 
@@ -370,5 +439,48 @@ private struct ConversationCard: View {
             return true
         } isTargeted: { dropping = $0 }
         .card()
+    }
+}
+
+/// Reports the titlebar height the left column must clear (the traffic lights): 0 in fullscreen, where the titlebar hides
+/// and the window already sits below the notch.
+private struct TitlebarInsetReader: NSViewRepresentable {
+    @Binding var inset: CGFloat
+
+    func makeNSView(context: Context) -> NSView {
+        let view = ReaderView()
+        view.onChange = { value in
+            if inset != value { inset = value }
+        }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {}
+
+    private final class ReaderView: NSView {
+        var onChange: ((CGFloat) -> Void)?
+        private var observers: [NSObjectProtocol] = []
+
+        override func viewDidMoveToWindow() {
+            observers.forEach(NotificationCenter.default.removeObserver)
+            observers = []
+            guard let window else { return }
+            let names: [Notification.Name] = [
+                NSWindow.didEnterFullScreenNotification, NSWindow.didExitFullScreenNotification,
+                NSWindow.didChangeScreenNotification,
+            ]
+            observers = names.map { name in
+                NotificationCenter.default.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in
+                    MainActor.assumeIsolated { self?.report() }
+                }
+            }
+            report()
+        }
+
+        private func report() {
+            guard let window else { return }
+            let full = window.styleMask.contains(.fullScreen)
+            onChange?(full ? 0 : max(window.frame.height - window.contentLayoutRect.height, 0))
+        }
     }
 }
