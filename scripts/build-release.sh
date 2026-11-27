@@ -36,15 +36,18 @@ xcodebuild -project "$root/app/Wisp.xcodeproj" -scheme Wisp -configuration Relea
 [ -x "$agenda" ] || { echo "build-release: $agenda missing from the built app" >&2; exit 1; }
 [ -x "$mac" ] || { echo "build-release: $mac missing from the built app" >&2; exit 1; }
 
-# A shipped binary must not carry coverage counters (they embed every source path) or the builder's home folder.
+# The debug map in each executable records absolute build and source paths; strip it before signing.
 for binary in "$app/Contents/MacOS/Wisp" "$agenda" "$mac"; do
+  strip -S "$binary"
   if LC_ALL=C grep -aq '__profc_' "$binary"; then
     echo "build-release: $binary has code-coverage instrumentation" >&2; exit 1
   fi
-  if LC_ALL=C grep -aqF "$HOME/" "$binary"; then
-    echo "build-release: $binary contains the builder's home path" >&2; exit 1
-  fi
 done
+if leaked="$(LC_ALL=C grep -rlaF "$HOME/" "$app")"; then
+  echo "build-release: these files in the app contain the builder's home path:" >&2
+  echo "$leaked" >&2
+  exit 1
+fi
 
 developer_id=false
 [ "$sign_id" = "-" ] || [ "$sign_id" = "$self_signed_id" ] || developer_id=true
