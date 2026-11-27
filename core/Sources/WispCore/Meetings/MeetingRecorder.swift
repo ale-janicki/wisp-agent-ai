@@ -152,8 +152,8 @@ public final class MeetingRecorder: @unchecked Sendable {
     public var isRecording: Bool { writer.sync { session != nil } }
 
     @discardableResult
-    public func start(detectedApp: String? = nil, now: Date = Date()) throws -> URL {
-        try writer.sync { try startOnWriter(detectedApp: detectedApp, now: now) }
+    public func start(detectedApp: String? = nil, language: String? = nil, now: Date = Date()) throws -> URL {
+        try writer.sync { try startOnWriter(detectedApp: detectedApp, language: language, now: now) }
     }
 
     @discardableResult
@@ -239,7 +239,7 @@ public final class MeetingRecorder: @unchecked Sendable {
         writer.sync { session?.warnings ?? [] }
     }
 
-    private func startOnWriter(detectedApp: String?, now: Date) throws -> URL {
+    private func startOnWriter(detectedApp: String?, language: String?, now: Date) throws -> URL {
         if let message = unsupportedMessage() { throw MeetingRecorderError.unsupported(message) }
         guard session == nil else { throw MeetingRecorderError.alreadyRecording }
         let base = root()
@@ -260,11 +260,12 @@ public final class MeetingRecorder: @unchecked Sendable {
             try? FileManager.default.removeItem(at: folder)
             throw MeetingRecorderError.sink(error.localizedDescription)
         }
-        let meta = RecordingMeta(
+        var meta = RecordingMeta(
             startedAt: now,
             devices: .init(mic: sources.usesMic ? mic.deviceName : nil, system: sources.usesSystem ? system.deviceName : nil),
             detectedApp: detectedApp, sources: sources
         )
+        meta.language = language
         let started = Session(folder: folder, meta: meta, sink: sink)
         let begin = clock()
         _ = started.micWatch.observe(totalFrames: 0, now: begin)

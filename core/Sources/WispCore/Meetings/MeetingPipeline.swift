@@ -28,6 +28,7 @@ public protocol MeetingBrainWriter: Sendable {
 
 public enum MeetingStage: Equatable, Sendable {
     case transcribing(Double)
+    case refining(Double)
     case writingNote
 }
 
@@ -83,11 +84,39 @@ public struct MeetingPipeline: Sendable {
     public var transcriber: MeetingTranscriber
     public var notes: MeetingNoteWriter
     public var brain: MeetingBrainWriter?
+    public var refiner: (@Sendable (_ language: String?) -> PostCallRefiner)?
 
-    public init(transcriber: MeetingTranscriber, notes: MeetingNoteWriter, brain: MeetingBrainWriter? = nil) {
+    public init(
+        transcriber: MeetingTranscriber, notes: MeetingNoteWriter, brain: MeetingBrainWriter? = nil,
+        refiner: (@Sendable (_ language: String?) -> PostCallRefiner)? = nil
+    ) {
         self.transcriber = transcriber
         self.notes = notes
         self.brain = brain
+        self.refiner = refiner
+    }
+
+    /// Re-transcribes with Whisper at the call's language. The live transcript is kept as `transcript.parakeet.json`; any
+    /// failure leaves it as the main transcript and only sets a notice, so the note still gets written.
+    func refine(
+        folder: URL, meta: RecordingMeta, document: MeetingTranscriptDocument, stage: @escaping @Sendable (MeetingStage) -> Void
+    ) async -> MeetingTranscriptDocument {
+        guard let refiner = refiner?(meta.language), refiner.engine != .off, !document.segments.isEmpty else { return document }
+        stage(.refining(0))
+        let result = await refiner.refine(folder: folder, meta: meta, original: document, progress: { stage(.refining($0)) })
+        if let refined = result.document {
+            do {
+                try MeetingTranscriptFile.write(document, to: MeetingTranscriptFile.parakeetBackupURL(in: folder))
+                try MeetingTranscriptFile.write(refined, in: folder)
+                _ = try? RecordingFolder.update(in: folder) { $0.notice = nil }
+                return refined
+            } catch {
+                _ = try? RecordingFolder.update(in: folder) { $0.notice = "Não consegui gravar a transcrição revisada; mantive a ao vivo." }
+                return (try? MeetingTranscriptFile.read(in: folder)) ?? document
+            }
+        }
+        if let notice = result.notice { _ = try? RecordingFolder.update(in: folder) { $0.notice = notice } }
+        return document
     }
 
     struct LiveCheck {
@@ -136,8 +165,9 @@ public struct MeetingPipeline: Sendable {
         guard !document.segments.isEmpty else { return }
         try MeetingTranscriptFile.write(document, in: folder)
         _ = try RecordingFolder.update(in: folder) { $0.notice = result.notice }
+        let refined = await refine(folder: folder, meta: try RecordingFolder.read(in: folder), document: document, stage: stage)
         stage(.writingNote)
-        try await writeNote(folder: folder, document: document, meta: try RecordingFolder.read(in: folder))
+        try await writeNote(folder: folder, document: refined, meta: try RecordingFolder.read(in: folder))
     }
 
     public func process(folder: URL, stage: @escaping @Sendable (MeetingStage) -> Void = { _ in }) async throws {
@@ -184,8 +214,12 @@ public struct MeetingPipeline: Sendable {
                 throw error
             }
         }
-        let document = try MeetingTranscriptFile.read(in: folder)
+        var document = try MeetingTranscriptFile.read(in: folder)
         guard !document.segments.isEmpty else { return }
+        if !manager.fileExists(atPath: MeetingTranscriptFile.parakeetBackupURL(in: folder).path) {
+            document = await refine(folder: folder, meta: try RecordingFolder.read(in: folder), document: document, stage: stage)
+            meta = try RecordingFolder.read(in: folder)
+        }
         if meta.summaryDeferred == true, !manager.fileExists(atPath: RecordingFolder.noteURL(in: folder).path) {
             try await syncBrain(folder: folder)
             return

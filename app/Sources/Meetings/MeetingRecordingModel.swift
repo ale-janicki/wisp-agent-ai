@@ -142,13 +142,14 @@ final class MeetingRecordingModel: ObservableObject {
         recordingSources = chosen
         let now = Date()
         let bridge = bridge
+        let language = AppSettings.shared.settings.meetings.language.rawValue
         let next = MeetingRecorder(
             mic: MicrophoneSource(echoCancel: AppSettings.shared.settings.meetings.echoCancel), system: ProcessTapSource(), root: { [base = recordingsRoot] in base },
             makeSink: { try LiveEncodedSink(rawURL: $0) }, converter: LiveEncodedConverter(),
             sources: chosen, onAudio: { bridge.push($1, channel: $0, time: $2) }
         )
         Task { [weak self] in
-            let outcome = await Task.detached { Result { try next.start(now: now) } }.value
+            let outcome = await Task.detached { Result { try next.start(language: language, now: now) } }.value
             self?.started(next, outcome, startedAt: now)
         }
     }
