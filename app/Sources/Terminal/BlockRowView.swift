@@ -43,10 +43,17 @@ struct BlockRowContent {
             let small = NSFont.monospacedSystemFont(ofSize: max(9, font.pointSize - 2), weight: .regular)
             prompt = SwiftTermStyle.attributed(block.prompt, font: small, colors: colors)
         }
-        if let seconds = block.duration {
-            duration = NSAttributedString(string: BlockDuration.text(seconds), attributes: [
+        let caption: String?
+        if block.isRunning {
+            caption = block.interrupted ? "interrompendo…" : nil
+        } else {
+            let seconds = block.duration.map(BlockDuration.text)
+            caption = block.interrupted ? [seconds, "interrompido"].compactMap { $0 }.joined(separator: " · ") : seconds
+        }
+        if let caption {
+            duration = NSAttributedString(string: caption, attributes: [
                 .font: NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .medium),
-                .foregroundColor: TerminalTheme.ns(colors.textSecondary),
+                .foregroundColor: TerminalTheme.ns(block.interrupted ? colors.textTertiary : colors.textSecondary),
             ])
         } else {
             duration = nil

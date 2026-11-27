@@ -11,6 +11,10 @@ public struct TerminalLayout: Equatable, Sendable {
         case left, right, up, down
     }
 
+    public enum DropEdge: Equatable, Sendable {
+        case left, right, top, bottom, center
+    }
+
     public indirect enum Node: Equatable, Sendable {
         case leaf(UUID)
         case split(Axis, ratio: Double, first: Node, second: Node)
@@ -69,6 +73,7 @@ public struct TerminalLayout: Equatable, Sendable {
     }
 
     public static let ratioRange = 0.15...0.85
+    static let centerZone = 0.2
 
     public private(set) var tabs: [Tab] = []
     public private(set) var selectedTabID: UUID?
@@ -194,6 +199,34 @@ public struct TerminalLayout: Equatable, Sendable {
         tabs[index].maximized = false
         if tabs[index].focused == session { tabs[index].focused = rest.heir }
         return .pane
+    }
+
+    @discardableResult
+    public mutating func move(_ session: UUID, onto target: UUID, edge: DropEdge) -> Bool {
+        guard let index = selectedIndex, session != target,
+              tabs[index].root.contains(session), tabs[index].root.contains(target) else { return false }
+        if edge == .center {
+            tabs[index].root = tabs[index].root.remapped([session: target, target: session])
+        } else {
+            guard let rest = tabs[index].root.removing(session) else { return false }
+            let axis: Axis = edge == .left || edge == .right ? .horizontal : .vertical
+            let draggedFirst = edge == .left || edge == .top
+            let pair: (Node, Node) = draggedFirst ? (.leaf(session), .leaf(target)) : (.leaf(target), .leaf(session))
+            tabs[index].root = rest.node.replacing(target, with: .split(axis, ratio: 0.5, first: pair.0, second: pair.1))
+        }
+        tabs[index].focused = session
+        tabs[index].maximized = false
+        return true
+    }
+
+    public static func dropTarget(at point: CGPoint, in frames: [UUID: CGRect], excluding session: UUID) -> (session: UUID, edge: DropEdge)? {
+        guard let (id, rect) = frames.first(where: { $0.key != session && $0.value.contains(point) }),
+              rect.width > 0, rect.height > 0 else { return nil }
+        let dx = Double((point.x - rect.midX) / rect.width)
+        let dy = Double((point.y - rect.midY) / rect.height)
+        if abs(dx) <= centerZone, abs(dy) <= centerZone { return (id, .center) }
+        if abs(dx) > abs(dy) { return (id, dx < 0 ? .left : .right) }
+        return (id, dy < 0 ? .top : .bottom)
     }
 
     @discardableResult

@@ -20,6 +20,7 @@ final class BlockOutputTextView: NSTextView {
         storage.addTextLayoutManager(layout)
         let container = NSTextContainer(size: NSSize(width: 100, height: CGFloat.greatestFiniteMagnitude))
         container.lineFragmentPadding = 0
+        container.widthTracksTextView = true
         layout.textContainer = container
         super.init(frame: .zero, textContainer: container)
         isEditable = false

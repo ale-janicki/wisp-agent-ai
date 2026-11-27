@@ -1,5 +1,6 @@
 import AppKit
 import Observation
+import os
 import WispCore
 
 @MainActor
@@ -9,8 +10,13 @@ final class TerminalPaneView: NSView {
     private static let inputInsetVertical: CGFloat = 8
     private static let maxEditorFraction: CGFloat = 0.4
 
+    private static let log = Logger(subsystem: AppIdentity.bundleID, category: "terminal-pane")
+    private static let sessionOwners = NSMapTable<TerminalSession, NSUUID>.weakToStrongObjects()
+    private static let engineOwners = NSMapTable<SwiftTermEngine, NSUUID>.weakToStrongObjects()
+
+    let paneID = UUID()
     let list = BlockListView(frame: .zero)
-    private let promptView = BlockOutputTextView()
+    private let chipsView = ContextChipsView()
     private let editorScroll = NSScrollView()
     let editor = InputEditorView()
     private let completionMenu = CompletionMenuView()
@@ -20,9 +26,12 @@ final class TerminalPaneView: NSView {
     private weak var session: TerminalSession?
     private var showsGrid = false
     private var modeApplied = false
-    private var shownPrompt = [StyledLine]()
+    private var gitStatus: GitStatus?
+    private var chipsDirectory: String?
+    private var chipsFinishedID: Int?
+    private var chipsGeneration = 0
     private var waitingForAnswer = false
-    private var renderedPromptKey: (font: NSFont, colors: ThemeColors)?
+    private var renderedChipsColors: ThemeColors?
     private var shellPath: String?
     private var resolvingShellPath = false
     private var lastShellPathAttempt: Date?
@@ -39,7 +48,7 @@ final class TerminalPaneView: NSView {
             window.makeFirstResponder(self.editor)
             if let event { self.editor.keyDown(with: event) }
         }
-        addSubview(promptView)
+        addSubview(chipsView)
         editorScroll.documentView = editor
         editorScroll.drawsBackground = false
         editorScroll.hasVerticalScroller = false
@@ -92,6 +101,9 @@ final class TerminalPaneView: NSView {
         }
         resolveShellPath()
         seedHistory(session)
+        Self.sessionOwners.setObject(paneID as NSUUID, forKey: session)
+        Self.engineOwners.setObject(paneID as NSUUID, forKey: engine)
+        Self.log.debug("attach pane \(self.paneID.uuidString, privacy: .public)")
         session.onBlocksChanged = { [weak self] in self?.refresh() }
         engine.onViewportChange = { [weak self] in self?.refreshLive() }
         observeTheme()
@@ -121,15 +133,34 @@ final class TerminalPaneView: NSView {
     func detach() {
         editor.closeCompletions()
         editor.closeHistorySearch()
-        session?.onBlocksChanged = nil
-        engine?.onViewportChange = nil
+        let id = paneID.uuidString
+        if let session {
+            let owns = Self.sessionOwners.object(forKey: session) as UUID? == paneID
+            if owns {
+                session.onBlocksChanged = nil
+                Self.sessionOwners.removeObject(forKey: session)
+            }
+            Self.log.debug("detach pane \(id, privacy: .public) session callbacks \(owns ? "cleared" : "skipped: another pane owns them", privacy: .public)")
+        }
+        if let engine {
+            let owns = Self.engineOwners.object(forKey: engine) as UUID? == paneID
+            if owns {
+                engine.onViewportChange = nil
+                Self.engineOwners.removeObject(forKey: engine)
+            }
+            Self.log.debug("detach pane \(id, privacy: .public) engine callbacks \(owns ? "cleared" : "skipped: another pane owns them", privacy: .public)")
+        }
         if let grid = engine?.view, grid.superview === self { grid.removeFromSuperview() }
         list.reset()
         session = nil
         engine = nil
         showsGrid = false
         modeApplied = false
-        renderedPromptKey = nil
+        renderedChipsColors = nil
+        chipsDirectory = nil
+        chipsFinishedID = nil
+        gitStatus = nil
+        chipsGeneration += 1
     }
 
     func focus() {
@@ -162,7 +193,7 @@ final class TerminalPaneView: NSView {
         seedHistory(session)
         applyMode(session.mode)
         syncEditor(session)
-        syncPrompt(session)
+        syncChips(session)
         refreshLive()
         needsLayout = true
     }
@@ -185,7 +216,7 @@ final class TerminalPaneView: NSView {
         if grid { editor.closeCompletions() }
         engine.view.isHidden = !grid
         list.isHidden = grid
-        promptView.isHidden = grid
+        chipsView.isHidden = grid
         editorScroll.isHidden = grid
         if grid {
             engine.view.needsDisplay = true
@@ -249,13 +280,31 @@ final class TerminalPaneView: NSView {
         editor.isEditable = session.phase == .running
     }
 
-    private func syncPrompt(_ session: TerminalSession) {
-        let key = (font: font, colors: colors)
-        if renderedPromptKey?.colors != key.colors { completionMenu.needsDisplay = true }
-        guard session.promptLines != shownPrompt || renderedPromptKey?.font != key.font || renderedPromptKey?.colors != key.colors else { return }
-        shownPrompt = session.promptLines
-        renderedPromptKey = key
-        promptView.setLines(shownPrompt, font: font, colors: key.colors)
+    private func syncChips(_ session: TerminalSession) {
+        let directory = session.directory
+        let directoryChanged = directory != chipsDirectory
+        let finishedID = ContextChips.lastFinishedID(session.blocks.blocks)
+        let commandFinished = finishedID != chipsFinishedID
+        chipsFinishedID = finishedID
+        if directoryChanged { gitStatus = nil }
+        if directoryChanged || commandFinished { reloadGit(directory: directory) }
+        if directoryChanged || renderedChipsColors != colors {
+            chipsDirectory = directory
+            renderedChipsColors = colors
+            completionMenu.needsDisplay = true
+            chipsView.update(directory: directory, git: gitStatus)
+        }
+    }
+
+    private func reloadGit(directory: String) {
+        chipsGeneration += 1
+        let generation = chipsGeneration
+        Task { [weak self] in
+            let status = await GitStatusReader.read(directory: directory)
+            guard let self, generation == self.chipsGeneration, status != self.gitStatus else { return }
+            self.gitStatus = status
+            self.chipsView.update(directory: directory, git: status)
+        }
     }
 
     // MARK: Completion
@@ -364,18 +413,18 @@ final class TerminalPaneView: NSView {
         needsDisplay = true
         let x = Self.inputInsetLeading
         let width = max(1, bounds.width - Self.inputInsetLeading - Self.inputInsetTrailing)
-        let promptHeight = promptView.fittingHeight(forWidth: width)
+        let chipsHeight = ContextChipsView.height
         let editorHeight = min(editor.fittingHeight(forWidth: width), editor.maxHeight, max(24, bounds.height * Self.maxEditorFraction))
-        let spacing: CGFloat = promptHeight > 0 ? 2 : 0
-        let area = Self.inputInsetVertical * 2 + promptHeight + spacing + editorHeight
+        let spacing: CGFloat = 4
+        let area = Self.inputInsetVertical * 2 + chipsHeight + spacing + editorHeight
         list.frame = NSRect(x: 0, y: 0, width: bounds.width, height: max(0, bounds.height - area))
         var y = bounds.height - area + Self.inputInsetVertical
-        promptView.frame = NSRect(x: x, y: y, width: width, height: promptHeight)
-        y += promptHeight + spacing
+        chipsView.frame = NSRect(x: x, y: y, width: width, height: chipsHeight)
+        y += chipsHeight + spacing
         editorScroll.frame = NSRect(x: x, y: y, width: width, height: editorHeight)
         editor.frame.size.width = width
         editor.setFrameSize(NSSize(width: width, height: max(editorHeight, editor.fittingHeight(forWidth: width))))
-        layoutCompletionMenu(above: promptHeight > 0 ? promptView.frame.minY : editorScroll.frame.minY)
+        layoutCompletionMenu(above: chipsView.frame.minY)
     }
 
     private func layoutGridHint() {

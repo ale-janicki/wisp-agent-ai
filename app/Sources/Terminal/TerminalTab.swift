@@ -10,6 +10,9 @@ struct TerminalTab: View {
     @State private var hovered: UUID?
     @State private var draft = ""
     @State private var resizeStart: Double?
+    @State private var dragging: UUID?
+    @State private var dragOrigin: UUID?
+    @State private var drop: PaneDrop?
     @FocusState private var renameFocused: Bool
 
     init(workspace: TerminalWorkspace = TerminalStore.shared.workspace) {
@@ -19,6 +22,7 @@ struct TerminalTab: View {
     private static let widthRange = 160.0...320.0
     private static let rowHeight: CGFloat = 44
     private static let dividerHit: CGFloat = 6
+    private static let gripSize = CGSize(width: 36, height: 12)
 
     var body: some View {
         HStack(spacing: 0) {
@@ -27,8 +31,10 @@ struct TerminalTab: View {
                 Divider().overlay(Theme.stroke)
             }
             VStack(spacing: 0) {
-                toolbar
-                Divider().overlay(Theme.stroke)
+                if collapsed {
+                    toolbar
+                    Divider().overlay(Theme.stroke)
+                }
                 content
             }
         }
@@ -51,12 +57,16 @@ struct TerminalTab: View {
 
     private var sidebar: some View {
         VStack(spacing: Theme.Space.s) {
-            SearchField(text: $query, placeholder: "Buscar abas…")
+            HStack(spacing: Theme.Space.s) {
+                SearchField(text: $query, placeholder: "Buscar abas…")
+                sidebarToggle
+            }
             ScrollView(.vertical) {
                 VStack(spacing: 2) {
                     ForEach(visibleTabs, id: \.tab.id) { entry in
                         row(entry.tab, index: entry.index)
                     }
+                    newTabRow
                 }
             }
             .scrollIndicators(.hidden)
@@ -66,29 +76,56 @@ struct TerminalTab: View {
         .overlay(alignment: .trailing) { resizeHandle }
     }
 
-    private var toolbar: some View {
-        HStack(spacing: Theme.Space.xs) {
-            Button {
-                collapsed.toggle()
-            } label: {
-                Image(systemName: "sidebar.left")
-            }
-            .buttonStyle(CircleButtonStyle(kind: collapsed ? .plain : .accent, size: Theme.Control.compactHeight))
-            .help(collapsed ? "Mostrar abas" : "Esconder abas")
-            newTabButton
-            Spacer(minLength: 0)
+    private var sidebarToggle: some View {
+        Button {
+            collapsed.toggle()
+        } label: {
+            Image(systemName: "sidebar.left")
         }
-        .padding(.horizontal, Theme.Space.s)
-        .padding(.vertical, Theme.Space.xs)
+        .buttonStyle(CircleButtonStyle(kind: collapsed ? .plain : .accent, size: Theme.Control.height))
+        .keyboardShortcut("b", modifiers: .command)
+        .help(collapsed ? "Mostrar abas (⌘B)" : "Esconder abas (⌘B)")
     }
 
-    private var newTabButton: some View {
+    private var toolbar: some View {
+        HStack(spacing: Theme.Space.s) {
+            sidebarToggle
+            if let title = selectedTitle {
+                Text(title)
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(Theme.textPrimary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .padding(.leading, Theme.Space.xs)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, Theme.Space.m)
+        .padding(.vertical, Theme.Space.s)
+    }
+
+    private var selectedTitle: String? {
+        guard let tab = workspace.layout.tabs.first(where: { $0.id == workspace.layout.selectedTabID }) else { return nil }
+        return info(tab).title
+    }
+
+    private var newTabRow: some View {
         Button {
             workspace.openSession()
         } label: {
-            Image(systemName: "plus")
+            HStack(spacing: Theme.Space.s) {
+                Image(systemName: "plus")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(Theme.textSecondary)
+                    .frame(width: 22, height: 22)
+                Text("Nova aba")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(Theme.textPrimary)
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+            }
         }
-        .buttonStyle(CircleButtonStyle(size: Theme.Control.compactHeight))
+        .buttonStyle(RowButtonStyle(height: Self.rowHeight))
         .help("Nova aba (⌘T)")
     }
 
@@ -132,7 +169,7 @@ struct TerminalTab: View {
         let isHovered = hovered == tab.id
         return ZStack(alignment: .trailing) {
             if renaming == tab.id {
-                rowLabel(info, title: renameField(tab), shortcut: nil)
+                rowLabel(info, title: renameField(tab))
                     .padding(.horizontal, Theme.Space.m)
                     .frame(height: Self.rowHeight)
                     .background(Theme.accentFill, in: RoundedRectangle(cornerRadius: Theme.Radius.nav, style: .continuous))
@@ -146,12 +183,11 @@ struct TerminalTab: View {
                             .font(.system(size: 12, weight: .bold))
                             .foregroundStyle(selected ? Theme.accentText : Theme.textPrimary)
                             .lineLimit(1)
-                            .truncationMode(.tail),
-                        shortcut: isHovered ? nil : shortcut(index))
+                            .truncationMode(.tail))
                 }
                 .buttonStyle(RowButtonStyle(highlight: selected ? .accent : .none, height: Self.rowHeight, hovered: isHovered))
                 .simultaneousGesture(TapGesture(count: 2).onEnded { startRenaming(tab, title: info.title) })
-                .help(workspace.session(tab.focused)?.directory ?? "")
+                .help(rowHelp(tab, title: info.title, index: index))
             }
             if isHovered, renaming != tab.id {
                 Button {
@@ -173,8 +209,14 @@ struct TerminalTab: View {
         }
     }
 
+    private func rowHelp(_ tab: TerminalLayout.Tab, title: String, index: Int) -> String {
+        let directory = workspace.session(tab.focused)?.directory ?? ""
+        guard let key = shortcut(index) else { return directory }
+        return directory.isEmpty ? "\(title) — \(key)" : "\(title) — \(key)\n\(directory)"
+    }
+
     private func rowLabel(
-        _ info: (title: String, folder: String, activity: TerminalActivity), title: some View, shortcut: String?
+        _ info: (title: String, folder: String, activity: TerminalActivity), title: some View
     ) -> some View {
         HStack(spacing: Theme.Space.s) {
             TabIcon(state: info.activity.state)
@@ -187,11 +229,6 @@ struct TerminalTab: View {
                     .truncationMode(.head)
             }
             Spacer(minLength: 0)
-            if let shortcut {
-                Text(shortcut)
-                    .font(Theme.Font.captionMono)
-                    .foregroundStyle(Theme.textTertiary)
-            }
         }
     }
 
@@ -265,6 +302,14 @@ struct TerminalTab: View {
             ForEach(tab.dividers, id: \.path) { divider in
                 dividerHandle(divider, size: size)
             }
+            if split {
+                ForEach(tab.sessions.filter { frames[$0] != nil }, id: \.self) { id in
+                    if let rect = frames[id] { dragGrip(id, in: rect, size: size) }
+                }
+            }
+            if let drop, let rect = frames[drop.session] {
+                dropHighlight(drop.edge, in: rect, size: size)
+            }
         }
         .frame(width: size.width, height: size.height, alignment: .topLeading)
     }
@@ -297,9 +342,55 @@ struct TerminalTab: View {
             }
         }
         .onHover { inside in
-            guard inside, !focused, workspace.renamingTabID == nil, TerminalPaneKeys.hoverMayMoveFocus(in: NSApp.keyWindow) else { return }
+            guard inside, !focused, dragging == nil, workspace.renamingTabID == nil, TerminalPaneKeys.hoverMayMoveFocus(in: NSApp.keyWindow) else { return }
             workspace.select(session.id)
         }
+    }
+
+    private func dragGrip(_ id: UUID, in rect: CGRect, size: CGSize) -> some View {
+        Capsule()
+            .fill(dragging == id ? Theme.accent : Theme.stroke)
+            .frame(width: Self.gripSize.width, height: 4)
+            .frame(width: Self.gripSize.width, height: Self.gripSize.height)
+            .contentShape(Rectangle())
+            .pointerStyle(.grabIdle)
+            .offset(x: (rect.midX * size.width) - Self.gripSize.width / 2, y: rect.minY * size.height)
+            .gesture(
+                DragGesture(minimumDistance: 3, coordinateSpace: .named(Self.paneSpace))
+                    .onChanged { value in
+                        guard size.width > 0, size.height > 0, let tab = workspace.layout.selectedTab else { return }
+                        if dragging == nil { dragOrigin = tab.focused }
+                        dragging = id
+                        let point = CGPoint(x: value.location.x / size.width, y: value.location.y / size.height)
+                        drop = TerminalLayout.dropTarget(at: point, in: tab.frames, excluding: id).map { PaneDrop(session: $0.session, edge: $0.edge) }
+                    }
+                    .onEnded { _ in
+                        if let drop {
+                            workspace.move(id, onto: drop.session, edge: drop.edge)
+                        } else if let dragOrigin {
+                            workspace.select(dragOrigin)
+                        }
+                        dragOrigin = nil
+                        dragging = nil
+                        drop = nil
+                    })
+    }
+
+    private func dropHighlight(_ edge: TerminalLayout.DropEdge, in rect: CGRect, size: CGSize) -> some View {
+        var zone = rect
+        switch edge {
+        case .left: zone.size.width /= 2
+        case .right: zone.size.width /= 2; zone.origin.x = rect.midX
+        case .top: zone.size.height /= 2
+        case .bottom: zone.size.height /= 2; zone.origin.y = rect.midY
+        case .center: break
+        }
+        return RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous)
+            .fill(Theme.accent.opacity(0.25))
+            .overlay { RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous).strokeBorder(Theme.accent) }
+            .frame(width: zone.width * size.width, height: zone.height * size.height)
+            .offset(x: zone.minX * size.width, y: zone.minY * size.height)
+            .allowsHitTesting(false)
     }
 
     private func dividerHandle(_ divider: TerminalLayout.Divider, size: CGSize) -> some View {
@@ -334,6 +425,11 @@ struct TerminalTab: View {
         case .idle, .running: nil
         }
     }
+}
+
+private struct PaneDrop: Equatable {
+    let session: UUID
+    let edge: TerminalLayout.DropEdge
 }
 
 private struct ActivePaneMark: View {
