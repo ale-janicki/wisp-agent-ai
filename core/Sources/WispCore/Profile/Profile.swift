@@ -15,7 +15,6 @@ public struct Persona: Codable, Sendable, Equatable {
 }
 
 public enum SoulSource: String, Codable, Sendable, CaseIterable {
-    /// The Wisp soul, edited in the app.
     case wisp
     /// The user's own assistant config (`~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`); Wisp injects nothing.
     case assistant
@@ -110,13 +109,15 @@ public struct ProfileBlocks: Codable, Sendable, Equatable {
     public var agenda: AgendaBlock?
     public var memory: MemoryBlock?
     public var routines: RoutinesBlock?
+    public var hooks: HooksBlock?
+    public var commands: CommandsBlock?
     public var telegram: TelegramBlock?
     public var usage: UsageBlock?
 
     public init(
         alerts: AlertsBlock? = nil, tasks: TasksBlock? = nil, agenda: AgendaBlock? = nil,
         memory: MemoryBlock? = nil, routines: RoutinesBlock? = nil, telegram: TelegramBlock? = nil,
-        usage: UsageBlock? = nil
+        usage: UsageBlock? = nil, hooks: HooksBlock? = nil, commands: CommandsBlock? = nil
     ) {
         self.alerts = alerts
         self.tasks = tasks
@@ -125,6 +126,8 @@ public struct ProfileBlocks: Codable, Sendable, Equatable {
         self.routines = routines
         self.telegram = telegram
         self.usage = usage
+        self.hooks = hooks
+        self.commands = commands
     }
 }
 
