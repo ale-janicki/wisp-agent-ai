@@ -119,4 +119,110 @@ final class TaskListTests: XCTestCase {
     func testPlain() {
         XCTAssertEqual(TaskList.plain("**a** `b` [[c]] [[d|e]] [[x"), "a b c e [[x")
     }
+
+    private let alertText = """
+    ---
+    title: pendencias
+    ---
+    ## Agora
+    - **[Ale] Wisp — Decidir isolamento**. Próximo: x. Pronto quando: y.
+    - **[Ale] acme-client — Rotacionar keys**. #urgente <!-- alerta:acme-client-keys tema:acme-client-keys -->
+    - sem dono #urgente
+    """
+
+    func testUrgentFlagAndCommentStripped() throws {
+        let items = try XCTUnwrap(TaskList.parse(alertText).first?.items)
+        XCTAssertEqual(items.map(\.urgent), [false, true, true])
+        XCTAssertEqual(items[1].owner, "Ale")
+        XCTAssertEqual(items[1].front, "acme-client")
+        XCTAssertEqual(items[1].title, "Rotacionar keys")
+        XCTAssertEqual(items[1].detail, "")
+        XCTAssertEqual(items[2].title, "sem dono")
+        XCTAssertFalse(items[1].line.isEmpty)
+        XCTAssertTrue(items[1].line.contains("<!-- alerta:acme-client-keys"))
+    }
+
+    func testUrgentFirstKeepsOrderOtherwise() throws {
+        let sorted = TaskList.urgentFirst(TaskList.parse(alertText))
+        XCTAssertEqual(sorted[0].items.map(\.title), ["Rotacionar keys", "sem dono", "Decidir isolamento"])
+    }
+
+    func testCompleteUrgentRemovesExactRawLineAndKeepsFrontmatter() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("tasks-\(UUID().uuidString).md")
+        defer { try? FileManager.default.removeItem(at: url) }
+        try alertText.write(to: url, atomically: true, encoding: .utf8)
+        let target = try XCTUnwrap(TaskList.parse(alertText).first?.items[1])
+        try TaskList.complete(target, in: url)
+        let written = try String(contentsOf: url, encoding: .utf8)
+        XCTAssertFalse(written.contains("Rotacionar"))
+        XCTAssertTrue(written.hasPrefix("---\ntitle: pendencias\n---\n## Agora\n"))
+        XCTAssertEqual(TaskList.parse(written).first?.items.count, 2)
+    }
+
+    func testSearchIgnoresTheHiddenComment() {
+        let groups = TaskList.parse(alertText)
+        XCTAssertEqual(TaskList.filter(groups, query: "acme-client-keys"), [])
+        XCTAssertEqual(TaskList.filter(groups, query: "rotacionar").first?.items.count, 1)
+    }
+
+    func testUrgenteOnlyCountsStandaloneInTheTail() {
+        let text = """
+        - **[Ale] X — #urgente no corpo**. nada
+        - **[Ale] X — a**. #urgentes não
+        - **[Ale] X — b**. Próximo: z #urgente
+        - **[Ale] X — c**. <!-- #urgente -->
+        - texto solto #urgente
+        """
+        let items = TaskList.parse(text).flatMap(\.items)
+        XCTAssertEqual(items.map(\.urgent), [false, false, true, false, true])
+        XCTAssertEqual(items[0].title, "#urgente no corpo")
+        XCTAssertEqual(items[1].detail, "#urgentes não")
+        XCTAssertEqual(items[2].detail, "Próximo: z")
+    }
+
+    func testFencedBlocksAreNotTasks() {
+        let text = "- a\n```\n- x\n## h\n```\n- b\n~~~\n- y\n~~~\n- c"
+        XCTAssertEqual(TaskList.parse(text).flatMap(\.items).map(\.title), ["a", "b", "c"])
+    }
+
+    func testFrontmatterToleratesTrailingSpaceAndUnterminatedIsNone() {
+        let spaced = "--- \ntitle: x\n- nao\n---  \n- sim"
+        XCTAssertEqual(TaskList.parse(spaced).flatMap(\.items).map(\.title), ["sim"])
+        let open = "---\n- a\n- b"
+        XCTAssertEqual(TaskList.parse(open).flatMap(\.items).map(\.title), ["a", "b"])
+    }
+
+    func testIdentityUsesAlertaChaveElseRawLine() {
+        let one = TaskList.parse("- **[Ale] D — velho**. #urgente <!-- alerta:k1 tema:t -->").flatMap(\.items)[0]
+        let two = TaskList.parse("- **[Ale] D — novo texto**. #urgente <!-- alerta:k1 tema:t -->").flatMap(\.items)[0]
+        XCTAssertEqual(one.identity, two.identity)
+        XCTAssertEqual(one.alertId, "k1")
+        let manual = TaskList.parse("- manual #urgente").flatMap(\.items)[0]
+        XCTAssertEqual(manual.identity, "- manual #urgente")
+        XCTAssertEqual(Notices.newAlerts(old: [one], new: [two]), [])
+    }
+
+    func testCompleteWaitsForTheLockAndLeavesTheFileUntouchedWhenBusy() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("lock-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let lock = dir.appendingPathComponent("sub/alerta.lock")
+        let url = dir.appendingPathComponent("p.md")
+        try FileManager.default.createDirectory(at: lock.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try alertText.write(to: url, atomically: true, encoding: .utf8)
+        let target = try XCTUnwrap(TaskList.parse(alertText).first?.items[0])
+
+        let other = open(lock.path, O_CREAT | O_WRONLY, 0o644)
+        XCTAssertEqual(flock(other, LOCK_EX | LOCK_NB), 0)
+        let started = Date()
+        XCTAssertThrowsError(try TaskList.complete(target, in: url, lock: lock, wait: 0.3)) { error in
+            XCTAssertEqual(error as? TaskListError, .lockBusy)
+        }
+        XCTAssertGreaterThanOrEqual(Date().timeIntervalSince(started), 0.3)
+        XCTAssertEqual(try String(contentsOf: url, encoding: .utf8), alertText)
+
+        flock(other, LOCK_UN)
+        close(other)
+        try TaskList.complete(target, in: url, lock: lock, wait: 1)
+        XCTAssertFalse(try String(contentsOf: url, encoding: .utf8).contains("Decidir isolamento"))
+    }
 }
