@@ -3,7 +3,7 @@ import XCTest
 
 final class MessageAttachmentsTests: XCTestCase {
     private let phoneUpload = """
-        [o Ale enviou 3 arquivo(s) pelo Telegram, ja salvos nesta maquina:
+        [o Beto enviou 3 arquivo(s) pelo Telegram, ja salvos nesta maquina:
         - /Users/x/.wisp-telegram/anexos/2026-11-17/6125-foto-6125.jpg (foto-6125.jpg, 99013 bytes)
         - /Users/x/.wisp-telegram/anexos/2026-11-17/6126-relatorio (1).pdf (relatorio (1).pdf, 2048 bytes)
         - foto: nao consegui baixar (File is too big)]
@@ -23,7 +23,7 @@ final class MessageAttachmentsTests: XCTestCase {
     }
 
     func testKeepsAMultilineCaption() throws {
-        let text = "[o Ale enviou 1 arquivo(s) pelo Wisp, ja salvos nesta maquina:\n- /a/b.png (b.png, 3 bytes)]\n\nolha\nisso"
+        let text = "[o Beto enviou 1 arquivo(s) pelo Wisp, ja salvos nesta maquina:\n- /a/b.png (b.png, 3 bytes)]\n\nolha\nisso"
         let parsed = try XCTUnwrap(MessageAttachments.parse(text))
         XCTAssertEqual(parsed.origin, "Wisp")
         XCTAssertEqual(parsed.caption, "olha\nisso")
@@ -32,8 +32,8 @@ final class MessageAttachmentsTests: XCTestCase {
 
     func testPlainTextAndBrokenBlocksAreNotAttachments() {
         XCTAssertNil(MessageAttachments.parse("oi"))
-        XCTAssertNil(MessageAttachments.parse("[o Ale enviou 2 arquivo(s) pelo Telegram, ja salvos nesta maquina:\n- /a.jpg (a.jpg, 1 bytes)]\n\noi"))
-        XCTAssertNil(MessageAttachments.parse("[o Ale enviou 1 arquivo(s) pelo Telegram, ja salvos nesta maquina:\n- /a.jpg (a.jpg, 1 bytes)"))
+        XCTAssertNil(MessageAttachments.parse("[o Beto enviou 2 arquivo(s) pelo Telegram, ja salvos nesta maquina:\n- /a.jpg (a.jpg, 1 bytes)]\n\noi"))
+        XCTAssertNil(MessageAttachments.parse("[o Beto enviou 1 arquivo(s) pelo Telegram, ja salvos nesta maquina:\n- /a.jpg (a.jpg, 1 bytes)"))
     }
 
     func testComposeMatchesTheBotByteForByteAndRoundTrips() throws {
@@ -80,7 +80,7 @@ final class MessageAttachmentsTests: XCTestCase {
 
     func testSummaryForOneLinePreviews() throws {
         XCTAssertEqual(try XCTUnwrap(MessageAttachments.parse(phoneUpload)).summary, "1 foto · 2 arquivos")
-        let one = "[o Ale enviou 2 arquivo(s) pelo Wisp, ja salvos nesta maquina:\n- /a.jpg (a.jpg, 1 bytes)\n- /b.png (b.png, 1 bytes)]\n\nolha"
+        let one = "[o Beto enviou 2 arquivo(s) pelo Wisp, ja salvos nesta maquina:\n- /a.jpg (a.jpg, 1 bytes)\n- /b.png (b.png, 1 bytes)]\n\nolha"
         XCTAssertEqual(try XCTUnwrap(MessageAttachments.parse(one)).summary, "2 fotos · olha")
     }
 
@@ -155,17 +155,17 @@ final class MessageAttachmentsTests: XCTestCase {
     }
 
     func testMalformedItemShowsOnlyTheFileName() throws {
-        let text = "[o Ale enviou 2 arquivo(s) pelo Wisp, ja salvos nesta maquina:\n- /u/x/anexos/c.jpg (c.jpg, muitos bytes)\n- /u/x/anexos/z.pdf]\n\noi"
+        let text = "[o Beto enviou 2 arquivo(s) pelo Wisp, ja salvos nesta maquina:\n- /u/x/anexos/c.jpg (c.jpg, muitos bytes)\n- /u/x/anexos/z.pdf]\n\noi"
         let parsed = try XCTUnwrap(MessageAttachments.parse(text))
         XCTAssertEqual(parsed.items, [.failed(label: "c.jpg"), .failed(label: "z.pdf")])
     }
 
     func testABlockThatDoesNotParseStillHidesThePaths() throws {
-        let broken = "[o Ale enviou 3 arquivo(s) pelo Telegram, ja salvos nesta maquina:\n- /u/x/a.jpg (a.jpg, 1 bytes)]\n\nolha"
+        let broken = "[o Beto enviou 3 arquivo(s) pelo Telegram, ja salvos nesta maquina:\n- /u/x/a.jpg (a.jpg, 1 bytes)]\n\nolha"
         XCTAssertNil(MessageAttachments.parse(broken))
         XCTAssertEqual(MessageAttachments.unparsed(broken), MessageAttachments(origin: "", items: [], caption: "olha"))
         XCTAssertEqual(MessageAttachments.unparsed(broken)?.summary, "anexos · olha")
-        XCTAssertNil(MessageAttachments.unparsed("[o Ale enviou 1 arquivo(s) pelo Wisp, ja salvos nesta maquina:\n- /a]\n\n(sem texto — veja o que é e me diga)")?.caption)
+        XCTAssertNil(MessageAttachments.unparsed("[o Beto enviou 1 arquivo(s) pelo Wisp, ja salvos nesta maquina:\n- /a]\n\n(sem texto — veja o que é e me diga)")?.caption)
         XCTAssertNil(MessageAttachments.unparsed("oi"))
         XCTAssertNil(MessageAttachments.unparsed("[o Joao enviou o relatorio ontem]\n\nveja"))
         XCTAssertNil(MessageAttachments.unparsed("[o time enviou isso"))

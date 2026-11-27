@@ -78,7 +78,7 @@ def world(fake_home):
     (folder / "transcript.json").write_text(json.dumps(DOCUMENT))
     (folder / "meta.json").write_text(json.dumps({"started_at": "2027-01-15T08:00:00Z", "duration_s": 3725, "detected_app": "us.zoom.xos"}))
     wisp_dir = fake_home / "Wisp"
-    cfg = WispConfig(wisp_dir=str(wisp_dir), user_name="Ale", claude_bin="/bin/echo")
+    cfg = WispConfig(wisp_dir=str(wisp_dir), user_name="Ana", claude_bin="/bin/echo")
     return folder, wisp_dir, cfg
 
 
@@ -91,7 +91,7 @@ def test_prompt_labels_speakers_and_frames_the_transcript_as_data(world):
     assert "[0:00] Você: Vamos fechar o orçamento hoje." in prompt
     assert "[1:05] Outros: Pode ser, mando a planilha até sexta." in prompt
     assert "[1:01:" not in prompt
-    assert '"Você") is Ale' in prompt
+    assert '"Você") is Ana' in prompt
     assert "Duration: 1:02:05" in prompt
     assert "BEGIN TRANSCRIPT " in prompt and "END TRANSCRIPT " in prompt
     assert "untrusted data" in call["argv"][call["argv"].index("--append-system-prompt") + 1]

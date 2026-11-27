@@ -8,7 +8,7 @@ public struct TaskItem: Identifiable, Equatable, Sendable {
     public let title: String
     public let detail: String
     public let urgent: Bool
-    /// The `alerta:<chave>` id klaus-alerta writes in the line's comment, when present.
+    /// The `alerta:<key>` id the alert tool writes in the line's comment, when present.
     public let alertId: String?
 
     /// Stable across in-place text edits when the line carries a chave; the raw line otherwise.
@@ -115,15 +115,21 @@ public enum TaskList {
         return result
     }
 
-    /// Same lock klaus-alerta takes (`trava()`): one writer at a time, so a concurrent `add` is never lost.
-    public static var defaultLock: URL {
-        if let path = ProcessInfo.processInfo.environment["KLAUS_ALERTA_LOCK"], !path.isEmpty {
+    /// The lock other writers of the tasks file take: one writer at a time, so a concurrent `add` is never lost.
+    /// Order: `profileLock` (`blocks.tasks.lock`, `~` expanded), the `WISP_TASKS_LOCK` variable, then a per-user cache file.
+    public static func lockURL(profileLock: String? = nil) -> URL {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        func resolve(_ path: String) -> URL {
+            if path == "~" { return home }
+            if path.hasPrefix("~/") { return home.appendingPathComponent(String(path.dropFirst(2))) }
             return URL(fileURLWithPath: path)
         }
-        return FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".cache/klaus/alerta.lock")
+        if let path = profileLock, !path.isEmpty { return resolve(path) }
+        if let path = ProcessInfo.processInfo.environment["WISP_TASKS_LOCK"], !path.isEmpty { return resolve(path) }
+        return home.appendingPathComponent(".cache/wisp/tasks.lock")
     }
 
-    public static func complete(_ item: TaskItem, in url: URL, lock: URL = defaultLock, wait: TimeInterval = 10) throws {
+    public static func complete(_ item: TaskItem, in url: URL, lock: URL = lockURL(), wait: TimeInterval = 10) throws {
         try FileManager.default.createDirectory(at: lock.deletingLastPathComponent(), withIntermediateDirectories: true)
         let descriptor = open(lock.path, O_CREAT | O_WRONLY, 0o644)
         guard descriptor >= 0 else { throw CocoaError(.fileWriteNoPermission) }

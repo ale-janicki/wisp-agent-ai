@@ -13,7 +13,7 @@ public struct TranscriptParser: Sendable {
     private static let syntheticModel = "<synthetic>"
     private static let botRulePrefix = "[regra do topico]"
     private static let botContextPrefix = "[contexto do bot]"
-    private static let botMessageMarker = "Mensagem do Ale:\n"
+    private static let botMessageMarker = "Mensagem do usuario:\n"
     private static let timestampStyle = Date.ISO8601FormatStyle(includingFractionalSeconds: true)
 
     public let statusPrefix: String?

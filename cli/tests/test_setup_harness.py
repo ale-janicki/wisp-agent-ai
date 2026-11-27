@@ -288,7 +288,7 @@ def test_block_comes_from_agente_md(fake_home):
 
 
 def test_unknown_braces_kept_verbatim():
-    assert render_agente("a {{NAO_EXISTE}} b {{USER_NAME}}", {"USER_NAME": "Rafa"}) == "a {{NAO_EXISTE}} b Rafa"
+    assert render_agente("a {{NAO_EXISTE}} b {{USER_NAME}}", {"USER_NAME": "Bia"}) == "a {{NAO_EXISTE}} b Bia"
 
 
 def test_markers_inside_agente_md_cannot_corrupt_claude_md(fake_home):
@@ -302,7 +302,7 @@ def test_markers_inside_agente_md_cannot_corrupt_claude_md(fake_home):
 
 
 def test_render_agente_strips_block_markers():
-    assert render_agente("a <!-- wisp:begin --> b <!-- wisp:end --> {{USER_NAME}}", {"USER_NAME": "Rafa"}) == "a  b  Rafa"
+    assert render_agente("a <!-- wisp:begin --> b <!-- wisp:end --> {{USER_NAME}}", {"USER_NAME": "Bia"}) == "a  b  Bia"
 
 
 def test_user_text_outside_block_untouched(fake_home):

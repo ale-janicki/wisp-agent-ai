@@ -64,12 +64,12 @@ def test_existing_dir_keeps_user_files(fake_home):
 @needs_git
 def test_commit_works_without_global_git_identity(fake_home):
     assert not (fake_home / ".gitconfig").exists()
-    cfg = WispConfig(user_name="Rafa")
+    cfg = WispConfig(user_name="Bia")
     setup_brain(SubprocessRunner(), _paths(fake_home), cfg, path=None, dry_run=False)
     brain = fake_home / "Wisp/brain"
-    assert _git(brain, "config", "--local", "user.name") == "Rafa"
+    assert _git(brain, "config", "--local", "user.name") == "Bia"
     assert _git(brain, "config", "--local", "user.email") == "wisp@localhost"
-    assert _git(brain, "log", "-1", "--format=%an") == "Rafa"
+    assert _git(brain, "log", "-1", "--format=%an") == "Bia"
 
 
 @needs_git

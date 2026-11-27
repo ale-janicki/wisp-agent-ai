@@ -9,7 +9,7 @@ final class BlockOutputWidthTests: XCTestCase {
     func testOutputWrapsAtTheViewWidthNotAtTheInitialContainerWidth() {
         let view = BlockOutputTextView()
         let font = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
-        view.setLines([StyledLine(text: "Found Developer Portal at delfin-frontend/")], font: font, colors: AppSettings.shared.colors)
+        view.setLines([StyledLine(text: "Found Developer Portal at acme-frontend/")], font: font, colors: AppSettings.shared.colors)
         view.frame = NSRect(x: 0, y: 0, width: 800, height: 400)
 
         XCTAssertEqual(view.textContainer?.size.width ?? 0, 800, accuracy: 0.5)

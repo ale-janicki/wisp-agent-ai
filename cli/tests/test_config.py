@@ -9,7 +9,7 @@ def test_missing_file_is_default(fake_home):
 
 def test_round_trip_with_telegram(fake_home):
     cfg = WispConfig(
-        user_name="Rafa",
+        user_name="Bia",
         brain="~/Wisp/brain",
         telegram=TelegramConfig(chat_id=-100, user_id=7, token_file="~/t", pair={"a": "b"}),
     )

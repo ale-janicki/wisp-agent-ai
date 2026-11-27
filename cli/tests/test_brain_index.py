@@ -287,21 +287,21 @@ def _ranked(vault, tmp_path, query, **kw):
 
 
 def test_session_and_daily_notes_rank_below_the_topical_note(vault, tmp_path):
-    _write(vault, "klaus/sessions/2026-10-01-quartzo-zebra.md", "# Quartzo zebra completo\n\nquartzo zebra\n")
+    _write(vault, "notes-agent/sessions/2026-10-01-quartzo-zebra.md", "# Quartzo zebra completo\n\nquartzo zebra\n")
     _write(vault, "daily/2026-10-02.md", "# Quartzo zebra completo\n\nquartzo zebra\n")
-    _write(vault, "x/log-tagged.md", "---\ntags: [Session, klaus]\n---\n# Quartzo zebra completo\n\nquartzo zebra\n")
+    _write(vault, "x/log-tagged.md", "---\ntags: [Session, notes-agent]\n---\n# Quartzo zebra completo\n\nquartzo zebra\n")
     _write(vault, "topicos/quartzo-zebra.md", "# Quartzo zebra\n\nresumo\n")
     rels = _ranked(vault, tmp_path, "quartzo zebra")
     assert rels[0] == "topicos/quartzo-zebra.md"
-    assert set(rels[1:]) == {"klaus/sessions/2026-10-01-quartzo-zebra.md", "daily/2026-10-02.md", "x/log-tagged.md"}
+    assert set(rels[1:]) == {"notes-agent/sessions/2026-10-01-quartzo-zebra.md", "daily/2026-10-02.md", "x/log-tagged.md"}
 
 
 def test_the_demoted_markers_are_configurable(vault, tmp_path):
-    _write(vault, "klaus/sessions/2026-10-01-quartzo-zebra.md", "# Quartzo zebra completo\n\nquartzo zebra quartzo zebra\n")
+    _write(vault, "notes-agent/sessions/2026-10-01-quartzo-zebra.md", "# Quartzo zebra completo\n\nquartzo zebra quartzo zebra\n")
     _write(vault, "topicos/assunto-x.md", "# Quartzo\n\nzebra\n")
     assert _ranked(vault, tmp_path, "quartzo zebra")[0] == "topicos/assunto-x.md"
     other = tmp_path / "other"
-    assert _ranked(vault, other, "quartzo zebra", log_markers=("nada",))[0] == "klaus/sessions/2026-10-01-quartzo-zebra.md"
+    assert _ranked(vault, other, "quartzo zebra", log_markers=("nada",))[0] == "notes-agent/sessions/2026-10-01-quartzo-zebra.md"
 
 
 def test_active_status_and_many_inbound_links_lift_a_note_over_an_equal_one(vault, tmp_path):

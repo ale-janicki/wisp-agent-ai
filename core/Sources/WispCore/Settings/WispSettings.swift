@@ -225,6 +225,7 @@ public struct WispSettings: Codable, Equatable, Sendable {
     public var brainShowsGraph = true
     public var terminalBlocks = true
     public var terminalNativeBlocks = true
+    public var terminalInteractiveCommands: [String] = []
     public var windowMode = false
     var graphWasInvalid = false
 
@@ -234,7 +235,7 @@ public struct WispSettings: Codable, Equatable, Sendable {
         self.dashboardOrder = DashboardTileID.normalized(dashboardOrder)
     }
 
-    private enum CodingKeys: String, CodingKey { case theme, custom, dashboardOrder, telegramOrder, pinnedConversations, clipboardCapture, spotifyClientID, graph, notices, openAtLogin, loginItemRegistered, permissionMode, settingsSection, recordingsPath, agenda, meetings, brainShowsGraph, windowMode, terminalBlocks, terminalNativeBlocks }
+    private enum CodingKeys: String, CodingKey { case theme, custom, dashboardOrder, telegramOrder, pinnedConversations, clipboardCapture, spotifyClientID, graph, notices, openAtLogin, loginItemRegistered, permissionMode, settingsSection, recordingsPath, agenda, meetings, brainShowsGraph, windowMode, terminalBlocks, terminalNativeBlocks, terminalInteractiveCommands }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -257,6 +258,7 @@ public struct WispSettings: Codable, Equatable, Sendable {
         windowMode = (try? container.decodeIfPresent(Bool.self, forKey: .windowMode)) ?? false
         terminalBlocks = (try? container.decodeIfPresent(Bool.self, forKey: .terminalBlocks)) ?? true
         terminalNativeBlocks = (try? container.decodeIfPresent(Bool.self, forKey: .terminalNativeBlocks)) ?? true
+        terminalInteractiveCommands = (try? container.decodeIfPresent([String].self, forKey: .terminalInteractiveCommands)) ?? []
         do {
             graph = try container.decodeIfPresent(GraphControls.self, forKey: .graph) ?? GraphControls()
         } catch {

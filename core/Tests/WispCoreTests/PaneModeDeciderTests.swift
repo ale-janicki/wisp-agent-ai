@@ -32,14 +32,14 @@ final class PaneModeDeciderTests: XCTestCase {
         XCTAssertEqual(mode("A=1 B=\"x\" claude --resume"), .grid(.allowlisted))
         XCTAssertEqual(mode("sudo htop"), .grid(.allowlisted))
         XCTAssertEqual(mode("sudo -E FOO=1 exec vim file"), .grid(.allowlisted))
-        XCTAssertEqual(mode("command klaus"), .grid(.allowlisted))
+        XCTAssertEqual(mode("command claude"), .grid(.allowlisted))
         XCTAssertEqual(mode("sudo"), .blocks)
         XCTAssertEqual(mode("FOO=1"), .blocks)
         XCTAssertEqual(mode("echo claude"), .blocks)
     }
 
     func testTheDefaultAllowlistPrograms() {
-        for name in ["claude", "klaus", "ssh host", "mosh host", "tmux", "top", "htop", "btop", "less f", "more f", "man ls", "nano f", "vim f", "nvim", "vi", "emacs"] {
+        for name in ["claude", "ssh host", "mosh host", "tmux", "top", "htop", "btop", "less f", "more f", "man ls", "nano f", "vim f", "nvim", "vi", "emacs"] {
             XCTAssertEqual(mode(name), .grid(.allowlisted), name)
         }
         XCTAssertEqual(mode("ls"), .blocks)

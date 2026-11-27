@@ -3,7 +3,7 @@ import XCTest
 
 final class BrainPlainTextTests: XCTestCase {
     func testAListLineWithWikilinkBoldAndCodeReadsAsPlainText() {
-        XCTAssertEqual(BrainPlainText.preview("- [[moonxi-index]] — **`moonxi/`** pasta"), "moonxi-index — moonxi/ pasta")
+        XCTAssertEqual(BrainPlainText.preview("- [[acme-index]] — **`acme/`** pasta"), "acme-index — acme/ pasta")
     }
 
     func testAnAliasedWikilinkShowsItsAlias() {

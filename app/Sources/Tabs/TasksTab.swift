@@ -55,7 +55,7 @@ struct TasksTab: View {
                             if let title = group.title { SectionCaption(text: title) }
                             ForEach(group.items) { item in
                                 TaskRow(item: item, busy: tasks.completing == item.id, done: {
-                                    if let file { tasks.complete(item, file: file) }
+                                    if let file { tasks.complete(item, file: file, lock: profile.blocks?.tasks?.lock) }
                                 }, open: { openSource(item) })
                             }
                         }

@@ -113,7 +113,7 @@ def test_the_token_budget_is_a_ceiling_and_configurable(brain):
 def test_session_logs_rank_below_the_topical_note_and_chit_chat_injects_nothing(brain):
     shutil.copytree(FIXTURE, brain, dirs_exist_ok=True)
     for i in range(3):
-        _note(brain, f"klaus/sessions/2026-10-0{i}-plano-financeiro.md", "---\ntags: [session]\nstatus: active\n---\n# Plano financeiro (sessão)\n\nlog.\n")
+        _note(brain, f"notes-agent/sessions/2026-10-0{i}-plano-financeiro.md", "---\ntags: [session]\nstatus: active\n---\n# Plano financeiro (sessão)\n\nlog.\n")
     out = _recall(brain, "abre o plano financeiro")
     assert _entries(out)[0].startswith("- [[plano-financeiro]]")
     assert _recall(brain, "bom dia, como foi o seu fim de semana?", sid="x") == ""
