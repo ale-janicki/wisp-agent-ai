@@ -365,9 +365,16 @@ final class MeetingLibraryModel: ObservableObject {
         let recording = isRecording
         let gate = MeetingPauseGate(recognizer: recognizer, isRecording: { await recording() })
         let pause: @Sendable () async throws -> Void = { try await gate.wait() }
+        let settings = AppSettings.shared.settings.meetings
+        let refiner: @Sendable (String?) -> PostCallRefiner = { recorded in
+            PostCallRefiner(
+                engine: settings.postCallEngine, language: recorded.flatMap(MeetingLanguage.init(rawValue:)) ?? settings.language,
+                wispDir: WispFolder.directory(), searchPATH: { ClaudeLocator.effectivePATH }, isRecording: { await recording() }
+            )
+        }
         return MeetingPipeline(
             transcriber: MeetingTranscriber(recognizer: recognizer, pause: pause), notes: WispNoteWriter(layout: layout),
-            brain: WispBrainWriter(layout: layout, brain: Self.brainRoot())
+            brain: WispBrainWriter(layout: layout, brain: Self.brainRoot()), refiner: refiner
         )
     }
 
@@ -403,6 +410,7 @@ private final class StageGate: @unchecked Sendable {
             let key: Int
             switch stage {
             case .transcribing(let fraction): key = Int(fraction * 100)
+            case .refining(let fraction): key = 2000 + Int(fraction * 100)
             case .writingNote: key = 1000
             }
             guard key != last else { return false }

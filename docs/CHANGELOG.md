@@ -9,6 +9,11 @@ Entries are in descending chronological order (newest first).
 
 ## [Unreleased]
 
+### Added
+
+- Meetings get a second, cleaner transcript after the call. Live transcription stays on Parakeet, which guesses the language on each short piece and drifts into invented English (20–50% of the call-audio segments in Portuguese calls). When a recording ends, Wisp re-transcribes each side (Você and Outros) with Whisper in the meeting's language, one process at a time and never while another meeting is recording, and the note is written from that text. Silence hallucinations ("Legenda por…", "Se inscreva no canal", lines repeated over and over, Nordic-looking gibberish) are filtered out. The Parakeet transcript is kept as `transcript.parakeet.json`. If `whisper-cli` or the model is missing, or the run fails, the meeting keeps the Parakeet transcript and shows why. Models live in `~/Wisp/modelos/whisper/`.
+- Language picker under "Gravar" on the empty meetings screen (Português (BR) by default, English, Español or Detectar). The language is saved with each recording, so it is reprocessed in the language it was recorded in. Settings > Reuniões has the same picker and "Revisão depois da chamada": Whisper large-v3 (recommended, about 4 GB of memory), Whisper turbo (faster, about 2 GB, makes more mistakes on the call audio) or off.
+
 ## [0.5.0] - 2026-11-25
 
 - Version 0.5.0 (build 18).

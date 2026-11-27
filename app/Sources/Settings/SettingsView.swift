@@ -346,6 +346,34 @@ struct MeetingsSettingsGroup: View {
             ) { on in settings.setMeetings { $0.autoSummary = on } }
             Divider().overlay(Theme.stroke)
             SettingsRow(
+                title: "Idioma das reuniões",
+                detail: "O idioma falado nas chamadas. Vale na próxima gravação; a reunião guarda o idioma em que foi gravada."
+            ) {
+                Picker("Idioma das reuniões", selection: Binding(
+                    get: { current.language },
+                    set: { value in settings.setMeetings { $0.language = value } }
+                )) {
+                    ForEach(MeetingLanguage.allCases, id: \.self) { language in Text(language.label).tag(language) }
+                }
+                .labelsHidden()
+                .frame(width: 150)
+            }
+            Divider().overlay(Theme.stroke)
+            SettingsRow(
+                title: "Revisão depois da chamada",
+                detail: "Depois que a chamada acaba, o Whisper refaz a transcrição no idioma escolhido, um canal por vez e em segundo plano, só quando não há gravação em andamento. Precisa do whisper-cli (brew install whisper-cpp) e do modelo em modelos/whisper na pasta do Wisp. Sem eles, fica a transcrição ao vivo. O turbo usa uns 2 GB de memória; o large-v3 uns 4 GB."
+            ) {
+                Picker("Revisão depois da chamada", selection: Binding(
+                    get: { current.postCallEngine },
+                    set: { value in settings.setMeetings { $0.postCallEngine = value } }
+                )) {
+                    ForEach(PostCallEngine.allCases, id: \.self) { engine in Text(engine.label).tag(engine) }
+                }
+                .labelsHidden()
+                .frame(width: 210)
+            }
+            Divider().overlay(Theme.stroke)
+            SettingsRow(
                 title: "Cancelar eco do alto-falante",
                 detail: "Automático: liga só quando o som sai pelo alto-falante do Mac. Ligado, o macOS trata o áudio do microfone gravado (eco, ruído e ganho). Vale na próxima gravação."
             ) {
