@@ -9,10 +9,7 @@ struct HomeDashboard: View {
     private let dashboard = Dashboard.shared
     private let settings = AppSettings.shared
     private var gap: CGFloat { Theme.Layout.cardGap }
-    private var alertsCommand: String? {
-        guard let command = model.profile.blocks?.alerts?.list, !command.isEmpty else { return nil }
-        return command
-    }
+    private var hasTasks: Bool { PanelTab.tasks.isAvailable(in: model.profile) }
 
     private static let dragThreshold: CGFloat = 6
     private static let reflow = Animation.spring(response: 0.3, dampingFraction: 0.82)
@@ -22,10 +19,14 @@ struct HomeDashboard: View {
     @State private var pointer: CGPoint = .zero
     @State private var grabOffset: CGSize = .zero
     @State private var target: Int?
+    @State private var heights: [String: CGFloat] = [:]
+    @State private var frozen: [CGRect]?
 
     private var visible: [String] {
-        settings.settings.dashboardOrder.filter { $0 != DashboardTileID.alerts || alertsCommand != nil }
+        settings.settings.dashboardOrder.filter { $0 != DashboardTileID.alerts || hasTasks }
     }
+
+    private func height(of id: String) -> CGFloat { heights[id] ?? 0 }
 
     private var preview: [String] {
         var ids = visible
@@ -37,43 +38,42 @@ struct HomeDashboard: View {
     var body: some View {
         GeometryReader { geo in
             let ids = visible
-            let slots = Self.slots(count: ids.count, in: geo.size, gap: gap)
-            ZStack(alignment: .topLeading) {
-                if dragged != nil, let target, slots.indices.contains(target) {
-                    RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous)
-                        .strokeBorder(Theme.accent, lineWidth: 1.5)
-                        .background(Theme.accent.opacity(0.06), in: RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous))
-                        .frame(width: slots[target].width, height: slots[target].height)
-                        .offset(x: slots[target].minX, y: slots[target].minY)
-                        .allowsHitTesting(false)
+            let order = preview
+            let slots = frozen.flatMap { $0.count == ids.count ? $0 : nil } ?? Self.slots(heights: ids.map(height(of:)), width: geo.size.width, gap: gap)
+            ScrollView(.vertical) {
+                ZStack(alignment: .topLeading) {
+                    if dragged != nil, let target, slots.indices.contains(target) {
+                        RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous)
+                            .strokeBorder(Theme.accent, lineWidth: 1.5)
+                            .background(Theme.accent.opacity(0.06), in: RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous))
+                            .frame(width: slots[target].width, height: slots[target].height)
+                            .offset(x: slots[target].minX, y: slots[target].minY)
+                            .allowsHitTesting(false)
+                    }
+                    ForEach(ids, id: \.self) { id in
+                        let lifted = id == dragged
+                        let slot = slots[order.firstIndex(of: id) ?? 0]
+                        let origin = slots[ids.firstIndex(of: id) ?? 0]
+                        let frame = lifted ? CGRect(origin: CGPoint(x: pointer.x - grabOffset.width, y: pointer.y - grabOffset.height), size: origin.size) : slot
+                        tile(id)
+                            .onPreferenceChange(TileHeightKey.self) { heights[id] = $0 }
+                            .frame(width: frame.width, height: frame.height, alignment: .topLeading)
+                            .scaleEffect(lifted ? 1.02 : 1)
+                            .shadow(color: Theme.notch.opacity(lifted ? 0.45 : 0), radius: lifted ? 14 : 0, y: lifted ? 6 : 0)
+                            .offset(x: frame.minX, y: frame.minY)
+                            .zIndex(lifted ? 1 : 0)
+                            .pointerStyle(lifted ? .grabActive : nil)
+                            .simultaneousGesture(reorder(id, slots: slots, ids: ids))
+                    }
                 }
-                ForEach(ids, id: \.self) { id in
-                    let lifted = id == dragged
-                    let slot = slots[preview.firstIndex(of: id) ?? 0]
-                    let origin = slots[ids.firstIndex(of: id) ?? 0]
-                    let frame = lifted ? CGRect(origin: CGPoint(x: pointer.x - grabOffset.width, y: pointer.y - grabOffset.height), size: origin.size) : slot
-                    tile(id)
-                        .frame(width: frame.width, height: frame.height)
-                        .scaleEffect(lifted ? 1.02 : 1)
-                        .shadow(color: Theme.notch.opacity(lifted ? 0.45 : 0), radius: lifted ? 14 : 0, y: lifted ? 6 : 0)
-                        .offset(x: frame.minX, y: frame.minY)
-                        .zIndex(lifted ? 1 : 0)
-                        .pointerStyle(lifted ? .grabActive : nil)
-                        .animation(lifted ? nil : Self.reflow, value: frame)
-                        .simultaneousGesture(reorder(id, slots: slots, ids: ids))
-                }
+                .coordinateSpace(.named(Self.space))
+                .frame(width: geo.size.width, height: slots.last?.maxY ?? 0, alignment: .topLeading)
+                .padding(.top, Theme.Space.xs)
+                .padding(.bottom, Theme.Space.m)
             }
-            .coordinateSpace(.named(Self.space))
-            .frame(width: geo.size.width, height: geo.size.height, alignment: .topLeading)
+            .scrollIndicators(.hidden)
         }
         .onAppear { dashboard.usage.refreshIfStale() }
-        .task(id: alertsCommand) {
-            guard let alertsCommand else { return }
-            while !Task.isCancelled {
-                dashboard.alerts.refresh(command: alertsCommand)
-                try? await Task.sleep(for: AlertsModel.interval)
-            }
-        }
     }
 
     @ViewBuilder
@@ -86,8 +86,8 @@ struct HomeDashboard: View {
         case DashboardTileID.usage:
             UsageTile(usage: dashboard.usage, rateLimit: model.rateLimit, limitsPath: model.profile.blocks?.usage?.limits)
         case DashboardTileID.alerts:
-            if let alertsCommand {
-                AlertsTile(alerts: dashboard.alerts, command: alertsCommand)
+            if hasTasks {
+                AlertsTile(tasks: TabSources.shared.tasks)
             }
         default:
             ConversationsTile(model: model) { openConversation(nil) }
@@ -99,6 +99,7 @@ struct HomeDashboard: View {
             .onChanged { value in
                 if dragged == nil, let index = ids.firstIndex(of: id) {
                     let origin = slots[index]
+                    frozen = slots
                     grabOffset = CGSize(width: value.startLocation.x - origin.minX, height: value.startLocation.y - origin.minY)
                     dragged = id
                     target = index
@@ -115,25 +116,27 @@ struct HomeDashboard: View {
                     if final != ids { settings.setDashboardOrder(final) }
                     dragged = nil
                     target = nil
+                    frozen = nil
                 }
             }
     }
 
-    static func slots(count: Int, in size: CGSize, gap: CGFloat) -> [CGRect] {
-        guard count > 0 else { return [] }
-        let rows = (count + 1) / 2
-        let width = (size.width - gap) / 2
-        let height = (size.height - gap * CGFloat(rows - 1)) / CGFloat(rows)
-        return (0..<count).map { index in
-            let row = index / 2, column = index % 2
-            let spans = index == count - 1 && count % 2 == 1
-            return CGRect(
-                x: spans || column == 0 ? 0 : width + gap,
-                y: CGFloat(row) * (height + gap),
-                width: spans ? size.width : width,
-                height: height
-            )
+    static func slots(heights: [CGFloat], width: CGFloat, gap: CGFloat) -> [CGRect] {
+        let count = heights.count
+        let column = (width - gap) / 2
+        var y: CGFloat = 0
+        var result: [CGRect] = []
+        for first in stride(from: 0, to: count, by: 2) {
+            if first == count - 1 {
+                result.append(CGRect(x: 0, y: y, width: width, height: heights[first]))
+                break
+            }
+            let rowHeight = max(heights[first], heights[first + 1])
+            result.append(CGRect(x: 0, y: y, width: column, height: rowHeight))
+            result.append(CGRect(x: column + gap, y: y, width: column, height: rowHeight))
+            y += rowHeight + gap
         }
+        return result
     }
 
     static func slot(at point: CGPoint, in slots: [CGRect]) -> Int? {
@@ -144,6 +147,11 @@ struct HomeDashboard: View {
     private static func distance(_ point: CGPoint, _ rect: CGRect) -> CGFloat {
         hypot(point.x - rect.midX, point.y - rect.midY)
     }
+}
+
+struct TileHeightKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
 }
 
 struct DashboardTile<Content: View>: View {
@@ -176,10 +184,12 @@ struct DashboardTile<Content: View>: View {
             .contentShape(Rectangle())
             .pointerStyle(.grabIdle)
             content
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .frame(maxWidth: .infinity, alignment: .topLeading)
         }
         .padding(.horizontal, Theme.Space.l)
         .padding(.vertical, Theme.Space.m)
+        .fixedSize(horizontal: false, vertical: true)
+        .background { GeometryReader { Color.clear.preference(key: TileHeightKey.self, value: $0.size.height) } }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .card()
     }
@@ -214,7 +224,7 @@ private struct UsageTile: View {
                             .truncationMode(.tail)
                     }
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
         .task(id: limitsPath) {
@@ -298,30 +308,44 @@ private struct PlanLimitBar: View {
 // MARK: - Notificações
 
 private struct AlertsTile: View {
-    var alerts: AlertsModel
-    let command: String
+    var tasks: TasksModel
+
+    private static let maxRows = 8
+    private static let rowGap: CGFloat = 6
+
+    @State private var rowHeight: CGFloat = 0
 
     private var trailing: String? {
-        if case .loaded(let items) = alerts.state, !items.isEmpty { return "\(items.count)" }
+        if let items = tasks.urgent, !items.isEmpty { return "\(items.count)" }
         return nil
     }
 
     var body: some View {
         DashboardTile(title: "Notificações", icon: "bell.fill", trailing: trailing) {
-            switch alerts.state {
+            switch tasks.state {
             case .loading:
                 VStack(alignment: .leading, spacing: Theme.Space.s) {
                     ForEach(0..<3, id: \.self) { _ in Skeleton(cornerRadius: 6).frame(height: 16) }
                 }
-            case .loaded(let items) where items.isEmpty:
-                centered("Nenhum alerta")
-            case .loaded(let items):
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 6) {
-                        ForEach(items) { AlertRow(item: $0) }
+            case .loaded:
+                let items = tasks.urgent ?? []
+                if items.isEmpty {
+                    centered("Nenhum alerta")
+                } else {
+                    let shown = CGFloat(min(items.count, Self.maxRows))
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: Self.rowGap) {
+                            ForEach(items) { item in
+                                AlertRow(item: item)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                    .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { rowHeight = max(rowHeight, $0) }
+                                    .frame(height: rowHeight)
+                            }
+                        }
                     }
+                    .scrollIndicators(.hidden)
+                    .frame(height: shown * rowHeight + (shown - 1) * Self.rowGap)
                 }
-                .scrollIndicators(.hidden)
             case .failed(let message):
                 centered(message)
             }
@@ -333,32 +357,27 @@ private struct AlertsTile: View {
             .font(Theme.Font.body)
             .foregroundStyle(Theme.textSecondary)
             .multilineTextAlignment(.center)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .frame(maxWidth: .infinity)
     }
 }
 
 private struct AlertRow: View {
-    let item: AlertItem
+    let item: TaskItem
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: Theme.Space.s) {
             Circle()
-                .fill(item.level == .red ? Theme.error : Theme.busy)
+                .fill(Theme.error)
                 .frame(width: 7, height: 7)
                 .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 4 }
-            Text(item.text)
+            Text(item.title)
                 .font(Theme.Font.body)
                 .foregroundStyle(Theme.textPrimary)
                 .lineLimit(1)
                 .truncationMode(.tail)
             Spacer(minLength: Theme.Space.xs)
-            if let opened = item.openedAt {
-                Text(AlertList.age(of: opened))
-                    .font(Theme.Font.captionMono)
-                    .foregroundStyle(Theme.textTertiary)
-            }
         }
-        .help(item.text)
+        .help(item.title)
     }
 }
 
@@ -368,7 +387,8 @@ private struct ConversationsTile: View {
     var model: ConversationViewModel
     var open: () -> Void
 
-    private static let minRowHeight: CGFloat = 38
+    private static let maxRows = 5
+    private static let rowHeight: CGFloat = 38
     private static let rowGap: CGFloat = 2
 
     private struct Item: Identifiable {
@@ -401,24 +421,19 @@ private struct ConversationsTile: View {
                 Text("Nenhuma conversa ainda")
                     .font(Theme.Font.body)
                     .foregroundStyle(Theme.textSecondary)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .frame(maxWidth: .infinity)
             } else {
-                GeometryReader { geo in
-                    let fit = max(1, Int((geo.size.height + Self.rowGap) / (Self.minRowHeight + Self.rowGap)))
-                    let height = (geo.size.height - Self.rowGap * CGFloat(fit - 1)) / CGFloat(fit)
-                    VStack(alignment: .leading, spacing: Self.rowGap) {
-                        ForEach(all.prefix(fit)) { item in
-                            row(item, height: height)
-                        }
+                VStack(alignment: .leading, spacing: Self.rowGap) {
+                    ForEach(all.prefix(Self.maxRows)) { item in
+                        row(item)
                     }
-                    .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
                 }
             }
         }
         .task { model.fillPreviews() }
     }
 
-    private func row(_ item: Item, height: CGFloat) -> some View {
+    private func row(_ item: Item) -> some View {
         Button {
             item.action()
             open()
@@ -459,7 +474,7 @@ private struct ConversationsTile: View {
                 }
             }
         }
-        .buttonStyle(RowButtonStyle(height: height))
+        .buttonStyle(RowButtonStyle(height: Self.rowHeight))
         .padding(.horizontal, -Theme.Space.m)
         .help(item.title)
     }
