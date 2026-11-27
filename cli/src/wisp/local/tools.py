@@ -1,6 +1,5 @@
 import os
 import shlex
-import signal
 import unicodedata
 import subprocess
 import sys
@@ -15,6 +14,7 @@ import anyio.to_thread
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import get_default_environment, stdio_client
 
+from wisp import compat
 from wisp.mac import Falha
 from wisp.mac_control import TOOLS as MAC_TOOLS, Ctx as MacCtx, call as mac_call
 from wisp.paths import WispPaths
@@ -228,14 +228,16 @@ def run_shell(workdir: Path, args: dict, timeout: float = SHELL_TIMEOUT) -> str:
     command = args.get("command")
     if not isinstance(command, str) or not command.strip():
         raise ToolFailure("informe o comando")
+    if compat.IS_WINDOWS:
+        raise compat.NotSupportedHere("o terminal da IA local ainda não está disponível no Windows")
     proc = subprocess.Popen(
         ["/bin/sh", "-c", command], cwd=workdir, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT, text=True, start_new_session=True,
+        stderr=subprocess.STDOUT, text=True, **compat.new_session_kwargs(),
     )
     try:
         out, _ = proc.communicate(timeout=timeout)
     except subprocess.TimeoutExpired:
-        os.killpg(proc.pid, signal.SIGKILL)
+        compat.kill_process_tree(proc.pid, compat.SIGKILL)
         proc.communicate()
         raise ToolFailure(f"o comando passou de {int(timeout)} s e foi interrompido") from None
     tail = out[-OUTPUT_LIMIT:]

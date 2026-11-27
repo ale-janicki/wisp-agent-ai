@@ -1,8 +1,9 @@
 import os
 import platform
+import sys
 from collections.abc import Mapping
 from dataclasses import dataclass
-from pathlib import Path, PurePath, PureWindowsPath
+from pathlib import Path, PureWindowsPath
 
 
 @dataclass(frozen=True)
@@ -17,8 +18,8 @@ class WispPaths:
     @staticmethod
     def for_os(system: str, home: Path, env: Mapping[str, str]) -> "WispPaths":
         if system == "Windows":
-            roaming = PureWindowsPath(env["APPDATA"])
-            local = PureWindowsPath(env["LOCALAPPDATA"]) / "wisp"
+            roaming = PureWindowsPath(env.get("APPDATA") or home / "AppData/Roaming")
+            local = PureWindowsPath(env.get("LOCALAPPDATA") or home / "AppData/Local") / "wisp"
             return WispPaths(home, roaming / "wisp", local / "runtime", local / "state", local / "bin", None)
         config = Path(env.get("XDG_CONFIG_HOME") or home / ".config")
         state = Path(env.get("XDG_STATE_HOME") or home / ".local/state")
@@ -29,6 +30,14 @@ class WispPaths:
     @staticmethod
     def current() -> "WispPaths":
         return WispPaths.for_os(platform.system(), Path.home(), os.environ)
+
+
+def venv_bin(venv: Path) -> Path:
+    return venv / ("Scripts" if sys.platform == "win32" else "bin")
+
+
+def exe(name: str) -> str:
+    return f"{name}.exe" if sys.platform == "win32" else name
 
 
 def resources_root() -> Path:

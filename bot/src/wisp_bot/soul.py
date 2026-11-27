@@ -1,7 +1,8 @@
 from __future__ import annotations
-import asyncio, json, logging, os, signal, sys, time
+import asyncio, json, logging, os, sys, time
 from pathlib import Path
 
+from . import compat
 from .config import CURRENT as _CFG, config_path
 
 log = logging.getLogger("wisp.soul")
@@ -28,7 +29,6 @@ def _template() -> Path:
 
 
 def _managed_elsewhere() -> bool:
-    """Same test as the CLI's: a symlink on ~/.claude or on any file or folder Wisp would install there."""
     claude = _home() / ".claude"
     return any(p.is_symlink() for p in (claude, claude / "CLAUDE.md", claude / "settings.json", *(claude / t for t in TERMINAL_TREE)))
 
@@ -40,7 +40,6 @@ def _files() -> list[Path]:
 
 
 def _stamp() -> tuple:
-    """Everything the text depends on: the files' mtimes and whether ~/.claude is managed elsewhere (it picks the default source)."""
     out: list = [_managed_elsewhere()]
     for f in _files():
         try:
@@ -61,12 +60,12 @@ def decode(saida: bytes) -> str | None:
 async def _render(wisp_bin: str, engine: str) -> str | None:
     proc = await asyncio.create_subprocess_exec(
         wisp_bin, "soul", "render", "--engine", engine, "--json", stdin=asyncio.subprocess.DEVNULL,
-        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL, start_new_session=True)
+        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL, **compat.new_session_kwargs())
     try:
         saida, _ = await asyncio.wait_for(proc.communicate(), TIMEOUT_S)
     except BaseException:
         try:
-            os.killpg(proc.pid, signal.SIGKILL)
+            compat.kill_process_tree(proc.pid, compat.SIGKILL)
         except ProcessLookupError:
             pass
         await proc.wait()
@@ -75,9 +74,6 @@ async def _render(wisp_bin: str, engine: str) -> str | None:
 
 
 async def text(engine: str, wisp_bin: str) -> str:
-    """The personality to append for this engine ("" when the user's own assistant supplies it, or when the CLI cannot
-    answer: the turn then runs as it did before the soul existed). Cached until a file it depends on changes; a failure is
-    remembered for a minute, so a broken CLI costs one timeout per minute, not one per turn."""
     stamp = _stamp()
     key = (wisp_bin, engine)
     hit = _cache.get(key)

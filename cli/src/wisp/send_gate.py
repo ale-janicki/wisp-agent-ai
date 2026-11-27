@@ -1,13 +1,13 @@
 import ctypes
 import json
 import os
-import pwd
 import socket
 import stat
 import struct
 import sys
 import time
 from collections.abc import Callable, Mapping
+from wisp import compat
 
 SOCKET_ENV = "WISP_APPROVAL_SOCKET"
 OP_REQUEST = "request"
@@ -27,7 +27,7 @@ Gate = Callable[[dict], None]
 
 
 class Refused(Exception):
-    """str() is the sentence the assistant reads: the mail was not sent."""
+    pass
 
 
 def _trusted(path: str) -> None:
@@ -37,7 +37,9 @@ def _trusted(path: str) -> None:
         leaf, folder = os.lstat(path), os.lstat(os.path.dirname(path))
     except OSError:
         raise Refused(NO_CHANNEL) from None
-    uid = os.getuid()
+    uid = compat.current_uid()
+    if uid is None:
+        raise Refused(NO_CHANNEL)
     if not stat.S_ISSOCK(leaf.st_mode) or leaf.st_uid != uid:
         raise Refused(NO_CHANNEL)
     if not stat.S_ISDIR(folder.st_mode) or folder.st_uid != uid or stat.S_IMODE(folder.st_mode) & 0o077:
@@ -101,7 +103,7 @@ def _exe_of(pid: int) -> str:
 
 
 def _host_executables() -> set[str]:
-    home = pwd.getpwuid(os.getuid()).pw_dir
+    home = compat.home_dir()
     found = {os.path.realpath(APP_BINARIES[0]), os.path.realpath(os.path.join(home, APP_BINARIES[1]))}
     root = os.path.realpath(os.path.join(home, RUNTIME_ROOT)) + os.sep
     bin_dir = os.path.join(home, RUNTIME_ROOT, "venv/bin")
@@ -148,14 +150,13 @@ def _read_line(conn: socket.socket, deadline: float) -> bytes:
 
 
 def ask_broker(path: str | None, request: dict, wait: float = WAIT_SECONDS, tool: str = TOOL) -> None:
-    """Returns only when the host answered an explicit allow; every other outcome raises Refused."""
     if not path:
         raise Refused(NO_CHANNEL)
     _trusted(path)
     deadline = time.monotonic() + wait
     line = json.dumps({"op": OP_REQUEST, "tool": tool, "input": request}, ensure_ascii=False).encode() + b"\n"
     try:
-        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as conn:
+        with socket.socket(compat.unix_socket_family(), socket.SOCK_STREAM) as conn:
             conn.settimeout(wait)
             conn.connect(path)
             _check_host(conn)

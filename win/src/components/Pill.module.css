@@ -1,0 +1,50 @@
+.pill {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-s);
+  width: 100%;
+  height: 100%;
+  padding: 0 var(--space-m);
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius-pill);
+  background: #000;
+  color: var(--text-primary);
+  font-size: 11px;
+  font-weight: 500;
+  overflow: hidden;
+}
+
+.label {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-tertiary);
+}
+
+.idle {
+  background: var(--ok);
+}
+.busy {
+  background: var(--busy);
+  animation: pulse 1.2s ease-in-out infinite;
+}
+.attention {
+  background: var(--accent);
+}
+.error {
+  background: var(--error);
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.35;
+  }
+}

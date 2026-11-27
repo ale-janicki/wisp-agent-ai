@@ -1,8 +1,9 @@
 from __future__ import annotations
-import asyncio, json, logging, os, shutil, signal, tomllib
+import asyncio, json, logging, os, shutil, tomllib
 from pathlib import Path
 from typing import Awaitable, Callable
 
+from . import compat
 from .claude_runner import (LIMITE_LINHA, TELEGRAM_STYLE, WISP_BIN, falha_de_auth, permission_mode, rotulo,
                             strip_status)
 from . import soul
@@ -271,7 +272,7 @@ async def _turn(prompt: str, *, session_id: str, cwd: str, started: bool, model:
     try:
         proc = await asyncio.create_subprocess_exec(
             *cmd, cwd=str(root), stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE, limit=LIMITE_LINHA, start_new_session=True, env=child_env)
+            stderr=asyncio.subprocess.PIPE, limit=LIMITE_LINHA, **compat.new_session_kwargs(), env=child_env)
     except FileNotFoundError:
         return Result(False, f"binario do codex nao encontrado: {codex_bin()}", engine="codex")
 
@@ -311,7 +312,7 @@ async def _turn(prompt: str, *, session_id: str, cwd: str, started: bool, model:
 
     async def kill() -> None:
         try:
-            os.killpg(proc.pid, signal.SIGKILL)
+            compat.kill_process_tree(proc.pid, compat.SIGKILL)
         except ProcessLookupError:
             pass
         try:
@@ -351,12 +352,12 @@ async def gate_stale(timeout: float = 15) -> str | None:
     try:
         proc = await asyncio.create_subprocess_exec(
             WISP_BIN, "codex", "check", stdin=asyncio.subprocess.DEVNULL, stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.DEVNULL, start_new_session=True)
+            stderr=asyncio.subprocess.DEVNULL, **compat.new_session_kwargs())
         try:
             out, _ = await asyncio.wait_for(proc.communicate(), timeout)
         except asyncio.TimeoutError:
             try:
-                os.killpg(proc.pid, signal.SIGKILL)
+                compat.kill_process_tree(proc.pid, compat.SIGKILL)
             except ProcessLookupError:
                 pass
             await proc.wait()

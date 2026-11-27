@@ -1,0 +1,70 @@
+.tool {
+  margin: var(--space-xs) 0;
+  border-radius: var(--radius-nav);
+  background: var(--surface);
+  border: 1px solid var(--stroke);
+}
+.head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-s);
+  width: 100%;
+  padding: 6px var(--space-m);
+  border: 0;
+  background: none;
+  text-align: left;
+}
+.name {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+.state {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+.chevron {
+  color: var(--text-tertiary);
+  transition: transform 0.15s ease-out;
+}
+.open {
+  transform: rotate(90deg);
+}
+.dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+.ok {
+  background: var(--ok);
+}
+.err {
+  background: var(--error);
+}
+.busy {
+  background: var(--busy);
+}
+.body {
+  padding: 0 var(--space-m) var(--space-s);
+  user-select: text;
+}
+.cap {
+  margin-top: var(--space-xs);
+  font-size: 10px;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+}
+.body pre {
+  margin: 2px 0 0;
+  max-height: 200px;
+  overflow: auto;
+  padding: var(--space-s);
+  border-radius: 8px;
+  background: var(--surface-hi);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

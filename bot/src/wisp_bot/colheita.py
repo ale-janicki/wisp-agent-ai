@@ -1,6 +1,7 @@
 from __future__ import annotations
-import asyncio, json, logging, os, signal
+import asyncio, json, logging
 
+from . import compat
 from .claude_runner import WISP_BIN
 
 log = logging.getLogger("wisp.colheita")
@@ -22,12 +23,12 @@ def contagens(saida: bytes) -> tuple[int, int] | None:
 async def rodar_uma_vez(wisp_bin: str = WISP_BIN, timeout: float = TIMEOUT_S) -> tuple[int, int] | None:
     proc = await asyncio.create_subprocess_exec(
         wisp_bin, *ARGS, stdin=asyncio.subprocess.DEVNULL, stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.DEVNULL, start_new_session=True)
+        stderr=asyncio.subprocess.DEVNULL, **compat.new_session_kwargs())
     try:
         saida, _ = await asyncio.wait_for(proc.communicate(), timeout)
     except BaseException:
         try:
-            os.killpg(proc.pid, signal.SIGKILL)
+            compat.kill_process_tree(proc.pid, compat.SIGKILL)
         except ProcessLookupError:
             pass
         await proc.wait()

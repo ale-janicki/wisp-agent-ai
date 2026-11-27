@@ -1,4 +1,3 @@
-import fcntl
 import hashlib
 import http.client
 import json
@@ -11,6 +10,7 @@ import urllib.request
 from collections.abc import Callable
 from pathlib import Path
 
+from wisp import compat
 from wisp.layout import resolve_layout
 from wisp.local import certs, storage
 
@@ -108,7 +108,7 @@ def lock_is_live(folder: Path, tag: str) -> bool:
         return False
     try:
         try:
-            fcntl.flock(guard, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            compat.lock_file(guard, blocking=False)
         except OSError:
             return True
         path.unlink(missing_ok=True)
@@ -176,7 +176,7 @@ def _take_lock(path: Path, tag: str) -> int:
     while True:
         guard = os.open(path, os.O_RDWR | os.O_CREAT, 0o600)
         try:
-            fcntl.flock(guard, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            compat.lock_file(guard, blocking=False)
         except OSError:
             os.close(guard)
             raise FetchError(f"já há um download de {tag} em andamento") from None

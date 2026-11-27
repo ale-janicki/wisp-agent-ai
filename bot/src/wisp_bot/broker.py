@@ -1,12 +1,7 @@
-"""Canal de aprovacao do e-mail, para qualquer motor. O bot abre um socket Unix numa pasta 0700 e o servidor de e-mail do
-Wisp pede por ele antes de enviar; nao existe chave que desligue isso. O socket so tem um verbo do cliente, `request`, e
-quem responde nunca e o processo que pediu: sob o Codex e o cartao Permitir/Negar do dono (`vivo`); sob o Claude e um
-bilhete de uso unico que o proprio bot cunha, na memoria, quando o dono permite o `can_use_tool` do `email_send`, preso ao
-hash do conteudo exato do e-mail (para, cc, assunto, corpo) e valido por `BILHETE_S`. Sem bilhete que combine, nada sai.
-So um cliente com o mesmo uid do bot e atendido, e so um cartao fica aberto por vez."""
 from __future__ import annotations
 import asyncio, hashlib, json, logging, os, shutil, socket, struct, sys, tempfile, time
 from typing import Awaitable, Callable
+from . import compat
 
 log = logging.getLogger("wisp-bot.broker")
 
@@ -15,7 +10,7 @@ OP_REQUEST = "request"
 TOOLS = {"email_send": "mcp__wisp-email__email_send", "mac_send": "mcp__wisp-mac__mac_send"}
 LINHA_MAX = 1 << 20
 LEITURA_S = 10
-VALIDADE_S = 610   # um pouco acima dos 600 s do cartao, para a recusa do cartao chegar antes
+VALIDADE_S = 610
 BILHETE_S = 120
 
 PedirPermissao = Callable[[dict], Awaitable[str | None]]
@@ -49,6 +44,8 @@ def huella(ferramenta: str, entrada: dict) -> str | None:
 
 
 def uid_do_par(sock: socket.socket) -> int | None:
+    if compat.IS_WINDOWS:
+        return None
     try:
         if sys.platform.startswith("linux"):
             return struct.unpack("3i", sock.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, struct.calcsize("3i")))[1]
@@ -113,7 +110,7 @@ class Broker:
     def __init__(self, decidir: PedirPermissao | None = None, validade: float = VALIDADE_S, *, uid: int | None = None,
                  bilhete_s: float = BILHETE_S):
         self.decidir, self.validade, self.bilhete_s = decidir, validade, bilhete_s
-        self.uid = os.getuid() if uid is None else uid
+        self.uid = compat.current_uid() if uid is None else uid
         self._bilhetes: list[tuple[str, float, float]] = []
         self._cartoes = 0
         self.path = ""
@@ -125,6 +122,9 @@ class Broker:
         varrer_mortos()
         self._pasta = tempfile.mkdtemp(prefix=f"wisp-{os.getpid()}-")
         self.path = os.path.join(self._pasta, "b")
+        if not hasattr(asyncio, "start_unix_server"):
+            shutil.rmtree(self._pasta, ignore_errors=True)
+            raise compat.NotSupportedHere("Unix sockets are not available on this platform")
         try:
             self._server = await asyncio.start_unix_server(self._atender, path=self.path, limit=LINHA_MAX)
             os.chmod(self.path, 0o600)
@@ -171,7 +171,8 @@ class Broker:
         tarefa = asyncio.current_task()
         self._ativos.add(tarefa)
         try:
-            if uid_do_par(writer.get_extra_info("socket")) != self.uid:
+            par = uid_do_par(writer.get_extra_info("socket"))
+            if par is None or self.uid is None or par != self.uid:
                 return
             await self._servir(reader, writer)
         except asyncio.CancelledError:

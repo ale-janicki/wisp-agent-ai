@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import fcntl
 import json
 import os
 import re
@@ -12,6 +11,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
 
+from wisp import compat
 from wisp.brain_colher import claude_bin
 from wisp.config import WispConfig
 from wisp.engines import read_active
@@ -295,7 +295,7 @@ def write_private(path: Path, text: str) -> None:
 def acquire_lock(folder: Path, name: str = LOCK_NAME) -> int:
     fd = os.open(folder / name, os.O_RDWR | os.O_CREAT, 0o600)
     try:
-        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        compat.lock_file(fd, blocking=False)
     except BlockingIOError:
         os.close(fd)
         raise Ocupado("já tem uma nota sendo gerada para essa reunião")

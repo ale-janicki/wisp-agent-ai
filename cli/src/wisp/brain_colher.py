@@ -1,5 +1,4 @@
 import argparse
-import fcntl
 import json
 import os
 import re
@@ -11,6 +10,7 @@ from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
+from wisp import compat
 from wisp.aprendizados import HARVEST_ORIGIN, PENDING_REL, REL as LESSONS_REL, quarantine, read_lines as read_lessons
 from wisp.config import WispConfig, _default_path, load_config
 from wisp.fsops import atomic_write
@@ -210,7 +210,7 @@ def try_lock(path: Path) -> int | None:
     path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o600)
     try:
-        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        compat.lock_file(fd, blocking=False)
     except BlockingIOError:
         os.close(fd)
         return None

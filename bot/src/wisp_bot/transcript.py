@@ -1,8 +1,9 @@
 from __future__ import annotations
-import fcntl, json, logging, os, re
+import json, logging, os, re
 from collections.abc import Iterable
 from datetime import datetime, timezone
 from pathlib import Path
+from . import compat
 
 log = logging.getLogger("wisp.transcript")
 
@@ -37,7 +38,7 @@ def append_line(path: Path, line: str) -> None:
     path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     fd = os.open(path, os.O_RDWR | os.O_APPEND | os.O_CREAT | os.O_CLOEXEC, 0o600)
     try:
-        fcntl.flock(fd, fcntl.LOCK_EX)
+        compat.lock_file(fd)
         size = os.fstat(fd).st_size
         broken = size > 0 and os.pread(fd, 1, size - 1) != b"\n"
         data = (("\n" if broken else "") + line + "\n").encode("utf-8")

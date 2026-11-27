@@ -4,6 +4,7 @@ import os
 
 import pytest
 
+from wisp import compat
 from wisp.local import fetch
 
 TAG = "qwen3:8b"
@@ -93,16 +94,16 @@ def test_a_lock_unlinked_between_open_and_flock_is_retaken_on_the_current_file(t
     folder = tmp_path / "Wisp"
     path = fetch.lock_path(folder, TAG)
     path.parent.mkdir(parents=True)
-    real = fcntl.flock
+    real = compat.lock_file
     calls = []
 
-    def racing(fd, op):
+    def racing(fd, *args, **kwargs):
         calls.append(fd)
         if len(calls) == 1:
             path.unlink()
-        return real(fd, op)
+        return real(fd, *args, **kwargs)
 
-    monkeypatch.setattr(fetch.fcntl, "flock", racing)
+    monkeypatch.setattr(fetch.compat, "lock_file", racing)
     guard = fetch._take_lock(path, TAG)
     try:
         assert len(calls) == 2 and os.fstat(guard).st_ino == os.stat(path).st_ino

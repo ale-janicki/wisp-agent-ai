@@ -2,8 +2,8 @@ import json
 import os
 import queue
 import select
+import sys
 import threading
-import termios
 import time
 import unicodedata
 import uuid
@@ -12,6 +12,8 @@ from typing import IO, Literal, Protocol
 
 import anyio
 import anyio.to_thread
+
+from wisp import compat
 
 Outcome = Literal["allow", "deny", "timeout"]
 
@@ -87,15 +89,22 @@ class TtyApprover:
             stop.set()
 
     def _prompt(self, tool: str, arguments: dict, stop: threading.Event) -> Outcome:
+        if compat.IS_WINDOWS and self.open_tty is open_controlling_tty:
+            return self._prompt_console(tool, arguments, stop)
         try:
             reader, writer = self.open_tty()
         except OSError:
             return "deny"
         with reader, writer:
             try:
-                termios.tcflush(reader.fileno(), termios.TCIFLUSH)
-            except (termios.error, OSError, ValueError):
-                pass
+                import termios
+            except ImportError:
+                termios = None
+            if termios is not None:
+                try:
+                    termios.tcflush(reader.fileno(), termios.TCIFLUSH)
+                except (termios.error, OSError, ValueError):
+                    pass
             summary, head, body = describe(tool, arguments)
             shown = "\n".join(part for part in (head, body) if part)
             writer.write(f"\nO Wisp quer executar {summary}\n{shown}\n\nO Wisp quer executar {summary}\nPermitir? [s/N] ")
@@ -115,6 +124,42 @@ class TtyApprover:
                     if not chunk or b"\n" in typed:
                         line = typed.split(b"\n")[0].decode("utf-8", "replace")
                         return "allow" if line.strip().lower() in YES else "deny"
+        return "deny"
+
+    def _prompt_console(self, tool: str, arguments: dict, stop: threading.Event) -> Outcome:
+        try:
+            import msvcrt
+            if not sys.stdin.isatty():
+                return "deny"
+            writer = open("CONOUT$", "w", encoding="utf-8")
+        except (ImportError, OSError, ValueError, AttributeError):
+            return "deny"
+        with writer:
+            while msvcrt.kbhit():
+                msvcrt.getwch()
+            summary, head, body = describe(tool, arguments)
+            shown = "\n".join(part for part in (head, body) if part)
+            writer.write(f"\nO Wisp quer executar {summary}\n{shown}\n\nO Wisp quer executar {summary}\nPermitir? [s/N] ")
+            writer.flush()
+            deadline = time.monotonic() + self.timeout
+            typed = ""
+            while not stop.is_set():
+                if time.monotonic() >= deadline:
+                    writer.write("\nsem resposta a tempo: negado\n")
+                    writer.flush()
+                    return "timeout"
+                if not msvcrt.kbhit():
+                    time.sleep(POLL)
+                    continue
+                char = msvcrt.getwch()
+                if char in ("\r", "\n"):
+                    return "allow" if typed.strip().lower() in YES else "deny"
+                if char == "\x03":
+                    return "deny"
+                if char in ("\x00", "\xe0"):
+                    msvcrt.getwch()
+                    continue
+                typed += char
         return "deny"
 
 

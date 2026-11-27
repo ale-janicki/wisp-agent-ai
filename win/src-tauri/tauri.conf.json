@@ -1,0 +1,56 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Wisp",
+  "version": "0.1.0",
+  "identifier": "app.wisp.windows",
+  "build": {
+    "beforeDevCommand": "pnpm dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "pnpm build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "withGlobalTauri": false,
+    "windows": [
+      {
+        "label": "main",
+        "title": "Wisp",
+        "width": 200,
+        "height": 32,
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "resizable": false,
+        "shadow": false,
+        "focus": false,
+        "maximizable": false,
+        "minimizable": false
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost http://127.0.0.1:*"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "icon": ["icons/32x32.png", "icons/icon.png", "icons/icon.ico"],
+    "resources": {
+      "resources/uv.exe": "uv.exe",
+      "../../pyproject.toml": "pyproject.toml",
+      "../../uv.lock": "uv.lock",
+      "../../cli/pyproject.toml": "cli/pyproject.toml",
+      "../../cli/src": "cli/src",
+      "../../bot/pyproject.toml": "bot/pyproject.toml",
+      "../../bot/src": "bot/src",
+      "../../harness/claude-md-block.md": "harness/claude-md-block.md"
+    },
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser",
+        "languages": ["PortugueseBR"]
+      }
+    }
+  }
+}

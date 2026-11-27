@@ -225,3 +225,12 @@ def test_topic_rule_is_generic(monkeypatch, modo):
         assert "no PC ou no Mac" in regra
     else:
         assert "nesta máquina" in regra and "PC ou no Mac" not in regra
+
+
+def test_default_paths_per_platform(monkeypatch):
+    monkeypatch.setenv("LOCALAPPDATA", "C:\\L")
+    monkeypatch.setenv("APPDATA", "C:\\A")
+    assert config.default_state_dir("win32") == "C:\\L\\wisp\\state\\bot"
+    assert config.default_conversations("win32") == "C:\\A\\Wisp\\conversations.json"
+    assert config.default_state_dir("darwin") == "~/.local/state/wisp/bot"
+    assert config.default_conversations("darwin") == "~/Library/Application Support/Wisp/conversations.json"

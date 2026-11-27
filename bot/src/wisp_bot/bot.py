@@ -10,6 +10,7 @@ from telegram.error import BadRequest, NetworkError, RetryAfter
 from telegram.ext import (Application, CallbackQueryHandler, CommandHandler, MessageHandler, filters,
                           ContextTypes)
 
+from . import compat
 from .store import Store
 from .engine import Result
 from .claude_runner import run as claude_run, strip_status
@@ -19,7 +20,6 @@ from . import sessao
 from . import topicos
 from . import tg_html
 from . import hosting, saude, vigilia, polling, session_lock, compartilhar, colheita
-from . import hosting, saude, vigilia, polling, session_lock, compartilhar
 from . import aprovacoes, codex_runner, conversa, local_runner
 from .transcript import ID as ID_CONVERSA, REBUILT_NOTE, Transcripts, prime, stamp as transcript_stamp, switched_note
 from . import engine as engines
@@ -1229,8 +1229,6 @@ _aprovacoes: aprovacoes.Aprovacoes | None = None
 
 
 def pedir_permissao(bot, chat_id: int, thread_id: int | None):
-    """O `on_permission` dos turnos neste chat/topico, do claude (can_use_tool) e do codex (broker do e-mail): o pedido
-    vira um cartao Permitir/Negar para o dono. Sem o canal (bot ainda subindo) o pedido e negado."""
     if _aprovacoes is None:
         return None
     async def pedir(req: dict) -> str | None:
@@ -1892,8 +1890,11 @@ def _turno_rodando() -> bool:
 async def _viver(app) -> None:
     parar = asyncio.Event()
     loop = asyncio.get_running_loop()
-    for sig in (signal.SIGTERM, signal.SIGINT):
-        loop.add_signal_handler(sig, parar.set)
+    if compat.IS_WINDOWS:
+        signal.signal(signal.SIGINT, lambda *_: loop.call_soon_threadsafe(parar.set))
+    else:
+        for sig in (signal.SIGTERM, signal.SIGINT):
+            loop.add_signal_handler(sig, parar.set)
     async with app:
         await app.start()
         await _post_init(app)

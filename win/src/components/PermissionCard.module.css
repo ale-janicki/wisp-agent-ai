@@ -1,0 +1,87 @@
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-s);
+  padding: var(--space-m);
+  border-radius: var(--radius-bubble);
+  background: rgba(245, 184, 61, 0.1);
+}
+.head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-s);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+.dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--busy);
+}
+.queue {
+  margin-left: auto;
+  color: var(--text-tertiary);
+}
+.summary {
+  font-weight: 500;
+}
+.tool {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+.toggle,
+.lockedToggle {
+  align-self: flex-start;
+  padding: 0;
+  border: 0;
+  background: none;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+.lockedToggle {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--busy);
+}
+.detail {
+  margin: 0;
+  max-height: 220px;
+  overflow: auto;
+  padding: var(--space-s);
+  border-radius: var(--radius-bubble);
+  background: var(--surface-hi);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+.actions {
+  display: flex;
+  gap: var(--space-s);
+}
+.allow,
+.deny {
+  height: 28px;
+  padding: 0 var(--space-l);
+  border: 0;
+  border-radius: 14px;
+  font-weight: 600;
+}
+.allow {
+  background: var(--accent);
+  color: var(--bg);
+}
+.allow:disabled {
+  background: var(--accent-fill);
+  color: rgba(163, 214, 92, 0.45);
+  cursor: not-allowed;
+}
+.deny {
+  margin-left: auto;
+  background: rgba(242, 85, 90, 0.18);
+  color: var(--error);
+}

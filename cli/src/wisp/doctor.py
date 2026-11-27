@@ -1,9 +1,9 @@
 import json
-import os
 import platform
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from wisp import compat
 from wisp.config import WispConfig
 from wisp.jobs import JobState, NotSupportedHere, manager_for
 from wisp.paths import WispPaths
@@ -120,7 +120,7 @@ def _check_telegram(runner: Runner, paths: WispPaths, cfg: WispConfig, **_) -> C
     if cfg.telegram is None:
         return Check("telegram", True, "opcional, não configurado", "telegram")
     try:
-        state = manager_for(platform.system(), paths, runner, os.getuid()).state(BOT_LABEL)
+        state = manager_for(platform.system(), paths, runner, compat.current_uid()).state(BOT_LABEL)
     except NotSupportedHere:
         return Check("telegram", False, "o Telegram ainda não roda neste sistema", "telegram")
     ok = state == JobState.RUNNING
@@ -128,8 +128,6 @@ def _check_telegram(runner: Runner, paths: WispPaths, cfg: WispConfig, **_) -> C
 
 
 def _profile_complete(profile: Path) -> bool:
-    """The keys the app needs to decode the profile, plus `persona.user`, which only the profile step writes:
-    a profile seeded by the Telegram step decodes but is not the user's yet."""
     try:
         data = json.loads(profile.read_text())
     except (OSError, ValueError):

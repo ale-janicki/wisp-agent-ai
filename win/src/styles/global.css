@@ -1,0 +1,73 @@
+:root {
+  --bg: #111214;
+  --surface: #1a1b1e;
+  --surface-hi: #232428;
+  --stroke: rgba(255, 255, 255, 0.06);
+  --highlight: rgba(255, 255, 255, 0.05);
+  --text-primary: #f2f2f3;
+  --text-secondary: #9a9ba1;
+  --text-tertiary: #6b6c72;
+  --accent: #a3d65c;
+  --accent-text: #c9f08a;
+  --accent-fill: rgba(163, 214, 92, 0.18);
+  --user-bubble: #3e4a2a;
+  --ok: #5bd66e;
+  --busy: #f5b83d;
+  --error: #f2555a;
+
+  --radius-panel: 26px;
+  --radius-pill: 14px;
+  --radius-card: 18px;
+  --radius-bubble: 14px;
+  --radius-nav: 12px;
+
+  --space-xs: 4px;
+  --space-s: 8px;
+  --space-m: 12px;
+  --space-l: 16px;
+  --space-xl: 20px;
+
+  --control: 32px;
+  --sidebar: 200px;
+
+  --font: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "Cascadia Mono", Consolas, "Courier New", monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+  color: var(--text-primary);
+  font: 13px/1.45 var(--font);
+  user-select: none;
+  -webkit-font-smoothing: antialiased;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+textarea,
+input {
+  font: inherit;
+  color: inherit;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--surface-hi);
+  border-radius: 4px;
+}

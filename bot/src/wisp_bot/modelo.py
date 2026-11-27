@@ -1,7 +1,8 @@
 from __future__ import annotations
-import asyncio, html, json, logging, os, signal, tomllib
+import asyncio, html, json, logging, tomllib
 from pathlib import Path
 
+from . import compat
 from . import engine as engines
 from .claude_runner import WISP_BIN
 from .config import CURRENT as _CFG
@@ -21,12 +22,12 @@ async def _json_line(*argv: str, timeout: float) -> dict | None:
     try:
         proc = await asyncio.create_subprocess_exec(
             *launch(), *argv, stdin=asyncio.subprocess.DEVNULL, stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.DEVNULL, start_new_session=True)
+            stderr=asyncio.subprocess.DEVNULL, **compat.new_session_kwargs())
         try:
             out, _ = await asyncio.wait_for(proc.communicate(), timeout)
         except asyncio.TimeoutError:
             try:
-                os.killpg(proc.pid, signal.SIGKILL)
+                compat.kill_process_tree(proc.pid, compat.SIGKILL)
             except ProcessLookupError:
                 pass
             await proc.wait()

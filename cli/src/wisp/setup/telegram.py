@@ -2,6 +2,7 @@ import json
 import math
 import os
 import re
+import sys
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -11,7 +12,7 @@ from wisp.doctor import BOT_LABEL
 from wisp.fsops import atomic_write, ensure_dir
 from wisp.jobs import JobManager, JobSpec, JobState
 from wisp.layout import layout_of
-from wisp.paths import WispPaths
+from wisp.paths import WispPaths, exe, venv_bin
 from wisp.report import Detail, StepReport
 from wisp.runner import Runner
 from wisp.setup.profile_writer import (
@@ -60,17 +61,23 @@ def _wait_up(runner: Runner, paths: WispPaths, details: list[Detail]) -> bool:
         sleep(UP_POLL_S)
 
 
+def _job_path(paths: WispPaths) -> str:
+    if sys.platform == "win32":
+        return f"{paths.bin};{os.environ.get('PATH', '')}"
+    brew = ":/opt/homebrew/bin" if sys.platform == "darwin" else ""
+    return f"{paths.bin}{brew}:/usr/bin:/bin"
+
+
 def _job_spec(paths: WispPaths, cfg: WispConfig) -> JobSpec:
     return JobSpec(
         label=BOT_LABEL,
-        program=[str(paths.runtime / "venv/bin/wisp-bot")],
-        env={"WISP_CONFIG": str(_config_path(paths)), "PATH": f"{paths.bin}:/opt/homebrew/bin:/usr/bin:/bin"},
+        program=[str(venv_bin(paths.runtime / "venv") / exe("wisp-bot"))],
+        env={"WISP_CONFIG": str(_config_path(paths)), "PATH": _job_path(paths)},
         log_path=layout_of(cfg, paths.home).logs / "bot.log",
     )
 
 
 def _start_bot(runner: Runner, paths: WispPaths, jobs: JobManager, cfg: WispConfig) -> tuple[bool, list[Detail]]:
-    """(Re)installs the job (bootout, then bootstrap) and waits for the bot to answer."""
     details = jobs.install(_job_spec(paths, cfg))
     return _wait_up(runner, paths, details), details
 
@@ -105,9 +112,6 @@ def _store_token(
 
 
 def _find_forum(api: TelegramAPI, since: int) -> tuple[dict | None, str | None]:
-    """Waits for a person's message in a forum supergroup sent at or after `since` (when the token was stored), so the
-    'oi' she sent before asking for the search counts and older messages to a reused bot do not.
-    Returns (found, why_not); why_not is set only if a non-forum group was seen by the deadline."""
     deadline = time.monotonic() + DISCOVER_S
     non_forum_seen = False
     while (remaining := deadline - time.monotonic()) > 0:
@@ -163,7 +167,6 @@ def _discover(runner, paths, cfg, api_factory, jobs: JobManager) -> StepReport:
     if not _bot_can_manage_topics(api, found["chat_id"]):
         return StepReport(STEP, "needs_user", "torne o bot administrador do grupo com permissão para gerenciar tópicos")
 
-    # The bot reads wisp.json, so the telegram part goes first; the profile only once the bot answered.
     cfg.telegram = TelegramConfig(
         chat_id=found["chat_id"], user_id=found["user_id"], token_file=str(token_file), state_dir=str(paths.state / "bot")
     )
@@ -184,8 +187,6 @@ def _discover(runner, paths, cfg, api_factory, jobs: JobManager) -> StepReport:
 
 
 def _disconnect(paths: WispPaths, cfg: WispConfig, jobs: JobManager) -> StepReport:
-    """`--skip`: nothing set up means "later"; a setup (even half done) is undone: profile block, wisp.json, job.
-    The token file stays, so connecting again only needs the group search."""
     profile = paths.config / "profile.json"
     plist = paths.launch_agents / f"{BOT_LABEL}.plist" if paths.launch_agents else None
     has_block = has_telegram_block(profile)

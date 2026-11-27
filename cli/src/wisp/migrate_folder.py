@@ -1,5 +1,4 @@
 import errno
-import fcntl
 import json
 import os
 import shutil
@@ -185,6 +184,7 @@ def _exclusive(src: Path, dst: Path) -> None:
 
 def _flush(fd: int) -> None:
     if sys.platform == "darwin":
+        import fcntl
         try:
             fcntl.fcntl(fd, fcntl.F_FULLFSYNC)
             return

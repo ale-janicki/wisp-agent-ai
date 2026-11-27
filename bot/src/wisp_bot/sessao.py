@@ -1,7 +1,8 @@
 from __future__ import annotations
-import base64, hashlib, json, logging, os, re, shlex, shutil, signal, subprocess, threading, time, uuid
+import base64, hashlib, json, logging, os, re, shlex, shutil, subprocess, threading, time, uuid
 from pathlib import Path
 
+from . import compat
 from . import hosting
 
 log = logging.getLogger("wisp.sessao")
@@ -86,7 +87,7 @@ def _sha(p: Path) -> str:
 
 def _matar_grupo(p: subprocess.Popen) -> None:
     try:
-        os.killpg(p.pid, signal.SIGKILL)
+        compat.kill_process_tree(p.pid, compat.SIGKILL)
     except (ProcessLookupError, PermissionError):
         pass
 
@@ -114,7 +115,7 @@ def ssh_pc(script: str, prazo: float) -> tuple[int, str]:
         return 2, ""
     try:
         p = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                             start_new_session=True)
+                             **compat.new_session_kwargs())
     except OSError:
         return 255, ""
     try:
@@ -162,7 +163,7 @@ def buscar_do_pc(session_id: str, cwd_local: str, timeout_s: float = TIMEOUT_S) 
     h = hashlib.sha256()
     sha_pc = ""
     p = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                         stderr=subprocess.DEVNULL, start_new_session=True)
+                         stderr=subprocess.DEVNULL, **compat.new_session_kwargs())
     timer = _matar_em(p, max(1.0, timeout_s))
     try:
         p.stdin.write(script.encode())
@@ -218,7 +219,7 @@ def enviar_ao_pc(session_id: str, cwd_pc: str, timeout_s: float = TIMEOUT_S) -> 
              f'for o in "$HOME"/.claude/projects/*/{session_id}.jsonl; do [ "$o" = "$f" ] && continue; [ -n "$(find "$o" -mmin -2 2>/dev/null)" ] && continue; rm -f "$o"; done\n'
              'echo OK\n')
     p = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                         stderr=subprocess.DEVNULL, start_new_session=True)
+                         stderr=subprocess.DEVNULL, **compat.new_session_kwargs())
     timer = _matar_em(p, max(1.0, timeout_s))
     try:
         p.stdin.write(cabeca.encode())

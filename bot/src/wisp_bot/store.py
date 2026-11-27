@@ -1,9 +1,9 @@
-"""Mapa topico -> sessao. Sobrevive a restart do servico."""
 from __future__ import annotations
-import contextlib, fcntl, json, os, threading, time, uuid
+import contextlib, json, os, threading, time, uuid
 from dataclasses import dataclass, asdict, field
 from pathlib import Path
 
+from . import compat
 from .config import CURRENT as _CFG
 from .transcript import stamp
 
@@ -16,7 +16,7 @@ def file_lock(path: Path):
     path.parent.mkdir(parents=True, exist_ok=True)
     fd = os.open(path.with_name(path.name + ".lock"), os.O_RDWR | os.O_CREAT, 0o600)
     try:
-        fcntl.flock(fd, fcntl.LOCK_EX)
+        compat.lock_file(fd)
         yield
     finally:
         os.close(fd)
@@ -24,22 +24,20 @@ def file_lock(path: Path):
 
 @dataclass
 class Topic:
-    key: str                  # "<chat_id>:<thread_id>"; thread 0 = Geral
+    key: str
     name: str
     session_id: str
     cwd: str
-    started: bool = False     # False = ainda nao existe sessao; usa --session-id
-    turns: int = 0            # turnos desta sessao; o custo sobe com eles
-    cost: float = 0.0         # US$ acumulados NESTA sessao (zera no reset)
-    last_used: float = 0.0    # epoch do ultimo turno
-    born: float = 0.0         # epoch do 1o turno desta sessao; o Geral recicla por idade
+    started: bool = False
+    turns: int = 0
+    cost: float = 0.0
+    last_used: float = 0.0
+    born: float = 0.0
     meta: dict = field(default_factory=dict)
     conversation: str = ""
 
 
 class Store:
-    """Persistencia simples com lock. O volume aqui e de dezenas de itens, nao milhares."""
-
     def __init__(self, path: Path = STORE):
         self.path = path
         self._lock = threading.Lock()
@@ -54,7 +52,6 @@ class Store:
         try:
             raw = json.loads(self.path.read_text("utf-8"))
         except (json.JSONDecodeError, OSError):
-            # arquivo corrompido nao pode derrubar o bot: comeca limpo e segue
             return
         self._data = {k: Topic(**v) for k, v in raw.items()}
         self._known = {k: t.conversation for k, t in self._data.items()}
@@ -91,7 +88,7 @@ class Store:
             tmp = self.path.with_suffix(".tmp")
             tmp.write_text(json.dumps({k: asdict(v) for k, v in self._data.items()},
                                       indent=2, ensure_ascii=False), "utf-8")
-            tmp.replace(self.path)          # troca atomica: nunca deixa json pela metade
+            tmp.replace(self.path)
             self._known = {k: t.conversation for k, t in self._data.items()}
             self._mtime = self._stat()
 
@@ -100,7 +97,7 @@ class Store:
             t = self._data.get(key)
             if t is None:
                 m = dict(meta or {})
-                m.setdefault("criado", time.time())     # quando o topico nasceu
+                m.setdefault("criado", time.time())
                 m.setdefault(CURSOR, stamp())
                 t = Topic(key=key, name=name, session_id=str(uuid.uuid4()), cwd=cwd,
                           meta=m, conversation=str(uuid.uuid4()))
@@ -109,7 +106,6 @@ class Store:
             return t
 
     def renomear(self, key: str, name: str) -> bool:
-        """Troca o nome do registro (so o nome: sessao, cwd e meta ficam). Topico inexistente: False."""
         with self._lock:
             t = self._data.get(key)
             if t is None:
@@ -128,7 +124,6 @@ class Store:
                 self._flush()
 
     def set_meta(self, key: str, **campos) -> None:
-        """Grava campos em meta num flush so; valor None apaga a chave. Topico inexistente: ignora."""
         with self._lock:
             t = self._data.get(key)
             if t is None:
@@ -152,7 +147,6 @@ class Store:
                 self._flush()
 
     def bump(self, key: str, cost: float | None) -> None:
-        """Contabiliza um turno. E isto que alimenta o reset automatico."""
         with self._lock:
             t = self._data.get(key)
             if t is None:
@@ -171,7 +165,6 @@ class Store:
                 self._flush()
 
     def reset(self, key: str) -> None:
-        """Nova sessao no mesmo topico, mantendo nome e cwd."""
         with self._lock:
             if key in self._data:
                 self._data[key].session_id = str(uuid.uuid4())
@@ -179,7 +172,6 @@ class Store:
                 self._data[key].turns = 0
                 self._data[key].cost = 0.0
                 self._data[key].born = 0.0
-                # o ponteiro de sessao vence pelo mais recente: o reset tem que ser o mais novo
                 self._data[key].last_used = time.time()
                 self._flush()
 
@@ -194,8 +186,6 @@ class Store:
             return t
 
     def adotar_sessao(self, key: str, session_id: str) -> None:
-        """Aponta o topico para uma sessao que ja existe (veio do terminal).
-        turns >= 1 porque o encerrar so grava o resumo no brain de sessao com turnos."""
         with self._lock:
             t = self._data.get(key)
             if t:
@@ -206,8 +196,6 @@ class Store:
 
     def seguir_sessao(self, key: str, session_id: str, started: bool,
                       born: float = 0.0, last_used: float = 0.0) -> None:
-        """A nota do brain manda: este topico passa a usar a sessao que ela aponta, com a
-        idade (born) que ela tinha, para o reset de 24h do Geral continuar valendo."""
         with self._lock:
             t = self._data.get(key)
             if t:
@@ -219,8 +207,6 @@ class Store:
                 self._flush()
 
     def drop(self, key: str) -> Topic | None:
-        """Solta o topico. A sessao do Claude nao e apagada em disco — ela so deixa
-        de ser referenciada, entao nada que ja virou nota no brain se perde."""
         with self._lock:
             t = self._data.pop(key, None)
             if t:

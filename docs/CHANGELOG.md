@@ -9,6 +9,19 @@ Entries are in descending chronological order (newest first).
 
 ## [Unreleased]
 
+### Added
+
+- Windows: first build of Wisp for Windows (`win/`, Tauri 2 + React). A pill at the top centre of the screen opens a chat with your own Claude Code on hover or Ctrl+Alt+Space, with a tray icon (Abrir / Sair). On first run it installs the Python runtime with the bundled `uv.exe`. Permission requests show the tool and its full input, and Permitir unlocks only after the details are expanded.
+- `wisp-serve`: a local HTTP and SSE server (127.0.0.1, per-run token, CORS only for the Tauri origins) that runs the Claude chat for the Windows app. It reads and writes the same `conversations.json` and transcripts as the Mac app. Claude starts with the same guard hooks, permission mode and instructions as on the Mac. If those cannot be set up, the turn is refused and Claude is not started.
+- CI: `.github/workflows/windows.yml` runs the Windows-safe tests and builds the NSIS installer as an artifact. It also runs the full suite, without blocking.
+- `scripts/fetch-uv-windows.sh` downloads the pinned `uv.exe` and checks its sha256.
+
+### Changed
+
+- The Python core imports and runs on Windows. File locks, process-tree kills, new process sessions and the user id go through `compat`. On macOS the flags and signals are unchanged. Where a uid gated a security check, Windows refuses instead of skipping the check.
+- Paths: Windows falls back to `~/AppData/Roaming` and `~/AppData/Local` when `APPDATA` or `LOCALAPPDATA` is missing. The venv uses `Scripts\` and `.exe` names. The `wisp` shim is a `wisp.cmd`. The bot's state and conversations paths follow the platform.
+- `scripts/leak-check.sh` also scans `win/` and `.github/`.
+
 ## [0.6.0] - 2026-11-27
 
 - Version 0.6.0 (build 19).

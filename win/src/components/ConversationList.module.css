@@ -1,0 +1,75 @@
+.column {
+  display: flex;
+  flex-direction: column;
+  width: var(--sidebar);
+  flex: none;
+  min-height: 0;
+  padding: var(--space-m) var(--space-s);
+  border-right: 1px solid var(--stroke);
+}
+.head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 var(--space-s) var(--space-s);
+}
+.heading {
+  font-size: 15px;
+  font-weight: 600;
+}
+.new {
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--surface-hi);
+  font-size: 15px;
+  line-height: 1;
+}
+.rows {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow-y: auto;
+  min-height: 0;
+}
+.row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-s);
+  height: var(--control);
+  padding: 0 var(--space-s);
+  border: 0;
+  border-radius: var(--radius-nav);
+  background: none;
+  text-align: left;
+}
+.row:hover {
+  background: var(--highlight);
+}
+.current {
+  background: var(--surface-hi);
+}
+.title {
+  flex: 1;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+.attention {
+  background: var(--accent);
+}
+.busy {
+  background: var(--busy);
+}
+.empty {
+  padding: var(--space-s);
+  color: var(--text-tertiary);
+  font-size: 11px;
+}

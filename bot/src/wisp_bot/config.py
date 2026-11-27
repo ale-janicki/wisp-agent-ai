@@ -1,16 +1,30 @@
 from __future__ import annotations
-import json, os, re, shlex
+import json, ntpath, os, re, shlex, sys
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
 DEFAULT_TOPICS_REL = "wisp/topicos"
-DEFAULT_STATE_DIR = "~/.local/state/wisp/bot"
 DEFAULT_PERSONA = "Wisp"
 DEFAULT_WISP_DIR = "~/Wisp"
 SUBFOLDERS = ("conversas", "reunioes", "brain", "modelos", "anexos", "skills", "ferramentas", "logs")
-DEFAULT_CONVERSATIONS = "~/Library/Application Support/Wisp/conversations.json"
+
+
+def default_state_dir(platform: str = sys.platform) -> str:
+    if platform == "win32":
+        return ntpath.join(os.environ.get("LOCALAPPDATA") or "~/AppData/Local", "wisp", "state", "bot")
+    return "~/.local/state/wisp/bot"
+
+
+def default_conversations(platform: str = sys.platform) -> str:
+    if platform == "win32":
+        return ntpath.join(os.environ.get("APPDATA") or "~/AppData/Roaming", "Wisp", "conversations.json")
+    return "~/Library/Application Support/Wisp/conversations.json"
+
+
+DEFAULT_STATE_DIR = default_state_dir()
+DEFAULT_CONVERSATIONS = default_conversations()
 HOSTINGS = ("solo", "pair")
 
 

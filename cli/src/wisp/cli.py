@@ -7,6 +7,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import asdict
 from pathlib import Path
 
+from wisp import compat
 from wisp import __version__
 from wisp.aprendizados import add_parser as add_aprender_parser, hook_aprendizados, run as run_aprender
 from wisp.brain_colher import main as run_brain_colher
@@ -129,7 +130,6 @@ def _setup_harness(args: argparse.Namespace) -> int:
 
 
 def _usable_dir(path: Path) -> bool:
-    """An existing directory, or a missing path whose nearest existing ancestor is a directory."""
     probe = path
     while not probe.exists() and probe != probe.parent:
         probe = probe.parent
@@ -203,7 +203,7 @@ def _setup_telegram(args: argparse.Namespace) -> int:
 
     def run(cfg: WispConfig) -> StepReport:
         try:
-            jobs = manager_for(platform.system(), paths, runner, os.getuid())
+            jobs = manager_for(platform.system(), paths, runner, compat.current_uid())
         except NotSupportedHere:
             return StepReport("telegram", "failed", "o Telegram ainda não roda neste sistema")
         return setup_telegram(
@@ -380,7 +380,7 @@ def _hook(args: argparse.Namespace) -> int:
 
 
 def _email(args: argparse.Namespace) -> int:
-    from wisp.email.mail_app import MailApp, MailError    # lazy: only the email commands pay for it
+    from wisp.email.mail_app import MailApp, MailError
 
     mail = MailApp(SubprocessRunner())
     try:
@@ -543,7 +543,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         run_mac_server()
         return 0
     if args.command == "mcp":
-        from wisp.email.mail_app import MailApp      # lazy: the mcp package loads only for the server
+        from wisp.email.mail_app import MailApp
         from wisp.email.server import run_server
 
         run_server(MailApp(SubprocessRunner()))

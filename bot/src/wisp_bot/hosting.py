@@ -1,7 +1,8 @@
 from __future__ import annotations
-import asyncio, ipaddress, json, logging, os, platform, re, shlex, shutil, signal, socket, time
+import asyncio, ipaddress, json, logging, os, platform, re, shlex, shutil, socket, time
 from pathlib import Path
 
+from . import compat
 from . import config, polling
 from .config import CURRENT as _CFG
 
@@ -232,13 +233,13 @@ async def _sh_err(*cmd: str, stdin: bytes | None = None, timeout: float = 10) ->
     try:
         p = await asyncio.create_subprocess_exec(
             *cmd, stdin=asyncio.subprocess.PIPE if stdin is not None else asyncio.subprocess.DEVNULL,
-            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, start_new_session=True)
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, **compat.new_session_kwargs())
         out, err = await asyncio.wait_for(p.communicate(stdin), timeout=timeout)
         return p.returncode or 0, (out or b"").decode("utf-8", "replace"), (err or b"").decode("utf-8", "replace")
     except (FileNotFoundError, asyncio.TimeoutError):
         if p is not None and p.returncode is None:
             try:
-                os.killpg(p.pid, signal.SIGKILL)
+                compat.kill_process_tree(p.pid, compat.SIGKILL)
             except (ProcessLookupError, PermissionError):
                 p.kill()
             await p.wait()

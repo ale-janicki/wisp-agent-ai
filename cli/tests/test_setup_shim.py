@@ -64,3 +64,14 @@ def test_shim_quotes_runtime_path(fake_home):
     paths = WispPaths.for_os("Darwin", fake_home, {"XDG_DATA_HOME": str(fake_home / "my data")})
     setup_shim(paths)
     assert "'" in (paths.bin / "wisp").read_text() and "my data" in (paths.bin / "wisp").read_text()
+
+
+def test_shim_windows_writes_cmd(fake_home, monkeypatch):
+    from wisp import paths as wp
+
+    monkeypatch.setattr(wp.sys, "platform", "win32")
+    paths = WispPaths.for_os("Windows", fake_home, {})
+    from wisp.setup import shim as sh
+
+    assert sh._content(paths) == f'@echo off\r\nrem {MARKER}\r\n"{paths.runtime / "venv" / "Scripts" / "wisp.exe"}" %*\r\n'
+    assert sh._target(paths).name == "wisp.cmd"

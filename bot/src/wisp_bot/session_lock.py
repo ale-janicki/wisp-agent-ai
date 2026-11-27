@@ -1,6 +1,7 @@
 from __future__ import annotations
-import asyncio, contextlib, fcntl, os, re
+import asyncio, contextlib, os, re
 from pathlib import Path
+from . import compat
 
 BASE = Path(os.environ.get("HOME") or Path.home()) / ".local/state/wisp/locks"
 _SID = re.compile(r"^[A-Za-z0-9-]{1,64}$")
@@ -24,7 +25,7 @@ class SessionLock:
     def try_acquire(self) -> bool:
         fd = self._open()
         try:
-            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            compat.lock_file(fd, blocking=False)
         except BlockingIOError:
             os.close(fd)
             return False
@@ -34,7 +35,7 @@ class SessionLock:
     def acquire(self) -> None:
         fd = self._open()
         try:
-            fcntl.flock(fd, fcntl.LOCK_EX)
+            compat.lock_file(fd)
         except BaseException:
             os.close(fd)
             raise

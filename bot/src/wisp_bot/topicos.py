@@ -1,28 +1,9 @@
-"""Topico do Telegram = nota no brain. E o que deixa continuar de qualquer maquina.
-
-A sessao do Claude viaja pelo canal ssh (sessao.py, ctl.py), nunca por esta nota:
-o jsonl pode ter segredo. A nota carrega o estado e o rastro de onde a sessao esta:
-
-  frontmatter  topic_key, name, cwd (com ~, resolve nas duas maquinas), status
-               (active | terminal | encerrado), onde (telegram | terminal-mac |
-               terminal-pc). Os session_* NAO sao mais escritos aqui: cada host grava so o
-               seu sessoes-<HOST>.json (ponteiro por topico) e meta() resolve entre eles;
-               o frontmatter antigo vale so como fallback de migracao
-  ## Briefing  a tarefa como nasceu, escrita uma vez
-  ## Onde está o agente do topico reescreve ao fim de todo turno com substancia
-  ## Log       o bot anexa uma linha por turno — deterministico, nao depende do modelo
-
-Um topico sem sessao local abre uma sessao nova e manda o Claude ler esta nota antes
-de responder. So o host ativo escreve, entao nao ha conflito de merge.
-
-A pasta fica fora do protocolo de index do vault (como daily/): sao notas de
-estado, geridas pelo bot.
-"""
 from __future__ import annotations
-import asyncio, json, logging, os, re, signal, time
+import asyncio, json, logging, re
 from datetime import datetime
 from pathlib import Path
 
+from . import compat
 from .config import CURRENT as _CFG
 
 log = logging.getLogger("wisp.topicos")
@@ -31,7 +12,7 @@ BRAIN = _CFG.brain
 DIR = _CFG.topics_dir
 REL = _CFG.topics_rel
 PERSONA = _CFG.persona
-LOG_GERAL_MAX = 30          # o Geral e continuo: o Log dele e janela, nao historico
+LOG_GERAL_MAX = 30
 TRECHO_MSG, TRECHO_RESP = 280, 400
 
 
@@ -72,8 +53,6 @@ def _fm(texto: str) -> dict:
 
 
 def caminho(key: str) -> Path | None:
-    """Acha a nota pelo topic_key (o nome do arquivo carrega o thread, mas o slug
-    pode ter mudado)."""
     if not DIR.is_dir():
         return None
     t = _thread(key)
@@ -88,14 +67,11 @@ def rel(p: Path) -> str:
     return str(p.relative_to(BRAIN))
 
 
-# ---- ponteiro de sessao: UM arquivo por host, so o dono escreve (como jornal-/vagas-) ----
-
 def arquivo_sessoes(host: str) -> Path:
     return DIR / f"sessoes-{host}.json"
 
 
 def _ler_sessoes() -> dict[str, dict]:
-    """host -> {topic_key: entrada}, de todo sessoes-*.json. Arquivo ausente ou quebrado = vazio."""
     out = {}
     for p in sorted(DIR.glob("sessoes-*.json")) if DIR.is_dir() else []:
         try:
@@ -115,8 +91,6 @@ def _inteiro(v) -> int:
 
 
 def resolver_sessao(key: str, por_host: dict[str, dict]) -> dict | None:
-    """Entre os hosts, a entrada de maior session_last; o host e o do arquivo. Devolve os campos
-    no formato do frontmatter (strings), ou None se nenhum host tem o topico. Empate: ordem do host."""
     melhor = None
     for host, d in sorted(por_host.items()):
         e = d.get(key) if isinstance(d, dict) else None
@@ -136,7 +110,6 @@ def resolver_sessao(key: str, por_host: dict[str, dict]) -> dict | None:
 
 def gravar_ponteiro(host: str, key: str, session_id: str, started: bool, born: float, last: float,
                     size: int, cwd: str) -> None:
-    """Grava a entrada do topico no arquivo DESTE host (atomico: tmp e replace). So le/escreve o proprio."""
     DIR.mkdir(parents=True, exist_ok=True)
     p = arquivo_sessoes(host)
     try:
@@ -144,7 +117,6 @@ def gravar_ponteiro(host: str, key: str, session_id: str, started: bool, born: f
         if not isinstance(d, dict):
             raise ValueError("nao e objeto")
     except (OSError, ValueError):
-        # ilegivel: guarda de lado em vez de sobrescrever os ponteiros dos outros topicos
         if p.exists():
             p.replace(p.with_suffix(".bad"))
         d = {}
@@ -156,7 +128,6 @@ def gravar_ponteiro(host: str, key: str, session_id: str, started: bool, born: f
 
 
 def _com_sessao(d: dict, key: str, sessoes: dict[str, dict]) -> dict:
-    """Sobrepoe os session_* do ponteiro por host; sem ponteiro, fica o frontmatter antigo."""
     r = resolver_sessao(key, sessoes)
     if r:
         d.update(r)
@@ -174,15 +145,12 @@ def meta(key: str) -> dict | None:
 
 
 def ultimo_host(key: str) -> str | None:
-    """Host da ultima linha do Log ("- data hora · host · ...")."""
     p = caminho(key)
     linhas = re.findall(r"^- \d{4}-\d{2}-\d{2} \d{2}:\d{2} · (\w+) · ", _ler(p) if p else "", re.M)
     return linhas[-1] if linhas else None
 
 
 def onde_esta_hash(key: str) -> str:
-    """sha1 da secao "## Onde está" — o mesmo calculo do hook topico-gate.sh.
-    Se mudar aqui, muda la."""
     import hashlib
     p = caminho(key)
     m = re.search(r"^## Onde está\n(.*?)(?=^## |\Z)", _ler(p) if p else "", re.S | re.M)
@@ -190,7 +158,6 @@ def onde_esta_hash(key: str) -> str:
 
 
 def garantir(key: str, nome: str, cwd: str, briefing: str = "") -> Path:
-    """Cria a nota se nao existe. Nunca sobrescreve uma existente."""
     p = caminho(key)
     if p:
         return p
@@ -228,7 +195,7 @@ def garantir(key: str, nome: str, cwd: str, briefing: str = "") -> Path:
 
 
 def _uma_linha(s: str, n: int) -> str:
-    s = re.sub(r"<[^>]+>", "", s)                 # a resposta vem em HTML do Telegram
+    s = re.sub(r"<[^>]+>", "", s)
     s = re.sub(r"\s+", " ", s).strip()
     return s if len(s) <= n else s[: n - 1] + "…"
 
@@ -272,7 +239,6 @@ def _set_fm(key: str, campo: str, valor: str) -> None:
 
 
 def set_campos(key: str, **campos: str) -> None:
-    """Varios campos do frontmatter de uma vez (onde, session_id, session_host...)."""
     for campo, valor in campos.items():
         _set_fm(key, campo, str(valor))
 
@@ -307,9 +273,7 @@ def encerrados() -> list[dict]:
     return out
 
 
-# ---- brain-sync: pull antes de ler, push (agrupado) depois de escrever ----
-
-SYNC = _CFG.brain_sync_cmd     # argv; None = sem sync (brain so local): pull/push sao no-op
+SYNC = _CFG.brain_sync_cmd
 _push_agendado: asyncio.Task | None = None
 
 
@@ -320,22 +284,20 @@ async def _sync(verbo: str, timeout: float) -> bool:
     try:
         p = await asyncio.create_subprocess_exec(
             *SYNC, verbo, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
-            start_new_session=True)
+            **compat.new_session_kwargs())
         await asyncio.wait_for(p.wait(), timeout=timeout)
         return p.returncode == 0
-    except (OSError, asyncio.TimeoutError) as e:     # FileNotFoundError e PermissionError sao OSError
+    except (OSError, asyncio.TimeoutError) as e:
         log.warning("brain-sync %s falhou: %s", verbo, e)
         return False
     finally:
-        if p is not None and p.returncode is None:   # estouro ou cancelamento: nao deixa o grupo vivo
+        if p is not None and p.returncode is None:
             await _matar_grupo(p)
 
 
 async def _matar_grupo(p) -> None:
-    """SIGTERM no grupo do brain-sync (o git solta o index.lock no TERM), ate 2 s para o lider sair e meio segundo para
-    os filhos limparem; depois SIGKILL no grupo para o que sobrou."""
     try:
-        os.killpg(p.pid, signal.SIGTERM)
+        compat.kill_process_tree(p.pid, compat.SIGTERM)
     except (ProcessLookupError, PermissionError):
         return
     try:
@@ -344,7 +306,7 @@ async def _matar_grupo(p) -> None:
     except (asyncio.TimeoutError, asyncio.CancelledError):
         pass
     try:
-        os.killpg(p.pid, signal.SIGKILL)
+        compat.kill_process_tree(p.pid, compat.SIGKILL)
     except (ProcessLookupError, PermissionError):
         pass
 
@@ -354,7 +316,6 @@ async def pull() -> bool:
 
 
 def push_logo(atraso: float = 1.0) -> None:
-    """Agenda um push; varios turnos seguidos viram um push so."""
     global _push_agendado
     if _push_agendado and not _push_agendado.done():
         return
@@ -366,9 +327,8 @@ def push_logo(atraso: float = 1.0) -> None:
 
 
 async def push_agora(timeout: float = 90) -> bool:
-    """Push na hora (fim de um job do dia): o outro host nao pode repetir o que este acabou de postar."""
     try:
         return await _sync("push", timeout)
-    except Exception as e:                     # quem chama e um loop diario: nunca levanta
+    except Exception as e:
         log.warning("push_agora falhou: %s", e)
         return False

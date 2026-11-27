@@ -1,8 +1,9 @@
 from __future__ import annotations
-import asyncio, json, logging, os, signal
+import asyncio, json, logging, os
 from pathlib import Path
 from typing import Awaitable, Callable
 
+from . import compat
 from .claude_runner import LIMITE_LINHA, SEM_CANAL, WISP_BIN, permission_mode, strip_status
 from .config import CURRENT as _CFG
 from .engine import Result, Status
@@ -58,7 +59,7 @@ async def run(prompt: str, *, session_id: str, cwd: str, started: bool, model: s
     try:
         proc = await asyncio.create_subprocess_exec(
             *cmd, cwd=root, stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE, limit=LIMITE_LINHA, start_new_session=True, env=child_env)
+            stderr=asyncio.subprocess.PIPE, limit=LIMITE_LINHA, **compat.new_session_kwargs(), env=child_env)
     except OSError as e:
         return Result(False, f"não consegui iniciar a IA local ({type(e).__name__})", engine="local")
 
@@ -143,7 +144,7 @@ async def run(prompt: str, *, session_id: str, cwd: str, started: bool, model: s
 
     async def kill() -> None:
         try:
-            os.killpg(proc.pid, signal.SIGKILL)
+            compat.kill_process_tree(proc.pid, compat.SIGKILL)
         except ProcessLookupError:
             pass
         await cancel_pending()
@@ -180,12 +181,12 @@ async def readiness(timeout: float = READY_TIMEOUT_S) -> tuple[bool, str | None]
     try:
         proc = await asyncio.create_subprocess_exec(
             *launch(), "local", "ready", stdin=asyncio.subprocess.DEVNULL, stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.DEVNULL, start_new_session=True)
+            stderr=asyncio.subprocess.DEVNULL, **compat.new_session_kwargs())
         try:
             out, _ = await asyncio.wait_for(proc.communicate(), timeout)
         except asyncio.TimeoutError:
             try:
-                os.killpg(proc.pid, signal.SIGKILL)
+                compat.kill_process_tree(proc.pid, compat.SIGKILL)
             except ProcessLookupError:
                 pass
             await proc.wait()

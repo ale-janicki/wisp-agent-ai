@@ -31,3 +31,21 @@ def test_windows_uses_appdata(fake_home):
     assert p.state == PureWindowsPath("C:/U/l/wisp/state")
     assert p.bin == PureWindowsPath("C:/U/l/wisp/bin")
     assert p.launch_agents is None
+
+
+def test_windows_falls_back_without_appdata(fake_home):
+    p = WispPaths.for_os("Windows", fake_home, {})
+    assert p.config == PureWindowsPath(fake_home / "AppData/Roaming" / "wisp")
+    assert p.runtime == PureWindowsPath(fake_home / "AppData/Local" / "wisp" / "runtime")
+    assert p.state == PureWindowsPath(fake_home / "AppData/Local" / "wisp" / "state")
+
+
+def test_venv_bin_and_exe_per_platform(monkeypatch):
+    from wisp import paths as wp
+
+    monkeypatch.setattr(wp.sys, "platform", "win32")
+    assert wp.venv_bin(Path("v")) == Path("v") / "Scripts"
+    assert wp.exe("wisp") == "wisp.exe"
+    monkeypatch.setattr(wp.sys, "platform", "darwin")
+    assert wp.venv_bin(Path("v")) == Path("v") / "bin"
+    assert wp.exe("wisp") == "wisp"

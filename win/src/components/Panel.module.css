@@ -1,0 +1,42 @@
+.panel {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  border-radius: var(--radius-panel);
+  background: rgba(17, 18, 20, 0.94);
+  border: 1px solid var(--stroke);
+}
+.chat {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+.header {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-m);
+  padding: var(--space-m) var(--space-l) 0;
+}
+.title {
+  font-size: 15px;
+  font-weight: 600;
+}
+.step {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+.error {
+  margin: 0 var(--space-l) var(--space-s);
+  padding: 6px var(--space-m);
+  border-radius: var(--radius-bubble);
+  background: rgba(242, 85, 90, 0.1);
+  color: var(--text-secondary);
+  font-size: 11px;
+  user-select: text;
+}
+.permission {
+  padding: 0 var(--space-l) var(--space-s);
+}

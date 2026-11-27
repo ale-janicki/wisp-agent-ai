@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import fcntl
 import hashlib
 import json
 import os
@@ -13,6 +12,7 @@ from pathlib import Path
 from stat import S_ISDIR
 from urllib.parse import quote
 
+from wisp import compat
 from wisp import reuniao
 from wisp.brain_index import STOPWORDS, BrainError, BrainIndex, NoteRow, fold, index_path
 from wisp.config import WispConfig
@@ -199,7 +199,7 @@ def vault_lock(meetings: Path):
         old = meetings / VAULT_LOCK
         if old.is_file() and old.stat().st_size == 0:
             old.unlink(missing_ok=True)
-        fcntl.flock(fd, fcntl.LOCK_EX)
+        compat.lock_file(fd)
         yield
     finally:
         os.close(fd)

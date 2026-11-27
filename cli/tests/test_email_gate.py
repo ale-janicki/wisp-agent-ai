@@ -1,3 +1,4 @@
+import pwd
 import asyncio
 import json
 import os
@@ -20,8 +21,6 @@ REQUEST = CONTRACT["request"]["input"]
 
 
 class FakeHost:
-    """A host that answers with whatever bytes it is told to, and records what the client sent."""
-
     def __init__(self, reply: bytes | None, delay: float = 0):
         self.folder = tempfile.mkdtemp(prefix="g-", dir="/tmp")
         self.path = os.path.join(self.folder, "b")
@@ -268,7 +267,7 @@ def test_the_host_executables_come_from_install_locations_not_the_environment(mo
 
 
 def _fake_home(monkeypatch, tmp_path):
-    monkeypatch.setattr(gate.pwd, "getpwuid", lambda uid: type("P", (), {"pw_dir": str(tmp_path)})())
+    monkeypatch.setattr(pwd, "getpwuid", lambda uid: type("P", (), {"pw_dir": str(tmp_path)})())
 
 
 def test_a_runtime_python_is_allowed_by_its_resolved_and_its_framework_path(monkeypatch, tmp_path):
@@ -303,7 +302,7 @@ def test_the_installed_runtime_layout_accepts_the_interpreter_the_wisp_entry_poi
 
 
 def test_this_machines_runtime_interpreter_is_an_accepted_host():
-    home = gate.pwd.getpwuid(os.getuid()).pw_dir
+    home = pwd.getpwuid(os.getuid()).pw_dir
     python = os.path.join(home, gate.RUNTIME_ROOT, "venv/bin/python")
     if not os.path.exists(python):
         pytest.skip("no installed Wisp runtime on this machine")

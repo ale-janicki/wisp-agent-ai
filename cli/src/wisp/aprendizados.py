@@ -1,6 +1,5 @@
 import argparse
 import contextlib
-import fcntl
 import hashlib
 import os
 import re
@@ -11,6 +10,7 @@ import unicodedata
 from datetime import date
 from pathlib import Path
 
+from wisp import compat
 from wisp.config import WispConfig
 from wisp.fsops import atomic_write
 from wisp.paths import WispPaths
@@ -115,7 +115,7 @@ def _locked():
     path.parent.mkdir(parents=True, exist_ok=True)
     fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o600)
     try:
-        fcntl.flock(fd, fcntl.LOCK_EX)
+        compat.lock_file(fd)
         yield
     finally:
         os.close(fd)
@@ -176,8 +176,6 @@ def tidy(path: Path) -> list[str]:
 
 
 def quarantine(path: Path, pending: Path, known: list[str]) -> list[str]:
-    """Restores the active lines as they were before the harvest (`known`, in order) and moves every other line the model left
-    there (an addition or an edited line) to the pending file, where nothing reads it as a rule."""
     with _locked():
         current = read_lines(path)
         kept, _ = _tidy(known)

@@ -90,7 +90,7 @@ def _default_scope_tree(tmp_path):
     (tmp_path / "scripts/leak-patterns.txt").write_text("planted-marker\n")
     (tmp_path / "scripts/uv").write_text("#!/bin/sh\nexit 0\n")
     (tmp_path / "scripts/uv").chmod(0o755)
-    for name in ("app", "core", "cli", "bot", "harness", "docs", "vault-template"):
+    for name in ("app", "core", "cli", "bot", "harness", "docs", "vault-template", "win", ".github"):
         (tmp_path / name).mkdir()
     return {"PATH": f"{tmp_path / 'scripts'}:{shutil.which('gitleaks') and Path(shutil.which('gitleaks')).parent}:/usr/bin:/bin"}
 

@@ -1,10 +1,9 @@
-import os
-import signal
 import subprocess
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
+from wisp import compat
 
 
 @dataclass
@@ -39,7 +38,7 @@ class SubprocessRunner:
                 stderr=subprocess.PIPE,
                 env=dict(env) if env is not None else None,
                 cwd=cwd,
-                start_new_session=True,
+                **compat.new_session_kwargs(),
             )
         except OSError as e:
             return RunResult(args, 127, "", str(e))
@@ -48,7 +47,7 @@ class SubprocessRunner:
             return RunResult(args, proc.returncode, out.decode(errors="replace"), err.decode(errors="replace"))
         except subprocess.TimeoutExpired:
             try:
-                os.killpg(proc.pid, signal.SIGKILL)
+                compat.kill_process_tree(proc.pid, compat.SIGKILL)
             except ProcessLookupError:
                 pass
             out, err = proc.communicate()

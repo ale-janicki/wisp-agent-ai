@@ -1,0 +1,6 @@
+{
+  "identifier": "default",
+  "description": "Event listening for the single Wisp window; the app commands are its own.",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}
