@@ -9,6 +9,39 @@ Entries are in descending chronological order (newest first).
 
 ## [Unreleased]
 
+### Added
+
+- Settings > Automações (was Integrações) is one card listing everything the agent harness runs, each line a dropdown with a short summary: Integrações, Rotinas, Hooks, Comandos, MCP and CLIs. Rotinas are discovered from `~/Library/LaunchAgents` by the profile's label prefixes (`routines.prefixes`) and merged with the registry for names; a registry job whose plist is not installed shows "plist não instalado" and no Ligar button. Hooks come from the profile's `hooks.list` command, grouped by moment (Início da sessão, Antes de cada ferramenta, Fim do turno…), each with Desligar/Ligar; safety hooks show a lock and cannot be turned off. Comandos lists the executables in the profile's `commands.dirs`.
+- Icon rail: on Conversa, Reuniões and Terminal (tabs with their own list column) the main sidebar folds into a 52 pt column of icons, in the notch panel, the window and fullscreen. Hovering it opens the full sidebar as a floating glass overlay over the content, without pushing it; counts show as a dot on the icon and the tab name as a tooltip.
+- Terminal: a "Nova aba" row at the end of the tabs list. The tab shortcuts (⌘1…⌘9) moved from the rows into each row's tooltip.
+- Chat: assistant messages render code blocks, aligned columns and markdown tables as blocks: code keeps its lines and scrolls sideways when wider than the bubble, tables are a grid with a bold header.
+- Terminal: drag panes to re-dock them. In a tab with two or more panes, the handle on top of each pane drags it over another pane of the same tab; the target half (left, right, top or bottom) lights up and, on drop, the pane docks there without restarting its shell. Dropping on the middle of a pane swaps the two.
+- Terminal: the shell prompt line above the input line became a row of context chips, like Warp: the folder with `~` and the middle shortened (`~/…/local-gateway`), inside a git repository the branch (the short commit when detached; amber on `main` and `master`), and, only when there are changes, `● files  +lines −lines` against HEAD (untracked files count in the ●). They refresh when the folder changes and when a command ends, never on keystrokes; outside a repository only the folder shows.
+- Terminal: ⌘B shows and hides the tabs sidebar. Its button sits next to "Buscar abas…"; with the sidebar hidden, a toolbar shows that button and the current tab's title, so you still know which tab you are in. With the sidebar visible there is no toolbar and the panes start at the top.
+- Terminal: ⌃C on a running command marks its block "interrompendo…" until the command ends, then "<duration> · interrompido", even when the program traps the signal and exits 0 (scripts that clean up on ⌃C used to look stuck).
+- Meetings get a second, cleaner transcript after the call. Live transcription stays on Parakeet, which guesses the language on each short piece and drifts into invented English (20–50% of the call-audio segments in Portuguese calls). When a recording ends, Wisp re-transcribes each side (Você and Outros) with Whisper in the meeting's language, one process at a time and never while another meeting is recording, and the note is written from that text. Silence hallucinations ("Legenda por…", "Se inscreva no canal", lines repeated over and over, Nordic-looking gibberish) are filtered out. The Parakeet transcript is kept as `transcript.parakeet.json`. If `whisper-cli` or the model is missing, or the run fails, the meeting keeps the Parakeet transcript and shows why. Models live in `~/Wisp/modelos/whisper/`.
+- Language picker under "Gravar" on the empty meetings screen (Português (BR) by default, English, Español or Detectar). The language is saved with each recording, so it is reprocessed in the language it was recorded in. Settings > Reuniões has the same picker and "Revisão depois da chamada": Whisper large-v3 (recommended, about 4 GB of memory), Whisper turbo (faster, about 2 GB, makes more mistakes on the call audio) or off.
+
+### Changed
+
+- Rotinas left the sidebar and live in Settings > Automações. A saved "Rotinas" tab opens Settings.
+- Window and fullscreen: every tab's content starts on the line of the sidebar avatar.
+- Brain always opens on the graph with the notes tree visible when Wisp starts; within a session it stays where you left it. Notes open in the last session come back as tabs behind the graph.
+- Conversa: the "Voltar ao menu" arrow is gone; the icon rail replaces it.
+- Terminal: the "+" button left the toolbar (the "Nova aba" row and ⌘T open a tab).
+- Tarefas and Lembretes are one tab, Tarefas. Alerts and pendências are now the same list (`pendencias.md`, written by `notes-agent-alerta`): lines tagged `#urgente` show a red dot and sit on top, and the sidebar badge counts the open lines. Ticking a line removes it under the same file lock `notes-agent-alerta` uses. The Home "Notificações" card and the notch notices come from the urgent lines. A saved "Lembretes" tab opens Tarefas.
+- The panel content keeps the same 16 pt margin at the top as on the sides and bottom, instead of touching the top of the window.
+
+### Fixed
+
+- Updates: "Verificar agora" / "Ver atualização" in Settings > Sobre always offers the newest release. A background check that found an update used to keep its Sparkle session open, so a later click showed that stored version (the one right after yours) without fetching the feed again, and no new check ran until Wisp quit.
+- Chat: a new conversation is saved the moment you press Enter, so it shows in Local with your message even if you leave before the first reply (it used to exist only in memory until the reply finished, and was lost on an error, a quit or when its runtime was dropped).
+- Chat: a column table sent as a code block no longer collapses into one wrapped line.
+- Home dashboard: the cards no longer stretch to fill the window. Each card is as tall as its content, starts at the top and the two cards in a row share the taller one's height; the page scrolls only when the grid is taller than the window. Conversas shows the 5 latest, Notificações shows up to 8 rows and scrolls inside the card beyond that.
+- Terminal: a block's output wraps at the pane's width instead of a fixed narrow width.
+- Terminal: the prompt-end mark was dropped when a read from the shell split an escape sequence in two, so the prompt above the input line could stay stale after a command ended. Every split of a prompt now yields the same events as a single read.
+- Terminal: a pane torn down late by SwiftUI no longer clears the update callbacks of the pane that replaced it.
+
 ## [0.5.0] - 2026-11-25
 
 - Version 0.5.0 (build 18).

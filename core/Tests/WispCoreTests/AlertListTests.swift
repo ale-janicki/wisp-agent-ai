@@ -2,47 +2,16 @@ import XCTest
 @testable import WispCore
 
 final class AlertListTests: XCTestCase {
-    func testParsesRedFirstThenNewest() throws {
-        let json = #"""
-        [{"chave":"a","nivel":"yellow","texto":"Amarelo novo","aberto_ts":"2026-11-16T10:00:00-03:00"},
-         {"chave":"b","nivel":"red","texto":"Vermelho velho","aberto_ts":"2026-11-08T00:51:16-03:00"},
-         {"chave":"c","nivel":"red","texto":"Vermelho novo","ts":"2026-11-11T16:58:32-03:00"},
-         {"nivel":"red","texto":"sem chave"}]
-        """#
-        let items = try AlertList.parse(Data(json.utf8))
-        XCTAssertEqual(items.map(\.id), ["c", "b", "a"])
-        XCTAssertEqual(items.map(\.level), [.red, .red, .yellow])
-        XCTAssertEqual(items.last?.text, "Amarelo novo")
-        XCTAssertEqual(items.first?.openedAt, Date(timeIntervalSince1970: 1_794_427_112))
-    }
-
-    func testParsesFractionalSecondsAndOffsets() throws {
+    func testParsesOffsetsAndFractionalSeconds() {
         let expected = Date(timeIntervalSince1970: 1_794_427_112)
         for stamp in [
             "2026-11-11T16:58:32-03:00", "2026-11-11T19:58:32Z", "2026-11-11T19:58:32.000Z",
             "2026-11-11T16:58:32.000-03:00", "2026-11-11T16:58:32-0300", "2026-11-11T22:28:32+0230",
         ] {
-            let json = #"[{"chave":"a","texto":"t","ts":"\#(stamp)"}]"#
-            XCTAssertEqual(try AlertList.parse(Data(json.utf8)).first?.openedAt, expected, stamp)
+            XCTAssertEqual(AlertList.date(stamp), expected, stamp)
         }
-        let fraction = try AlertList.parse(Data(#"[{"chave":"a","texto":"t","ts":"2026-11-11T19:58:32.500Z"}]"#.utf8))
-        XCTAssertEqual(fraction.first?.openedAt?.timeIntervalSince1970 ?? 0, 1_794_427_112.5, accuracy: 0.001)
-        XCTAssertNil(try AlertList.parse(Data(#"[{"chave":"a","texto":"t","ts":"ontem"}]"#.utf8)).first?.openedAt)
-    }
-
-    func testReadsFrontAndTheme() throws {
-        let json = #"[{"chave":"a","texto":"t","frente":"casa","tema":"luz"},{"chave":"b","texto":"t"}]"#
-        let items = try AlertList.parse(Data(json.utf8))
-        XCTAssertEqual(items.map(\.front), ["casa", nil])
-        XCTAssertEqual(items.map(\.theme), ["luz", nil])
-    }
-
-    func testEmptyArrayAndGarbage() throws {
-        XCTAssertEqual(try AlertList.parse(Data("[]".utf8)), [])
-        XCTAssertThrowsError(try AlertList.parse(Data("🔴 a  Acme — texto".utf8))) { error in
-            XCTAssertEqual(error as? AlertListError, .notJSON)
-        }
-        XCTAssertThrowsError(try AlertList.parse(Data(#"{"chave":"a"}"#.utf8)))
+        XCTAssertEqual(AlertList.date("2026-11-11T19:58:32.500Z")?.timeIntervalSince1970 ?? 0, 1_794_427_112.5, accuracy: 0.001)
+        XCTAssertNil(AlertList.date("ontem"))
     }
 
     func testAge() {

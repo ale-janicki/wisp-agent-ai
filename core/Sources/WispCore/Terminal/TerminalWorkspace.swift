@@ -95,6 +95,11 @@ public final class TerminalWorkspace {
     @discardableResult
     public func toggleMaximize() -> Bool { layout.toggleMaximize() }
 
+    @discardableResult
+    public func move(_ session: TerminalSession.ID, onto target: TerminalSession.ID, edge: TerminalLayout.DropEdge) -> Bool {
+        layout.move(session, onto: target, edge: edge)
+    }
+
     public func resize(_ path: [Int], to ratio: Double) { layout.resize(path, to: ratio) }
 
     public func rename(_ tab: UUID, to title: String?) {

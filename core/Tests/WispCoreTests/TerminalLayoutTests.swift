@@ -13,6 +13,83 @@ final class TerminalLayoutTests: XCTestCase {
         return layout
     }
 
+    private func twoPanes() -> TerminalLayout {
+        var layout = TerminalLayout()
+        layout.addTab(session: a)
+        layout.split(.horizontal, adding: b)
+        return layout
+    }
+
+    func testMoveOnEachEdgeOfTwoPanes() throws {
+        let cases: [(TerminalLayout.DropEdge, TerminalLayout.Node)] = [
+            (.left, .split(.horizontal, ratio: 0.5, first: .leaf(b), second: .leaf(a))),
+            (.right, .split(.horizontal, ratio: 0.5, first: .leaf(a), second: .leaf(b))),
+            (.top, .split(.vertical, ratio: 0.5, first: .leaf(b), second: .leaf(a))),
+            (.bottom, .split(.vertical, ratio: 0.5, first: .leaf(a), second: .leaf(b))),
+        ]
+        for (edge, expected) in cases {
+            var layout = twoPanes()
+            XCTAssertTrue(layout.move(b, onto: a, edge: edge))
+            XCTAssertEqual(layout.selectedTab?.root, expected, "\(edge)")
+            XCTAssertEqual(layout.focusedSession, b)
+        }
+    }
+
+    func testMoveOnEachEdgeOfThreePanes() throws {
+        var layout = threePanes()
+        XCTAssertTrue(layout.move(c, onto: a, edge: .top))
+        XCTAssertEqual(layout.selectedTab?.root, .split(.horizontal, ratio: 0.5,
+            first: .split(.vertical, ratio: 0.5, first: .leaf(c), second: .leaf(a)), second: .leaf(b)))
+
+        layout = threePanes()
+        XCTAssertTrue(layout.move(a, onto: c, edge: .left))
+        XCTAssertEqual(layout.selectedTab?.root, .split(.vertical, ratio: 0.5,
+            first: .leaf(b), second: .split(.horizontal, ratio: 0.5, first: .leaf(a), second: .leaf(c))))
+
+        layout = threePanes()
+        XCTAssertTrue(layout.move(a, onto: b, edge: .bottom))
+        XCTAssertEqual(layout.selectedTab?.root, .split(.vertical, ratio: 0.5,
+            first: .split(.vertical, ratio: 0.5, first: .leaf(b), second: .leaf(a)), second: .leaf(c)))
+
+        layout = threePanes()
+        XCTAssertTrue(layout.move(b, onto: c, edge: .right))
+        XCTAssertEqual(layout.selectedTab?.root, .split(.horizontal, ratio: 0.5,
+            first: .leaf(a), second: .split(.horizontal, ratio: 0.5, first: .leaf(c), second: .leaf(b))))
+        XCTAssertEqual(layout.selectedTab?.sessions.sorted { $0.uuidString < $1.uuidString }, [a, b, c].sorted { $0.uuidString < $1.uuidString })
+    }
+
+    func testMoveCenterSwapsLeavesKeepingRatios() throws {
+        var layout = threePanes()
+        layout.resize([], to: 0.3)
+        XCTAssertTrue(layout.move(a, onto: c, edge: .center))
+        XCTAssertEqual(layout.selectedTab?.root, .split(.horizontal, ratio: 0.3,
+            first: .leaf(c), second: .split(.vertical, ratio: 0.5, first: .leaf(b), second: .leaf(a))))
+        XCTAssertEqual(layout.focusedSession, a)
+    }
+
+    func testMoveRefusesSelfUnknownAndOtherTabSessions() {
+        var layout = twoPanes()
+        layout.addTab(session: c)
+        layout.selectTab(at: 0)
+        let before = layout
+        XCTAssertFalse(layout.move(a, onto: a, edge: .left))
+        XCTAssertFalse(layout.move(c, onto: a, edge: .left))
+        XCTAssertFalse(layout.move(a, onto: c, edge: .center))
+        XCTAssertFalse(layout.move(d, onto: a, edge: .right))
+        XCTAssertEqual(layout, before)
+    }
+
+    func testDropTargetPicksNearestEdgeOrCentre() {
+        let frames = twoPanes().selectedTab?.frames ?? [:]
+        XCTAssertNil(TerminalLayout.dropTarget(at: CGPoint(x: 0.25, y: 0.5), in: frames, excluding: a))
+        XCTAssertEqual(TerminalLayout.dropTarget(at: CGPoint(x: 0.75, y: 0.5), in: frames, excluding: a)?.edge, .center)
+        XCTAssertEqual(TerminalLayout.dropTarget(at: CGPoint(x: 0.55, y: 0.5), in: frames, excluding: a)?.edge, .left)
+        XCTAssertEqual(TerminalLayout.dropTarget(at: CGPoint(x: 0.95, y: 0.5), in: frames, excluding: a)?.edge, .right)
+        XCTAssertEqual(TerminalLayout.dropTarget(at: CGPoint(x: 0.75, y: 0.05), in: frames, excluding: a)?.edge, .top)
+        XCTAssertEqual(TerminalLayout.dropTarget(at: CGPoint(x: 0.75, y: 0.95), in: frames, excluding: a)?.edge, .bottom)
+        XCTAssertNil(TerminalLayout.dropTarget(at: CGPoint(x: 2, y: 2), in: frames, excluding: a))
+    }
+
     func testAddTabSelectsItAndFocusesItsPane() {
         var layout = TerminalLayout()
         layout.addTab(session: a)

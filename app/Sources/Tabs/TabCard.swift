@@ -114,12 +114,13 @@ struct SkeletonRows: View {
 
 struct SectionCaption: View {
     let text: String
+    var inset = Theme.Space.m
 
     var body: some View {
         Text(text)
             .font(Theme.Font.caption)
             .foregroundStyle(Theme.textTertiary)
-            .padding(.leading, Theme.Space.m)
+            .padding(.leading, inset)
             .padding(.top, Theme.Space.s)
             .padding(.bottom, 2)
             .frame(maxWidth: .infinity, alignment: .leading)

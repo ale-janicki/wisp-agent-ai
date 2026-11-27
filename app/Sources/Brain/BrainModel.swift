@@ -132,10 +132,11 @@ final class BrainModel {
     var prompt: BrainPrompt?
     var message: String?
     var showsSwitcher = false
-    var showsGraph = AppSettings.shared.settings.brainShowsGraph
+    /// Every launch starts on the graph; within a session the Brain stays where the user left it.
+    var showsGraph = true
     var browsing = true
     private(set) var searchFocusTick = 0
-    var showsTree = false
+    var showsTree = true
     var sidePanel: BrainSidePanel?
     var searchError: String?
     var searchQuery = ""
@@ -311,6 +312,7 @@ final class BrainModel {
         guard id != activeID else { return }
         flushActive()
         activeID = id
+        browsing = false
         persistTabs()
         refreshSide()
     }
@@ -328,7 +330,10 @@ final class BrainModel {
             message = "Texto não salvo guardado em Application Support/Wisp/brain-recuperado."
         }
         tabs.remove(at: index)
-        if activeID == id { activeID = tabs.indices.contains(index) ? tabs[index].id : tabs.last?.id }
+        if activeID == id {
+            activeID = tabs.indices.contains(index) ? tabs[index].id : tabs.last?.id
+            browsing = false
+        }
         persistTabs()
         refreshSide()
     }
@@ -895,7 +900,10 @@ final class BrainModel {
             return
         }
         for tab in tabs where tab.path == path || tab.path.hasPrefix(path + "/") { tabs.removeAll { $0.id == tab.id } }
-        if !tabs.contains(where: { $0.id == activeID }) { activeID = tabs.last?.id }
+        if !tabs.contains(where: { $0.id == activeID }) {
+            activeID = tabs.last?.id
+            browsing = false
+        }
         for index in tabs.indices { tabs[index].history.forget(path) }
         bookmarks.forget(path)
         saveBookmarks()
@@ -961,7 +969,6 @@ final class BrainModel {
 
     func chooseBrowseMode(graph: Bool) {
         showsGraph = graph
-        AppSettings.shared.setBrainShowsGraph(graph)
     }
 
     func searchTag(_ name: String) {

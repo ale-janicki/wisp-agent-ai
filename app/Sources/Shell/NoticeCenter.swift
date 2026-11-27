@@ -22,7 +22,7 @@ final class NoticeCenter {
     private var settings: NoticeSettings { AppSettings.shared.settings.notices }
 
     func start() {
-        Dashboard.shared.alerts.onLoaded = { [weak self] items in self?.alertsLoaded(items) }
+        TabSources.shared.tasks.onLoaded = { [weak self] items in self?.alertsLoaded(items) }
         poll?.cancel()
         poll = Task { [weak self] in
             while !Task.isCancelled {
@@ -54,7 +54,6 @@ final class NoticeCenter {
         changed()
     }
 
-    /// Dismisses one notice by source: the card on screen if it is that one, else just its place in the queue.
     func dismiss(sourceId: String) {
         queue.remove(sourceId: sourceId, now: Date())
         if queue.current == nil { unseen = nil }
@@ -120,11 +119,11 @@ final class NoticeCenter {
             var shown: Set<NoticeTarget> = [.conversation(model.currentId)]
             if let thread = model.linkedThread { shown.insert(.topic(thread)) }
             return shown
-        case .reminders:
+        case .tasks:
             return [.reminders]
         case .home:
             let tile = AppSettings.shared.settings.dashboardOrder.contains(DashboardTileID.alerts)
-            return tile && PanelTab.reminders.isAvailable(in: model.profile) ? [.reminders] : []
+            return tile && PanelTab.tasks.isAvailable(in: model.profile) ? [.reminders] : []
         default:
             return []
         }
@@ -135,25 +134,25 @@ final class NoticeCenter {
     private func pollSources() async {
         guard let shell, shell.state != .panel, !settings.doNotDisturb else { return }
         let model = shell.conversation
-        if settings.reminder, let command = model.profile.blocks?.alerts?.list, !command.isEmpty {
-            Dashboard.shared.alerts.refresh(command: command)
+        if settings.reminder, let file = model.profile.blocks?.tasks?.file, !file.isEmpty {
+            TabSources.shared.tasks.refresh(file: file)
         }
         if settings.telegram || settings.reply, model.profile.blocks?.telegram?.isComplete == true {
             await model.refreshTelegram()
         }
     }
 
-    private func alertsLoaded(_ items: [AlertItem]) {
+    private func alertsLoaded(_ items: [TaskItem]) {
         let news = seen.alertsRead(items, settings: settings)
         for item in news.reversed() {
             post(Notice(
-                sourceId: "alert:\(item.id)",
+                sourceId: "alert:\(item.identity)",
                 kind: .reminder,
-                title: item.level == .red ? "Alerta" : "Lembrete",
-                preview: Notices.preview(item.text),
+                title: "Alerta",
+                preview: Notices.preview(item.title),
                 time: Date(),
                 target: .reminders,
-                tone: item.level == .red ? .alert : .warning
+                tone: .alert
             ))
         }
     }

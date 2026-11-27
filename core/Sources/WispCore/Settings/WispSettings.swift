@@ -118,6 +118,50 @@ public enum DashboardTileID {
     }
 }
 
+public enum MeetingLanguage: String, Codable, CaseIterable, Sendable {
+    case pt, en, es, auto
+
+    public var label: String {
+        switch self {
+        case .pt: "Português (BR)"
+        case .en: "English"
+        case .es: "Español"
+        case .auto: "Detectar"
+        }
+    }
+
+    /// The `-l` value for whisper-cli; nil lets Whisper detect the language.
+    public var whisperCode: String? { self == .auto ? nil : rawValue }
+}
+
+public enum PostCallEngine: String, Codable, CaseIterable, Sendable {
+    case whisperLargeV3, whisperTurbo, off
+
+    public var label: String {
+        switch self {
+        case .whisperLargeV3: "Whisper large-v3 (recomendado)"
+        case .whisperTurbo: "Whisper turbo (mais rápido)"
+        case .off: "Desligado (só o ao vivo)"
+        }
+    }
+
+    public var modelFileName: String? {
+        switch self {
+        case .whisperTurbo: "ggml-large-v3-turbo.bin"
+        case .whisperLargeV3: "ggml-large-v3.bin"
+        case .off: nil
+        }
+    }
+
+    public var engineName: String {
+        switch self {
+        case .whisperTurbo: "whisper-large-v3-turbo"
+        case .whisperLargeV3: "whisper-large-v3"
+        case .off: "off"
+        }
+    }
+}
+
 public struct MeetingSettings: Codable, Equatable, Sendable {
     public static let defaultLimitMinutes = 120
     public static let limitChoices = [30, 60, 90, 120, 180, 240]
@@ -126,6 +170,8 @@ public struct MeetingSettings: Codable, Equatable, Sendable {
     public var webhookSigns = false
     public var limitMinutes = defaultLimitMinutes
     public var autoSummary = true
+    public var language = MeetingLanguage.pt
+    public var postCallEngine = PostCallEngine.whisperLargeV3
     public var echoCancel = EchoCancelMode.automatic
     public var cleanupDays = 0
 
@@ -137,6 +183,8 @@ public struct MeetingSettings: Codable, Equatable, Sendable {
         webhookSigns = (try? container.decodeIfPresent(Bool.self, forKey: .webhookSigns)) ?? false
         limitMinutes = (try? container.decodeIfPresent(Int.self, forKey: .limitMinutes)) ?? Self.defaultLimitMinutes
         autoSummary = (try? container.decodeIfPresent(Bool.self, forKey: .autoSummary)) ?? true
+        language = (try? container.decodeIfPresent(MeetingLanguage.self, forKey: .language)) ?? .pt
+        postCallEngine = (try? container.decodeIfPresent(PostCallEngine.self, forKey: .postCallEngine)) ?? .whisperLargeV3
         let legacy = try? decoder.container(keyedBy: LegacyKeys.self)
         if let mode = try? container.decodeIfPresent(EchoCancelMode.self, forKey: .echoCancel) {
             echoCancel = mode
@@ -149,7 +197,7 @@ public struct MeetingSettings: Codable, Equatable, Sendable {
 
     public var limitSeconds: Double { Double(min(max(limitMinutes, 15), 720) * 60) }
 
-    private enum CodingKeys: String, CodingKey { case webhookEnabled, webhookSigns, limitMinutes, autoSummary, echoCancel, cleanupDays }
+    private enum CodingKeys: String, CodingKey { case webhookEnabled, webhookSigns, limitMinutes, autoSummary, language, postCallEngine, echoCancel, cleanupDays }
     private enum LegacyKeys: String, CodingKey { case cancelEcho }
 }
 

@@ -293,6 +293,20 @@ final class MeetingCaptureTests: XCTestCase {
         XCTAssertNil(MeetingCaptureSupport.unsupportedMessage(for: newer))
     }
 
+    func testLanguageChosenAtStartSurvivesPauseResumeAndFinalize() throws {
+        let mic = FakeSource(name: "mic"), system = FakeSource(name: "sys")
+        let rec = recorder(mic: mic, system: system)
+        let folder = try rec.start(language: "es", now: t0)
+        XCTAssertEqual(try RecordingFolder.read(in: folder).language, "es")
+        mic.emit([Float](repeating: 0.5, count: CaptureFormat.sampleRate / 10))
+        _ = try rec.pause(now: t0.addingTimeInterval(1))
+        XCTAssertEqual(try RecordingFolder.read(in: folder).language, "es")
+        _ = try rec.resume(now: t0.addingTimeInterval(2))
+        XCTAssertEqual(try RecordingFolder.read(in: folder).language, "es")
+        _ = try rec.stop()
+        XCTAssertEqual(try RecordingFolder.read(in: folder).language, "es")
+    }
+
     func testStartWritesMetaAndStopFinalizesStereoFileWithDuration() throws {
         let mic = FakeSource(name: "mic"), system = FakeSource(name: "sys"), sink = MemorySink()
         let converter = FakeConverter()

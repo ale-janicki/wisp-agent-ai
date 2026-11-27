@@ -13,7 +13,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .appearance: "Aparência"
         case .model: "Modelo"
         case .notices: "Avisos"
-        case .integrations: "Integrações"
+        case .integrations: "Automações"
         case .general: "Geral"
         case .about: "Sobre"
         }
@@ -41,6 +41,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
 
 struct SettingsView: View {
     @ObservedObject var media: NowPlayingService
+    let profile: Profile
     private let settings = AppSettings.shared
 
     private static let repository = URL(string: "https://github.com/ale-janicki/wisp-agent-ai")!
@@ -115,9 +116,7 @@ struct SettingsView: View {
         case .notices:
             notices
         case .integrations:
-            IntegrationsPane(media: media)
-            McpServersGroup()
-            CliToolsGroup()
+            AutomationsPane(profile: profile, media: media)
             TelegramSettingsGroup()
         case .general:
             general
@@ -344,6 +343,34 @@ struct MeetingsSettingsGroup: View {
                 detail: "Ligado: quando a gravação termina, o Wisp transcreve, gera o resumo e grava a nota da reunião na pasta meetings do brain, com os participantes da agenda e links para o que já existe no brain. Desligado: a nota entra no brain só com os participantes e o link da transcrição, e a reunião terminada mostra o botão Gerar resumo para preencher a mesma nota depois.",
                 isOn: current.autoSummary
             ) { on in settings.setMeetings { $0.autoSummary = on } }
+            Divider().overlay(Theme.stroke)
+            SettingsRow(
+                title: "Idioma das reuniões",
+                detail: "O idioma falado nas chamadas. Vale na próxima gravação; a reunião guarda o idioma em que foi gravada."
+            ) {
+                Picker("Idioma das reuniões", selection: Binding(
+                    get: { current.language },
+                    set: { value in settings.setMeetings { $0.language = value } }
+                )) {
+                    ForEach(MeetingLanguage.allCases, id: \.self) { language in Text(language.label).tag(language) }
+                }
+                .labelsHidden()
+                .frame(width: 150)
+            }
+            Divider().overlay(Theme.stroke)
+            SettingsRow(
+                title: "Revisão depois da chamada",
+                detail: "Depois que a chamada acaba, o Whisper refaz a transcrição no idioma escolhido, um canal por vez e em segundo plano, só quando não há gravação em andamento. Precisa do whisper-cli (brew install whisper-cpp) e do modelo em modelos/whisper na pasta do Wisp. Sem eles, fica a transcrição ao vivo. O turbo usa uns 2 GB de memória; o large-v3 uns 4 GB."
+            ) {
+                Picker("Revisão depois da chamada", selection: Binding(
+                    get: { current.postCallEngine },
+                    set: { value in settings.setMeetings { $0.postCallEngine = value } }
+                )) {
+                    ForEach(PostCallEngine.allCases, id: \.self) { engine in Text(engine.label).tag(engine) }
+                }
+                .labelsHidden()
+                .frame(width: 210)
+            }
             Divider().overlay(Theme.stroke)
             SettingsRow(
                 title: "Cancelar eco do alto-falante",
@@ -676,13 +703,12 @@ struct IntegrationsPane: View {
     @MainActor static var expandOnOpen: Integration?
 
     @ObservedObject var media: NowPlayingService
-    private let spotify = SpotifyModel.shared
     @State private var open: Integration?
 
     private static let reflow = Animation.spring(response: 0.3, dampingFraction: 0.82)
 
     var body: some View {
-        SettingsGroup(title: "Integrações") {
+        VStack(alignment: .leading, spacing: 0) {
             ForEach(Array(Integration.allCases.enumerated()), id: \.element) { index, item in
                 if index > 0 { Divider().overlay(Theme.stroke) }
                 row(item)
@@ -768,7 +794,18 @@ struct IntegrationsPane: View {
         }
     }
 
+    static func summary(media: NowPlayingService) -> String {
+        let connected = Integration.allCases.filter { status($0, media: media).text == "Conectado" }.count
+        let total = Integration.allCases.count
+        return connected == 0 ? "\(total)" : "\(total) · \(connected) \(connected == 1 ? "conectada" : "conectadas")"
+    }
+
     private func status(_ item: Integration) -> (text: String, color: Color) {
+        Self.status(item, media: media)
+    }
+
+    private static func status(_ item: Integration, media: NowPlayingService) -> (text: String, color: Color) {
+        let spotify = SpotifyModel.shared
         switch item {
         case .spotify:
             switch media.automationStatus(for: .spotify) {
@@ -793,11 +830,16 @@ struct IntegrationsPane: View {
 
 // MARK: MCP e CLIs
 
-private struct McpServersGroup: View {
+private struct McpServersContent: View {
     private let model = ToolsInventoryModel.shared
 
     var body: some View {
-        SettingsGroup(title: "MCP", caption: caption) {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("Servidores que o motor \(model.engine.displayName) enxerga, lidos da configuração (nenhum é iniciado aqui). Env, cabeçalhos e argumentos nunca aparecem.")
+                .font(Theme.Font.caption)
+                .foregroundStyle(Theme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.bottom, Theme.Space.xs)
             if model.servers.isEmpty {
                 Text(model.scanned ? "Nenhum servidor MCP configurado para este motor." : "Lendo a configuração…")
                     .font(Theme.Font.body)
@@ -818,11 +860,6 @@ private struct McpServersGroup: View {
         }
     }
 
-    private var caption: String {
-        let engine = model.engine.displayName
-        return "Servidores que o motor \(engine) enxerga, lidos da configuração (nenhum é iniciado aqui). Env, cabeçalhos e argumentos nunca aparecem."
-    }
-
     private func detail(_ server: McpServerInfo) -> String {
         var parts = [server.transport, server.scope.rawValue]
         if server.installedByWisp { parts.append("instalado pelo Wisp") }
@@ -830,15 +867,18 @@ private struct McpServersGroup: View {
     }
 }
 
-private struct CliToolsGroup: View {
+private struct CliToolsContent: View {
     private let model = ToolsInventoryModel.shared
     @State private var showMissing = false
 
     var body: some View {
-        SettingsGroup(
-            title: "CLIs",
-            caption: "A IA usa estas ferramentas pelo terminal dela; as travas do Wisp ainda valem.",
-            trailing: {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: Theme.Space.m) {
+                Text("A IA usa estas ferramentas pelo terminal dela; as travas do Wisp ainda valem.")
+                    .font(Theme.Font.caption)
+                    .foregroundStyle(Theme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: Theme.Space.s)
                 if model.scanning {
                     ProgressView().controlSize(.small)
                 } else {
@@ -846,12 +886,7 @@ private struct CliToolsGroup: View {
                         .buttonStyle(CapsuleButtonStyle(kind: .ghost))
                 }
             }
-        ) {
             if model.scanned {
-                Text("Instaladas")
-                    .font(Theme.Font.caption)
-                    .foregroundStyle(Theme.textTertiary)
-                    .padding(.vertical, Theme.Space.xs)
                 ForEach(Array(model.installed.enumerated()), id: \.offset) { index, tool in
                     if index > 0 { Divider().overlay(Theme.stroke) }
                     SettingsRow(title: tool.name, detail: detail(tool)) {
@@ -882,13 +917,160 @@ private struct CliToolsGroup: View {
                     .padding(.vertical, Theme.Space.s)
             }
         }
-        .onAppear {
-            model.refresh()
-        }
     }
 
     private func detail(_ tool: CliStatus) -> String {
         [tool.version, tool.directory].compactMap { $0 }.joined(separator: " · ")
+    }
+}
+
+// MARK: Automações
+
+struct AutomationsPane: View {
+    let profile: Profile
+    @ObservedObject var media: NowPlayingService
+    @State private var open: Kind?
+
+    #if DEBUG
+    static var snapshotOpenRow: Kind?
+    #endif
+    private let routines = RoutinesModel.shared
+    private let hooks = HooksModel.shared
+    private let commands = CommandsModel.shared
+    private let tools = ToolsInventoryModel.shared
+
+    private static let reflow = Animation.spring(response: 0.3, dampingFraction: 0.82)
+
+    enum Kind: CaseIterable { case integrations, routines, hooks, commands, mcp, clis }
+
+    private var sections: [Kind] {
+        Kind.allCases.filter { section in
+            switch section {
+            case .routines: profile.hasRoutines
+            case .hooks: profile.hasHooks
+            case .commands: profile.hasCommands
+            default: true
+            }
+        }
+    }
+
+    var body: some View {
+        SettingsGroup(title: "Automações") {
+            ForEach(Array(sections.enumerated()), id: \.element) { index, section in
+                if index > 0 { Divider().overlay(Theme.stroke) }
+                row(section)
+            }
+        }
+        .onAppear {
+            if IntegrationsPane.expandOnOpen != nil { open = .integrations }
+            #if DEBUG
+            if let row = Self.snapshotOpenRow { open = row }
+            #endif
+            tools.refresh()
+            if let block = profile.blocks?.hooks, profile.hasHooks { hooks.refresh(block: block) }
+            if let block = profile.blocks?.commands, profile.hasCommands { commands.refresh(block: block) }
+        }
+        .task {
+            guard profile.hasRoutines, let block = profile.blocks?.routines else { return }
+            while !Task.isCancelled {
+                routines.refresh(block: block)
+                try? await Task.sleep(for: RoutinesModel.interval)
+            }
+        }
+    }
+
+    private func row(_ section: Kind) -> some View {
+        let expanded = open == section
+        return VStack(alignment: .leading, spacing: 0) {
+            Button {
+                withAnimation(Self.reflow) { open = expanded ? nil : section }
+            } label: {
+                HStack(spacing: Theme.Space.m) {
+                    Image(systemName: icon(section))
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Theme.textSecondary)
+                        .frame(width: 20)
+                    Text(name(section))
+                        .font(Theme.Font.bodyMedium)
+                        .foregroundStyle(Theme.textPrimary)
+                    Spacer(minLength: Theme.Space.s)
+                    if let summary = summary(section) {
+                        Text(summary)
+                            .font(Theme.Font.body)
+                            .foregroundStyle(Theme.textSecondary)
+                    }
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(Theme.textTertiary)
+                        .rotationEffect(.degrees(expanded ? 90 : 0))
+                }
+                .frame(minHeight: Theme.Layout.rowHeight)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityAddTraits(expanded ? .isSelected : [])
+            if expanded {
+                content(section)
+                    .padding(.leading, 20 + Theme.Space.m)
+                    .padding(.vertical, Theme.Space.s)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
+        .clipped()
+    }
+
+    @ViewBuilder
+    private func content(_ section: Kind) -> some View {
+        switch section {
+        case .integrations: IntegrationsPane(media: media)
+        case .routines: RoutinesSection(profile: profile)
+        case .hooks: HooksSection(profile: profile)
+        case .commands: CommandsSection()
+        case .mcp: McpServersContent()
+        case .clis: CliToolsContent()
+        }
+    }
+
+    private func name(_ section: Kind) -> String {
+        switch section {
+        case .integrations: "Integrações"
+        case .routines: "Rotinas"
+        case .hooks: "Hooks"
+        case .commands: "Comandos"
+        case .mcp: "MCP"
+        case .clis: "CLIs"
+        }
+    }
+
+    private func icon(_ section: Kind) -> String {
+        switch section {
+        case .integrations: "puzzlepiece.extension"
+        case .routines: "clock.arrow.circlepath"
+        case .hooks: "arrow.triangle.branch"
+        case .commands: "terminal"
+        case .mcp: "server.rack"
+        case .clis: "chevron.left.forwardslash.chevron.right"
+        }
+    }
+
+    private func summary(_ section: Kind) -> String? {
+        switch section {
+        case .integrations:
+            return IntegrationsPane.summary(media: media)
+        case .routines:
+            guard case .loaded(let rows) = routines.state, !rows.isEmpty else { return nil }
+            return "\(routines.runningCount ?? 0) rodando · \(rows.count)"
+        case .hooks:
+            return hooks.report.map(HooksSection.summary)
+        case .commands:
+            guard case .loaded(let entries) = commands.state else { return nil }
+            return "\(entries.count)"
+        case .mcp:
+            return tools.scanned ? "\(tools.servers.count)" : nil
+        case .clis:
+            return tools.scanned ? "\(tools.installed.count)" : nil
+        }
     }
 }
 

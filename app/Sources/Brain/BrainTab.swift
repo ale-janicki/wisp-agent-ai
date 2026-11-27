@@ -38,7 +38,6 @@ struct BrainTab: View {
             if !snapshotQuery.isEmpty { model.searchQuery = snapshotQuery }
             #endif
         }
-        .onChange(of: model.activeID) { _, _ in model.browsing = false }
         .onChange(of: model.searchFocusTick) { searchFocused = true }
         .onDisappear {
             model.flush()

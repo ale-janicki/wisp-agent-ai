@@ -51,6 +51,16 @@ public struct ShellMarkScanner: Sendable {
         self.nonce = Array((nonce ?? "").utf8)
     }
 
+    public mutating func resetSequence() {
+        state = .ground
+        code = 0
+        codeDigits = 0
+        body.removeAll()
+        csi.removeAll()
+        openedEarlier = false
+        pendingStart = nil
+    }
+
     public mutating func scan(_ bytes: ArraySlice<UInt8>) -> [ScannedShellEvent] {
         var found = [ScannedShellEvent]()
         openedEarlier = state != .ground
@@ -255,7 +265,7 @@ public struct ShellStream: Sendable {
         if let pending = scanner.pendingStart, input.count - pending <= Self.maxHeld {
             held = Array(input[(base + pending)...])
             end = pending
-            scanner = ShellMarkScanner(nonce: nonce)
+            scanner.resetSequence()
         }
         var pieces = [ShellStreamPiece]()
         var fed = 0
