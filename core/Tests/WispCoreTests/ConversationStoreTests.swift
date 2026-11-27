@@ -178,4 +178,40 @@ final class ConversationStoreTests: XCTestCase {
         XCTAssertEqual(done.wait(timeout: .now() + 5), .success)
         XCTAssertEqual(store.all().count, 2)
     }
+
+    // MARK: Record at send time
+
+    private func snapshot(_ id: UUID, session: String?, _ messages: [ConversationMessage]) -> ConversationRecord? {
+        ConversationRecord.snapshot(id: id, sessionId: session, title: nil, messages: messages, cwd: nil,
+                                    titleGenerated: false, awayOnPhone: false)
+    }
+
+    func testSendingCreatesTheRecordBeforeAnyReplyOrSessionId() throws {
+        let store = ConversationStore(directory: dir)
+        let id = UUID()
+        let record = try XCTUnwrap(snapshot(id, session: nil, [ConversationMessage(role: .user, text: "olá mundo")]))
+        try store.upsert(record)
+        XCTAssertEqual(store.all().map(\.id), [id])
+        XCTAssertNil(store.all()[0].sessionId)
+        XCTAssertEqual(store.all()[0].lastPreview, "olá mundo")
+        XCTAssertEqual(store.all()[0].lastFrom, .user)
+        XCTAssertFalse(store.all()[0].title.isEmpty)
+    }
+
+    func testLaterSessionIdUpdatesTheSameRecord() throws {
+        let store = ConversationStore(directory: dir)
+        let id = UUID()
+        let user = ConversationMessage(role: .user, text: "olá")
+        try store.upsert(try XCTUnwrap(snapshot(id, session: nil, [user])))
+        let reply = ConversationMessage(role: .assistant, text: "oi!")
+        try store.upsert(try XCTUnwrap(snapshot(id, session: "sess-1", [user, reply])))
+        XCTAssertEqual(store.all().count, 1)
+        XCTAssertEqual(store.all()[0].sessionId, "sess-1")
+        XCTAssertEqual(store.all()[0].lastFrom, .agent)
+    }
+
+    func testAnUnsentConversationHasNoRecord() {
+        XCTAssertNil(snapshot(UUID(), session: nil, []))
+        XCTAssertNil(snapshot(UUID(), session: "s", [ConversationMessage(role: .system, text: "aviso")]))
+    }
 }

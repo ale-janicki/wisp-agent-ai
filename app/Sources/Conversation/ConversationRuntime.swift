@@ -161,6 +161,7 @@ final class ConversationRuntime {
         telegramNotice = nil
         sentAt = .now
         lastUsed = Date()
+        persist()
         #if DEBUG
         log.notice("send: \(text, privacy: .public)")
         #endif
@@ -692,6 +693,7 @@ final class ConversationRuntime {
             &state, event, statusPrefix: host.profile.agent.statusPrefix, pendingAfterResult: ledger.pending,
             turnInFlight: ledger.inFlight > 0)
         noteTranscript(event)
+        if case .claude(.initialized) = event { persist() }
         if case .claude(.usage(let limit)) = event { host.setRateLimit(limit) }
 
         var isResult = false
@@ -898,19 +900,9 @@ final class ConversationRuntime {
     // MARK: Record
 
     private func persist() {
-        guard let first = state.messages.first(where: { $0.role == .user }) else { return }
-        let last = ConversationPreview.last(of: state.messages)
-        let record = ConversationRecord(
-            id: id,
-            sessionId: state.sessionId,
-            title: title ?? ConversationTitle.fallback(from: MessageAttachments.parse(first.text)?.summary ?? first.text),
-            updatedAt: Date(),
-            cwd: cwd,
-            lastPreview: last?.text,
-            lastFrom: last?.from,
-            titleGenerated: titleGenerated,
-            awayOnPhone: awayOnPhone
-        )
+        guard let record = ConversationRecord.snapshot(
+            id: id, sessionId: state.sessionId, title: title, messages: state.messages, cwd: cwd,
+            titleGenerated: titleGenerated, awayOnPhone: awayOnPhone) else { return }
         title = record.title
         do {
             try host.save(record)
