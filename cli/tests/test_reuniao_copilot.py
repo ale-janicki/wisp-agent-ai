@@ -38,7 +38,7 @@ class Fake:
 def cfg(fake_home):
     wisp_dir = fake_home / "Wisp"
     wisp_dir.mkdir()
-    return WispConfig(wisp_dir=str(wisp_dir), user_name="Ale", claude_bin="/bin/echo")
+    return WispConfig(wisp_dir=str(wisp_dir), user_name="Ana", claude_bin="/bin/echo")
 
 
 def assist_input(**extra):

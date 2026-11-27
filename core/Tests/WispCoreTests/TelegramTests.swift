@@ -371,7 +371,7 @@ final class TranscriptParserTests: XCTestCase {
 
     func testBotRuleTurnIsHiddenAndContextWrapperUnwrapped() {
         let lines = [
-            user("[contexto do bot] Este topico ja tem historia. Leia a nota.\n\nMensagem do Ale:\nqual o saldo?"),
+            user("[contexto do bot] Este topico ja tem historia. Leia a nota.\n\nMensagem do usuario:\nqual o saldo?"),
             assistant("<b>R$ 10</b>"),
             user("[regra do topico] O turno anterior fechou sem reescrever. Responda so \"ok\"."),
             assistant("ok"),

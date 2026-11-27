@@ -69,6 +69,7 @@ final class AppSettings {
             let windowMode = settings.windowMode
             let terminalBlocks = settings.terminalBlocks
             let terminalNativeBlocks = settings.terminalNativeBlocks
+            let terminalInteractiveCommands = settings.terminalInteractiveCommands
             settings = .default
             settings.dashboardOrder = order
             settings.telegramOrder = topicOrder
@@ -85,6 +86,7 @@ final class AppSettings {
             settings.brainShowsGraph = brainShowsGraph
             settings.terminalBlocks = terminalBlocks
             settings.terminalNativeBlocks = terminalNativeBlocks
+            settings.terminalInteractiveCommands = terminalInteractiveCommands
             settings.windowMode = windowMode
         }
     }

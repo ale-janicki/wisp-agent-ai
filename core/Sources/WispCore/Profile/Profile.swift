@@ -89,9 +89,11 @@ public struct AlertsBlock: Codable, Sendable, Equatable {
 
 public struct TasksBlock: Codable, Sendable, Equatable {
     public var file: String?
+    public var lock: String?
 
-    public init(file: String? = nil) {
+    public init(file: String? = nil, lock: String? = nil) {
         self.file = file
+        self.lock = lock
     }
 }
 

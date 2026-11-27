@@ -228,7 +228,7 @@ final class NoticeQueueTests: XCTestCase {
     // MARK: Sources
 
     private func urgent(_ name: String) -> TaskItem {
-        TaskList.parse("- **[Ale] X — \(name)**. #urgente <!-- alerta:\(name) -->").first!.items[0]
+        TaskList.parse("- **[Ana] X — \(name)**. #urgente <!-- alerta:\(name) -->").first!.items[0]
     }
 
     func testOnlyAlertsThatAppearAfterTheFirstReadAreNews() {
