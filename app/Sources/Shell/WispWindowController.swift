@@ -22,6 +22,7 @@ struct WindowContentView: View {
             Theme.bg.ignoresSafeArea()
             PanelView(controller: controller, media: controller.media, model: controller.conversation)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .ignoresSafeArea(.container, edges: .top)
         }
         .environment(\.windowMode, true)
     }
@@ -35,7 +36,6 @@ struct WindowContentView: View {
     }
 }
 
-/// A normal window with the same `PanelView` and the same `ShellController`; the app is a regular app while it is open.
 private final class WispWindow: NSWindow {
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.capsLock, .numericPad, .function])
@@ -61,7 +61,6 @@ final class WispWindowController: NSObject, NSWindowDelegate {
     private weak var shell: ShellController?
     private var window: NSWindow?
     private var quitting = false
-    /// Called after the window opens or closes so the shell can fold the panel and refresh the pill.
     var onChange: (() -> Void)?
 
     init(shell: ShellController) {
