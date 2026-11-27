@@ -31,6 +31,7 @@ public struct TerminalBlock: Identifiable, Equatable, Sendable {
     public var headLines: Int
     public var output: BlockOutput? = nil
     public var prompt: [StyledLine] = []
+    public var interrupted = false
 
     public var isRunning: Bool { status == .running }
 
@@ -131,6 +132,13 @@ public struct BlockTracker: Equatable, Sendable {
             blocks[index].finishedAt = date
             if let code { blocks[index].status = .finished(code) } else { blocks[index].status = .lost }
         }
+    }
+
+    @discardableResult
+    public mutating func markInterrupted() -> Bool {
+        guard let index = blocks.lastIndex(where: \.isRunning), !blocks[index].interrupted else { return false }
+        blocks[index].interrupted = true
+        return true
     }
 
     private mutating func closeLost(at anchor: BlockAnchor, date: Date) {

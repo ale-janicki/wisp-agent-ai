@@ -135,6 +135,29 @@ final class ShellStreamTests: XCTestCase {
         XCTAssertEqual(pieces, [.bytes(0..<1), .headerRow, .bytes(1..<(1 + mark("A").count)), .event(.promptStart), .bytes((1 + mark("A").count)..<prompt.count)])
     }
 
+    private func events(_ cut: ShellStreamCut) -> [ShellEvent] {
+        cut.pieces.compactMap { if case .event(let event) = $0 { event } else { nil } }
+    }
+
+    func testThePromptEndSurvivesAHeldEscapeTail() {
+        var stream = ShellStream(nonce: Self.nonce)
+        XCTAssertEqual(events(stream.cut((mark("A") + Array("\u{1B}[0".utf8))[...])), [.promptStart])
+        XCTAssertEqual(events(stream.cut((Array("m% ".utf8) + mark("B"))[...])), [.promptEnd])
+    }
+
+    func testEveryTwoWaySplitOfAPromptYieldsTheSameEvents() {
+        let bytes = mark("D;130") + mark("A") + Array("\u{1B}[1m\u{1B}[7m%\u{1B}[27m\u{1B}[1m\u{1B}[0m \u{1B}[K\r".utf8)
+            + Array("\u{1B}[01;32mdev\u{1B}[0m \u{1B}[0m% ".utf8) + mark("B")
+        var whole = ShellStream(nonce: Self.nonce)
+        let expected = events(whole.cut(bytes[...]))
+        XCTAssertEqual(expected, [.commandEnd(exitCode: 130), .promptStart, .promptEnd])
+        for split in 1..<bytes.count {
+            var stream = ShellStream(nonce: Self.nonce)
+            let got = events(stream.cut(bytes[..<split])) + events(stream.cut(bytes[split...]))
+            XCTAssertEqual(got, expected, "split at \(split)")
+        }
+    }
+
     func testForgedMarksAddNoRowAndNoEvent() {
         for nonce in [nil, "ffeeddccbbaa99887766554433221100"] as [String?] {
             var stream = ShellStream(nonce: Self.nonce)
