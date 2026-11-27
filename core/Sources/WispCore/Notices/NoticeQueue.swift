@@ -225,7 +225,7 @@ public struct NoticeQueue: Equatable, Sendable {
 }
 
 public struct NoticeBaselines: Equatable, Sendable {
-    public private(set) var alerts: [AlertItem]?
+    public private(set) var alerts: [TaskItem]?
     public private(set) var topics: [TelegramTopic]?
 
     public init() {}
@@ -233,7 +233,7 @@ public struct NoticeBaselines: Equatable, Sendable {
     private static func alertsOn(_ settings: NoticeSettings) -> Bool { settings.allows(.reminder) }
     private static func topicsOn(_ settings: NoticeSettings) -> Bool { settings.allows(.telegram) || settings.allows(.reply) }
 
-    public mutating func alertsRead(_ items: [AlertItem], settings: NoticeSettings) -> [AlertItem] {
+    public mutating func alertsRead(_ items: [TaskItem], settings: NoticeSettings) -> [TaskItem] {
         guard Self.alertsOn(settings) else {
             alerts = nil
             return []
@@ -260,10 +260,11 @@ public struct NoticeBaselines: Equatable, Sendable {
 public enum Notices {
     public static let previewLimit = 140
 
-    public static func newAlerts(old: [AlertItem]?, new: [AlertItem]) -> [AlertItem] {
+    /// Urgent task lines not seen before; identity is the alerta chave, or the raw line without one.
+    public static func newAlerts(old: [TaskItem]?, new: [TaskItem]) -> [TaskItem] {
         guard let old else { return [] }
-        let known = Set(old.map(\.id))
-        return new.filter { !known.contains($0.id) }
+        let known = Set(old.map(\.identity))
+        return new.filter { !known.contains($0.identity) }
     }
 
     public static func topicNews(old: [TelegramTopic]?, new: [TelegramTopic], following: Int?, wispThreads: Set<Int>) -> [TelegramTopic] {

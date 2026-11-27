@@ -174,10 +174,10 @@ final class NoticeQueueTests: XCTestCase {
     // MARK: Baselines
 
     func testAlertsBaselineIsForgottenWhileSwitchedOffSoReEnablingIsSilent() {
-        let a = AlertItem(id: "a", level: .red, text: "A", openedAt: nil)
-        let b = AlertItem(id: "b", level: .red, text: "B", openedAt: nil)
-        let c = AlertItem(id: "c", level: .red, text: "C", openedAt: nil)
-        let d = AlertItem(id: "d", level: .red, text: "D", openedAt: nil)
+        let a = urgent("A")
+        let b = urgent("B")
+        let c = urgent("C")
+        let d = urgent("D")
         var quiet = NoticeSettings()
         quiet.doNotDisturb = true
         var seen = NoticeBaselines()
@@ -227,12 +227,17 @@ final class NoticeQueueTests: XCTestCase {
 
     // MARK: Sources
 
+    private func urgent(_ name: String) -> TaskItem {
+        TaskList.parse("- **[Ale] X — \(name)**. #urgente <!-- alerta:\(name) -->").first!.items[0]
+    }
+
     func testOnlyAlertsThatAppearAfterTheFirstReadAreNews() {
-        let a = AlertItem(id: "a", level: .red, text: "A", openedAt: nil)
-        let b = AlertItem(id: "b", level: .yellow, text: "B", openedAt: nil)
+        let a = urgent("A")
+        let b = urgent("B")
         XCTAssertEqual(Notices.newAlerts(old: nil, new: [a]), [])
         XCTAssertEqual(Notices.newAlerts(old: [a], new: [b, a]), [b])
         XCTAssertEqual(Notices.newAlerts(old: [a, b], new: [a]), [])
+        XCTAssertEqual(Notices.newAlerts(old: [a], new: [urgent("A")]), [], "same raw line is the same alert")
     }
 
     func testTopicNewsSkipsTheFollowedTopicAndTopicsWispCreated() {
