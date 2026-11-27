@@ -7,7 +7,7 @@ import XCTest
 
 @MainActor
 final class TerminalPaneSmokeTests: XCTestCase {
-    private static let snapshot = "/private/tmp/claude-501/-Users-user/dc2e7dd4-de3c-4a89-8106-2f367e267ede/scratchpad/smoke/pane.png"
+    private static let snapshot = NSTemporaryDirectory() + "wisp-smoke/pane.png"
 
     private var window: NSWindow!
     private var pane: TerminalPaneView!

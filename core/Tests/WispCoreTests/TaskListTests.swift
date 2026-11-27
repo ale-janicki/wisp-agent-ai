@@ -125,21 +125,21 @@ final class TaskListTests: XCTestCase {
     title: pendencias
     ---
     ## Agora
-    - **[Ale] Wisp — Decidir isolamento**. Próximo: x. Pronto quando: y.
-    - **[Ale] acme-client — Rotacionar keys**. #urgente <!-- alerta:acme-client-keys tema:acme-client-keys -->
+    - **[Ana] Wisp — Decidir isolamento**. Próximo: x. Pronto quando: y.
+    - **[Ana] Acme — Rotacionar keys**. #urgente <!-- alerta:acme-keys tema:acme-keys -->
     - sem dono #urgente
     """
 
     func testUrgentFlagAndCommentStripped() throws {
         let items = try XCTUnwrap(TaskList.parse(alertText).first?.items)
         XCTAssertEqual(items.map(\.urgent), [false, true, true])
-        XCTAssertEqual(items[1].owner, "Ale")
-        XCTAssertEqual(items[1].front, "acme-client")
+        XCTAssertEqual(items[1].owner, "Ana")
+        XCTAssertEqual(items[1].front, "Acme")
         XCTAssertEqual(items[1].title, "Rotacionar keys")
         XCTAssertEqual(items[1].detail, "")
         XCTAssertEqual(items[2].title, "sem dono")
         XCTAssertFalse(items[1].line.isEmpty)
-        XCTAssertTrue(items[1].line.contains("<!-- alerta:acme-client-keys"))
+        XCTAssertTrue(items[1].line.contains("<!-- alerta:acme-keys"))
     }
 
     func testUrgentFirstKeepsOrderOtherwise() throws {
@@ -161,16 +161,16 @@ final class TaskListTests: XCTestCase {
 
     func testSearchIgnoresTheHiddenComment() {
         let groups = TaskList.parse(alertText)
-        XCTAssertEqual(TaskList.filter(groups, query: "acme-client-keys"), [])
+        XCTAssertEqual(TaskList.filter(groups, query: "acme-keys"), [])
         XCTAssertEqual(TaskList.filter(groups, query: "rotacionar").first?.items.count, 1)
     }
 
     func testUrgenteOnlyCountsStandaloneInTheTail() {
         let text = """
-        - **[Ale] X — #urgente no corpo**. nada
-        - **[Ale] X — a**. #urgentes não
-        - **[Ale] X — b**. Próximo: z #urgente
-        - **[Ale] X — c**. <!-- #urgente -->
+        - **[Ana] X — #urgente no corpo**. nada
+        - **[Ana] X — a**. #urgentes não
+        - **[Ana] X — b**. Próximo: z #urgente
+        - **[Ana] X — c**. <!-- #urgente -->
         - texto solto #urgente
         """
         let items = TaskList.parse(text).flatMap(\.items)
@@ -193,8 +193,8 @@ final class TaskListTests: XCTestCase {
     }
 
     func testIdentityUsesAlertaChaveElseRawLine() {
-        let one = TaskList.parse("- **[Ale] D — velho**. #urgente <!-- alerta:k1 tema:t -->").flatMap(\.items)[0]
-        let two = TaskList.parse("- **[Ale] D — novo texto**. #urgente <!-- alerta:k1 tema:t -->").flatMap(\.items)[0]
+        let one = TaskList.parse("- **[Ana] D — velho**. #urgente <!-- alerta:k1 tema:t -->").flatMap(\.items)[0]
+        let two = TaskList.parse("- **[Ana] D — novo texto**. #urgente <!-- alerta:k1 tema:t -->").flatMap(\.items)[0]
         XCTAssertEqual(one.identity, two.identity)
         XCTAssertEqual(one.alertId, "k1")
         let manual = TaskList.parse("- manual #urgente").flatMap(\.items)[0]

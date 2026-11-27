@@ -5,8 +5,8 @@ import XCTest
 final class GitStatusTests: XCTestCase {
     private let normal = """
         # branch.oid 4f2a9c1d0e8b7a6f5e4d3c2b1a0f9e8d7c6b5a49
-        # branch.head feat/local-acme-client-assistant
-        # branch.upstream origin/feat/local-acme-client-assistant
+        # branch.head feat/local-assistant
+        # branch.upstream origin/feat/local-assistant
         # branch.ab +1 -0
         1 .M N... 100644 100644 100644 aaa bbb app/a.swift
         2 R. N... 100644 100644 100644 aaa bbb R100 new.swift\told.swift
@@ -16,7 +16,7 @@ final class GitStatusTests: XCTestCase {
         """
 
     func testBranchHeaderNormal() {
-        XCTAssertEqual(GitStatus.branchName(normal), "feat/local-acme-client-assistant")
+        XCTAssertEqual(GitStatus.branchName(normal), "feat/local-assistant")
     }
 
     func testBranchHeaderDetachedUsesShortSha() {
@@ -71,7 +71,7 @@ final class GitStatusTests: XCTestCase {
 
     func testParseCombines() {
         let status = GitStatus.parse(porcelain: normal, shortstat: " 3 files changed, 42 insertions(+), 7 deletions(-)")
-        XCTAssertEqual(status, GitStatus(branch: "feat/local-acme-client-assistant", changedFiles: 4, insertions: 42, deletions: 7))
+        XCTAssertEqual(status, GitStatus(branch: "feat/local-assistant", changedFiles: 4, insertions: 42, deletions: 7))
     }
 
     func testDirectoryLabelElidesMiddleUnderHome() {

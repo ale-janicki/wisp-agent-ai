@@ -60,15 +60,16 @@ final class TasksModel {
         }
     }
 
-    func complete(_ item: TaskItem, file: String) {
+    func complete(_ item: TaskItem, file: String, lock lockPath: String? = nil) {
         guard completing == nil else { return }
         completing = item.id
         actionError = nil
         let url = URL(fileURLWithPath: expandTilde(file))
+        let lock = TaskList.lockURL(profileLock: lockPath)
         Task { [weak self] in
             let failure = await Task.detached { () -> String? in
                 do {
-                    try TaskList.complete(item, in: url)
+                    try TaskList.complete(item, in: url, lock: lock)
                     return nil
                 } catch {
                     return error.localizedDescription

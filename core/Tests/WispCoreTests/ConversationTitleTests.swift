@@ -3,7 +3,7 @@ import XCTest
 
 final class ConversationTitleTests: XCTestCase {
     func testSanitizeStripsQuotesMarkdownAndPunctuation() {
-        XCTAssertEqual(ConversationTitle.sanitize("  \"Supabase do budget-app.\"\n"), "Supabase do budget-app")
+        XCTAssertEqual(ConversationTitle.sanitize("  \"Supabase do acme.\"\n"), "Supabase do acme")
         XCTAssertEqual(ConversationTitle.sanitize("**Hotfix do bot Telegram**"), "Hotfix do bot Telegram")
         XCTAssertEqual(ConversationTitle.sanitize("# Título: Revisão do PR!"), "Revisão do PR")
         XCTAssertEqual(ConversationTitle.sanitize("“Erro de conexão…”"), "Erro de conexão")

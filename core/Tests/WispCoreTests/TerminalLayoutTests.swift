@@ -415,7 +415,7 @@ final class TerminalTabTitleTests: XCTestCase {
     func testAbbreviatedFolder() {
         XCTAssertEqual(TerminalDirectory.abbreviated("/Users/dev", home: "/Users/dev"), "~")
         XCTAssertEqual(TerminalDirectory.abbreviated("/Users/dev/repos/x", home: "/Users/dev"), "~/repos/x")
-        XCTAssertEqual(TerminalDirectory.abbreviated("/Users/developer", home: "/Users/dev"), "/Users/developer")
+        XCTAssertEqual(TerminalDirectory.abbreviated("/home/anabel", home: "/home/ana"), "/home/anabel")
         XCTAssertEqual(TerminalDirectory.abbreviated("/tmp", home: nil), "/tmp")
     }
 }

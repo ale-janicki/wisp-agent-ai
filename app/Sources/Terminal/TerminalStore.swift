@@ -27,7 +27,8 @@ final class TerminalStore {
             let session = TerminalSession(
                 shell: shell, environment: env, directory: directory, integration: Self.integration,
                 integrationEnabled: { AppSettings.shared.settings.terminalBlocks },
-                nativeBlocks: { AppSettings.shared.settings.terminalNativeBlocks }
+                nativeBlocks: { AppSettings.shared.settings.terminalNativeBlocks },
+                allowlist: PaneModeDecider.defaultAllowlist.union(AppSettings.shared.settings.terminalInteractiveCommands)
             ) { SwiftTermEngine() }
             session.measureHead = { [weak session] range in
                 guard let engine = session?.engine as? SwiftTermEngine else { return 1 }

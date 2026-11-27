@@ -20,7 +20,7 @@ public enum PaneMode: Equatable, Sendable {
 
 public enum PaneModeDecider {
     public static let defaultAllowlist: Set<String> = [
-        "claude", "notes-agent", "ssh", "mosh", "docker", "kubectl", "tmux", "python", "python3", "node", "irb",
+        "claude", "ssh", "mosh", "docker", "kubectl", "tmux", "python", "python3", "node", "irb",
         "top", "htop", "btop", "less", "more", "man", "nano", "vim", "nvim", "vi", "emacs",
     ]
 

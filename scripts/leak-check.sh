@@ -23,9 +23,13 @@ fi
 patterns="$(mktemp)"
 stage="$(mktemp -d)"
 trap 'rm -rf "$patterns" "$stage"' EXIT
-for f in scripts/leak-patterns.txt scripts/leak-patterns.local.txt; do
+# Private patterns are never committed: look for them in this checkout, in the main checkout (so every worktree is guarded) and in the user config.
+main_checkout="$(cd "$(git rev-parse --git-common-dir 2>/dev/null)/.." 2>/dev/null && pwd -P)"
+for f in scripts/leak-patterns.txt scripts/leak-patterns.local.txt \
+  "${main_checkout:-.}/scripts/leak-patterns.local.txt" "${XDG_CONFIG_HOME:-${HOME:-/nonexistent}/.config}/wisp/leak-patterns.local.txt"; do
   [ -f "$f" ] && grep -vE '^[[:space:]]*(#|$)' "$f" >> "$patterns"
 done
+sort -u "$patterns" -o "$patterns"
 
 # Stage a copy without build output, caches, the runtime bundle and the patterns files themselves.
 status=0

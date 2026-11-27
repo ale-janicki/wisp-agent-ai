@@ -2,17 +2,17 @@ import XCTest
 @testable import WispCore
 
 final class ChatMarkdownTests: XCTestCase {
-    func testReducerOutputOfScreenshotIsOneCodeBlockWithFiveLines() {
-        let raw = TelegramHTML.markdown("A Bia ainda te deve <b>R$ 589,75</b>...\n\n<pre>\nLoja (resto)          48,43\nPetz (itens dela)       173,66\nAssaí (parte dela)      289,66\nPizzaria Pizzaria         78,00\nTotal                   589,75\n</pre>\n\nOs R$ 48,43...")
+    func testReducerOutputOfAlignedColumnsIsOneCodeBlockWithFiveLines() {
+        let raw = TelegramHTML.markdown("O pedido soma <b>R$ 120,00</b>...\n\n<pre>\nItem A                   10,00\nItem B                   30,00\nItem C                   50,00\nItem D                   30,00\nTotal                   120,00\n</pre>\n\nO item A ja foi pago...")
         let segments = ChatMarkdown.segments(raw)
         XCTAssertEqual(segments.count, 3)
-        XCTAssertEqual(segments[0], .text("A Bia ainda te deve **R$ 589,75**..."))
+        XCTAssertEqual(segments[0], .text("O pedido soma **R$ 120,00**..."))
         guard case .code(let code) = segments[1] else { return XCTFail("expected code") }
         let lines = code.components(separatedBy: "\n")
         XCTAssertEqual(lines.count, 5)
-        XCTAssertEqual(lines[0], "Loja (resto)          48,43")
-        XCTAssertEqual(lines[4], "Total                   589,75")
-        XCTAssertEqual(segments[2], .text("Os R$ 48,43..."))
+        XCTAssertEqual(lines[0], "Item A                   10,00")
+        XCTAssertEqual(lines[4], "Total                   120,00")
+        XCTAssertEqual(segments[2], .text("O item A ja foi pago..."))
     }
 
     func testMarkdownFenceKeepsNewlinesAndIgnoresLanguage() {
