@@ -9,6 +9,10 @@ Entries are in descending chronological order (newest first).
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-11-27
+
+- Version 0.6.0 (build 19).
+
 ### Added
 
 - Settings > Automações (was Integrações) is one card listing everything the agent harness runs, each line a dropdown with a short summary: Integrações, Rotinas, Hooks, Comandos, MCP and CLIs. Rotinas are discovered from `~/Library/LaunchAgents` by the profile's label prefixes (`routines.prefixes`) and merged with the registry for names; a registry job whose plist is not installed shows "plist não instalado" and no Ligar button. Hooks come from the profile's `hooks.list` command, grouped by moment (Início da sessão, Antes de cada ferramenta, Fim do turno…), each with Desligar/Ligar; safety hooks show a lock and cannot be turned off. Comandos lists the executables in the profile's `commands.dirs`.
