@@ -55,6 +55,24 @@ public struct ConversationRecord: Codable, Identifiable, Sendable, Equatable {
     }
 }
 
+extension ConversationRecord {
+    /// The record a conversation should have right now, or nil while the user has not sent anything (an empty
+    /// "Nova conversa" is never persisted). Same `id` on every call, so the first send creates it and later
+    /// session ids, titles and replies update that one record.
+    public static func snapshot(
+        id: UUID, sessionId: String?, title: String?, messages: [ConversationMessage], cwd: String?,
+        titleGenerated: Bool, awayOnPhone: Bool, now: Date = Date()
+    ) -> ConversationRecord? {
+        guard let first = messages.first(where: { $0.role == .user }) else { return nil }
+        let last = ConversationPreview.last(of: messages)
+        return ConversationRecord(
+            id: id, sessionId: sessionId,
+            title: title ?? ConversationTitle.fallback(from: MessageAttachments.parse(first.text)?.summary ?? first.text),
+            updatedAt: now, cwd: cwd, lastPreview: last?.text, lastFrom: last?.from,
+            titleGenerated: titleGenerated, awayOnPhone: awayOnPhone)
+    }
+}
+
 public final class ConversationStore: @unchecked Sendable {
     public static var defaultDirectory: URL {
         FileManager.default
