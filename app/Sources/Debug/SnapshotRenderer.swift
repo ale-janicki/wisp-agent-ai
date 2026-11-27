@@ -56,16 +56,15 @@ enum SnapshotRenderer {
             ("1728x1080", CGSize(width: 1728, height: 1080), false),
             ("fullscreen-1470x956", CGSize(width: 1470, height: 956), true),
         ]
-        let tabs: [PanelTab] = [.home, .conversation, .meetings, .brain, .tasks, .reminders, .agenda, .routines, .music, .clipboard, .myMac, .settings]
-        for (label, size, fullScreen) in sizes {
+        let tabs: [PanelTab] = [.home, .conversation, .meetings, .brain, .tasks, .agenda, .music, .clipboard, .terminal, .myMac, .settings]
+        let arguments = ProcessInfo.processInfo.arguments
+        let quick = arguments.contains("-WispSnapshotQuick")
+        PanelView.snapshotRailExpanded = arguments.contains("-WispSnapshotRailExpanded")
+        for (label, size, fullScreen) in quick ? Array(sizes.prefix(1)) : sizes {
             for tab in tabs {
                 shell.tab = tab
                 await renderWindowMode(shell, size: size, fullScreen: fullScreen, to: directory, name: "win-\(label)-\(tab.rawValue)")
             }
-            shell.tab = .conversation
-            PanelView.snapshotNav = true
-            await renderWindowMode(shell, size: size, fullScreen: fullScreen, to: directory, name: "win-\(label)-conversation-nav")
-            PanelView.snapshotNav = false
         }
     }
 
@@ -120,8 +119,8 @@ enum SnapshotRenderer {
         shell.media.refresh()
         let dashboard = Dashboard.shared
         dashboard.usage.refreshIfStale()
-        if let command = shell.conversation.profile.blocks?.alerts?.list {
-            dashboard.alerts.refresh(command: command)
+        if let file = shell.conversation.profile.blocks?.tasks?.file, !file.isEmpty {
+            TabSources.shared.tasks.refresh(file: file)
         }
         let started = Date()
         try? await Task.sleep(for: .seconds(2))
@@ -129,7 +128,7 @@ enum SnapshotRenderer {
             try? await Task.sleep(for: .milliseconds(100))
         }
         print("snapshot: usage ready after \(String(format: "%.2f", Date().timeIntervalSince(started)))s total=\(dashboard.usage.summary?.totalTokens ?? -1) today=\(dashboard.usage.summary?.today.totalTokens ?? -1)")
-        print("snapshot: alerts \(dashboard.alerts.state)")
+        print("snapshot: urgent \(TabSources.shared.tasks.urgent?.count ?? -1)")
         print("snapshot: automation \(MediaPlayer.allCases.map { "\($0.name)=\(shell.media.automationStatus(for: $0))" })")
         guard let layout = shell.snapshotLayout() else {
             print("snapshot: no screen")
@@ -156,6 +155,14 @@ enum SnapshotRenderer {
         await renderNotices(shell, layout: layout, to: directory)
 
         shell.setSnapshotState(.panel, notch: notch)
+        PanelView.snapshotRailExpanded = ProcessInfo.processInfo.arguments.contains("-WispSnapshotRailExpanded")
+        if ProcessInfo.processInfo.arguments.contains("-WispSnapshotQuick") {
+            for tab in [PanelTab.home, .conversation, .terminal, .meetings, .tasks] {
+                shell.tab = tab
+                await render(shell, frame: layout.panel, notch: notch, to: directory, name: "q-panel-\(tab.rawValue)")
+            }
+            return
+        }
         shell.tab = .home
         await render(shell, frame: layout.panel, notch: notch, to: directory, name: "3-panel-home-fresh")
         shell.tab = .settings
@@ -198,9 +205,6 @@ enum SnapshotRenderer {
         await render(shell, frame: layout.panel, notch: notch, to: directory, name: "4-panel-home")
         shell.tab = .conversation
         await render(shell, frame: layout.panel, notch: notch, to: directory, name: "5-panel-conversation")
-        PanelView.snapshotNav = true
-        await render(shell, frame: layout.panel, notch: notch, to: directory, name: "5a-panel-conversation-nav")
-        PanelView.snapshotNav = false
         await renderTelegram(shell, layout: layout, to: directory)
         shell.tab = .music
         await render(shell, frame: layout.panel, notch: notch, to: directory, name: "6-panel-music")
@@ -409,7 +413,7 @@ enum SnapshotRenderer {
             await render(shell, frame: layout.panel, notch: layout.notch, to: directory, name: "b-memory-search")
             BrainHomeView.snapshotQuery = ""
         }
-        if let routines = profile.blocks?.routines, PanelTab.routines.isAvailable(in: profile) {
+        if let routines = profile.blocks?.routines, profile.hasRoutines {
             let model = RoutinesModel.shared
             model.refresh(block: routines)
             for _ in 0..<50 where model.state == .loading { try? await Task.sleep(for: .milliseconds(100)) }
@@ -418,13 +422,16 @@ enum SnapshotRenderer {
             } else {
                 print("snapshot: routines \(model.state)")
             }
-            shell.tab = .routines
+            AutomationsPane.snapshotOpenRow = .routines
+            SettingsSection.integrations.open()
+            shell.tab = .settings
             await render(shell, frame: layout.panel, notch: layout.notch, to: directory, name: "b-routines")
-            RoutinesTab.snapshotLogLabel = "com.example.meeting-sync"
+            RoutinesSection.snapshotLogLabel = "com.example.meeting-sync"
             shell.tab = .home
-            shell.tab = .routines
+            shell.tab = .settings
             await render(shell, frame: layout.panel, notch: layout.notch, to: directory, name: "b-routines-log")
-            RoutinesTab.snapshotLogLabel = nil
+            RoutinesSection.snapshotLogLabel = nil
+            AutomationsPane.snapshotOpenRow = nil
         }
     }
 
@@ -436,12 +443,12 @@ enum SnapshotRenderer {
         let sources = TabSources.shared
         let profile = shell.conversation.profile
         sources.refresh(profile: profile)
-        for _ in 0..<80 where sources.tasks.state == .loading || sources.agenda.state == .loading || sources.alerts.state == .loading {
+        for _ in 0..<80 where sources.tasks.state == .loading || sources.agenda.state == .loading {
             try? await Task.sleep(for: .milliseconds(100))
         }
-        print("snapshot: tabs nav=\(PanelTab.nav(for: profile).map(\.rawValue)) tasks=\(sources.tasks.openCount ?? -1) alerts=\(sources.alertCount ?? -1) agenda=\(sources.agenda.state)")
+        print("snapshot: tabs nav=\(PanelTab.nav(for: profile).map(\.rawValue)) tasks=\(sources.tasks.openCount ?? -1) agenda=\(sources.agenda.state)")
         shell.setSnapshotState(.panel, notch: layout.notch)
-        for tab in [PanelTab.tasks, .reminders, .agenda] where tab.isAvailable(in: profile) {
+        for tab in [PanelTab.tasks, .agenda] where tab.isAvailable(in: profile) {
             shell.tab = tab
             await render(shell, frame: layout.panel, notch: layout.notch, to: directory, name: "t-\(tab.rawValue)")
         }

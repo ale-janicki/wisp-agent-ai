@@ -4,21 +4,12 @@ import WispCore
 struct ConversationListColumn: View {
     @ObservedObject var controller: ShellController
     var model: ConversationViewModel
-    var showNav: () -> Void
 
     private static let refreshInterval: Duration = .seconds(30)
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack {
-                Button(action: showNav) { Image(systemName: "chevron.left") }
-                    .buttonStyle(CircleButtonStyle(size: Theme.Control.compactHeight))
-                    .help("Voltar ao menu")
-                Spacer(minLength: 0)
-            }
-            .padding(.top, Theme.Space.xs)
             ConversationSearchField(text: Bindable(model).searchQuery)
-                .padding(.top, Theme.Space.xs)
                 .padding(.bottom, 2)
             if model.isSearching { results } else { rows }
         }

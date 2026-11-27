@@ -15,6 +15,7 @@ final class ShellController: ObservableObject {
     @Published var statusColor: StatusColor = .ok
     @Published private(set) var restHasNotch = false
     @Published private(set) var notchWidth: CGFloat = 0
+    @Published private(set) var notchHeight: CGFloat = 0
     @Published private(set) var pillBand: CGSize = .zero
     @Published var tab: PanelTab = .home
 
@@ -67,7 +68,6 @@ final class ShellController: ObservableObject {
 
     func openWindow() { windowController.show() }
 
-    /// The window took over (or gave back) the notch: fold an open panel and drop a pending hover.
     private func windowChanged() {
         dwellTask?.cancel()
         dwellTask = nil
@@ -114,7 +114,7 @@ final class ShellController: ObservableObject {
             }
             tab = .conversation
         case .reminders:
-            tab = PanelTab.reminders.isAvailable(in: model.profile) ? .reminders : .home
+            tab = PanelTab.tasks.isAvailable(in: model.profile) ? .tasks : .home
         case .update:
             UpdateModel.shared.showUpdate()
             return
@@ -275,6 +275,7 @@ final class ShellController: ObservableObject {
         let notch = Self.notchRect(of: screen)
         restHasNotch = notch != nil
         notchWidth = notch?.width ?? 0
+        notchHeight = notch?.height ?? 0
         pillBand = NotchGeometry.topBand(screen: screen.frame, notch: notch).size
         let sameScreen = panel.screen.flatMap(Self.displayID(of:)) == Self.displayID(of: screen)
         var delta = ""
@@ -445,6 +446,7 @@ final class ShellController: ObservableObject {
         state = new
         restHasNotch = notch != nil
         notchWidth = notch?.width ?? 0
+        notchHeight = notch?.height ?? 0
         pillBand = Self.restScreen().map { NotchGeometry.topBand(screen: $0.frame, notch: notch).size } ?? .zero
     }
 
