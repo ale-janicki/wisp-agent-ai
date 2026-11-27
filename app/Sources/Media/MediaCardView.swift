@@ -43,7 +43,7 @@ struct MediaCardView: View {
                     sentence
                 }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .frame(maxWidth: .infinity)
         } else {
             VStack(spacing: Theme.Space.m) {
                 Image(systemName: media.playerNeedingPermission == nil ? "music.note" : "lock.fill")
@@ -98,7 +98,7 @@ struct MediaCardView: View {
             Controls(media: media, track: track, small: 28, main: 36)
                 .frame(maxWidth: .infinity)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .frame(maxWidth: .infinity)
     }
 
     // MARK: Compact
