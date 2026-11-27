@@ -5,12 +5,19 @@ public struct RoutinesBlock: Codable, Sendable, Equatable {
     public var status: String?
     public var start: String?
     public var stop: String?
+    public var prefixes: [String]?
+    public var agents: String?
 
-    public init(registry: String? = nil, status: String? = nil, start: String? = nil, stop: String? = nil) {
+    public init(
+        registry: String? = nil, status: String? = nil, start: String? = nil, stop: String? = nil,
+        prefixes: [String]? = nil, agents: String? = nil
+    ) {
         self.registry = registry
         self.status = status
         self.start = start
         self.stop = stop
+        self.prefixes = prefixes
+        self.agents = agents
     }
 }
 
@@ -20,15 +27,18 @@ public struct RoutineJob: Codable, Identifiable, Equatable, Sendable {
     public var description: String?
     public var plist: String
     public var logs: [String]
+    /// False when the plist file is not on disk; set by `RoutineDiscovery.merge`, never decoded.
+    public var installed = true
 
     public var id: String { label }
 
-    public init(label: String, name: String, description: String? = nil, plist: String, logs: [String] = []) {
+    public init(label: String, name: String, description: String? = nil, plist: String, logs: [String] = [], installed: Bool = true) {
         self.label = label
         self.name = name
         self.description = description
         self.plist = plist
         self.logs = logs
+        self.installed = installed
     }
 
     private enum CodingKeys: String, CodingKey { case label, name, description, plist, logs }

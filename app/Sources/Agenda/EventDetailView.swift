@@ -348,8 +348,8 @@ struct EventDetailView: View {
                         Text("sincronizando com o macOS…").font(Theme.Font.caption).foregroundStyle(Theme.textTertiary)
                     }
                 } else if !google.isConnected {
-                    Text("Conecte o Google em Ajustes > Integrações para responder").font(Theme.Font.caption).foregroundStyle(Theme.textTertiary)
-                    Button { MeetingsCoordinator.shared.openGoogleSettings() } label: { Label("Abrir Integrações", systemImage: "gearshape").font(Theme.Font.caption) }
+                    Text("Conecte o Google em Ajustes > Automações para responder").font(Theme.Font.caption).foregroundStyle(Theme.textTertiary)
+                    Button { MeetingsCoordinator.shared.openGoogleSettings() } label: { Label("Abrir Automações", systemImage: "gearshape").font(Theme.Font.caption) }
                         .buttonStyle(CapsuleButtonStyle(kind: .ghost))
                 } else {
                     Text("Nenhuma conta Google conectada corresponde a este convite.").font(Theme.Font.caption).foregroundStyle(Theme.textTertiary)

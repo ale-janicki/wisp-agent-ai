@@ -187,7 +187,7 @@ struct SpotifySetupSteps: View {
                 }
             }
             step(3, "Em APIs used, marque Web API e salve.") { EmptyView() }
-            step(4, "Copie o Client ID do app e cole em Ajustes > Integrações.") {
+            step(4, "Copie o Client ID do app e cole em Ajustes > Automações.") {
                 if let openSettings {
                     Button("Abrir Ajustes", action: openSettings)
                         .buttonStyle(CapsuleButtonStyle(kind: .accent))

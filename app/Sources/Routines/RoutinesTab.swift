@@ -1,7 +1,7 @@
 import SwiftUI
 import WispCore
 
-struct RoutinesTab: View {
+struct RoutinesSection: View {
     let profile: Profile
     @State private var logJob: RoutineJob?
     @State private var logIndex = 0
@@ -22,14 +22,8 @@ struct RoutinesTab: View {
         #endif
     }
 
-    private var trailing: String? {
-        guard case .loaded(let rows) = routines.state, !rows.isEmpty else { return nil }
-        let total = rows.count == 1 ? "1 rotina" : "\(rows.count) rotinas"
-        return "\(routines.runningCount ?? 0) rodando · \(total)"
-    }
-
     var body: some View {
-        TabCard(title: logJob.map { "Log · \($0.name)" } ?? "Rotinas", icon: logJob == nil ? "clock.arrow.circlepath" : "text.alignleft", trailing: logJob == nil ? trailing : nil) {
+        Group {
             if let logJob {
                 LogPane(job: logJob, index: $logIndex, log: routines.log, load: routines.loadLog) {
                     self.logJob = nil
@@ -40,13 +34,6 @@ struct RoutinesTab: View {
         }
         .onAppear(perform: openDebugLog)
         .onChange(of: routines.state, openDebugLog)
-        .task {
-            guard let block else { return }
-            while !Task.isCancelled {
-                routines.refresh(block: block)
-                try? await Task.sleep(for: RoutinesModel.interval)
-            }
-        }
     }
 
     @ViewBuilder
@@ -55,28 +42,26 @@ struct RoutinesTab: View {
         case .loading:
             SkeletonRows(count: 6)
         case .loaded(let rows) where rows.isEmpty:
-            TabMessage(text: "Nenhuma rotina no registro")
+            TabMessage(text: "Nenhuma rotina encontrada")
         case .loaded(let rows):
-            ScrollView {
-                VStack(alignment: .leading, spacing: Theme.Space.xs) {
-                    ForEach(rows) { row in
-                        RoutineRow(
-                            row: row,
-                            canToggle: canToggle(row),
-                            busy: routines.toggling == row.id,
-                            toggle: { if let block { routines.toggle(row, block: block) } },
-                            showLog: {
-                                logIndex = 0
-                                logJob = row.job
-                            }
-                        )
-                        if let error = routines.actionError, error.label == row.id {
-                            InlineError(text: error.message)
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
+                    if index > 0 { Divider().overlay(Theme.stroke) }
+                    RoutineRow(
+                        row: row,
+                        canToggle: canToggle(row),
+                        busy: routines.toggling == row.id,
+                        toggle: { if let block { routines.toggle(row, block: block) } },
+                        showLog: {
+                            logIndex = 0
+                            logJob = row.job
                         }
+                    )
+                    if let error = routines.actionError, error.label == row.id {
+                        InlineError(text: error.message)
                     }
                 }
             }
-            .scrollIndicators(.hidden)
         case .failed(let message):
             TabMessage(text: message)
         }
@@ -90,7 +75,7 @@ struct RoutinesTab: View {
     }
 
     private func canToggle(_ row: RoutinesModel.Row) -> Bool {
-        guard let status = try? row.status.get() else { return false }
+        guard row.job.installed, let status = try? row.status.get() else { return false }
         return (status.isLoaded ? block?.stop : block?.start) != nil
     }
 }
@@ -140,14 +125,13 @@ private struct RoutineRow: View {
                 )
             }
         }
-        .padding(.horizontal, Theme.Space.m)
         .padding(.vertical, Theme.Space.s)
-        .background(Theme.surfaceHi.opacity(0.45), in: RoundedRectangle(cornerRadius: Theme.Radius.nav, style: .continuous))
+        .frame(minHeight: Theme.Layout.rowHeight)
     }
 
     @ViewBuilder
     private var dot: some View {
-        switch status?.state {
+        switch row.job.installed ? status?.state : nil {
         case .unloaded:
             Circle().strokeBorder(Theme.textTertiary, lineWidth: 1.5).frame(width: 8, height: 8)
         default:
@@ -156,7 +140,7 @@ private struct RoutineRow: View {
     }
 
     private var dotColor: Color {
-        guard let status else { return Theme.error }
+        guard row.job.installed, let status else { return Theme.error }
         switch status.state {
         case .running: return Theme.ok
         case .waiting, .other: return status.lastRunFailed ? Theme.error : Theme.textSecondary
@@ -165,7 +149,7 @@ private struct RoutineRow: View {
     }
 
     private var summaryColor: Color {
-        guard let status else { return Theme.error }
+        guard row.job.installed, let status else { return Theme.error }
         if status.state != .running, status.lastRunFailed { return Theme.error }
         return Theme.textTertiary
     }
@@ -224,9 +208,10 @@ private struct LogPane: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(Theme.Space.s)
             }
+            .frame(maxHeight: 360)
             .defaultScrollAnchor(.bottom)
             .scrollIndicators(.hidden)
-            .background(Theme.bg.opacity(0.5), in: RoundedRectangle(cornerRadius: Theme.Radius.nav, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: Theme.Radius.nav, style: .continuous).strokeBorder(Theme.stroke, lineWidth: 1))
         case .failed(let message):
             TabMessage(text: message)
         }
