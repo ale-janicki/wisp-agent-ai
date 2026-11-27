@@ -114,8 +114,8 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: ai.wisp.app
         PRODUCT_NAME: Wisp
-        MARKETING_VERSION: 0.5.0
-        CURRENT_PROJECT_VERSION: 18
+        MARKETING_VERSION: 0.6.0
+        CURRENT_PROJECT_VERSION: 19
         SWIFT_VERSION: "6.0"
         SWIFT_STRICT_CONCURRENCY: complete
         MACOSX_DEPLOYMENT_TARGET: "15.0"
