@@ -100,7 +100,7 @@ struct MessageRow: View {
             HStack(spacing: 0) {
                 VStack(alignment: .leading, spacing: Theme.Space.xs) {
                     if !message.text.isEmpty {
-                        bubble(Text(Self.markdown(message.text)), fill: Theme.surfaceHi)
+                        assistantBubble
                             .environment(\.openURL, OpenURLAction { url in
                                 url.isFileURL ? Self.openFile(url) : .systemAction
                             })
@@ -120,6 +120,44 @@ struct MessageRow: View {
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, Theme.Space.xs)
+        }
+    }
+
+    @ViewBuilder
+    private var assistantBubble: some View {
+        if lineLimit != nil {
+            bubble(Text(Self.markdown(message.text)), fill: Theme.surfaceHi)
+        } else {
+            VStack(alignment: .leading, spacing: Theme.Space.s) {
+                ForEach(Array(Self.segments(of: message).enumerated()), id: \.offset) { _, segment in
+                    switch segment {
+                    case .text(let text):
+                        Text(Self.markdown(text))
+                    case .code(let code):
+                        let block = Text(code.isEmpty ? " " : code)
+                            .font(Theme.Font.tool)
+                            .lineSpacing(1)
+                            .fixedSize(horizontal: true, vertical: true)
+                            .padding(Theme.Space.s)
+                        ViewThatFits(in: .horizontal) {
+                            block
+                            ScrollView(.horizontal) { block }.scrollIndicators(.hidden)
+                        }
+                        .background(Color.black.opacity(0.22), in: RoundedRectangle(cornerRadius: Theme.Radius.artwork, style: .continuous))
+                    case .table(let header, let rows):
+                        ChatTable(header: header, rows: rows)
+                    }
+                }
+            }
+            .font(Theme.Font.body)
+            .foregroundStyle(Theme.textPrimary)
+            .tint(Theme.accentText)
+            .lineSpacing(2)
+            .textSelection(.enabled)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.horizontal, Theme.Space.m)
+            .padding(.vertical, 9)
+            .background(Theme.surfaceHi, in: RoundedRectangle(cornerRadius: Theme.Radius.bubble, style: .continuous))
         }
     }
 
@@ -156,7 +194,30 @@ struct MessageRow: View {
             .background(fill, in: RoundedRectangle(cornerRadius: Theme.Radius.bubble, style: .continuous))
     }
 
-    private static func markdown(_ text: String) -> AttributedString {
+    private final class SegmentBox {
+        let text: String
+        let segments: [ChatMarkdown.Segment]
+        init(text: String, segments: [ChatMarkdown.Segment]) {
+            self.text = text
+            self.segments = segments
+        }
+    }
+
+    private static let segmentCache: NSCache<NSUUID, SegmentBox> = {
+        let cache = NSCache<NSUUID, SegmentBox>()
+        cache.countLimit = 400
+        return cache
+    }()
+
+    private static func segments(of message: ConversationMessage) -> [ChatMarkdown.Segment] {
+        let key = message.id as NSUUID
+        if let hit = segmentCache.object(forKey: key), hit.text == message.text { return hit.segments }
+        let segments = ChatMarkdown.segments(message.text)
+        segmentCache.setObject(SegmentBox(text: message.text, segments: segments), forKey: key)
+        return segments
+    }
+
+    fileprivate static func markdown(_ text: String) -> AttributedString {
         let options = AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace)
         guard var parsed = try? AttributedString(markdown: text, options: options) else { return AttributedString(text) }
         let unsafe = parsed.runs.compactMap { run -> Range<AttributedString.Index>? in
@@ -188,6 +249,39 @@ struct MessageRow: View {
         case .reveal: NSWorkspace.shared.activateFileViewerSelecting([resolved])
         }
         return .handled
+    }
+}
+
+private struct ChatTable: View {
+    let header: [String]
+    let rows: [[String]]
+
+    private func cell(_ text: String, bold: Bool) -> some View {
+        Text(MessageRow.markdown(text))
+            .fontWeight(bold ? .semibold : .regular)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+    }
+
+    var body: some View {
+        let grid = Grid(alignment: .leading, horizontalSpacing: 0, verticalSpacing: 0) {
+            GridRow {
+                ForEach(Array(header.enumerated()), id: \.offset) { _, text in cell(text, bold: true) }
+            }
+            .background(Color.black.opacity(0.22))
+            ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                GridRow {
+                    ForEach(Array(row.enumerated()), id: \.offset) { _, text in cell(text, bold: false) }
+                }
+                .overlay(alignment: .top) { Rectangle().fill(Theme.stroke).frame(height: 1) }
+            }
+        }
+        .fixedSize(horizontal: true, vertical: false)
+        .overlay { RoundedRectangle(cornerRadius: 6, style: .continuous).strokeBorder(Theme.stroke, lineWidth: 1) }
+        ViewThatFits(in: .horizontal) {
+            grid
+            ScrollView(.horizontal) { grid }.scrollIndicators(.hidden)
+        }
     }
 }
 
