@@ -1,0 +1,124 @@
+import { useCallback, useEffect, useState } from "react";
+import { TabCard, TabMessage } from "../../shell/TabCard";
+import { GearIcon } from "../../shell/icons";
+import { AboutPane } from "./AboutPane";
+import { ProfileGroup } from "./AppearancePane";
+import { AutomationsPane } from "./AutomationsPane";
+import { GeneralPane, TelegramGroup } from "./GeneralPane";
+import { ModelPane } from "./ModelPane";
+import { NoticesPane } from "./NoticesPane";
+import { SetupWizard } from "./SetupWizard";
+import { useSettingsApi } from "./hooks";
+import type { LoginItemApi } from "./loginItem";
+import type { DoctorReport, SettingsState } from "./types";
+import styles from "./Settings.module.css";
+
+export const SECTION_KEY = "wisp.settings.section";
+const SECTIONS = [
+  ["appearance", "Aparência"],
+  ["model", "Modelo"],
+  ["notices", "Avisos"],
+  ["integrations", "Automações"],
+  ["general", "Geral"],
+  ["about", "Sobre"],
+] as const;
+type Section = (typeof SECTIONS)[number][0];
+const READY_CHECKS = "git,claude,claude_login,brain,harness,profile";
+
+const savedSection = (): Section => {
+  const saved = localStorage.getItem(SECTION_KEY);
+  return SECTIONS.find(([id]) => id === saved)?.[0] ?? "appearance";
+};
+
+export function SettingsTab({ loginItem }: { loginItem?: LoginItemApi }) {
+  const api = useSettingsApi();
+  const [state, setState] = useState<SettingsState | null>(null);
+  const [failed, setFailed] = useState(false);
+  const [section, setSection] = useState<Section>(savedSection);
+  const [wizard, setWizard] = useState(false);
+
+  const reload = useCallback(async () => {
+    try {
+      setState(await api.get<SettingsState>("/state"));
+      setFailed(false);
+    } catch {
+      setFailed(true);
+    }
+  }, [api]);
+
+  useEffect(() => {
+    void reload();
+  }, [reload]);
+
+  // First run: an install that is already complete is marked finished; an incomplete one opens the wizard.
+  const finished = state?.setup_finished;
+  useEffect(() => {
+    if (finished !== false) return;
+    let live = true;
+    void api
+      .get<DoctorReport>("/doctor", { only: READY_CHECKS })
+      .then(async (report) => {
+        if (!live) return;
+        if (report.checks.length > 0 && report.checks.every((c) => c.ok)) {
+          await api.post("/setup/finish");
+          await reload();
+        } else setWizard(true);
+      })
+      .catch(() => live && setWizard(true));
+    return () => {
+      live = false;
+    };
+  }, [finished, api, reload]);
+
+  const choose = (next: Section) => {
+    localStorage.setItem(SECTION_KEY, next);
+    setSection(next);
+  };
+
+  if (!state) {
+    return (
+      <TabCard title="Ajustes" icon={GearIcon}>
+        <TabMessage text={failed ? "Não consegui ler os ajustes." : "Lendo os ajustes…"} />
+      </TabCard>
+    );
+  }
+  if (wizard) {
+    return (
+      <SetupWizard
+        state={state}
+        onClose={state.setup_finished ? () => setWizard(false) : undefined}
+        onFinish={() => {
+          setWizard(false);
+          void reload();
+        }}
+      />
+    );
+  }
+
+  return (
+    <TabCard title="Ajustes" icon={GearIcon}>
+      <div className={styles.root}>
+        <div className={styles.tabs} role="tablist" aria-label="Seções dos Ajustes">
+          {SECTIONS.map(([id, title]) => (
+            <button key={id} type="button" role="tab" aria-selected={section === id} className={`${styles.tab} ${section === id ? styles.tabOn : ""}`} onClick={() => choose(id)}>
+              {title}
+            </button>
+          ))}
+        </div>
+        <div className={styles.scroll}>
+          {section === "appearance" && <ProfileGroup key={`${state.profile.name}|${state.profile.user}|${state.profile.avatar}`} state={state} reload={reload} />}
+          {section === "model" && <ModelPane state={state} reload={reload} />}
+          {section === "notices" && <NoticesPane state={state} reload={reload} />}
+          {section === "integrations" && (
+            <>
+              <AutomationsPane state={state} />
+              <TelegramGroup />
+            </>
+          )}
+          {section === "general" && <GeneralPane state={state} reload={reload} openSetup={() => setWizard(true)} loginItem={loginItem} />}
+          {section === "about" && <AboutPane state={state} />}
+        </div>
+      </div>
+    </TabCard>
+  );
+}

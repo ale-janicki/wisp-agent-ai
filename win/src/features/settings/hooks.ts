@@ -1,0 +1,46 @@
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useFeatureApi } from "../../shell/context";
+
+export const useSettingsApi = () => useFeatureApi("settings");
+
+export type Loaded<T> = { data: T | null; failed: boolean; reload: () => Promise<void> };
+
+export function useLoad<T>(load: () => Promise<T>, every?: number): Loaded<T> {
+  const [data, setData] = useState<T | null>(null);
+  const [failed, setFailed] = useState(false);
+  const latest = useRef(load);
+  latest.current = load;
+  const reload = useCallback(async () => {
+    try {
+      setData(await latest.current());
+      setFailed(false);
+    } catch {
+      setFailed(true);
+    }
+  }, []);
+  useEffect(() => {
+    void reload();
+    if (!every) return;
+    const timer = setInterval(() => void reload(), every);
+    return () => clearInterval(timer);
+  }, [reload, every]);
+  return { data, failed, reload };
+}
+
+export function useAction() {
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<{ key: string; text: string } | null>(null);
+  const run = useCallback(async <T,>(key: string, job: () => Promise<T>, onFail: string): Promise<T | undefined> => {
+    setBusy(key);
+    setError(null);
+    try {
+      return await job();
+    } catch {
+      setError({ key, text: onFail });
+      return undefined;
+    } finally {
+      setBusy(null);
+    }
+  }, []);
+  return { busy, error, run, clear: () => setError(null), fail: (key: string, text: string) => setError({ key, text }) };
+}

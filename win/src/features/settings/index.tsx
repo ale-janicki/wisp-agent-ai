@@ -1,11 +1,11 @@
 import { GearIcon } from "../../shell/icons";
-import { comingSoon } from "../ComingSoon";
 import type { Feature } from "../types";
-
-const base = { id: "settings", label: "Ajustes", icon: GearIcon };
+import { SettingsTab } from "./SettingsTab";
 
 export const settings: Feature = {
-  ...base,
-  Component: comingSoon(base),
+  id: "settings",
+  label: "Ajustes",
+  icon: GearIcon,
+  Component: () => <SettingsTab />,
   placement: "bottom",
 };

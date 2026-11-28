@@ -18,6 +18,3 @@ class _Unsupported:
 class SystemdUserJobs(_Unsupported):
     name = "systemd"
 
-
-class TaskSchedulerJobs(_Unsupported):
-    name = "Task Scheduler"

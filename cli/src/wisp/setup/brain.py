@@ -1,11 +1,13 @@
 from pathlib import Path
 
 from wisp.config import WispConfig, save_config
+from wisp.doctor import is_windows, locate_git
 from wisp.fsops import copy_file, ensure_dir
 from wisp.layout import resolve_layout
 from wisp.paths import WispPaths, resources_root
 from wisp.report import Detail, StepReport
 from wisp.runner import Runner
+from wisp.setup.windows import GitRunner
 
 PROTECTED = ("Documents", "Desktop", "Downloads", "Library/Mobile Documents")
 GIT_EMAIL = "wisp@localhost"
@@ -32,10 +34,16 @@ def _git(runner: Runner, target: Path, details: list[Detail], *args: str) -> str
 
 def setup_brain(runner: Runner, paths: WispPaths, cfg: WispConfig, *, path: Path | None, dry_run: bool) -> StepReport:
     target = (path or resolve_layout({"wisp_dir": cfg.wisp_dir}, paths.home).brain).expanduser()
-    if runner.run(["xcode-select", "-p"], timeout=10).exit != 0:
+    windows = is_windows(paths)
+    if windows:
+        git = locate_git(runner)
+        if git is None:
+            return StepReport("brain", "failed", "falta o Git", data={"step": "system"})
+        runner = GitRunner(runner, git)
+    elif runner.run(["xcode-select", "-p"], timeout=10).exit != 0:
         return StepReport("brain", "failed", "faltam as Ferramentas de linha de comando", data={"step": "system"})
     data = {"path": str(target)}
-    warning = _protected_warning(paths.home, target)
+    warning = None if windows else _protected_warning(paths.home, target)
     if warning:
         data["warning"] = warning
     template = _template_files()

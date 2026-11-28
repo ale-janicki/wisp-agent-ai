@@ -98,9 +98,8 @@ def test_state_not_loaded_depends_on_plist(fake_home):
     assert runner.calls[0] == ["launchctl", "print", f"{DOMAIN}/{LABEL}"]
 
 
-@pytest.mark.parametrize("system", ["Linux", "Windows"])
-def test_linux_and_windows_raise_not_supported(fake_home, system):
-    manager = manager_for(system, WispPaths.for_os(system, fake_home, {"APPDATA": "C:/a", "LOCALAPPDATA": "C:/l"}), FakeRunner(), UID)
+def test_linux_raises_not_supported(fake_home):
+    manager = manager_for("Linux", WispPaths.for_os("Linux", fake_home, {}), FakeRunner(), UID)
     with pytest.raises(NotSupportedHere):
         manager.install(_spec(fake_home))
     with pytest.raises(NotSupportedHere):

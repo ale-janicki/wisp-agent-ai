@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { createFeatureApi } from "../api/feature";
 import { features, featureById } from "../features/registry";
 import { Sidebar } from "./Sidebar";
 import { ShellContext, type ShellValue } from "./context";
@@ -18,6 +19,19 @@ type Props = {
 export function PanelShell({ value, windowed, onToggleWindow, status, onMouseEnter, onMouseLeave, registry = features }: Props) {
   const [selected, select] = useSelectedFeature();
   const [railHovered, setRailHovered] = useState(false);
+
+  useEffect(() => {
+    let live = true;
+    createFeatureApi(value.info, "settings", value.fetchImpl)
+      .get<{ setup_finished?: boolean }>("/state")
+      .then((state) => {
+        if (live && state.setup_finished === false) select("settings");
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [value.info, value.fetchImpl, select]);
   const current = registry.find((f) => f.id === selected) ?? featureById(selected) ?? registry[0]!;
   const rail = current.hasListColumn === true;
   const expanded = rail && railHovered;

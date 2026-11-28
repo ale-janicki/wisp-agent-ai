@@ -118,3 +118,42 @@ describe("registry and sidebar", () => {
     expect(toggle).toHaveBeenCalledOnce();
   });
 });
+
+const settingsStub = features.map((f) => (f.id === "settings" ? { ...f, Component: () => <p>ajustes</p> } : f));
+
+function FirstRunShell({ finished }: { finished: boolean }) {
+  const [draft, setDraft] = useState("");
+  const { impl } = fakeFetch({
+    "GET /conversations": () => ({ items: [] }),
+    "GET /api/settings/state": () => ({ setup_finished: finished }),
+  });
+  const deps = { fetchImpl: impl, createSource: (u: string) => new FakeEventSource(u) as unknown as EventSource };
+  return (
+    <WispSession info={info} deps={deps} onSummary={() => {}}>
+      {(session, bus) => (
+        <PanelShell
+          value={{ info, bus, session, draft, setDraft, focusComposer: false, fetchImpl: impl }}
+          windowed={false}
+          onToggleWindow={() => {}}
+          status={status}
+          registry={settingsStub}
+        />
+      )}
+    </WispSession>
+  );
+}
+
+describe("first run", () => {
+  it("opens Ajustes by itself while the setup is not finished, like the Mac", async () => {
+    localStorage.clear();
+    render(<FirstRunShell finished={false} />);
+    expect(await screen.findByRole("main", { name: "Ajustes" })).toBeInTheDocument();
+  });
+
+  it("stays on the saved tab once the setup is finished", async () => {
+    localStorage.clear();
+    render(<FirstRunShell finished={true} />);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(screen.getByRole("main", { name: "Início" })).toBeInTheDocument();
+  });
+});

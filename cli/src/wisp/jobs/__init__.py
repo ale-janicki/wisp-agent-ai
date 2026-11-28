@@ -38,8 +38,9 @@ class JobManager(Protocol):
 
 def manager_for(system: str, paths: WispPaths, runner: Runner, uid: int) -> JobManager:
     from wisp.jobs.launchd import LaunchdJobs
-    from wisp.jobs.unsupported import SystemdUserJobs, TaskSchedulerJobs
+    from wisp.jobs.taskscheduler import TaskSchedulerJobs
+    from wisp.jobs.unsupported import SystemdUserJobs
 
     if system == "Darwin":
         return LaunchdJobs(paths, runner, uid)
-    return TaskSchedulerJobs() if system == "Windows" else SystemdUserJobs()
+    return TaskSchedulerJobs(paths, runner) if system == "Windows" else SystemdUserJobs()

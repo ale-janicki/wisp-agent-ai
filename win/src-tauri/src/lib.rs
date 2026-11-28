@@ -1,3 +1,4 @@
+mod autostart;
 mod logging;
 mod shell;
 mod sidecar;
@@ -63,6 +64,8 @@ pub fn run() {
             terminal::terminal_executables,
             terminal::terminal_git_status,
             terminal::terminal_read_history,
+            autostart::autostart_status,
+            autostart::autostart_set,
         ])
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {

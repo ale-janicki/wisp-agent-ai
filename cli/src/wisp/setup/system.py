@@ -3,11 +3,12 @@ import re
 from pathlib import Path
 
 from wisp.config import WispConfig, save_config
-from wisp.doctor import locate_claude
+from wisp.doctor import is_windows, locate_claude
 from wisp.fsops import ensure_dir
 from wisp.paths import WispPaths
 from wisp.report import Detail, StepReport
 from wisp.runner import Runner
+from wisp.setup.windows import setup_system_windows
 
 CLAUDE_INSTALL_URL = "https://claude.ai/install.sh"
 CLAUDE_DOWNLOAD_FLAGS = ["--fail", "--silent", "--show-error", "--location", "--proto", "=https", "--proto-redir", "=https", "--tlsv1.2"]
@@ -73,6 +74,8 @@ def _homebrew_pkg(runner: Runner, paths: WispPaths, details: list[Detail]) -> tu
 
 
 def setup_system(runner: Runner, paths: WispPaths, cfg: WispConfig, *, with_homebrew: bool, dry_run: bool) -> StepReport:
+    if is_windows(paths):
+        return setup_system_windows(runner, paths, cfg, dry_run=dry_run)
     details: list[Detail] = []
     clt_ok = runner.run(["xcode-select", "-p"], timeout=10).exit == 0
     claude = locate_claude(paths, cfg, runner) if clt_ok or dry_run else None

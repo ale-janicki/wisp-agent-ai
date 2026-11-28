@@ -39,7 +39,7 @@ def _config_path(paths: WispPaths) -> Path:
 
 
 def _status_up(runner: Runner, paths: WispPaths) -> tuple[bool, Detail]:
-    argv = [str(paths.runtime / "venv/bin/wisp"), "topic", "status", "--json"]
+    argv = [str(venv_bin(paths.runtime / "venv") / exe("wisp")), "topic", "status", "--json"]
     env = {**os.environ, "WISP_CONFIG": str(_config_path(paths))}
     result = runner.run(argv, timeout=20, env=env)
     detail = Detail.capture(" ".join(argv), result.exit, result.stdout, result.stderr)

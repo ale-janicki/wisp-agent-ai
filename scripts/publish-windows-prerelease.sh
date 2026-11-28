@@ -33,8 +33,13 @@ if strings -a "$exe" | grep -iqE -f <(rules); then
 fi
 (cd "$root" && ./scripts/leak-check.sh >/dev/null) || { echo "publish-windows-prerelease: leak-check failed on the tree" >&2; exit 1; }
 
+sumdir="$(mktemp -d)"
+trap 'rm -rf "$sumdir"' EXIT
+sumfile="$sumdir/$(basename "$exe").sha256"
+printf '%s  %s\n' "$(shasum -a 256 "$exe" | cut -d' ' -f1)" "$(basename "$exe")" > "$sumfile"
+
 before="$(gh api "repos/{owner}/{repo}/releases/latest" --jq .tag_name)"
-gh release create "$tag" "$exe" --target "$(git rev-parse --abbrev-ref HEAD)" --prerelease --latest=false \
+gh release create "$tag" "$exe" "$sumfile" --target "$(git rev-parse --abbrev-ref HEAD)" --prerelease --latest=false \
   --title "$title" --notes-file "$notes"
 after="$(gh api "repos/{owner}/{repo}/releases/latest" --jq .tag_name)"
 if [ "$before" != "$after" ]; then

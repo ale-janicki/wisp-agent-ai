@@ -1,0 +1,97 @@
+import { useEffect, useState } from "react";
+import { getVersion } from "@tauri-apps/api/app";
+import { insideTauri } from "./loginItem";
+import { Button, Detail, Divider, Group, InlineError, Row, ToggleRow } from "./ui";
+import { useAction, useSettingsApi } from "./hooks";
+import type { SettingsState, UpdateInfo } from "./types";
+
+const REPO_URL = "https://github.com/ale-janicki/wisp-agent-ai";
+
+type Check = { ok: boolean; error?: string; available?: UpdateInfo | null };
+
+export const appVersion = async (fallback: string): Promise<string> => (insideTauri() ? getVersion().catch(() => fallback) : fallback);
+
+export function AboutPane({ state }: { state: SettingsState }) {
+  const api = useSettingsApi();
+  const action = useAction();
+  const [version, setVersion] = useState(state.version);
+  const [update, setUpdate] = useState<UpdateInfo | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const [auto, setAuto] = useState(() => localStorage.getItem("wisp.updates.auto") !== "off");
+
+  const check = async (version: string) => {
+    setMessage(null);
+    const result = await action.run("check", () => api.get<Check>("/updates/check", { current: version }), "Não consegui verificar as atualizações. Tente de novo.");
+    if (!result) return;
+    if (!result.ok) return action.fail("check", result.error ?? "Não consegui verificar as atualizações. Tente de novo.");
+    setUpdate(result.available ?? null);
+    if (!result.available) setMessage("Você está na versão mais nova.");
+  };
+
+  useEffect(() => {
+    let live = true;
+    void appVersion(state.version).then((v) => {
+      if (!live) return;
+      setVersion(v);
+      if (auto) void check(v);
+    });
+    return () => {
+      live = false;
+    };
+    // checked once when the pane opens
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const install = async () => {
+    // The server picks the installer itself; nothing about it is sent from here.
+    const saved = await action.run("install", () => api.post<{ ok: boolean; run?: boolean; error?: string }>("/updates/install"), "Não consegui baixar a atualização.");
+    if (!saved) return;
+    if (!saved.ok) action.fail("install", saved.error ?? "Não consegui baixar a atualização.");
+    else if (saved.run) setMessage("O instalador abriu. Feche o Wisp e siga os passos dele para atualizar.");
+    else setMessage("Baixei o instalador, mas esta versão não publicou o código de verificação (sha256), então não abri. A pasta abriu para você decidir.");
+  };
+  const open = (url: string) => void api.post("/open", { url }).catch(() => {});
+
+  return (
+    <>
+      <Group title="Atualizações">
+        <Row title={`Versão ${version}`} detail={message ?? (update ? `A ${update.version} já está disponível.` : null)}>
+          {update ? (
+            <>
+              {update.notes_url && <Button onClick={() => open(update.notes_url!)}>Ver novidades</Button>}
+              <Button kind="accent" disabled={action.busy === "install" || !update.asset} onClick={() => void install()}>
+                {action.busy === "install" ? "Baixando…" : update.verified ? "Baixar e instalar" : "Baixar"}
+              </Button>
+            </>
+          ) : (
+            <Button disabled={action.busy === "check"} onClick={() => void check(version)}>
+              Verificar agora
+            </Button>
+          )}
+        </Row>
+        {action.error && <InlineError text={action.error.text} />}
+        <Divider />
+        <ToggleRow
+          title="Verificar automaticamente"
+          on={auto}
+          onChange={(on) => {
+            localStorage.setItem("wisp.updates.auto", on ? "on" : "off");
+            setAuto(on);
+          }}
+        />
+        <Detail text="No Windows as atualizações são as versões de teste (windows-v…) do GitHub; o Wisp só baixa e abre o instalador." />
+      </Group>
+      <Group title="Wisp">
+        <Row title="Código" detail="github.com/ale-janicki/wisp-agent-ai">
+          <Button onClick={() => open(REPO_URL)}>Abrir no GitHub</Button>
+        </Row>
+        <Divider />
+        <Row title="Licença" detail="Software livre: você pode usar, estudar, mudar e redistribuir.">
+          <span>GPL-3.0</span>
+        </Row>
+        <Divider />
+        <Row title="Avisos de terceiros" detail="Os componentes de terceiros e as licenças deles estão listados no README do projeto." />
+      </Group>
+    </>
+  );
+}
