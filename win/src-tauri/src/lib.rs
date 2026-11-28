@@ -1,6 +1,7 @@
 mod logging;
 mod shell;
 mod sidecar;
+mod terminal;
 
 use std::sync::Arc;
 
@@ -47,7 +48,22 @@ pub fn run() {
                 .build(),
         )
         .manage(SidecarHost::default())
-        .invoke_handler(tauri::generate_handler![sidecar_info, set_mode, quit_app])
+        .manage(terminal::TerminalHost::default())
+        .invoke_handler(tauri::generate_handler![
+            sidecar_info,
+            set_mode,
+            quit_app,
+            terminal::terminal_spawn,
+            terminal::terminal_write,
+            terminal::terminal_resize,
+            terminal::terminal_kill,
+            terminal::terminal_shells,
+            terminal::terminal_home,
+            terminal::terminal_list_dir,
+            terminal::terminal_executables,
+            terminal::terminal_git_status,
+            terminal::terminal_read_history,
+        ])
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
@@ -102,6 +118,7 @@ pub fn run() {
     app.run(|app, event| {
         if let RunEvent::Exit = event {
             app.state::<SidecarHost>().kill();
+            app.state::<terminal::TerminalHost>().kill_all();
         }
     });
 }

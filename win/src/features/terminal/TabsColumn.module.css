@@ -1,0 +1,208 @@
+.column {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-s);
+  width: var(--sidebar);
+  flex: none;
+  min-height: 0;
+  padding: var(--space-m) var(--space-s);
+  border-right: 1px solid var(--stroke);
+}
+.collapsed {
+  width: 44px;
+  align-items: center;
+  padding: var(--space-m) var(--space-xs);
+}
+.head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+.search {
+  flex: 1;
+  min-width: 0;
+  height: 26px;
+  padding: 0 var(--space-s);
+  border: 0;
+  border-radius: var(--radius-nav);
+  background: var(--surface-hi);
+  user-select: text;
+}
+.search::placeholder {
+  color: var(--text-tertiary);
+}
+.iconButton {
+  width: 24px;
+  height: 24px;
+  flex: none;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: var(--text-secondary);
+}
+.iconButton:hover {
+  background: var(--highlight);
+}
+.newRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-s);
+  height: var(--control);
+  padding: 0 var(--space-s);
+  border: 0;
+  border-radius: var(--radius-nav);
+  background: none;
+  text-align: left;
+}
+.newRow:hover {
+  background: var(--highlight);
+}
+.plus {
+  width: 22px;
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: 15px;
+}
+.newLabel {
+  font-weight: 700;
+  font-size: 12px;
+}
+.rows {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+.row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  border-radius: var(--radius-nav);
+}
+.row:hover {
+  background: var(--highlight);
+}
+.selected {
+  background: var(--accent-fill);
+}
+.rowMain {
+  display: flex;
+  align-items: center;
+  gap: var(--space-s);
+  flex: 1;
+  min-width: 0;
+  height: 40px;
+  padding: 0 var(--space-s);
+  border: 0;
+  background: none;
+  text-align: left;
+}
+.glyph {
+  width: 18px;
+  flex: none;
+  text-align: center;
+  font-size: 13px;
+}
+.idle {
+  color: var(--text-tertiary);
+}
+.running {
+  color: var(--accent);
+}
+.ok {
+  color: var(--ok);
+}
+.fail {
+  color: var(--error);
+}
+.text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.title {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 12px;
+  font-weight: 700;
+}
+.selected .title {
+  color: var(--accent-text);
+}
+.folder {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  direction: rtl;
+  text-align: left;
+  color: var(--text-tertiary);
+  font-size: 11px;
+}
+.close {
+  display: none;
+  width: 18px;
+  height: 18px;
+  margin-right: var(--space-s);
+  flex: none;
+  border: 0;
+  border-radius: 50%;
+  background: var(--surface-hi);
+  font-size: 9px;
+  line-height: 1;
+}
+.row:hover .close {
+  display: block;
+}
+.rename {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: none;
+  font-size: 12px;
+  font-weight: 700;
+  outline: 0;
+  user-select: text;
+}
+.shell {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-s);
+  padding: 0 var(--space-s);
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+.shell select {
+  max-width: 120px;
+  border: 0;
+  border-radius: var(--radius-nav);
+  background: var(--surface-hi);
+  color: var(--text-primary);
+  font-size: 11px;
+}
+.menu {
+  position: fixed;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  min-width: 140px;
+  padding: var(--space-xs);
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius-nav);
+  background: var(--surface-hi);
+}
+.menu button {
+  height: 26px;
+  padding: 0 var(--space-s);
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  text-align: left;
+}
+.menu button:hover {
+  background: var(--highlight);
+}

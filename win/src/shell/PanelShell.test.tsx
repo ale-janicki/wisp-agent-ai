@@ -2,7 +2,6 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { features } from "../features/registry";
-import { COMING_SOON } from "../features/ComingSoon";
 import { FakeEventSource, fakeFetch } from "../test/fakes";
 import { WispSession } from "../WispSession";
 import { PanelShell } from "./PanelShell";
@@ -58,7 +57,7 @@ describe("registry and sidebar", () => {
     expect(features.filter((f) => f.placement === "bottom").map((f) => f.id)).toEqual(["settings"]);
   });
 
-  it("renders every tab on click, starts on Início, and the others say they are coming", async () => {
+  it("renders every tab on click and starts on Início", async () => {
     render(<Shell />);
     expect(screen.getByRole("main", { name: "Início" })).toBeInTheDocument();
     for (const f of features) {
@@ -66,7 +65,6 @@ describe("registry and sidebar", () => {
       const main = screen.getByRole("main", { name: f.label });
       expect(within(sidebar()).getByRole("button", { name: f.label })).toHaveAttribute("aria-current", "page");
       if (f.id === "conversa") expect(within(main).getByRole("button", { name: "Nova conversa" })).toBeInTheDocument();
-      else expect(within(main).getByText(COMING_SOON)).toBeInTheDocument();
     }
   });
 

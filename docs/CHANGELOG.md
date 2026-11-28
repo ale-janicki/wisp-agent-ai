@@ -17,6 +17,7 @@ Entries are in descending chronological order (newest first).
 - `scripts/fetch-uv-windows.sh` downloads the pinned `uv.exe` and checks its sha256.
 - Windows: the panel now has the Mac's layout. The sidebar lists every Mac tab in the same order (Início, Conversa, Brain, Tarefas, Agenda, Reuniões, Música, Copiados, Terminal, My Mac, Ajustes), and the icon rail folds it on Conversa, Reuniões and Terminal. "Abrir em janela" turns the pill into a normal resizable window. Tabs other than Conversa still say "Em breve no Windows".
 - `wisp-serve` features: each tab can add its own routes under `/api/<tab>` behind the same token, and publish its own events on `/events` with a `feature` key.
+- Windows: Terminal tab. It runs on ConPTY with xterm.js, using PowerShell 7, else Windows PowerShell, with cmd as an option. It has tabs with "Nova aba", search and rename, split panes, and blocks per command with status, duration, copy and re-run. The input line has history, Ctrl+R and Tab completion, and folder and git chips show above it. Full-screen programs get the real screen. Shortcuts use Ctrl+Shift where the Mac uses ⌘. Each shell runs in a Job Object, so closing a tab ends its child processes. Git status runs with fsmonitor and hooks off, so opening an untrusted repo runs none of its code.
 
 ### Changed
 

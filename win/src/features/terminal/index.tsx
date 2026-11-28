@@ -1,11 +1,11 @@
 import { TerminalIcon } from "../../shell/icons";
-import { comingSoon } from "../ComingSoon";
 import type { Feature } from "../types";
-
-const base = { id: "terminal", label: "Terminal", icon: TerminalIcon };
+import { TerminalTab } from "./TerminalTab";
 
 export const terminal: Feature = {
-  ...base,
-  Component: comingSoon(base),
+  id: "terminal",
+  label: "Terminal",
+  icon: TerminalIcon,
+  Component: TerminalTab,
   hasListColumn: true,
 };
