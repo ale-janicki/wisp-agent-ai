@@ -67,7 +67,7 @@ class Notes:
         if self.error:
             raise self.error
         if self.write and self.outcome.generated:
-            (folder / "nota.md").write_text("# Título gerado\n\n## Resumo\n\nok\n")
+            (folder / "nota.md").write_text("# Título gerado\n\n## Resumo\n\nok\n", encoding="utf-8")
         return self.outcome
 
 
@@ -116,7 +116,7 @@ def test_a_trusted_live_transcript_becomes_the_final_one_and_the_final_pass_is_s
     assert [s["text"] for s in read_transcript(folder)["segments"]] == ["ao vivo 0 ao vivo 1"]
     meta = recordings.read_meta(folder)
     assert meta["status"] == "noted" and meta["note_state"] == "generated" and meta["title"] == "Título gerado"
-    assert meta["note_file"] == "nota.md" and meta["brain_note"] == "/brain/meetings/x.md" and "brain_error" not in meta
+    assert meta["note_file"] == "nota.md" and meta["brain_note"] == str(Path("/brain/meetings/x.md")) and "brain_error" not in meta
     assert meta["metrics"]["you"]["words"] == 6
     assert "writing_note" in stages and brain.calls == 1
 
@@ -170,7 +170,7 @@ def test_a_note_that_was_not_generated_leaves_a_raw_note_with_the_transcript(tmp
     meta = recordings.read_meta(folder)
     assert meta["status"] == "noted" and meta["note_state"] == "raw"
     assert meta["failure"] == "nota não gerada: a IA local não está pronta: sem modelo"
-    text = (folder / "nota.md").read_text()
+    text = (folder / "nota.md").read_text("utf-8")
     assert "> Nota não gerada: a IA local não está pronta: sem modelo" in text and "[0:00] Você: ao vivo 0" in text
     assert meta["title"] == "Reunião"
 
@@ -179,7 +179,7 @@ def test_an_engine_that_throws_is_the_same_as_one_that_did_not_generate(tmp_path
     folder = new_folder(tmp_path, live=live_doc())
     pipeline(notes=Notes(error=RuntimeError("boom"))).process(folder)
     assert recordings.read_meta(folder)["note_state"] == "raw"
-    assert "boom" in (folder / "nota.md").read_text()
+    assert "boom" in (folder / "nota.md").read_text("utf-8")
 
 
 def test_a_note_already_being_written_elsewhere_is_busy_and_propagates(tmp_path):
@@ -205,7 +205,7 @@ def test_a_deferred_summary_syncs_the_brain_without_a_note(tmp_path):
 
 def test_a_noted_meeting_with_its_note_is_left_alone_and_a_recording_is_not_touched(tmp_path):
     folder = new_folder(tmp_path, status="noted")
-    (folder / "nota.md").write_text("# x")
+    (folder / "nota.md").write_text("# x", encoding="utf-8")
     notes = Notes()
     pipeline(notes=notes).process(folder)
     assert notes.calls == 0
@@ -239,7 +239,7 @@ def test_the_post_call_refine_replaces_the_text_and_keeps_the_live_one_as_a_back
     stages = []
     pipeline(refiner=lambda meta: Refiner()).process(folder, lambda kind, f: stages.append(kind))
     assert [s["text"] for s in read_transcript(folder)["segments"]] == ["revisado"]
-    backup = json.loads((folder / "transcript.parakeet.json").read_text())
+    backup = json.loads((folder / "transcript.parakeet.json").read_text("utf-8"))
     assert backup["segments"][0]["text"] == "ao vivo 0 ao vivo 1"
     assert "refining" in stages and "notice" not in recordings.read_meta(folder)
 
@@ -260,7 +260,7 @@ def test_a_refine_notice_is_kept_and_the_live_transcript_stays(tmp_path):
 def test_improve_transcript_runs_the_full_pass_on_any_meeting_and_rewrites_the_note(tmp_path):
     folder = new_folder(tmp_path, status="noted")
     write_transcript(folder, live_doc())
-    (folder / "nota.md").write_text("# velho")
+    (folder / "nota.md").write_text("# velho", encoding="utf-8")
     recognizer = Recognizer()
     notes = Notes(NoteOutcome(True, None, "Novo"))
     pipeline(notes=notes, recognizer=recognizer).improve_transcript(folder)
@@ -291,7 +291,7 @@ def test_cancelling_keeps_the_meeting_waiting_for_the_next_run(tmp_path):
 
 def script(tmp_path, body):
     path = tmp_path / "fake_wisp.py"
-    path.write_text(textwrap.dedent(body))
+    path.write_text(textwrap.dedent(body), encoding="utf-8")
     return [sys.executable, str(path)]
 
 

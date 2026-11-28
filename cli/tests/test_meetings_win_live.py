@@ -63,7 +63,7 @@ def test_a_spoken_segment_becomes_a_final_line_at_its_own_time_and_is_saved_at_o
     lines = live.finish()
     assert [(s.speaker, s.text, s.is_final) for s in lines] == [("eu", "um", True)]
     assert lines[0].start == pytest.approx(0.7 + 0.2, abs=0.05)
-    saved = json.loads((tmp_path / "transcript.live.json").read_text())
+    saved = json.loads((tmp_path / "transcript.live.json").read_text("utf-8"))
     assert saved["segments"][0]["text"] == "um" and saved["engine"] == "fake" and saved["language"] == "pt"
 
 
@@ -102,7 +102,7 @@ def test_a_recognizer_error_is_reported_once_counted_and_the_loop_continues(tmp_
     lines = live.finish()
     assert failures == ["model blew up"] and live.has_failed
     assert [s.text for s in lines] == ["dois"]
-    assert json.loads((tmp_path / "transcript.live.json").read_text())["failed_segments"] == 1
+    assert json.loads((tmp_path / "transcript.live.json").read_text("utf-8"))["failed_segments"] == 1
 
 
 def test_finals_queue_up_and_lag_is_reported_at_three_waiting(tmp_path):
@@ -200,5 +200,5 @@ def test_noise_ranges_are_saved_for_the_final_pass(tmp_path):
     live.push48k(quiet(0.5), "mic")
     live.push48k(loud(70), "mic")
     live.finish()
-    saved = json.loads((tmp_path / "transcript.live.json").read_text())
+    saved = json.loads((tmp_path / "transcript.live.json").read_text("utf-8"))
     assert saved["noise_ranges"][0]["channel"] == "mic" and saved["noise_ranges"][0]["end"] > saved["noise_ranges"][0]["start"]

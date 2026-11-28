@@ -1,6 +1,6 @@
 [package]
 name = "wisp-win"
-version = "0.1.0"
+version = "0.2.0"
 description = "Wisp for Windows: a pill that opens a chat panel, talking to the wisp-serve sidecar"
 edition = "2021"
 rust-version = "1.77"

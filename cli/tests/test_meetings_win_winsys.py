@@ -15,21 +15,21 @@ def test_a_secret_roundtrips_and_the_file_never_holds_the_clear_text(tmp_path):
     store = CredentialStore(tmp_path / "s.json", protect, protect)
     store.set("secret", "chave-super-secreta")
     assert store.get("secret") == "chave-super-secreta"
-    assert "chave-super-secreta" not in (tmp_path / "s.json").read_text()
+    assert "chave-super-secreta" not in (tmp_path / "s.json").read_text("utf-8")
     assert store.get("url") is None
     store.set("url", "https://example.org/hook")
     store.delete("secret")
     assert store.get("secret") is None and store.get("url") == "https://example.org/hook"
-    assert set(json.loads((tmp_path / "s.json").read_text())) == {"url"}
+    assert set(json.loads((tmp_path / "s.json").read_text("utf-8"))) == {"url"}
 
 
 def test_a_corrupt_file_or_entry_reads_as_missing(tmp_path):
     path = tmp_path / "s.json"
-    path.write_text("{nope")
+    path.write_text("{nope", encoding="utf-8")
     store = CredentialStore(path, protect, protect)
     assert store.get("url") is None
     store.set("url", "x")
-    path.write_text(json.dumps({"url": "!!not base64!!"}))
+    path.write_text(json.dumps({"url": "!!not base64!!"}), encoding="utf-8")
     assert store.get("url") is None
 
 

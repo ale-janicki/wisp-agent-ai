@@ -121,9 +121,9 @@ def test_brain_hits_are_read_from_a_list_or_a_wrapped_object_and_the_snippet_is_
 def test_a_hit_opens_only_inside_the_brain(tmp_path):
     brain = tmp_path / "brain"
     (brain / "n").mkdir(parents=True)
-    (brain / "n" / "a.md").write_text("x")
+    (brain / "n" / "a.md").write_text("x", encoding="utf-8")
     outside = tmp_path / "outside.md"
-    outside.write_text("x")
+    outside.write_text("x", encoding="utf-8")
     assert BrainHit("n/a.md", "A", "").resolve(brain) == (brain / "n" / "a.md").resolve()
     assert BrainHit("../outside.md", "A", "").resolve(brain) is None
     assert BrainHit(str(outside), "A", "").resolve(brain) is None

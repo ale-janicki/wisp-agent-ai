@@ -283,7 +283,7 @@ def frontmatter(meta: dict, engine: str, generated: bool) -> str:
 def write_private(path: Path, text: str) -> None:
     fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.")
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="") as handle:
             handle.write(text)
         os.chmod(tmp, 0o600)
         os.replace(tmp, path)

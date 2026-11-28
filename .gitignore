@@ -15,3 +15,7 @@ build/
 dist/
 app/Local.xcconfig
 app/Resources/Excalidraw/
+
+# backups left by BSD sed -i with an argument
+*-E
+*.bak

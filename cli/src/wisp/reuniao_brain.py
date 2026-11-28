@@ -218,7 +218,7 @@ def rewrite(path: Path, transform) -> bool:
         mode = path.stat().st_mode & 0o777
         fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".wisp-rewrite-")
         try:
-            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            with os.fdopen(fd, "w", encoding="utf-8", newline="") as handle:
                 handle.write(updated)
             os.chmod(tmp, mode)
             if digest(path.read_bytes()) != digest(before):
@@ -392,7 +392,7 @@ def existing_note(meta: dict, folder: Path, brain: Path, meetings: Path, rows: l
 def create_unique(folder: Path, stem: str, text: str) -> Path:
     fd, tmp = tempfile.mkstemp(dir=folder, prefix=".wisp-brain-")
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="") as handle:
             handle.write(text)
         os.chmod(tmp, 0o600)
         linking = True
@@ -420,7 +420,7 @@ def create_unique(folder: Path, stem: str, text: str) -> Path:
 def write_exclusive(target: Path, text: str) -> Path:
     fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="") as handle:
             handle.write(text)
     except BaseException:
         target.unlink(missing_ok=True)

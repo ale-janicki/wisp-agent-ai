@@ -84,7 +84,7 @@ def test_download_installs_verifies_and_reports_progress(tmp_path):
     assert store.is_installed("tiny") and store.verify("tiny")
     assert seen[-1] == (spec.total_bytes, spec.total_bytes)
     assert [d for d, _ in seen] == sorted(d for d, _ in seen)
-    marker = json.loads((store.folder("tiny") / ".wisp-verified").read_text())
+    marker = json.loads((store.folder("tiny") / ".wisp-verified").read_text("utf-8"))
     assert marker["revision"] == "a" * 40 and marker["files"]["model.bin"]
     assert not (tmp_path / "tiny.partial").exists()
     assert (store.folder("tiny") / "model.bin").read_bytes() == data["model.bin"]

@@ -41,8 +41,8 @@ def test_list_is_newest_first_and_skips_folders_without_a_readable_meta(tmp_path
     make(tmp_path, "new", started_at="2026-05-02T10:00:00Z")
     (tmp_path / "stray").mkdir()
     (tmp_path / "broken").mkdir()
-    (tmp_path / "broken" / "meta.json").write_text("{nope")
-    (tmp_path / "new" / "nota.md").write_text("# n")
+    (tmp_path / "broken" / "meta.json").write_text("{nope", encoding="utf-8")
+    (tmp_path / "new" / "nota.md").write_text("# n", encoding="utf-8")
     entries = recordings.list_meetings(tmp_path)
     assert [e.id for e in entries] == ["new", "old"]
     assert entries[0].has_note and not entries[0].has_transcript
@@ -56,11 +56,11 @@ def test_what_needs_processing(tmp_path):
     make(tmp_path, "n", status="noted")
     make(tmp_path, "f", status="failed")
     done = make(tmp_path, "d", status="transcribed")
-    (done / "transcript.json").write_text("{}")
+    (done / "transcript.json").write_text("{}", encoding="utf-8")
     deferred = make(tmp_path, "s", status="transcribed", summary_deferred=True)
-    (deferred / "transcript.json").write_text("{}")
+    (deferred / "transcript.json").write_text("{}", encoding="utf-8")
     failed_note = make(tmp_path, "x", status="transcribed", failure="nota não gerada")
-    (failed_note / "transcript.json").write_text("{}")
+    (failed_note / "transcript.json").write_text("{}", encoding="utf-8")
     assert sorted(e.id for e in recordings.pending(tmp_path)) == ["d", "i", "t"]
     assert sorted(e.id for e in recordings.pending(tmp_path, excluding={"d"})) == ["i", "t"]
 
@@ -72,7 +72,7 @@ def test_row_model_in_portuguese(tmp_path):
     assert row["date_text"] == "01/05 13:30" and row["duration_text"] == "2:05"
     assert row["badge"] == {"label": "transcrevendo", "tone": "working"}
     recordings.update_meta(folder, lambda m: m.update(status="transcribed", title="Plano"))
-    (folder / "nota.md").write_text("# x")
+    (folder / "nota.md").write_text("# x", encoding="utf-8")
     row = recordings.row_model(recordings.list_meetings(tmp_path)[0], working=True, tz=timezone.utc)
     assert row["title"] == "Plano" and row["badge"] == {"label": "gerando nota", "tone": "working"}
     assert recordings.badge("recording", False, False) == {"label": "gravando", "tone": "recording"}
@@ -150,7 +150,7 @@ def test_janitor_clamps_days_and_reads_the_date_from_the_folder_name(tmp_path):
 def test_only_generated_noted_meetings_with_a_brain_note_and_old_enough_are_eligible(tmp_path):
     brain = tmp_path / "brain" / "n.md"
     brain.parent.mkdir()
-    brain.write_text("x")
+    brain.write_text("x", encoding="utf-8")
     root = tmp_path / "r"
     noted(root, "ok", brain)
     noted(root, "young", brain, started_at=iso_ago(2))
@@ -171,7 +171,7 @@ def iso_ago(days):
 def test_a_brain_note_inside_the_recording_folder_is_never_eligible(tmp_path):
     folder = make(tmp_path / "r", "a", status="noted", note_state="generated")
     inside = folder / "nota.md"
-    inside.write_text("x")
+    inside.write_text("x", encoding="utf-8")
     recordings.update_meta(folder, lambda m: m.update(brain_note=str(inside)))
     assert janitor.eligible(recordings.list_meetings(tmp_path / "r"), now=NOW, days=7) == []
 
@@ -181,11 +181,11 @@ def test_clean_rewrites_the_transcript_link_then_trashes(tmp_path):
     brain = tmp_path / "brain" / "n.md"
     brain.parent.mkdir()
     folder = noted(root, "a", brain)
-    brain.write_text(f"# t\n\n## Transcrição\n\n[Transcrição completa]({folder.as_posix()}/nota.md)\n")
+    brain.write_text(f"# t\n\n## Transcrição\n\n[Transcrição completa]({folder.as_posix()}/nota.md)\n", encoding="utf-8")
     trashed = []
     outcome = janitor.clean(recordings.list_meetings(root)[0], NOW, 7, trash=trashed.append, tz=timezone.utc)
     assert outcome == ("removed", None) and trashed == [folder]
-    text = brain.read_text()
+    text = brain.read_text("utf-8")
     assert "Transcrição apagada em 11/05/2026 (limpeza automática após 7 dias)." in text
     assert "[Transcrição completa]" not in text
 
@@ -195,18 +195,18 @@ def test_clean_skips_when_a_link_points_to_another_folder_or_the_note_changes(tm
     brain = tmp_path / "brain" / "n.md"
     brain.parent.mkdir()
     folder = noted(root, "a", brain)
-    brain.write_text("[Transcrição completa](/somewhere/else/nota.md)\n")
+    brain.write_text("[Transcrição completa](/somewhere/else/nota.md)\n", encoding="utf-8")
     trashed = []
     assert janitor.clean(recordings.list_meetings(root)[0], NOW, 7, trash=trashed.append) == ("skipped", None)
-    brain.write_text(f"[Transcrição completa]({folder.as_posix()}/nota.md)\n")
+    brain.write_text(f"[Transcrição completa]({folder.as_posix()}/nota.md)\n", encoding="utf-8")
 
     def edit():
-        brain.write_text("changed meanwhile\n")
+        brain.write_text("changed meanwhile\n", encoding="utf-8")
         os.utime(brain, (1, 1))
 
     assert janitor.clean(recordings.list_meetings(root)[0], NOW, 7, trash=trashed.append, before_write=edit) \
         == ("skipped", None)
-    assert trashed == [] and brain.read_text() == "changed meanwhile\n"
+    assert trashed == [] and brain.read_text("utf-8") == "changed meanwhile\n"
 
 
 def test_clean_without_any_link_just_trashes_and_a_failing_trash_is_reported(tmp_path):
@@ -214,7 +214,7 @@ def test_clean_without_any_link_just_trashes_and_a_failing_trash_is_reported(tmp
     brain = tmp_path / "brain" / "n.md"
     brain.parent.mkdir()
     noted(root, "a", brain)
-    brain.write_text("# no link\n")
+    brain.write_text("# no link\n", encoding="utf-8")
 
     def boom(_):
         raise OSError("locked")
@@ -226,7 +226,7 @@ def test_run_reports_removed_and_failures(tmp_path):
     root = tmp_path / "r"
     brain = tmp_path / "brain" / "n.md"
     brain.parent.mkdir()
-    brain.write_text("# n\n")
+    brain.write_text("# n\n", encoding="utf-8")
     noted(root, "a", brain)
     noted(root, "b", brain)
     seen = []
@@ -254,5 +254,5 @@ def test_a_home_relative_link_is_matched_and_a_foreign_one_is_counted(tmp_path):
 
 def test_json_files_are_what_the_mac_reads(tmp_path):
     folder = make(tmp_path, "a")
-    raw = json.loads((folder / "meta.json").read_text())
+    raw = json.loads((folder / "meta.json").read_text("utf-8"))
     assert raw["mode"] == "call" and raw["devices"] == {"mic": None, "system": None}

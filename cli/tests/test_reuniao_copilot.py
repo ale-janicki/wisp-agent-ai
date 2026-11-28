@@ -82,7 +82,7 @@ def test_assist_fences_cannot_be_closed_by_the_text(cfg):
 
 
 def test_assist_never_runs_codex_even_when_codex_is_the_active_engine(cfg):
-    (Path(cfg.wisp_dir) / "modelos.toml").write_text('ativo = "codex"\n')
+    (Path(cfg.wisp_dir) / "modelos.toml").write_text('ativo = "codex"\n', encoding="utf-8")
     cfg.codex_bin = "/opt/x/codex"
     runner = Fake(ASSIST_ANSWER)
     assert copilot.run("assist", cfg, runner, assist_input()) == 0
@@ -92,7 +92,7 @@ def test_assist_never_runs_codex_even_when_codex_is_the_active_engine(cfg):
 
 def test_assist_with_codex_and_no_claude_uses_the_local_model_with_an_empty_tool_list(cfg, monkeypatch, capsys):
     wisp_dir = Path(cfg.wisp_dir)
-    (wisp_dir / "modelos.toml").write_text('ativo = "codex"\n')
+    (wisp_dir / "modelos.toml").write_text('ativo = "codex"\n', encoding="utf-8")
     modelos.write(wisp_dir, modelos.LocalState("qwen3:8b", ("qwen3:8b",)))
     runner = Fake(claude=False)
     with FakeLLM(script=[reply(ASSIST_ANSWER)], tags={"qwen3:8b": 5}) as fake:
@@ -107,7 +107,7 @@ def test_assist_with_codex_and_no_claude_uses_the_local_model_with_an_empty_tool
 
 def test_assist_with_codex_and_nothing_else_fails_with_the_reason(cfg, monkeypatch, capsys):
     wisp_dir = Path(cfg.wisp_dir)
-    (wisp_dir / "modelos.toml").write_text('ativo = "codex"\n')
+    (wisp_dir / "modelos.toml").write_text('ativo = "codex"\n', encoding="utf-8")
     with FakeLLM(tags={}) as fake:
         monkeypatch.setattr(reuniao, "make_client", lambda cfg: fake.client())
         assert copilot.run("assist", cfg, Fake(claude=False), assist_input()) == 1
@@ -116,7 +116,7 @@ def test_assist_with_codex_and_nothing_else_fails_with_the_reason(cfg, monkeypat
 
 def test_assist_with_local_active_and_a_ready_model_uses_it_and_never_runs_the_hosted_engine(cfg, monkeypatch, capsys):
     wisp_dir = Path(cfg.wisp_dir)
-    (wisp_dir / "modelos.toml").write_text('ativo = "local"\n')
+    (wisp_dir / "modelos.toml").write_text('ativo = "local"\n', encoding="utf-8")
     modelos.write(wisp_dir, modelos.LocalState("qwen3:8b", ("qwen3:8b",)))
     runner = Fake(ASSIST_ANSWER)
     with FakeLLM(script=[reply(ASSIST_ANSWER)], tags={"qwen3:8b": 5}) as fake:
@@ -129,7 +129,7 @@ def test_assist_with_local_active_and_a_ready_model_uses_it_and_never_runs_the_h
 
 
 def test_assist_and_prep_with_local_active_and_no_ready_model_fail_with_the_reason_and_run_nothing_hosted(cfg, monkeypatch, capsys):
-    (Path(cfg.wisp_dir) / "modelos.toml").write_text('ativo = "local"\n')
+    (Path(cfg.wisp_dir) / "modelos.toml").write_text('ativo = "local"\n', encoding="utf-8")
     runner = Fake(ASSIST_ANSWER)
     with FakeLLM(tags={}) as fake:
         monkeypatch.setattr(reuniao, "make_client", lambda cfg: fake.client())
@@ -142,7 +142,7 @@ def test_assist_and_prep_with_local_active_and_no_ready_model_fail_with_the_reas
 
 
 def test_assist_with_claude_active_uses_the_hosted_engine(cfg, monkeypatch, capsys):
-    (Path(cfg.wisp_dir) / "modelos.toml").write_text('ativo = "claude"\n')
+    (Path(cfg.wisp_dir) / "modelos.toml").write_text('ativo = "claude"\n', encoding="utf-8")
     runner = Fake(ASSIST_ANSWER)
     assert copilot.run("assist", cfg, runner, assist_input()) == 0
     assert json.loads(capsys.readouterr().out)["motor"] == "claude"

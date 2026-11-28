@@ -80,7 +80,7 @@ class Notes:
 
     def write_note(self, folder, cancel=None):
         self.calls += 1
-        (folder / "nota.md").write_text("# Plano\n\n## Resumo\n\nOk.\n\n## Ações\n- [ ] Enviar — responsável: Você — prazo: 10/05\n")
+        (folder / "nota.md").write_text("# Plano\n\n## Resumo\n\nOk.\n\n## Ações\n- [ ] Enviar — responsável: Você — prazo: 10/05\n", encoding="utf-8")
         return NoteOutcome(True, None, "Plano")
 
 
@@ -283,7 +283,7 @@ def test_settings_are_read_validated_and_written_to_the_mac_shaped_file(world):
     assert [e["id"] for e in got["engines"]] == ["whisperLargeV3", "whisperTurbo", "off"]
     put = world.client.put("/api/meetings/settings", json={"language": "en", "cleanupDays": 14, "autoSummary": False})
     assert put.json()["values"]["language"] == "en"
-    raw = json.loads((world.env.data_dir / "settings.json").read_text())
+    raw = json.loads((world.env.data_dir / "settings.json").read_text("utf-8"))
     assert raw["meetings"]["cleanupDays"] == 14 and raw["meetings"]["autoSummary"] is False
     assert world.client.put("/api/meetings/settings", json={"language": "xx"}).status_code == 400
     assert world.client.put("/api/meetings/settings", json={"bogus": 1}).status_code == 400
@@ -296,14 +296,14 @@ def make_noted_meeting(world, name="2026-04-01_10-00-00", brain=None):
     meta = recordings.new_meta(datetime(2026, 4, 1, 10, 0, tzinfo=timezone.utc))
     meta.update(status="noted", note_state="generated", title="Antiga", duration_s=60.0, brain_note=str(brain) if brain else None)
     recordings.write_meta(folder, meta)
-    (folder / "nota.md").write_text("# Antiga\n")
+    (folder / "nota.md").write_text("# Antiga\n", encoding="utf-8")
     return folder
 
 
 def test_a_noted_meeting_already_in_the_brain_is_cleaned_up_when_the_setting_turns_on(world, tmp_path):
     brain = tmp_path / "brain" / "n.md"
     brain.parent.mkdir()
-    brain.write_text("# Antiga\n")
+    brain.write_text("# Antiga\n", encoding="utf-8")
     folder = make_noted_meeting(world, brain=brain)
     world.client.put("/api/meetings/settings", json={"cleanupDays": 7})
     wait_for(lambda: world.trashed == [folder])
@@ -330,7 +330,7 @@ def test_audio_is_served_with_the_token_only(world):
 def test_generate_note_again_cancel_and_busy_guards(world):
     folder = make_noted_meeting(world)
     (folder / "transcript.json").write_text(json.dumps({"segments": [
-        {"start": 0, "end": 2, "speaker": "eu", "text": "olá a todos"}], "duration_s": 5, "started_at": "2026-04-01T10:00:00Z"}))
+        {"start": 0, "end": 2, "speaker": "eu", "text": "olá a todos"}], "duration_s": 5, "started_at": "2026-04-01T10:00:00Z"}), encoding="utf-8")
     first = world.client.post(f"/api/meetings/meetings/{folder.name}/note")
     assert first.status_code == 200
     wait_for(lambda: world.notes.calls == 1)
@@ -390,7 +390,7 @@ def test_webhook_config_validates_masks_and_keeps_the_url_out_of_settings(world)
     config = world.client.get("/api/meetings/webhook").json()
     assert config == {"url_set": True, "masked_url": "https://hooks.example.org/•••", "secret_set": True, "enabled": True,
                       "signs": True}
-    assert "hooks.example" not in (world.env.data_dir / "settings.json").read_text()
+    assert "hooks.example" not in (world.env.data_dir / "settings.json").read_text("utf-8")
     secret = world.client.get("/api/meetings/webhook/secret").json()["secret"]
     assert len(secret) == 64
     world.client.put("/api/meetings/webhook", json={"url": ""})

@@ -17,7 +17,7 @@ def test_defaults_match_the_mac(tmp_path):
 def test_values_outside_the_choices_fall_back_and_the_limit_is_clamped(tmp_path):
     path = tmp_path / "settings.json"
     path.write_text(json.dumps({"meetings": {"language": "xx", "postCallEngine": "magic", "limitMinutes": 5,
-                                             "cleanupDays": 9000, "autoSummary": "yes"}}))
+                                             "cleanupDays": 9000, "autoSummary": "yes"}}), encoding="utf-8")
     got = settings.read(path)
     assert got["language"] == "pt" and got["postCallEngine"] == "whisperLargeV3"
     assert got["autoSummary"] is True and got["cleanupDays"] == 365
@@ -27,15 +27,15 @@ def test_values_outside_the_choices_fall_back_and_the_limit_is_clamped(tmp_path)
 
 def test_a_broken_file_reads_as_defaults(tmp_path):
     path = tmp_path / "settings.json"
-    path.write_text("{oops")
+    path.write_text("{oops", encoding="utf-8")
     assert settings.read(path)["limitMinutes"] == 120
 
 
 def test_update_keeps_every_other_key_and_validates(tmp_path):
     path = tmp_path / "settings.json"
-    path.write_text(json.dumps({"theme": "dark", "recordingsPath": "~/R", "meetings": {"autoSummary": False}}))
+    path.write_text(json.dumps({"theme": "dark", "recordingsPath": "~/R", "meetings": {"autoSummary": False}}), encoding="utf-8")
     settings.update(path, {"language": "en", "cleanupDays": 14, "limitMinutes": 60})
-    raw = json.loads(path.read_text())
+    raw = json.loads(path.read_text("utf-8"))
     assert raw["theme"] == "dark" and raw["recordingsPath"] == "~/R"
     assert raw["meetings"]["autoSummary"] is False and raw["meetings"]["language"] == "en"
     with pytest.raises(ValueError):

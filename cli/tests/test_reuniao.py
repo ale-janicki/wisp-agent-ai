@@ -1,4 +1,5 @@
 import json
+import os
 import threading
 from pathlib import Path
 
@@ -75,8 +76,8 @@ class Routed(Scripted):
 def world(fake_home):
     folder = fake_home / "Wisp" / "reunioes" / "2027-01-15_08-00-00"
     folder.mkdir(parents=True)
-    (folder / "transcript.json").write_text(json.dumps(DOCUMENT))
-    (folder / "meta.json").write_text(json.dumps({"started_at": "2027-01-15T08:00:00Z", "duration_s": 3725, "detected_app": "us.zoom.xos"}))
+    (folder / "transcript.json").write_text(json.dumps(DOCUMENT), encoding="utf-8")
+    (folder / "meta.json").write_text(json.dumps({"started_at": "2027-01-15T08:00:00Z", "duration_s": 3725, "detected_app": "us.zoom.xos"}), encoding="utf-8")
     wisp_dir = fake_home / "Wisp"
     cfg = WispConfig(wisp_dir=str(wisp_dir), user_name="Ana", claude_bin="/bin/echo")
     return folder, wisp_dir, cfg
@@ -117,7 +118,7 @@ def test_three_extractions_run_in_parallel_and_merge_into_one_note(world):
     runner = Routed()
     report = reuniao.make_note(cfg, runner, folder)
     assert sorted(kind_of(c["argv"]) for c in runner.calls) == ["acoes", "pontos", "visao"]
-    text = (folder / "nota.md").read_text()
+    text = (folder / "nota.md").read_text("utf-8")
     assert text.startswith("---\ntipo: reuniao\ndata: 2027-01-15T08:00:00Z\n")
     assert "motor: claude" in text and "resumo_gerado: sim" in text
     assert text.index("# Fechamento do orçamento") < text.index("## Resumo") < text.index("## Pontos principais") < text.index("## Ações")
@@ -131,7 +132,7 @@ def test_three_extractions_run_in_parallel_and_merge_into_one_note(world):
 def test_code_fence_around_an_answer_is_removed_and_a_missing_title_is_added(world):
     folder, _, cfg = world
     reuniao.make_note(cfg, Routed({"visao": "```markdown\n## Resumo\nOk.\n```"}), folder)
-    text = (folder / "nota.md").read_text()
+    text = (folder / "nota.md").read_text("utf-8")
     assert "```" not in text
     assert "# Reunião\n\n## Resumo\nOk." in text
 
@@ -139,12 +140,12 @@ def test_code_fence_around_an_answer_is_removed_and_a_missing_title_is_added(wor
 def test_a_missing_section_heading_is_added(world):
     folder, _, cfg = world
     reuniao.make_note(cfg, Routed({"acoes": "- [ ] Mandar proposta — responsável: Você — prazo: não definido"}), folder)
-    assert "## Ações\n\n- [ ] Mandar proposta" in (folder / "nota.md").read_text()
+    assert "## Ações\n\n- [ ] Mandar proposta" in (folder / "nota.md").read_text("utf-8")
 
 
 def test_metrics_bookmarks_and_checklist_state_go_into_the_note(world):
     folder, _, cfg = world
-    meta = json.loads((folder / "meta.json").read_text())
+    meta = json.loads((folder / "meta.json").read_text("utf-8"))
     meta["metrics"] = {
         "duration_s": 3725, "silence_s": 125,
         "you": {"words": 40, "speaking_s": 30, "wpm": 80, "questions": 2, "longest_monologue_s": 20},
@@ -152,9 +153,9 @@ def test_metrics_bookmarks_and_checklist_state_go_into_the_note(world):
     }
     meta["bookmarks"] = [{"id": "b1", "time": 66, "label": ""}]
     meta["checklist"] = [{"text": "Levar a planilha", "done": True}, {"text": "Confirmar prazo", "done": False}]
-    (folder / "meta.json").write_text(json.dumps(meta))
+    (folder / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
     reuniao.make_note(cfg, Routed(), folder)
-    text = (folder / "nota.md").read_text()
+    text = (folder / "nota.md").read_text("utf-8")
     assert "- Tempo de fala: Você 25% · Outros 75%" in text
     assert "- Palavras por minuto: Você 80 · Outros 60" in text
     assert "- Perguntas: Você 2 · Outros 5" in text
@@ -178,12 +179,12 @@ def test_pauses_show_as_marker_lines_between_the_lines_around_them(world, monkey
     monkeypatch.setenv("TZ", "UTC")
     time.tzset()
     folder, _, cfg = world
-    meta = json.loads((folder / "meta.json").read_text())
+    meta = json.loads((folder / "meta.json").read_text("utf-8"))
     meta["pauses"] = [
         {"at_s": 30, "started_at": "2027-01-15T08:00:30Z", "ended_at": "2027-01-15T08:10:30Z"},
         {"at_s": 3000, "started_at": "2027-01-15T09:00:00Z"},
     ]
-    (folder / "meta.json").write_text(json.dumps(meta))
+    (folder / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
     runner = Routed()
     reuniao.make_note(cfg, runner, folder)
     prompt = runner.calls[0]["stdin"].decode()
@@ -192,14 +193,14 @@ def test_pauses_show_as_marker_lines_between_the_lines_around_them(world, monkey
         "[1:05] Outros: Pode ser, mando a planilha até sexta.\n[50:00] — Pausado 09:00 (sem retomar)"
     )
     assert expected in prompt
-    assert expected in (folder / "nota.md").read_text()
+    assert expected in (folder / "nota.md").read_text("utf-8")
     assert reuniao.render_transcript(DOCUMENT) == "[0:00] Você: Vamos fechar o orçamento hoje.\n[1:05] Outros: Pode ser, mando a planilha até sexta."
 
 
 def test_no_extras_means_no_extra_sections(world):
     folder, _, cfg = world
     reuniao.make_note(cfg, Routed(), folder)
-    text = (folder / "nota.md").read_text()
+    text = (folder / "nota.md").read_text("utf-8")
     assert "## Métricas" not in text and "## Marcadores" not in text and "## Checklist" not in text
 
 
@@ -210,7 +211,7 @@ def test_every_failed_extraction_leaves_a_raw_note_with_the_reason_never_nothing
     assert len(runner.calls) == reuniao.ATTEMPTS * len(reuniao.SECTIONS)
     assert report["gerada"] is False
     assert "not logged in" in report["motivo"]
-    text = (folder / "nota.md").read_text()
+    text = (folder / "nota.md").read_text("utf-8")
     assert "> Nota não gerada:" in text
     assert "resumo_gerado: nao" in text
     assert "[0:00] Você: Vamos fechar o orçamento hoje." in text
@@ -219,7 +220,7 @@ def test_every_failed_extraction_leaves_a_raw_note_with_the_reason_never_nothing
 def test_one_failed_extraction_keeps_the_others_and_says_which_is_missing(world):
     folder, _, cfg = world
     report = reuniao.make_note(cfg, Routed(pontos=[(1, "", "boom")]), folder)
-    text = (folder / "nota.md").read_text()
+    text = (folder / "nota.md").read_text("utf-8")
     assert report["gerada"] is True
     assert "## Pontos principais\n\n> Seção não gerada: claude saiu com 1: boom" in text
     assert "## Resumo\nDefinido." in text and "- [ ] Enviar planilha" in text
@@ -230,7 +231,7 @@ def test_a_second_attempt_that_works_is_used(world):
     runner = Routed(acoes=[(1, "", "boom"), (0, ANSWERS["acoes"], "")])
     assert reuniao.make_note(cfg, runner, folder)["gerada"] is True
     assert len(runner.calls) == 4
-    assert "- [ ] Enviar planilha" in (folder / "nota.md").read_text()
+    assert "- [ ] Enviar planilha" in (folder / "nota.md").read_text("utf-8")
 
 
 def test_empty_answer_counts_as_failure(world):
@@ -264,7 +265,7 @@ def test_long_transcript_keeps_start_and_end_cuts_the_middle_and_says_so(world, 
 
 def test_missing_or_empty_transcript_is_an_error_and_writes_no_note(world):
     folder, _, cfg = world
-    (folder / "transcript.json").write_text(json.dumps({"segments": [{"start": 0, "speaker": "eu", "text": " "}]}))
+    (folder / "transcript.json").write_text(json.dumps({"segments": [{"start": 0, "speaker": "eu", "text": " "}]}), encoding="utf-8")
     with pytest.raises(reuniao.Falha, match="vazia"):
         reuniao.make_note(cfg, Routed(), folder)
     (folder / "transcript.json").unlink()
@@ -345,7 +346,7 @@ class NoClaude(Routed):
 
 
 def use_codex(wisp_dir):
-    (wisp_dir / "modelos.toml").write_text('ativo = "codex"\n')
+    (wisp_dir / "modelos.toml").write_text('ativo = "codex"\n', encoding="utf-8")
 
 
 def test_the_claude_argv_is_pinned_exactly(world):
@@ -363,7 +364,7 @@ def test_codex_active_writes_the_note_with_claude_never_with_codex(world):
     assert all(c["argv"] in [expected_argv(prompt) for _, prompt, _ in reuniao.SECTIONS] for c in runner.engine_calls())
     assert all("codex" not in " ".join(call["argv"]) for call in runner.calls)
     assert report["motor"] == "claude" and report["pedido"] == "codex" and report["gerada"] is True
-    assert "motor: claude" in (folder / "nota.md").read_text()
+    assert "motor: claude" in (folder / "nota.md").read_text("utf-8")
 
 
 def test_codex_active_without_claude_uses_the_local_engine_with_an_empty_tool_list(world, monkeypatch):
@@ -384,7 +385,7 @@ def test_codex_active_without_claude_uses_the_local_engine_with_an_empty_tool_li
         assert chat["messages"][0]["role"] == "system" and "BEGIN TRANSCRIPT" in chat["messages"][1]["content"]
     assert sorted(c["messages"][0]["content"] for c in chats) == sorted(prompt for _, prompt, _ in reuniao.SECTIONS)
     assert [call["argv"] for call in runner.calls] == [["/bin/echo", "--version"]]
-    assert (folder / "nota.md").read_text().count("Fechamento do orçamento") >= 1
+    assert (folder / "nota.md").read_text("utf-8").count("Fechamento do orçamento") >= 1
 
 
 def test_codex_active_with_no_claude_and_no_local_model_skips_the_note_with_the_reason(world, monkeypatch):
@@ -397,14 +398,14 @@ def test_codex_active_with_no_claude_and_no_local_model_skips_the_note_with_the_
         assert fake.chats() == []
     assert report["gerada"] is False and report["motor"] == "codex"
     assert report["motivo"] == reuniao.CODEX_REFUSED
-    text = (folder / "nota.md").read_text()
+    text = (folder / "nota.md").read_text("utf-8")
     assert "> Nota não gerada: o motor ativo é o Codex" in text
     assert "[0:00] Você: Vamos fechar o orçamento hoje." in text
     assert all(call["argv"][1:] == ["--version"] for call in runner.calls)
 
 
 def use_engine(wisp_dir, engine):
-    (wisp_dir / "modelos.toml").write_text(f'ativo = "{engine}"\n')
+    (wisp_dir / "modelos.toml").write_text(f'ativo = "{engine}"\n', encoding="utf-8")
 
 
 def test_local_active_with_a_ready_model_writes_the_note_locally_and_never_runs_the_hosted_engine(world, monkeypatch):
@@ -432,7 +433,7 @@ def test_local_active_not_ready_skips_the_note_with_the_reason_and_never_falls_b
         assert fake.chats() == []
     assert report["gerada"] is False and report["motor"] == "local"
     assert report["motivo"].startswith("a IA local não está pronta: ")
-    assert "> Nota não gerada: a IA local não está pronta: " in (folder / "nota.md").read_text()
+    assert "> Nota não gerada: a IA local não está pronta: " in (folder / "nota.md").read_text("utf-8")
     assert runner.calls == []
 
 
@@ -509,7 +510,20 @@ def test_the_default_note_client_is_the_mlx_backend_and_a_broken_settings_file_m
 
     folder, wisp_dir, cfg = world
     assert isinstance(reuniao.make_client(cfg), backends.MlxBackend)
-    (wisp_dir / "modelos.toml").write_text("[local]\nbackend = 3\n")
+    (wisp_dir / "modelos.toml").write_text("[local]\nbackend = 3\n", encoding="utf-8")
     assert reuniao.make_client(cfg) is None and reuniao.local_model(cfg, None) is None
-    (wisp_dir / "modelos.toml").write_text('[local]\nbackend = "openai"\n')
+    (wisp_dir / "modelos.toml").write_text('[local]\nbackend = "openai"\n', encoding="utf-8")
     assert reuniao.make_client(cfg) is None
+
+
+def test_write_private_keeps_lf_and_utf8_when_text_mode_translates_newlines(tmp_path, monkeypatch):
+    real = os.fdopen
+
+    def fdopen(fd, mode="r", *args, **kwargs):
+        if "b" not in mode and kwargs.get("newline") is None:
+            kwargs["newline"] = "\r\n"  # what newline=None does on Windows when writing
+        return real(fd, mode, *args, **kwargs)
+
+    monkeypatch.setattr(os, "fdopen", fdopen)
+    reuniao.write_private(tmp_path / "nota.md", "# Reunião\n\nação\n")
+    assert (tmp_path / "nota.md").read_bytes() == "# Reunião\n\nação\n".encode("utf-8")

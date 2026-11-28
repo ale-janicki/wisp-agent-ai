@@ -1,4 +1,5 @@
 import json
+import os
 from datetime import timezone
 from pathlib import Path
 
@@ -455,7 +456,7 @@ def test_the_index_lock_lives_in_the_state_dir_not_in_the_brain_and_an_empty_old
 def test_a_non_empty_old_lock_file_is_left_alone(tmp_path):
     meetings = brain_of(tmp_path) / "meetings"
     meetings.mkdir()
-    (meetings / reuniao_brain.VAULT_LOCK).write_text("x")
+    (meetings / reuniao_brain.VAULT_LOCK).write_text("x", encoding="utf-8")
     with reuniao_brain.vault_lock(meetings):
         pass
     assert (meetings / reuniao_brain.VAULT_LOCK).exists()
@@ -472,3 +473,26 @@ def test_missing_brain_and_denied_brain_have_distinct_messages(tmp_path, monkeyp
     with pytest.raises(reuniao.Falha, match="Arquivos e Pastas") as raised:
         reuniao_brain.meetings_folder(tmp_path)
     assert "não existe" not in str(raised.value)
+
+
+def windows_text_mode(monkeypatch):
+    real = os.fdopen
+
+    def fdopen(fd, mode="r", *args, **kwargs):
+        if "b" not in mode and kwargs.get("newline") is None:
+            kwargs["newline"] = "\r\n"  # what newline=None does on Windows when writing
+        return real(fd, mode, *args, **kwargs)
+
+    monkeypatch.setattr(os, "fdopen", fdopen)
+
+
+def test_brain_files_keep_lf_and_utf8_when_text_mode_translates_newlines(tmp_path, monkeypatch):
+    windows_text_mode(monkeypatch)
+    text = "# Reunião\n\nação\n"
+    created = reuniao_brain.create_unique(tmp_path, "a", text)
+    exclusive = reuniao_brain.write_exclusive(tmp_path / "b.md", text)
+    rewritten = tmp_path / "c.md"
+    rewritten.write_bytes(text.encode("utf-8"))
+    assert reuniao_brain.rewrite(rewritten, lambda t: t + "mais\n") is True
+    assert created.read_bytes() == exclusive.read_bytes() == text.encode("utf-8")
+    assert rewritten.read_bytes() == (text + "mais\n").encode("utf-8")
