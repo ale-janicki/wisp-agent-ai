@@ -243,9 +243,15 @@ def claude_bin(cfg: WispConfig) -> str:
     return fallback if os.path.isfile(fallback) else "claude"
 
 
+def agent_launch(executable: str) -> list[str]:
+    from wisp.serve.claude_session import resolve_launch
+
+    return resolve_launch(executable)
+
+
 def model_argv(cfg: WispConfig, settings: Path) -> list[str]:
     argv = [
-        claude_bin(cfg),
+        *agent_launch(claude_bin(cfg)),
         "--print",
         "--no-session-persistence",
         "--permission-mode",

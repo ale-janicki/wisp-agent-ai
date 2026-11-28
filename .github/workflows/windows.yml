@@ -42,6 +42,26 @@ jobs:
           cli/tests/test_settings_updates.py
           cli/tests/test_setup_windows.py
           cli/tests/test_taskscheduler.py
+          cli/tests/test_agent_launch.py
+          cli/tests/test_meetings_win_asr.py
+          cli/tests/test_meetings_win_audio.py
+          cli/tests/test_meetings_win_capture.py
+          cli/tests/test_meetings_win_compat.py
+          cli/tests/test_meetings_win_copilot.py
+          cli/tests/test_meetings_win_insights.py
+          cli/tests/test_meetings_win_library.py
+          cli/tests/test_meetings_win_live.py
+          cli/tests/test_meetings_win_models.py
+          cli/tests/test_meetings_win_pipeline.py
+          cli/tests/test_meetings_win_recorder.py
+          cli/tests/test_meetings_win_refine.py
+          cli/tests/test_meetings_win_settings.py
+          cli/tests/test_meetings_win_speech.py
+          cli/tests/test_meetings_win_transcriber.py
+          cli/tests/test_meetings_win_webhook.py
+          cli/tests/test_meetings_win_winsys.py
+          cli/tests/test_serve_meetings.py
+          cli/tests/test_serve_token_isolation.py
           bot/tests/test_config.py
 
       - name: Full suite (informational)

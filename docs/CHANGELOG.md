@@ -17,6 +17,7 @@ Entries are in descending chronological order (newest first).
 - `scripts/fetch-uv-windows.sh` downloads the pinned `uv.exe` and checks its sha256.
 - Windows: the panel now has the Mac's layout. The sidebar lists every Mac tab in the same order (Início, Conversa, Brain, Tarefas, Agenda, Reuniões, Música, Copiados, Terminal, My Mac, Ajustes), and the icon rail folds it on Conversa, Reuniões and Terminal. "Abrir em janela" turns the pill into a normal resizable window. Tabs other than Conversa still say "Em breve no Windows".
 - `wisp-serve` features: each tab can add its own routes under `/api/<tab>` behind the same token, and publish its own events on `/events` with a `feature` key.
+- Windows: Reuniões tab. It records the mic and system audio through WASAPI loopback into a stereo `audio.wav`, mic left and system right. Live transcription runs per speech segment with faster-whisper ("Você"/"Outros"), and a larger model refines the transcript after the call. Only one model is ever in memory. It writes the note and the brain note through `wisp reuniao`, and has the library, playback, copilot, webhook and janitor. The tray icon turns red with "Wisp · gravando" whenever a recording runs. Models download on first use, pinned by revision, size and sha256, from Hugging Face over HTTPS only. A webhook send needs a one-use confirmation from the Permitir click. Transcription runs on the CPU, and uses the GPU when CUDA is already installed.
 - Windows: Conversa now matches the Mac's chat.
   - Conversations get an automatic title from a short Haiku call. Conversations on the local engine never leave the machine and keep the first-message title.
   - Files and images can be attached by picker, paste or drag-and-drop, and appear as tiles and chips in the transcript.
@@ -49,6 +50,8 @@ Entries are in descending chronological order (newest first).
 ### Fixed
 
 - Security, Windows app: the agent and every process wisp-serve starts inherited the sidecar's token through the environment. With it, the agent could call the local API and approve its own permission requests. wisp-serve now removes the token from its own environment at start, and child environments drop it too. This affected the first Windows test build, windows-v0.1.0-alpha.1.
+- Windows: meeting notes and the brain harvest no longer start the agent through an npm `.cmd` launcher. cmd.exe cut their instructions at the first newline, and for the harvest that also dropped the guard settings that come after them. Both now start what the launcher points to directly, as the chat does.
+- Windows: the doctor tells Windows from macOS by the system it was built for, not by the type of the path object, which is always a Windows path on a Windows host.
 - Windows: Brain and Tarefas edits keep each note's own line endings byte for byte, so a note shared with the Mac is never rewritten from LF to CRLF. A drawing saved with CRLF now opens.
 - Windows installer build: the Excalidraw lock file no longer carries stale platform-only packages that made `npm ci` fail on Windows.
 - Windows: finding Claude Code no longer picks npm's extensionless `claude` shim, which Windows cannot run (WinError 193). It now looks for `claude.exe` or `claude.cmd`.

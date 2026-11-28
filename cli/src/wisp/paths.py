@@ -14,6 +14,7 @@ class WispPaths:
     state: Path
     bin: Path
     launch_agents: Path | None
+    system: str = ""
 
     @staticmethod
     def for_os(system: str, home: Path, env: Mapping[str, str]) -> "WispPaths":
@@ -21,12 +22,13 @@ class WispPaths:
             windows_path = Path if sys.platform == "win32" else PureWindowsPath
             roaming = windows_path(env.get("APPDATA") or home / "AppData/Roaming")
             local = windows_path(env.get("LOCALAPPDATA") or home / "AppData/Local") / "wisp"
-            return WispPaths(home, roaming / "wisp", local / "runtime", local / "state", local / "bin", None)
+            return WispPaths(home, roaming / "wisp", local / "runtime", local / "state", local / "bin", None, system)
         config = Path(env.get("XDG_CONFIG_HOME") or home / ".config")
         state = Path(env.get("XDG_STATE_HOME") or home / ".local/state")
         data = Path(env.get("XDG_DATA_HOME") or home / ".local/share")
         launch_agents = home / "Library/LaunchAgents" if system == "Darwin" else None
-        return WispPaths(home, config / "wisp", data / "wisp/runtime", state / "wisp", home / ".local/bin", launch_agents)
+        return WispPaths(home, config / "wisp", data / "wisp/runtime", state / "wisp", home / ".local/bin", launch_agents,
+                         system)
 
     @staticmethod
     def current() -> "WispPaths":

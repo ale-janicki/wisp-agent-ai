@@ -31,6 +31,8 @@ NPM_CLAUDE = "node_modules/@anthropic-ai/claude-code/bin/claude.exe"
 
 
 def is_windows(paths: WispPaths) -> bool:
+    if paths.system:
+        return paths.system == "Windows"
     return isinstance(paths.config, PureWindowsPath)
 
 

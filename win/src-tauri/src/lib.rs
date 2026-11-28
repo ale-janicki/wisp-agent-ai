@@ -1,5 +1,6 @@
 mod autostart;
 mod logging;
+mod recording;
 mod shell;
 mod sidecar;
 mod terminal;
@@ -50,6 +51,7 @@ pub fn run() {
         )
         .manage(SidecarHost::default())
         .manage(terminal::TerminalHost::default())
+        .manage(recording::RecordingState::default())
         .invoke_handler(tauri::generate_handler![
             sidecar_info,
             set_mode,
@@ -66,6 +68,7 @@ pub fn run() {
             terminal::terminal_read_history,
             autostart::autostart_status,
             autostart::autostart_set,
+            recording::set_recording,
         ])
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
@@ -86,7 +89,7 @@ pub fn run() {
             let open = MenuItem::with_id(app, "open", "Abrir", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Sair", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&open, &quit])?;
-            TrayIconBuilder::new()
+            TrayIconBuilder::with_id(recording::TRAY_ID)
                 .icon(Image::from_bytes(include_bytes!("../icons/icon.png"))?)
                 .tooltip("Wisp")
                 .menu(&menu)

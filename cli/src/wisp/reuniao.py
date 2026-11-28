@@ -12,7 +12,7 @@ from datetime import datetime
 from pathlib import Path
 
 from wisp import compat
-from wisp.brain_colher import claude_bin
+from wisp.brain_colher import agent_launch, claude_bin
 from wisp.config import WispConfig
 from wisp.engines import read_active
 from wisp.local import backend as backends
@@ -169,7 +169,7 @@ LOCKED_SETTINGS = json.dumps({
 
 def engine_argv(cfg: WispConfig, system: str) -> list[str]:
     return [
-        claude_bin(cfg), "--print", "--no-session-persistence", "--tools", "",
+        *agent_launch(claude_bin(cfg)), "--print", "--no-session-persistence", "--tools", "",
         "--setting-sources", "", "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}',
         "--disallowedTools", *DISALLOWED, "--permission-mode", "default",
         "--settings", LOCKED_SETTINGS, "--disable-slash-commands",

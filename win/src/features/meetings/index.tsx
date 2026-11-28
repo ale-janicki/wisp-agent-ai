@@ -1,11 +1,11 @@
 import { WaveformIcon } from "../../shell/icons";
-import { comingSoon } from "../ComingSoon";
 import type { Feature } from "../types";
-
-const base = { id: "meetings", label: "Reuniões", icon: WaveformIcon };
+import { MeetingsTab } from "./MeetingsTab";
 
 export const meetings: Feature = {
-  ...base,
-  Component: comingSoon(base),
+  id: "meetings",
+  label: "Reuniões",
+  icon: WaveformIcon,
+  Component: MeetingsTab,
   hasListColumn: true,
 };

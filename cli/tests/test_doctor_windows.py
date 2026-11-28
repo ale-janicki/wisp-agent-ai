@@ -111,3 +111,13 @@ def test_codex_is_optional_and_found_in_npm_folder(fake_home):
     runner = FakeRunner({(shim, "--version"): _ok([], "codex 1\n"), (shim, "login", "status"): _ok([], "ok")})
     checks = _by_id(run_doctor(runner, paths, WispConfig(), {"codex", "codex_login"}))
     assert checks["codex"].ok and checks["codex_login"].ok
+
+
+def test_the_system_decides_not_the_path_type(monkeypatch):
+    from pathlib import PureWindowsPath
+
+    import wisp.paths
+
+    monkeypatch.setattr(wisp.paths, "Path", PureWindowsPath)
+    assert not is_windows(WispPaths.for_os("Darwin", PureWindowsPath("C:/Users/x"), {}))
+    assert is_windows(WispPaths.for_os("Windows", PureWindowsPath("C:/Users/x"), {}))
