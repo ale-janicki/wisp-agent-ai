@@ -216,7 +216,7 @@ def file_lock(path: Path, wait: float = LOCK_WAIT):
 
 def complete(file: Path, line: str, occurrence: int, lock: Path, wait: float = LOCK_WAIT) -> None:
     with file_lock(lock, wait):
-        text = file.read_text(encoding="utf-8")
+        text = file.read_bytes().decode("utf-8")
         updated = deleting(text, line, occurrence)
         data = updated.encode("utf-8")
         from .brain.vault import Vault
@@ -245,7 +245,7 @@ async def list_tasks(request: Request) -> Response:
     if file is None:
         return _missing()
     try:
-        text = await asyncio.to_thread(file.read_text, "utf-8")
+        text = (await asyncio.to_thread(file.read_bytes)).decode("utf-8")
     except (OSError, UnicodeDecodeError):
         return JSONResponse({"error": f"Não consegui ler {file.name}"}, status_code=500)
     groups = parse(text)

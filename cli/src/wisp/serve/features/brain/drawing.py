@@ -71,6 +71,7 @@ class ExcalidrawFile:
     trailer: str = ""
     indent: str = "\t"
     trailing_newline: bool = True
+    crlf: bool = False
     read_only: str | None = None
     raw_texts: dict[str, str] = field(default_factory=dict)
     loaded_texts: dict[str, str] = field(default_factory=dict)
@@ -100,6 +101,10 @@ class ExcalidrawFile:
         return self.prefix[:start] + self._text_section() + self.prefix[stop:]
 
     def serialized(self) -> str:
+        text = self._serialized_lf()
+        return text.replace("\n", "\r\n") if self.crlf else text
+
+    def _serialized_lf(self) -> str:
         if self.container == "plain":
             return _dump(self.scene, self.indent) + ("\n" if self.trailing_newline else "")
         scene_text = _dump(self.scene, self.indent)
@@ -115,6 +120,13 @@ class ExcalidrawFile:
 
 
 def parse_excalidraw(text: str, name: str, lossy: bool = False) -> ExcalidrawFile:
+    crlf = "\r\n" in text
+    file = _parse_lf(text.replace("\r\n", "\n") if crlf else text, name, lossy)
+    file.crlf = crlf
+    return file
+
+
+def _parse_lf(text: str, name: str, lossy: bool) -> ExcalidrawFile:
     if name.lower().endswith(".excalidraw") and not name.lower().endswith(".md"):
         file = ExcalidrawFile("plain", "json", _scene(text), indent=_indent(text), trailing_newline=text.endswith("\n"))
         file.read_only = LOSSY if lossy else None

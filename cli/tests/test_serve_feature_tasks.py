@@ -1,9 +1,12 @@
 import json
+import os
 import threading
+from pathlib import Path
 
 import pytest
 from starlette.testclient import TestClient
 
+from wisp.paths import WispPaths
 from wisp.serve.app import create_app
 from wisp.serve.features import tasks
 
@@ -32,12 +35,13 @@ def profile(fake_home, tmp_path, monkeypatch):
     brain = tmp_path / "cofre"
     brain.mkdir()
     file = brain / "pendencias.md"
-    file.write_text(SAMPLE, encoding="utf-8")
-    config = fake_home / ".config" / "wisp"
-    config.mkdir(parents=True)
-    (config / "profile.json").write_text(json.dumps({"blocks": {"tasks": {"file": "~/tarefas.md", "lock": str(tmp_path / "t.lock")}}}), encoding="utf-8")
-    (fake_home / "tarefas.md").write_text(SAMPLE, encoding="utf-8")
-    (config / "wisp.json").write_text(json.dumps({"brain": str(brain)}), encoding="utf-8")
+    file.write_text(SAMPLE, encoding="utf-8", newline="\n")
+    config = WispPaths.current().config
+    config.mkdir(parents=True, exist_ok=True)
+    Path(os.environ["WISP_CONFIG"]).parent.mkdir(parents=True, exist_ok=True)
+    (config / "profile.json").write_text(json.dumps({"blocks": {"tasks": {"file": "~/tarefas.md", "lock": str(tmp_path / "t.lock")}}}), encoding="utf-8", newline="\n")
+    (fake_home / "tarefas.md").write_text(SAMPLE, encoding="utf-8", newline="\n")
+    Path(os.environ["WISP_CONFIG"]).write_text(json.dumps({"brain": str(brain)}), encoding="utf-8", newline="\n")
     monkeypatch.setenv("WISP_DATA_DIR", str(tmp_path / "data"))
     return {"home_file": fake_home / "tarefas.md", "brain_file": file, "brain": brain, "lock": tmp_path / "t.lock", "config": config}
 
@@ -68,7 +72,7 @@ def test_list_endpoint_uses_the_profile_file_with_tilde_expanded(client, profile
 
 
 def test_list_reports_brain_relative_path_when_the_file_is_inside_the_brain(client, profile):
-    profile["config"].joinpath("profile.json").write_text(json.dumps({"blocks": {"tasks": {"file": str(profile["brain_file"])}}}), encoding="utf-8")
+    profile["config"].joinpath("profile.json").write_text(json.dumps({"blocks": {"tasks": {"file": str(profile["brain_file"])}}}), encoding="utf-8", newline="\n")
     body = client.get("/api/tasks/list", headers=AUTH).json()
     assert body["brain_path"] == "pendencias.md"
     assert body["groups"][0]["items"][0]["index"] == 4
@@ -125,3 +129,21 @@ def test_deleting_the_last_line_keeps_a_trailing_newline():
     assert tasks.deleting("## A\n- x\n- y", "- y", 0) == "## A\n- x\n"
     with pytest.raises(tasks.LineChanged):
         tasks.deleting("- x\n", "- x", 1)
+
+
+def test_complete_keeps_a_crlf_file_crlf_byte_for_byte(client, profile):
+    raw = SAMPLE.replace("\n", "\r\n").encode("utf-8")
+    profile["home_file"].write_bytes(raw)
+    groups = client.get("/api/tasks/list", headers=AUTH).json()["groups"]
+    target = groups[1]["items"][1]
+    assert client.post("/api/tasks/complete", headers=AUTH, json={"line": target["line"], "occurrence": target["occurrence"]}).status_code == 200
+    after = profile["home_file"].read_bytes()
+    assert after.count(b"\n") == after.count(b"\r\n") == raw.count(b"\r\n") - 1
+    assert after.count("item solto com [[nota|link]]".encode()) == 2
+
+
+def test_complete_keeps_an_lf_file_lf(client, profile):
+    groups = client.get("/api/tasks/list", headers=AUTH).json()["groups"]
+    target = groups[1]["items"][1]
+    client.post("/api/tasks/complete", headers=AUTH, json={"line": target["line"], "occurrence": target["occurrence"]})
+    assert b"\r" not in profile["home_file"].read_bytes()

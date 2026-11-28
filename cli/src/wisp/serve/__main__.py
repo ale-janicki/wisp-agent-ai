@@ -11,11 +11,15 @@ import uvicorn
 from wisp.serve.app import create_app
 
 
+def take_token() -> str:
+    return os.environ.pop("WISP_SERVE_TOKEN", "")
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="wisp-serve", description="Local HTTP/SSE sidecar for the Wisp chat.")
     parser.add_argument("--port", type=int, default=0, help="TCP port on 127.0.0.1 (0 = pick a free one)")
     args = parser.parse_args(argv)
-    token = os.environ.get("WISP_SERVE_TOKEN", "")
+    token = take_token()
     if not token:
         print("wisp-serve: WISP_SERVE_TOKEN is required", file=sys.stderr)
         return 2

@@ -13,12 +13,12 @@ def root(tmp_path):
     (base / "arquivos").mkdir()
     (base / ".git").mkdir()
     (base / ".obsidian").mkdir()
-    (base / "Inicio.md").write_text("# Inicio\n\nVeja [[Ana]] e [[projetos/plano#Metas|o plano]].\n\n```\n[[Ignorada]]\n```\n", encoding="utf-8")
-    (base / "pessoas" / "Ana.md").write_text("---\naliases: [Aninha]\ntags: [pessoa]\n---\n# Ana\n\nVolta para [[Inicio]].\n", encoding="utf-8")
+    (base / "Inicio.md").write_text("# Inicio\n\nVeja [[Ana]] e [[projetos/plano#Metas|o plano]].\n\n```\n[[Ignorada]]\n```\n", encoding="utf-8", newline="\n")
+    (base / "pessoas" / "Ana.md").write_text("---\naliases: [Aninha]\ntags: [pessoa]\n---\n# Ana\n\nVolta para [[Inicio]].\n", encoding="utf-8", newline="\n")
     (base / "projetos").mkdir()
-    (base / "projetos" / "plano.md").write_text("# Plano\n\n## Metas\n\n- [ ] primeira\n- [x] segunda\n", encoding="utf-8")
-    (base / "arquivos" / "velho.md").write_text("# Velho\n[[Ana]]\n", encoding="utf-8")
-    (base / ".git" / "config").write_text("x", encoding="utf-8")
+    (base / "projetos" / "plano.md").write_text("# Plano\n\n## Metas\n\n- [ ] primeira\n- [x] segunda\n", encoding="utf-8", newline="\n")
+    (base / "arquivos" / "velho.md").write_text("# Velho\n[[Ana]]\n", encoding="utf-8", newline="\n")
+    (base / ".git" / "config").write_text("x", encoding="utf-8", newline="\n")
     return base
 
 
@@ -53,7 +53,7 @@ def test_vault_inspect_marks_binary_and_outside_symlink_read_only(root, tmp_path
     text, reason = Vault(root).inspect("bin.md")
     assert reason and "UTF-8" in reason
     outside = tmp_path / "fora.md"
-    outside.write_text("fora", encoding="utf-8")
+    outside.write_text("fora", encoding="utf-8", newline="\n")
     try:
         os.symlink(outside, root / "link.md")
     except (OSError, NotImplementedError):
@@ -151,9 +151,9 @@ def test_merge_three_way():
 
 
 def test_daily_note_config_template_and_path(root):
-    (root / ".obsidian" / "daily-notes.json").write_text('{"folder": "diario", "format": "YYYY-MM-DD", "template": "modelos/daily"}', encoding="utf-8")
+    (root / ".obsidian" / "daily-notes.json").write_text('{"folder": "diario", "format": "YYYY-MM-DD", "template": "modelos/daily"}', encoding="utf-8", newline="\n")
     (root / "modelos").mkdir()
-    (root / "modelos" / "daily.md").write_text("# {{title}}\n{{date:DD/MM/YYYY}} {{time:HH:mm}} {{outra}}\n", encoding="utf-8")
+    (root / "modelos" / "daily.md").write_text("# {{title}}\n{{date:DD/MM/YYYY}} {{time:HH:mm}} {{outra}}\n", encoding="utf-8", newline="\n")
     notes = ["modelos/daily.md"]
     cfg = daily.load_config(root, notes)
     assert (cfg.folder, cfg.format, cfg.template) == ("diario", "YYYY-MM-DD", "modelos/daily.md")
@@ -172,8 +172,8 @@ def test_daily_infers_folder_and_format_from_the_notes(tmp_path):
 def test_rename_rewrites_only_links_that_stop_resolving(root):
     vault = Vault(root)
     (root / "pastaX").mkdir()
-    (root / "pastaX" / "Sem.md").write_text("sem titulo\n", encoding="utf-8")
-    (root / "extra.md").write_text("[[Sem|rótulo]] [[Sem]] [[pastaX/Sem#Topo]] [[Aninha]] [[Inicio]] `[[Sem]]`\n", encoding="utf-8")
+    (root / "pastaX" / "Sem.md").write_text("sem titulo\n", encoding="utf-8", newline="\n")
+    (root / "extra.md").write_text("[[Sem|rótulo]] [[Sem]] [[pastaX/Sem#Topo]] [[Aninha]] [[Inicio]] `[[Sem]]`\n", encoding="utf-8", newline="\n")
     cat = catalog.Catalog.scan(vault)
     plan = refactor.plan(vault, cat, "pastaX/Sem.md", "pastaY/Outro.md")
     assert [e.old_path for e in plan.edits] == ["extra.md"]
@@ -196,7 +196,7 @@ def test_rename_keeps_links_that_still_resolve_by_title_and_alias(root):
 
 def test_rename_follows_a_moved_folder_for_path_links(root):
     vault = Vault(root)
-    (root / "extra.md").write_text("[[projetos/plano]] [[plano]]\n", encoding="utf-8")
+    (root / "extra.md").write_text("[[projetos/plano]] [[plano]]\n", encoding="utf-8", newline="\n")
     cat = catalog.Catalog.scan(vault)
     plan = refactor.plan(vault, cat, "projetos", "iniciativas")
     assert {e.old_path: e.new_text for e in plan.edits}["extra.md"] == "[[iniciativas/plano]] [[plano]]\n"
@@ -208,11 +208,11 @@ def test_rename_refuses_existing_target_and_stale_plans(root):
     cat = catalog.Catalog.scan(vault)
     with pytest.raises(Exists):
         refactor.plan(vault, cat, "Inicio.md", "projetos/plano.md")
-    (root / "Sem.md").write_text("sem titulo\n", encoding="utf-8")
-    (root / "extra.md").write_text("[[Sem]]\n", encoding="utf-8")
+    (root / "Sem.md").write_text("sem titulo\n", encoding="utf-8", newline="\n")
+    (root / "extra.md").write_text("[[Sem]]\n", encoding="utf-8", newline="\n")
     plan = refactor.plan(vault, catalog.Catalog.scan(vault), "Sem.md", "Outro.md")
     assert plan.edits
-    (root / "extra.md").write_text("mudou\n", encoding="utf-8")
+    (root / "extra.md").write_text("mudou\n", encoding="utf-8", newline="\n")
     with pytest.raises(refactor.Stale):
         refactor.apply(vault, plan)
     assert (root / "Sem.md").exists() and not (root / "Outro.md").exists()
@@ -221,10 +221,10 @@ def test_rename_refuses_existing_target_and_stale_plans(root):
 def test_watch_snapshot_reports_added_changed_removed(root):
     vault = Vault(root)
     before = watch.snapshot(vault)
-    (root / "novo.md").write_text("x", encoding="utf-8")
-    (root / "Inicio.md").write_text("mudou bastante\n", encoding="utf-8")
+    (root / "novo.md").write_text("x", encoding="utf-8", newline="\n")
+    (root / "Inicio.md").write_text("mudou bastante\n", encoding="utf-8", newline="\n")
     (root / "projetos" / "plano.md").unlink()
-    (root / ".git" / "config").write_text("y", encoding="utf-8")
+    (root / ".git" / "config").write_text("y", encoding="utf-8", newline="\n")
     assert sorted(watch.diff(before, watch.snapshot(vault))) == ["Inicio.md", "novo.md", "projetos/plano.md"]
     assert watch.diff(before, before) == []
 
@@ -279,9 +279,9 @@ def test_a_half_done_rename_apply_rolls_back_and_says_so(root, monkeypatch):
     module = vault_module
 
     vault = Vault(root)
-    (root / "Sem.md").write_text("sem titulo\n", encoding="utf-8")
-    (root / "r1.md").write_text("[[Sem]]\n", encoding="utf-8")
-    (root / "r2.md").write_text("[[Sem]]\n", encoding="utf-8")
+    (root / "Sem.md").write_text("sem titulo\n", encoding="utf-8", newline="\n")
+    (root / "r1.md").write_text("[[Sem]]\n", encoding="utf-8", newline="\n")
+    (root / "r2.md").write_text("[[Sem]]\n", encoding="utf-8", newline="\n")
     plan = refactor.plan(vault, catalog.Catalog.scan(vault), "Sem.md", "Outro.md")
     assert len(plan.edits) == 2
     real = module.os.replace

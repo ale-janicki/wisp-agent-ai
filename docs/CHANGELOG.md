@@ -41,6 +41,9 @@ Entries are in descending chronological order (newest first).
 
 ### Fixed
 
+- Security, Windows app: the agent and every process wisp-serve starts inherited the sidecar's token through the environment. With it, the agent could call the local API and approve its own permission requests. wisp-serve now removes the token from its own environment at start, and child environments drop it too. This affected the first Windows test build, windows-v0.1.0-alpha.1.
+- Windows: Brain and Tarefas edits keep each note's own line endings byte for byte, so a note shared with the Mac is never rewritten from LF to CRLF. A drawing saved with CRLF now opens.
+- Windows installer build: the Excalidraw lock file no longer carries stale platform-only packages that made `npm ci` fail on Windows.
 - Windows: finding Claude Code no longer picks npm's extensionless `claude` shim, which Windows cannot run (WinError 193). It now looks for `claude.exe` or `claude.cmd`.
 - Windows: an npm-installed Claude Code (`claude.cmd`) is no longer run through cmd.exe, which cut the command line at the first newline of the instructions and dropped the permission prompt and the guard settings. Wisp reads the npm launcher and starts node with the Claude Code script, or the `.exe` it points to, directly. A launcher it cannot read refuses the turn and asks for the native install.
 - Windows: `wisp setup shim` no longer crashes on the path type. A second run recognises its own `wisp.cmd` instead of reporting it as a foreign file, and detects an unchanged shim despite CRLF line endings.

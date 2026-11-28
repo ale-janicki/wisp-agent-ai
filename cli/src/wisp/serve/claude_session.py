@@ -186,6 +186,7 @@ def resolve_launch(executable: str, platform: str | None = None, which=None,
 def child_environment(executable: str, platform: str | None = None) -> dict[str, str]:
     platform = platform or sys.platform
     env = dict(os.environ)
+    env.pop("WISP_SERVE_TOKEN", None)
     separator = ";" if platform == "win32" else ":"
     if platform == "darwin" and login_shell_path():
         home = os.path.expanduser("~")

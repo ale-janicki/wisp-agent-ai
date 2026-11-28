@@ -1,11 +1,13 @@
 import asyncio
 import base64
 import json
+import os
 from pathlib import Path
 
 import pytest
 from starlette.testclient import TestClient
 
+from wisp.paths import WispPaths
 from wisp.serve.app import create_app
 from wisp.serve.features import brain
 from wisp.serve.features.brain import watch
@@ -15,16 +17,20 @@ AUTH = {"Authorization": f"Bearer {TOKEN}"}
 SCENE_FIXTURE = Path(__file__).resolve().parents[2] / "core/Tests/WispCoreTests/Fixtures/drawings/neutral-compressed.excalidraw.md"
 
 
+def write_main_config(content: dict) -> None:
+    target = Path(os.environ["WISP_CONFIG"])
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps(content), encoding="utf-8", newline="\n")
+
+
 @pytest.fixture
 def vault_root(fake_home, tmp_path, monkeypatch):
     root = tmp_path / "cofre"
     (root / "pessoas").mkdir(parents=True)
-    (root / "Inicio.md").write_text("# Inicio\n\nVeja [[Ana]].\n\n- [ ] fazer\n- [x] feito\n\n#projeto\n", encoding="utf-8")
-    (root / "pessoas" / "Ana.md").write_text("---\ntags: [pessoa]\n---\n# Ana\n\nDe volta a [[Inicio]].\n", encoding="utf-8")
+    (root / "Inicio.md").write_text("# Inicio\n\nVeja [[Ana]].\n\n- [ ] fazer\n- [x] feito\n\n#projeto\n", encoding="utf-8", newline="\n")
+    (root / "pessoas" / "Ana.md").write_text("---\ntags: [pessoa]\n---\n# Ana\n\nDe volta a [[Inicio]].\n", encoding="utf-8", newline="\n")
     (root / "foto.png").write_bytes(b"\x89PNG\r\n\x1a\nxx")
-    config = fake_home / ".config" / "wisp"
-    config.mkdir(parents=True)
-    (config / "wisp.json").write_text(json.dumps({"brain": str(root), "wisp_dir": str(tmp_path / "wisp")}), encoding="utf-8")
+    write_main_config({"brain": str(root), "wisp_dir": str(tmp_path / "wisp")})
     monkeypatch.setenv("WISP_DATA_DIR", str(tmp_path / "data"))
     return root
 
@@ -48,10 +54,8 @@ def test_state_reports_an_unconfigured_brain_and_other_routes_answer_conflict(fa
 
 def test_brain_path_with_a_tilde_is_expanded(fake_home, tmp_path, monkeypatch):
     (fake_home / "meu cofre").mkdir()
-    (fake_home / "meu cofre" / "a.md").write_text("# A\n", encoding="utf-8")
-    config = fake_home / ".config" / "wisp"
-    config.mkdir(parents=True)
-    (config / "wisp.json").write_text(json.dumps({"brain": "~/meu cofre"}), encoding="utf-8")
+    (fake_home / "meu cofre" / "a.md").write_text("# A\n", encoding="utf-8", newline="\n")
+    write_main_config({"brain": "~/meu cofre"})
     monkeypatch.setenv("WISP_DATA_DIR", str(tmp_path / "data"))
     client = TestClient(create_app(TOKEN))
     assert client.get("/api/brain/state", headers=AUTH).json()["name"] == "meu cofre"
@@ -60,9 +64,9 @@ def test_brain_path_with_a_tilde_is_expanded(fake_home, tmp_path, monkeypatch):
 
 def test_brain_falls_back_to_the_profile_memory_root(fake_home, tmp_path, monkeypatch):
     (fake_home / "memoria").mkdir()
-    config = fake_home / ".config" / "wisp"
+    config = WispPaths.current().config
     config.mkdir(parents=True)
-    (config / "profile.json").write_text(json.dumps({"blocks": {"memory": {"root": "~/memoria"}}}), encoding="utf-8")
+    (config / "profile.json").write_text(json.dumps({"blocks": {"memory": {"root": "~/memoria"}}}), encoding="utf-8", newline="\n")
     monkeypatch.setenv("WISP_DATA_DIR", str(tmp_path / "data"))
     assert TestClient(create_app(TOKEN)).get("/api/brain/state", headers=AUTH).json()["name"] == "memoria"
 
@@ -123,11 +127,11 @@ def test_task_toggle_and_property_edit_write_the_file(client, vault_root):
 
 
 def test_rename_preview_then_apply_rewrites_links_and_refuses_a_changed_preview(client, vault_root):
-    (vault_root / "Sem.md").write_text("sem titulo\n", encoding="utf-8")
-    (vault_root / "ref.md").write_text("[[Sem]]\n", encoding="utf-8")
+    (vault_root / "Sem.md").write_text("sem titulo\n", encoding="utf-8", newline="\n")
+    (vault_root / "ref.md").write_text("[[Sem]]\n", encoding="utf-8", newline="\n")
     preview = client.post("/api/brain/rename/preview", headers=AUTH, json={"from": "Sem.md", "to": "Outro.md"}).json()
     assert preview["link_count"] == 1 and preview["edits"] == [{"path": "ref.md", "count": 1}] and preview["is_complete"]
-    (vault_root / "ref.md").write_text("[[Sem]] mudou\n", encoding="utf-8")
+    (vault_root / "ref.md").write_text("[[Sem]] mudou\n", encoding="utf-8", newline="\n")
     stale = client.post("/api/brain/rename/apply", headers=AUTH, json={"from": "Sem.md", "to": "Outro.md", "id": preview["id"]})
     assert stale.status_code == 409 and (vault_root / "Sem.md").exists()
     fresh = client.post("/api/brain/rename/preview", headers=AUTH, json={"from": "Sem.md", "to": "Outro.md"}).json()
@@ -143,8 +147,8 @@ def test_merge_endpoint(client):
 
 def test_daily_note_is_created_once_from_the_template(client, vault_root):
     (vault_root / ".obsidian").mkdir()
-    (vault_root / ".obsidian" / "daily-notes.json").write_text('{"folder":"dias","format":"YYYY-MM-DD","template":"daily"}', encoding="utf-8")
-    (vault_root / "daily.md").write_text("# {{title}}\n", encoding="utf-8")
+    (vault_root / ".obsidian" / "daily-notes.json").write_text('{"folder":"dias","format":"YYYY-MM-DD","template":"daily"}', encoding="utf-8", newline="\n")
+    (vault_root / "daily.md").write_text("# {{title}}\n", encoding="utf-8", newline="\n")
     info = client.get("/api/brain/daily", headers=AUTH).json()
     assert info["exists"] is False and info["path"].startswith("dias/20")
     path = client.post("/api/brain/daily", headers=AUTH).json()["path"]
@@ -169,7 +173,7 @@ def test_attachment_is_resolved_by_name_and_returned_as_base64(client):
 
 
 def test_drawing_open_save_and_conflict(client, vault_root):
-    (vault_root / "d.excalidraw.md").write_text(SCENE_FIXTURE.read_text(encoding="utf-8"), encoding="utf-8")
+    (vault_root / "d.excalidraw.md").write_text(SCENE_FIXTURE.read_text(encoding="utf-8"), encoding="utf-8", newline="\n")
     opened = client.get("/api/brain/drawing", params={"path": "d.excalidraw.md"}, headers=AUTH).json()
     scene = json.loads(opened["scene"])
     assert opened["kind"] == "excalidraw" and scene["elements"] and opened["read_only"] is None
@@ -196,9 +200,9 @@ def test_new_drawing_and_canvas_are_created_with_unique_names(client, vault_root
 def test_excalidraw_assets_are_served_from_the_build_and_never_outside_it(client, tmp_path, monkeypatch):
     build = tmp_path / "excalidraw"
     (build / "assets").mkdir(parents=True)
-    (build / "index.html").write_text("<html></html>", encoding="utf-8")
-    (build / "assets" / "app.js").write_text("export {}", encoding="utf-8")
-    (tmp_path / "secret.txt").write_text("x", encoding="utf-8")
+    (build / "index.html").write_text("<html></html>", encoding="utf-8", newline="\n")
+    (build / "assets" / "app.js").write_text("export {}", encoding="utf-8", newline="\n")
+    (tmp_path / "secret.txt").write_text("x", encoding="utf-8", newline="\n")
     monkeypatch.setenv("WISP_EXCALIDRAW_DIR", str(build))
     index = client.get("/api/brain/excalidraw/", headers=AUTH)
     assert index.status_code == 200 and index.text == "<html></html>" and "default-src 'none'" in index.headers["content-security-policy"]
@@ -220,7 +224,7 @@ def test_watcher_publishes_a_changed_event_with_the_paths(vault_root):
     rt = brain.Runtime(host)
     vault = rt.current()
     before = watch.snapshot(vault)
-    (vault_root / "Inicio.md").write_text("mudou de verdade\n", encoding="utf-8")
+    (vault_root / "Inicio.md").write_text("mudou de verdade\n", encoding="utf-8", newline="\n")
     asyncio.run(brain.poll_once(rt, vault, before))
     assert host.events == [("brain", "changed", {"paths": ["Inicio.md"]})]
     assert rt.dirty is True
@@ -229,7 +233,7 @@ def test_watcher_publishes_a_changed_event_with_the_paths(vault_root):
 def test_excalidraw_index_gets_the_iframe_bridge_shim_and_the_token_path_form(client, tmp_path, monkeypatch):
     build = tmp_path / "excalidraw"
     build.mkdir()
-    (build / "index.html").write_text('<html><head></head><body><script type="module" src="./assets/app.js"></script></body></html>', encoding="utf-8")
+    (build / "index.html").write_text('<html><head></head><body><script type="module" src="./assets/app.js"></script></body></html>', encoding="utf-8", newline="\n")
     monkeypatch.setenv("WISP_EXCALIDRAW_DIR", str(build))
     for url in ("/api/brain/excalidraw/t/abc/index.html", "/api/brain/excalidraw/t/abc/", "/api/brain/excalidraw/index.html"):
         page = client.get(url, headers=AUTH)
@@ -250,7 +254,7 @@ def test_recover_copies_what_a_choice_discards_next_to_the_wisp_folder(client, t
 def test_excalidraw_token_in_the_path_opens_only_that_prefix(client, tmp_path, monkeypatch):
     build = tmp_path / "excalidraw"
     build.mkdir()
-    (build / "index.html").write_text("<html><script src='x'></script></html>", encoding="utf-8")
+    (build / "index.html").write_text("<html><script src='x'></script></html>", encoding="utf-8", newline="\n")
     monkeypatch.setenv("WISP_EXCALIDRAW_DIR", str(build))
     base = "/api/brain/excalidraw/t/"
     ok = client.get(f"{base}{TOKEN}/index.html")
@@ -284,3 +288,39 @@ def test_attachment_size_is_checked_before_reading(client, vault_root, monkeypat
     monkeypatch.setattr(brain.Vault, "read_bytes", lambda self, rel: read.append(rel) or b"")
     assert client.get("/api/brain/attachment", params={"name": "foto.png"}, headers=AUTH).status_code == 413
     assert read == []
+
+
+def _raw(root: Path, rel: str, text: str) -> None:
+    (root / rel).write_bytes(text.encode("utf-8"))
+
+
+@pytest.mark.parametrize("eol", ["\n", "\r\n"])
+def test_mutating_routes_keep_the_notes_own_line_endings_byte_for_byte(client, vault_root, eol):
+    _raw(vault_root, "t.md", f"---{eol}tags: [a]{eol}---{eol}- [ ] fazer{eol}fim{eol}")
+    assert client.post("/api/brain/task", headers=AUTH, json={"path": "t.md", "line": 3, "expected": "- [ ] fazer"}).status_code == 200
+    assert (vault_root / "t.md").read_bytes() == f"---{eol}tags: [a]{eol}---{eol}- [x] fazer{eol}fim{eol}".encode()
+    assert client.post("/api/brain/property", headers=AUTH, json={"path": "t.md", "key": "status", "value": "ok"}).status_code == 200
+    assert (vault_root / "t.md").read_bytes() == f"---{eol}tags: [a]{eol}status: ok{eol}---{eol}- [x] fazer{eol}fim{eol}".encode()
+    _raw(vault_root, "Sem.md", "sem titulo\n")
+    _raw(vault_root, "ref.md", f"[[Sem]] e [[Sem|r]]{eol}`[[Sem]]`{eol}")
+    preview = client.post("/api/brain/rename/preview", headers=AUTH, json={"from": "Sem.md", "to": "Outro.md"}).json()
+    assert client.post("/api/brain/rename/apply", headers=AUTH, json={"from": "Sem.md", "to": "Outro.md", "id": preview["id"]}).status_code == 200
+    assert (vault_root / "ref.md").read_bytes() == f"[[Outro]] e [[Outro|r]]{eol}`[[Sem]]`{eol}".encode()
+    noted = f"# N{eol}{eol}texto{eol}"
+    assert client.put("/api/brain/note", headers=AUTH, json={"path": "t.md", "text": noted, "base": (vault_root / "t.md").read_bytes().decode()}).status_code == 200
+    assert (vault_root / "t.md").read_bytes() == noted.encode()
+
+
+@pytest.mark.parametrize("eol", ["\r\n", "\n"])
+def test_drawing_round_trip_keeps_the_notes_line_endings(client, vault_root, eol):
+    source = SCENE_FIXTURE.read_bytes().decode("utf-8").replace("\r\n", "\n").replace("\n", eol)
+    _raw(vault_root, "d.excalidraw.md", source)
+    opened = client.get("/api/brain/drawing", params={"path": "d.excalidraw.md"}, headers=AUTH).json()
+    scene = json.loads(opened["scene"])
+    scene["elements"].append({"id": "novo1234", "type": "text", "text": "oi", "originalText": "oi", "isDeleted": False})
+    saved = client.put("/api/brain/drawing", headers=AUTH, json={"path": "d.excalidraw.md", "scene": json.dumps(scene), "hash": opened["hash"]})
+    assert saved.status_code == 200
+    on_disk = (vault_root / "d.excalidraw.md").read_bytes().decode("utf-8")
+    assert "oi ^novo1234" in on_disk
+    assert on_disk.count("\r\n") == (on_disk.count("\n") if eol == "\r\n" else 0)
+
