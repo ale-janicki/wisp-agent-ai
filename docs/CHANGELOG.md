@@ -25,6 +25,7 @@ Entries are in descending chronological order (newest first).
 ### Fixed
 
 - Windows: finding Claude Code no longer picks npm's extensionless `claude` shim, which Windows cannot run (WinError 193). It now looks for `claude.exe` or `claude.cmd`.
+- Windows: an npm-installed Claude Code (`claude.cmd`) is no longer run through cmd.exe, which cut the command line at the first newline of the instructions and dropped the permission prompt and the guard settings. Wisp reads the npm launcher and starts node with the Claude Code script, or the `.exe` it points to, directly. A launcher it cannot read refuses the turn and asks for the native install.
 - Windows: `wisp setup shim` no longer crashes on the path type. A second run recognises its own `wisp.cmd` instead of reporting it as a foreign file, and detects an unchanged shim despite CRLF line endings.
 
 ## [0.6.0] - 2026-11-27

@@ -21,6 +21,15 @@ AUTH = {"Authorization": f"Bearer {TOKEN}"}
 FIXTURES = Path(__file__).parent / "fixtures" / "serve"
 
 
+CMD_SHIM_NODE = (
+    "@ECHO off\r\nGOTO start\r\n:find_dp0\r\nSET dp0=%~dp0\r\nEXIT /b\r\n:start\r\nSETLOCAL\r\nCALL :find_dp0\r\n\r\n"
+    'IF EXIST "%dp0%\\node.exe" (\r\n  SET "_prog=%dp0%\\node.exe"\r\n) ELSE (\r\n  SET "_prog=node"\r\n'
+    "  SET PATHEXT=%PATHEXT:;.JS;=;%\r\n)\r\n\r\n"
+    "endLocal & goto #_undefined_# 2>NUL || title %COMSPEC% & "
+    '"%_prog%"  "%dp0%\\node_modules\\@anthropic-ai\\claude-code\\cli.js" %*\r\n'
+)
+
+
 @pytest.fixture
 def data(tmp_path, monkeypatch):
     path = tmp_path / "data"
@@ -49,10 +58,12 @@ def guards(tmp_path, monkeypatch):
 def fake_claude(tmp_path, monkeypatch, guards):
     source = (FIXTURES / "fake_claude.py").read_text(encoding="utf-8")
     if sys.platform == "win32":
-        script = tmp_path / "fake_claude.py"
+        script = tmp_path / "fake_claude.js"
         script.write_text(source, encoding="utf-8")
         launcher = tmp_path / "fake_claude.cmd"
-        launcher.write_bytes(f'@echo off\r\n"{sys.executable}" "{script}" %*\r\n'.encode("utf-8"))
+        shim = CMD_SHIM_NODE.replace("node_modules\\@anthropic-ai\\claude-code\\cli.js", "fake_claude.js")
+        launcher.write_bytes(shim.encode("utf-8"))
+        monkeypatch.setattr("wisp.serve.claude_session.shutil.which", lambda name: sys.executable)
     else:
         launcher = tmp_path / "fake-claude"
         launcher.write_text(source.replace("#!/usr/bin/env python3", f"#!{sys.executable}", 1), encoding="utf-8")

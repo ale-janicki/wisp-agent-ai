@@ -3,7 +3,10 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import ntpath
 import os
+import re
+import shutil
 import subprocess
 import sys
 import uuid
@@ -128,6 +131,56 @@ def locate_claude(configured: str | None = None, env=None, platform: str | None 
         if _usable(path, platform):
             return path
     raise ClaudeNotFound("Claude Code não encontrado")
+
+
+CMD_REFUSAL = ("não consigo abrir o Claude Code pelo atalho .cmd com segurança; "
+               "instale a versão nativa (claude.exe)")
+
+
+def _is_batch(path: str) -> bool:
+    return path.rstrip(" .").lower().endswith((".cmd", ".bat"))
+
+
+def resolve_launch(executable: str, platform: str | None = None, which=None,
+                   exists=os.path.isfile, read=None) -> list[str]:
+    platform = platform or sys.platform
+    which = which or shutil.which
+    if platform != "win32" or not _is_batch(executable):
+        return [executable]
+    try:
+        text = read(executable) if read else Path(executable).read_text(encoding="utf-8", errors="replace")
+        lines = [line.strip() for line in text.splitlines() if line.strip()]
+    except OSError:
+        raise ClaudeNotFound(CMD_REFUSAL) from None
+    if not lines or "%*" not in lines[-1]:
+        raise ClaudeNotFound(CMD_REFUSAL)
+    folder = ntpath.dirname(ntpath.abspath(executable)) if read is None else ntpath.dirname(executable)
+    tail = lines[-1].rsplit("&", 1)[-1]
+    tokens = re.findall(r'"[^"]*"|\S+', tail)
+    if not tokens or tokens[-1] != "%*" or len(tokens) > 3:
+        raise ClaudeNotFound(CMD_REFUSAL)
+
+    def expand(token: str) -> str:
+        token = token.strip('"')
+        for name in ("%~dp0", "%dp0%"):
+            token = re.sub(re.escape(name) + r"[\\/]*", lambda _: folder.rstrip("\\/") + "\\", token, flags=re.I)
+        return ntpath.normpath(token)
+
+    words = tokens[:-1]
+    if len(words) == 1:
+        program = expand(words[0])
+        if "%" in program or not program.lower().endswith(".exe") or not exists(program):
+            raise ClaudeNotFound(CMD_REFUSAL)
+        return [program]
+    if len(words) == 2 and words[0].strip('"').lower() in ("%_prog%", "node", "node.exe"):
+        script = expand(words[1])
+        beside = ntpath.join(folder, "node.exe")
+        node = beside if exists(beside) else which("node")
+        if ("%" in script or not script.lower().endswith((".js", ".mjs", ".cjs")) or not exists(script)
+                or not node or _is_batch(node)):
+            raise ClaudeNotFound(CMD_REFUSAL)
+        return [node, script]
+    raise ClaudeNotFound(CMD_REFUSAL)
 
 
 def child_environment(executable: str, platform: str | None = None) -> dict[str, str]:
@@ -412,6 +465,8 @@ class ClaudeProcess:
 
     @classmethod
     async def spawn(cls, executable: str, args: list[str], cwd: str, env: dict[str, str]) -> ClaudeProcess:
+        if sys.platform == "win32" and _is_batch(executable):
+            raise ClaudeNotFound(CMD_REFUSAL)
         proc = await asyncio.create_subprocess_exec(
             executable, *args, cwd=cwd, env=env, stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE, **new_session_kwargs())
@@ -608,7 +663,8 @@ class ConversationSession:
         arguments = claude_arguments(model=None, resume=plan.resume, permission_mode=launch.permission_mode,
                                      append_system_prompt=launch.append_system_prompt, settings=launch.settings,
                                      disallowed_tools=launch.disallowed_tools)
-        proc = await ClaudeProcess.spawn(executable, arguments, str(workdir), env)
+        program, *lead = await asyncio.to_thread(resolve_launch, executable)
+        proc = await ClaudeProcess.spawn(program, [*lead, *arguments], str(workdir), env)
         if gen != self._generation:
             proc.kill()
             raise SessionGone("a sessão foi encerrada")
@@ -790,5 +846,5 @@ class ConversationSession:
 
 
 __all__ = ["ClaudeNotFound", "ConversationSession", "Event", "PermissionRequest", "SessionGone", "TurnLedger",
-           "GuardsUnavailable", "claude_arguments", "decode_line", "locate_claude", "permission_response_line",
+           "GuardsUnavailable", "claude_arguments", "decode_line", "locate_claude", "resolve_launch", "permission_response_line",
            "plan_resume"]
