@@ -368,6 +368,7 @@ def test_launch_recovery_finishes_a_recording_that_was_cut_short(tmp_path, monke
     writer = StereoWavWriter(folder / "audio.wav")
     writer.write(array("f", ([0.0, 0.0] * R) + ([0.1, 0.0] * R) + ([0.0, 0.0] * R * 2)))
     writer._file.flush()
+    writer._file.close()
     monkeypatch.setattr(service, "ENV_FACTORY", lambda: holder.env)
     monkeypatch.setenv("WISP_DATA_DIR", str(tmp_path / "data"))
     with TestClient(create_app(TOKEN)) as client:
