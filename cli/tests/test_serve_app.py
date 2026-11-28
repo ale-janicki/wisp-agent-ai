@@ -269,7 +269,7 @@ def test_claude_starts_with_the_guards_the_mac_passes(data, fake_claude, guards,
     settings = json.loads(Path(option(argv, "--settings")).read_text(encoding="utf-8"))
     pre = settings["hooks"]["PreToolUse"][0]
     assert pre["matcher"] == "Bash|Read|Edit|MultiEdit|Write|NotebookEdit|Grep|Glob"
-    quoted = "'" + str(guards) + "'" if sys.platform != "win32" else f'"{guards}"'
+    quoted = "'" + str(guards) + "'" if sys.platform != "win32" else '"' + str(guards).replace("\\", "/") + '"'
     assert [h["command"] for h in pre["hooks"]] == [
         f"{quoted} hook {n}" for n in ("guard-secrets", "guard-telegram", "guard-destructive", "guard-lessons",
                                        "guard-agenda", "guard-outbound")]
