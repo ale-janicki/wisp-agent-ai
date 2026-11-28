@@ -118,11 +118,14 @@ jobs:
         run: |
           $setup = Get-ChildItem win/src-tauri/target/release/bundle/nsis/*.exe | Select-Object -First 1
           Start-Process -Wait -FilePath $setup.FullName -ArgumentList '/S'
-          $exe = Get-ChildItem "$env:LOCALAPPDATA\Programs" -Recurse -Include 'Wisp.exe', 'wisp-win.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
+          $dirs = @("$env:LOCALAPPDATA\Wisp", "$env:LOCALAPPDATA\Programs\Wisp") | Where-Object { Test-Path $_ }
+          $exe = $dirs | ForEach-Object { Get-ChildItem $_ -Filter '*.exe' -File } | Where-Object { $_.BaseName -in 'Wisp', 'wisp-win' } | Select-Object -First 1
           if (-not $exe) {
-            Get-ChildItem "$env:LOCALAPPDATA\Programs" -Recurse -Filter '*.exe' -ErrorAction SilentlyContinue | ForEach-Object FullName
+            $dirs | ForEach-Object { Get-ChildItem $_ -File | ForEach-Object FullName }
+            Get-ChildItem 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall' | Get-ItemProperty | Where-Object DisplayName -like '*Wisp*' | Format-List DisplayName, InstallLocation, UninstallString
             throw 'installed app exe not found'
           }
+          Write-Output "installed app: $($exe.FullName)"
           $log = Join-Path $env:LOCALAPPDATA 'wisp\logs\app.log'
           $app = Start-Process -FilePath $exe.FullName -PassThru
           $deadline = (Get-Date).AddMinutes(15)
