@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import threading
+import time
 from dataclasses import dataclass
 from datetime import datetime, tzinfo
 from pathlib import Path
@@ -32,15 +33,38 @@ def new_meta(started_at: datetime, mic: str | None = None, system: str | None = 
     return meta
 
 
+def _retrying(action):
+    for attempt in range(8):
+        try:
+            return action()
+        except PermissionError:
+            if attempt == 7:
+                raise
+            time.sleep(0.02 * (attempt + 1))
+
+
 def read_meta(folder: Path) -> dict:
-    data = json.loads((Path(folder) / META_FILE).read_text("utf-8"))
+    with _META_LOCK:
+        data = json.loads(_retrying(lambda: (Path(folder) / META_FILE).read_text("utf-8")))
     if not isinstance(data, dict):
         raise ValueError("meta.json has no object at the top")
     return data
 
 
+def has_meta(folder: Path) -> bool:
+    with _META_LOCK:
+        try:
+            _retrying(lambda: os.stat(Path(folder) / META_FILE))
+        except PermissionError:
+            return True
+        except OSError:
+            return False
+    return True
+
+
 def write_meta(folder: Path, meta: dict) -> None:
-    write_private(Path(folder) / META_FILE, json.dumps(meta, indent=2, sort_keys=True, ensure_ascii=False) + "\n")
+    with _META_LOCK:
+        write_private(Path(folder) / META_FILE, json.dumps(meta, indent=2, sort_keys=True, ensure_ascii=False) + "\n")
 
 
 def update_meta(folder: Path, change) -> dict:

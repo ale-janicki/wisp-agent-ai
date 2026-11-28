@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import functools
 import json
+import logging
 import secrets
 import sys
 import threading
@@ -26,6 +27,7 @@ from wisp.meetings_win.transcriber import Cancelled, MeetingTranscriber, audio_p
 from wisp.meetings_win.transcript import clock, read_transcript, segments_of, transcript_path, write_private
 
 FEATURE = "meetings"
+log = logging.getLogger(__name__)
 SOURCES = ("both", "mic", "system")
 SOURCE_LABELS = {"both": "Microfone e áudio do computador", "mic": "Só microfone", "system": "Só áudio do computador"}
 TICK_SECONDS = 1.0
@@ -202,14 +204,22 @@ class MeetingsService:
 
     def _meeting_folder(self, meeting_id: str) -> Path:
         if not safe_id(meeting_id):
+            log.warning("meeting %r not found: not a safe id", meeting_id)
             raise NotFound("reunião não encontrada")
         root = self._root()
         folder = root / meeting_id
         try:
-            inside = folder.resolve().parent == root.resolve()
-        except (OSError, ValueError):
-            inside = False
-        if not inside or not (folder / recordings.META_FILE).exists():
+            resolved, resolved_root = folder.resolve(), root.resolve()
+            inside = resolved.parent == resolved_root
+        except (OSError, ValueError) as problem:
+            log.warning("meeting %r not found: cannot resolve %s: %r", meeting_id, folder, problem)
+            raise NotFound("reunião não encontrada")
+        if not inside:
+            log.warning("meeting %r not found: %s resolves to %s, not directly under %s", meeting_id, folder, resolved,
+                        resolved_root)
+            raise NotFound("reunião não encontrada")
+        if not recordings.has_meta(folder):
+            log.warning("meeting %r not found: no %s in %s", meeting_id, recordings.META_FILE, folder)
             raise NotFound("reunião não encontrada")
         return folder
 
@@ -487,6 +497,8 @@ class MeetingsService:
         folder = self._meeting_folder(meeting_id)
         entry = next((e for e in recordings.list_meetings(self._root()) if e.id == meeting_id), None)
         if entry is None:
+            log.warning("meeting %r not found: %s exists but its %s could not be read", meeting_id, folder,
+                        recordings.META_FILE)
             raise NotFound("reunião não encontrada")
         meta = entry.meta
         document = None

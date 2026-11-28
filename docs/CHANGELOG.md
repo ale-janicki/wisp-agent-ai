@@ -50,6 +50,7 @@ Entries are in descending chronological order (newest first).
 ### Fixed
 
 - Security, Windows app: the agent and every process wisp-serve starts inherited the sidecar's token through the environment. With it, the agent could call the local API and approve its own permission requests. wisp-serve now removes the token from its own environment at start, and child environments drop it too. This affected the first Windows test build, windows-v0.1.0-alpha.1.
+- Windows: a meeting no longer shows "reunião não encontrada" right after recording stops. Reading meta.json while the pipeline swapped it raised a sharing violation on Windows, which counted as a missing meeting. Reads now retry, and a file that is briefly locked still counts as present.
 - Windows: meeting notes and the brain harvest no longer start the agent through an npm `.cmd` launcher. cmd.exe cut their instructions at the first newline, and for the harvest that also dropped the guard settings that come after them. Both now start what the launcher points to directly, as the chat does.
 - Windows: the doctor tells Windows from macOS by the system it was built for, not by the type of the path object, which is always a Windows path on a Windows host.
 - Windows: Brain and Tarefas edits keep each note's own line endings byte for byte, so a note shared with the Mac is never rewritten from LF to CRLF. A drawing saved with CRLF now opens.

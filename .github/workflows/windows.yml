@@ -61,6 +61,7 @@ jobs:
           cli/tests/test_meetings_win_webhook.py
           cli/tests/test_meetings_win_winsys.py
           cli/tests/test_serve_meetings.py
+          cli/tests/test_meetings_win_meta_race.py
           cli/tests/test_serve_token_isolation.py
           bot/tests/test_config.py
 
