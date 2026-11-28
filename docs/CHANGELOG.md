@@ -23,6 +23,8 @@ Entries are in descending chronological order (newest first).
 - The Python core imports and runs on Windows. File locks, process-tree kills, new process sessions and the user id go through `compat`. On macOS the flags and signals are unchanged. Where a uid gated a security check, Windows refuses instead of skipping the check.
 - Paths: Windows falls back to `~/AppData/Roaming` and `~/AppData/Local` when `APPDATA` or `LOCALAPPDATA` is missing. The venv uses `Scripts\` and `.exe` names. The `wisp` shim is a `wisp.cmd`. The bot's state and conversations paths follow the platform.
 - `scripts/leak-check.sh` also scans `win/` and `.github/`.
+- `scripts/publish-windows-prerelease.sh` is the only way to publish a Windows build. It refuses a title, notes or installer that match the private-name patterns or that gitleaks flags. It also refuses a tree that fails leak-check. It always publishes as a pre-release that is not latest, and it fails if latest moved, because the Mac updater reads latest.
+- CI: a `leaks` workflow runs gitleaks on every push and pull request, so a push made without the local pre-push hook is still checked.
 
 ### Fixed
 
