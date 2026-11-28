@@ -74,7 +74,8 @@ def test_helpers_and_broken_modules_are_skipped_not_fatal(drop):
     drop("noroutes", "x = 1\n")
     drop("broken", "raise RuntimeError('boom')\n")
     drop("dummy", DUMMY)
-    assert sorted(features.discover()) == ["dummy"]
+    found = set(features.discover())
+    assert "dummy" in found and not {"_helper", "noroutes", "broken"} & found
     assert TestClient(create_app(TOKEN), headers=AUTH).get("/health").status_code == 200
 
 

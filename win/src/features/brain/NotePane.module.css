@@ -1,0 +1,16 @@
+.pane { display: flex; flex-direction: column; flex: 1; min-height: 0; gap: var(--space-s); }
+.head { display: flex; align-items: center; gap: var(--space-s); }
+.title { flex: 1; margin: 0; font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.actions { display: flex; align-items: center; gap: var(--space-s); }
+.actions button, .banner button { padding: 3px 12px; border: 1px solid var(--stroke); border-radius: 13px; background: none; font-size: 12px; }
+.actions button:hover:not(:disabled), .banner button:hover { background: var(--surface-hi); }
+.actions button:disabled { opacity: 0.4; cursor: default; }
+.dirty { color: var(--text-tertiary); font-size: 11px; }
+.menuHost { position: relative; }
+.menu { position: absolute; right: 0; top: 28px; z-index: 10; margin: 0; padding: var(--space-xs); list-style: none; min-width: 230px; border-radius: var(--radius-nav); background: var(--surface-hi); border: 1px solid var(--stroke); }
+.menu button { width: 100%; border: 0; border-radius: 8px; text-align: left; padding: 5px 10px; }
+.warn { margin: 0; padding: 4px var(--space-m); border-radius: var(--radius-nav); background: var(--surface-hi); color: var(--busy); font-size: 12px; }
+.banner { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-s); padding: var(--space-s) var(--space-m); border-radius: var(--radius-nav); background: var(--surface-hi); font-size: 12px; }
+.banner small { flex-basis: 100%; color: var(--text-tertiary); }
+.scroll { display: flex; flex-direction: column; flex: 1; min-height: 0; gap: var(--space-s); overflow-y: auto; }
+.message { margin: auto; color: var(--text-secondary); }

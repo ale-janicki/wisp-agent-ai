@@ -76,7 +76,22 @@ class TokenAuth:
         self.app = app
         self.token = token.encode()
 
+    EXCALIDRAW_PREFIX = "/api/brain/excalidraw/t/"
+
+    def _path_token_allowed(self, scope) -> bool:
+        if not scope["path"].startswith(self.EXCALIDRAW_PREFIX):
+            return False
+        raw = scope.get("raw_path") or scope["path"].encode()
+        raw = raw.split(b"?", 1)[0]
+        prefix = self.EXCALIDRAW_PREFIX.encode()
+        if not raw.startswith(prefix):
+            return False
+        segment = unquote_to_bytes(raw[len(prefix) :].split(b"/", 1)[0])
+        return bool(segment) and hmac.compare_digest(segment, self.token)
+
     def _allowed(self, scope) -> bool:
+        if self._path_token_allowed(scope):
+            return True
         headers = dict(scope.get("headers") or [])
         header = headers.get(b"authorization", b"")
         if header[:7].lower() == b"bearer " and hmac.compare_digest(header[7:].strip(), self.token):

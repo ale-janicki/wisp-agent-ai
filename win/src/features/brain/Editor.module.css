@@ -1,0 +1,33 @@
+.wrap { position: relative; display: flex; flex: 1; min-height: 320px; }
+.area {
+  flex: 1;
+  width: 100%;
+  resize: none;
+  padding: var(--space-m);
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius-nav);
+  background: var(--bg);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 19px;
+  user-select: text;
+  outline: none;
+}
+.area:focus { border-color: var(--accent); }
+.popup {
+  position: absolute;
+  left: var(--space-l);
+  bottom: var(--space-l);
+  z-index: 5;
+  margin: 0;
+  padding: var(--space-xs);
+  list-style: none;
+  min-width: 220px;
+  max-height: 220px;
+  overflow-y: auto;
+  border-radius: var(--radius-nav);
+  background: var(--surface-hi);
+  border: 1px solid var(--stroke);
+}
+.popup button { width: 100%; padding: 4px 8px; border: 0; border-radius: 8px; background: none; text-align: left; }
+.activeOption button { background: var(--accent-fill); color: var(--accent-text); }

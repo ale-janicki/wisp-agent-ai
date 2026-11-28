@@ -1,0 +1,24 @@
+.wrap { display: flex; flex-direction: column; flex: 1; min-height: 0; gap: var(--space-s); }
+.search { height: 30px; padding: 0 var(--space-m); border: 1px solid var(--stroke); border-radius: 15px; background: var(--bg); outline: none; user-select: text; }
+.search:focus { border-color: var(--accent); }
+.error { margin: 0; padding: 4px var(--space-m); border-radius: var(--radius-nav); background: var(--surface-hi); color: var(--error); font-size: 12px; }
+.list { flex: 1; min-height: 0; overflow-y: auto; }
+.section { margin: var(--space-m) 0 var(--space-xs); padding: 0 var(--space-m); color: var(--text-tertiary); font-size: 11px; font-weight: 600; letter-spacing: 0.02em; }
+.items { margin: 0; padding: 0; list-style: none; }
+.row { display: flex; align-items: center; gap: var(--space-s); min-height: 44px; padding: 0 var(--space-m); border-radius: var(--radius-nav); }
+.row:hover { background: rgba(35, 36, 40, 0.7); }
+.body { display: flex; align-items: center; gap: var(--space-s); flex: 1; min-width: 0; padding: 0; border: 0; background: none; text-align: left; }
+.urgent { flex: none; width: 8px; height: 8px; margin: 0 5px; border-radius: 50%; background: var(--error); }
+.text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.line { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.owner { flex: none; height: 16px; padding: 0 6px; border-radius: 8px; background: var(--accent-fill); color: var(--accent-text); font-size: 11px; line-height: 16px; }
+.title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+.caption { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-tertiary); font-size: 11px; }
+.check, .trash { width: 24px; height: 24px; border: 0; border-radius: 12px; background: none; color: var(--text-tertiary); font-size: 16px; }
+.check:hover { color: var(--accent); }
+.trash { opacity: 0; font-size: 12px; }
+.row:hover .trash, .trash:focus-visible { opacity: 1; }
+.ask { display: flex; align-items: center; gap: 4px; font-size: 11px; color: var(--text-secondary); }
+.ask button { padding: 1px 8px; border: 1px solid var(--stroke); border-radius: 10px; background: none; font-size: 11px; }
+.spin { width: 16px; height: 16px; margin: 0 4px; border: 2px solid var(--stroke); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }

@@ -30,6 +30,9 @@ jobs:
           cli/tests/test_serve_guards.py
           cli/tests/test_paths.py
           cli/tests/test_setup_shim.py
+          cli/tests/test_serve_features.py
+          cli/tests/test_serve_feature_brain_vault.py cli/tests/test_serve_feature_brain_drawing.py
+          cli/tests/test_serve_feature_brain_routes.py cli/tests/test_serve_feature_tasks.py
           bot/tests/test_config.py
 
       - name: Full suite (informational)
@@ -69,6 +72,12 @@ jobs:
         run: |
           pnpm tsc --noEmit
           pnpm test
+
+      - name: Build the Excalidraw editor for the Brain tab
+        working-directory: app/Web/excalidraw
+        run: |
+          npm ci --ignore-scripts
+          npx vite build --base ./
 
       - name: Build the NSIS installer
         working-directory: win

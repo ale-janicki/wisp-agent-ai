@@ -1,10 +1,5 @@
 import { BrainIcon } from "../../shell/icons";
-import { comingSoon } from "../ComingSoon";
 import type { Feature } from "../types";
+import { BrainTab } from "./BrainTab";
 
-const base = { id: "brain", label: "Brain", icon: BrainIcon };
-
-export const brain: Feature = {
-  ...base,
-  Component: comingSoon(base),
-};
+export const brain: Feature = { id: "brain", label: "Brain", icon: BrainIcon, Component: BrainTab };

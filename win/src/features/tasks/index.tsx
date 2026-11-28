@@ -1,10 +1,5 @@
 import { TasksIcon } from "../../shell/icons";
-import { comingSoon } from "../ComingSoon";
 import type { Feature } from "../types";
+import { TasksTab } from "./TasksTab";
 
-const base = { id: "tasks", label: "Tarefas", icon: TasksIcon };
-
-export const tasks: Feature = {
-  ...base,
-  Component: comingSoon(base),
-};
+export const tasks: Feature = { id: "tasks", label: "Tarefas", icon: TasksIcon, Component: TasksTab };

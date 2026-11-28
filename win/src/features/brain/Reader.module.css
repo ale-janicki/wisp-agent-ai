@@ -1,0 +1,26 @@
+.reader {
+  user-select: text;
+  overflow-wrap: anywhere;
+  line-height: 1.55;
+}
+.reader > :first-child { margin-top: 0; }
+.reader p, .reader ul, .reader ol, .reader blockquote, .reader table { margin: var(--space-s) 0; }
+.reader h1 { font-size: 22px; margin: var(--space-l) 0 var(--space-s); }
+.reader h2 { font-size: 18px; margin: var(--space-l) 0 var(--space-s); }
+.reader h3, .reader h4 { font-size: 15px; margin: var(--space-m) 0 var(--space-xs); }
+.reader code { font-family: var(--font-mono); font-size: 11.5px; padding: 1px 4px; border-radius: 4px; background: var(--surface-hi); }
+.reader pre { padding: var(--space-s) var(--space-m); border-radius: var(--radius-nav); background: var(--bg); overflow-x: auto; }
+.reader pre code { padding: 0; background: none; }
+.reader blockquote { padding-left: var(--space-m); border-left: 3px solid var(--stroke); color: var(--text-secondary); }
+.reader table { border-collapse: collapse; }
+.reader th, .reader td { border: 1px solid var(--stroke); padding: 3px 8px; }
+.reader li:has(> input[type="checkbox"]) { list-style: none; margin-left: -18px; }
+.reader input[type="checkbox"] { accent-color: var(--accent); margin-right: 6px; cursor: pointer; }
+.link { color: var(--accent-text); text-decoration: none; cursor: pointer; }
+.link:hover { text-decoration: underline; }
+.unresolved { color: var(--text-secondary); text-decoration: underline dotted; cursor: pointer; }
+.tag { padding: 0 6px; border: 0; border-radius: 9px; background: var(--accent-fill); color: var(--accent-text); font-size: 12px; }
+.image { max-width: 100%; border-radius: var(--radius-nav); }
+.missing { color: var(--text-tertiary); font-style: italic; }
+.embed { display: block; margin: var(--space-s) 0; padding: var(--space-s) var(--space-m); border-left: 2px solid var(--accent); border-radius: 6px; background: var(--bg); }
+.embedHead { border: 0; background: none; color: var(--text-secondary); font-size: 12px; padding: 0; }

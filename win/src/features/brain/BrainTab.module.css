@@ -1,0 +1,15 @@
+.shell { position: relative; display: flex; flex: 1; min-height: 0; gap: var(--space-s); }
+.main { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; gap: var(--space-s); }
+.bar { display: flex; align-items: center; gap: var(--space-xs); flex-wrap: wrap; }
+.search { flex: 1; min-width: 120px; height: 28px; padding: 0 var(--space-m); border: 1px solid var(--stroke); border-radius: 14px; background: var(--bg); outline: none; user-select: text; }
+.search:focus { border-color: var(--accent); }
+.icon { width: 28px; height: 28px; border: 0; border-radius: 14px; background: none; color: var(--text-secondary); }
+.icon:hover, .chip:hover { background: var(--surface-hi); }
+.chip { height: 24px; padding: 0 var(--space-m); border: 1px solid var(--stroke); border-radius: 12px; background: none; font-size: 12px; color: var(--text-secondary); }
+.chipOn { background: var(--accent-fill); border-color: transparent; color: var(--accent-text); }
+.modes { display: flex; gap: var(--space-xs); }
+.tabs { display: flex; gap: 2px; overflow-x: auto; flex: none; }
+.tab { display: inline-flex; align-items: center; flex: none; max-width: 180px; border-radius: 8px; color: var(--text-secondary); }
+.tab button { border: 0; background: none; padding: 3px 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: inherit; }
+.tabActive { background: var(--surface-hi); color: var(--text-primary); }
+.notice { margin: 0; padding: 4px var(--space-m); border-radius: var(--radius-nav); background: var(--surface-hi); color: var(--busy); font-size: 12px; }

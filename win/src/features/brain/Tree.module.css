@@ -1,0 +1,19 @@
+.tree { position: relative; display: flex; flex-direction: column; width: 220px; flex: none; min-height: 0; border-right: 1px solid var(--stroke); padding-right: var(--space-s); }
+.head { display: flex; align-items: center; justify-content: space-between; height: 26px; color: var(--text-secondary); font-size: 12px; }
+.tools button { border: 0; background: none; color: var(--text-secondary); width: 22px; height: 22px; border-radius: 6px; }
+.tools button:hover { background: var(--surface-hi); }
+.rows { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; }
+.group { display: flex; flex-direction: column; margin-bottom: var(--space-s); }
+.caption { padding: 2px 8px; color: var(--text-tertiary); font-size: 11px; }
+.row { display: flex; align-items: center; gap: 4px; min-height: 26px; padding: 2px 8px; border: 0; border-radius: 8px; background: none; text-align: left; white-space: nowrap; }
+.row:hover { background: var(--surface-hi); }
+.active { background: var(--accent-fill); color: var(--accent-text); }
+.over { outline: 1px dashed var(--accent); }
+.glyph { width: 12px; flex: none; color: var(--text-tertiary); }
+.name { flex: 1; overflow: hidden; text-overflow: ellipsis; }
+.count { color: var(--text-tertiary); font-size: 11px; }
+.star { color: var(--busy); font-size: 11px; }
+.empty { margin: var(--space-m) auto; color: var(--text-tertiary); }
+.menu { position: fixed; z-index: 20; margin: 0; padding: var(--space-xs); list-style: none; min-width: 190px; border-radius: var(--radius-nav); background: var(--surface-hi); border: 1px solid var(--stroke); }
+.menu button { width: 100%; padding: 5px 10px; border: 0; border-radius: 8px; background: none; text-align: left; }
+.menu button:hover { background: var(--accent-fill); }
