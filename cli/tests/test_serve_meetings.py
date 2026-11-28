@@ -137,6 +137,12 @@ def world(tmp_path, monkeypatch):
             svc.close()
 
 
+def meta_status(response) -> str | None:
+    body = response.json()
+    assert "meta" in body, f"GET meeting answered {response.status_code}: {body}"
+    return body["meta"]["status"]
+
+
 def wait_for(check, seconds=15.0):
     deadline = time.time() + seconds
     while time.time() < deadline:
@@ -193,8 +199,8 @@ def test_a_recording_goes_from_start_to_a_finished_meeting_with_note_and_brain(w
     assert stopped["phase"] == "idle" and stopped["message"]["text"].startswith("Gravação salva (0:0")
 
     def finished():
-        detail = client.get(f"/api/meetings/meetings/{meeting_id}").json()
-        return detail if detail["meta"]["status"] == "noted" else None
+        response = client.get(f"/api/meetings/meetings/{meeting_id}")
+        return response.json() if meta_status(response) == "noted" else None
 
     detail = wait_for(finished)
     assert detail["note"].startswith("# Plano") and detail["row"]["title"] == "Plano"
@@ -352,8 +358,8 @@ def test_retry_reopens_a_failed_meeting_and_the_pipeline_finishes_it(world):
     writer.write(array("f", ([0.0, 0.0] * R) + ([0.1, 0.0] * R) + ([0.0, 0.0] * R * 2)))
     writer.close()
     assert world.client.post(f"/api/meetings/meetings/{folder.name}/retry").status_code == 200
-    detail = wait_for(lambda: (d := world.client.get(f"/api/meetings/meetings/{folder.name}").json())
-                      and d["meta"]["status"] == "noted" and d)
+    detail = wait_for(lambda: meta_status(r := world.client.get(f"/api/meetings/meetings/{folder.name}")) == "noted"
+                      and r.json())
     assert detail["note"].startswith("# Plano") and world.recognizer.calls >= 1
 
 
@@ -374,8 +380,8 @@ def test_launch_recovery_finishes_a_recording_that_was_cut_short(tmp_path, monke
     with TestClient(create_app(TOKEN)) as client:
         client.headers.update(AUTH)
         assert client.get("/api/meetings/state").status_code == 200
-        detail = wait_for(lambda: (d := client.get(f"/api/meetings/meetings/{folder.name}").json())
-                          and d["meta"]["status"] == "noted" and d)
+        detail = wait_for(lambda: meta_status(r := client.get(f"/api/meetings/meetings/{folder.name}")) == "noted"
+                          and r.json())
         assert detail["meta"]["duration_s"] == pytest.approx(4.0)
         client.app.app.app.state.meetings.close()
 
