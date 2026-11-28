@@ -116,9 +116,12 @@ fn bootstrap(app: &AppHandle, log: &Arc<Logger>) -> Result<(u16, String), String
     spawn(app, &serve, log)
 }
 
+const PYTHON_VERSION: &str = "3.13";
+
 fn sync(resources: &Path, venv: &Path, python: &Path, log: &Logger) -> Result<(), String> {
     let mut cmd = Command::new(resources.join("uv.exe"));
-    cmd.args(["sync", "--frozen", "--no-dev", "--project"])
+    cmd.args(["sync", "--frozen", "--no-dev", "--python", PYTHON_VERSION])
+        .args(["--managed-python", "--project"])
         .arg(resources)
         .env("UV_PROJECT_ENVIRONMENT", venv)
         .env("UV_PYTHON_INSTALL_DIR", python)

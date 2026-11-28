@@ -49,6 +49,7 @@ Entries are in descending chronological order (newest first).
 
 ### Fixed
 
+- Windows: the first run no longer fails with "Não consegui preparar o Wisp" on a PC without Python. The bundled `uv` now installs its own Python 3.13 (`--python 3.13 --managed-python`) instead of the newest one, 3.15, for which `onnxruntime` has no Windows wheel. CI now installs the built setup silently on a clean runner, opens the app and fails unless the local server reports ready within 15 minutes.
 - Security, Windows app: the agent and every process wisp-serve starts inherited the sidecar's token through the environment. With it, the agent could call the local API and approve its own permission requests. wisp-serve now removes the token from its own environment at start, and child environments drop it too. This affected the first Windows test build, windows-v0.1.0-alpha.1.
 - Windows: a meeting no longer shows "reunião não encontrada" right after recording stops. Reading meta.json while the pipeline swapped it raised a sharing violation on Windows, which counted as a missing meeting. Reads now retry, and a file that is briefly locked still counts as present.
 - Windows: meeting notes and the brain harvest no longer start the agent through an npm `.cmd` launcher. cmd.exe cut their instructions at the first newline, and for the harvest that also dropped the guard settings that come after them. Both now start what the launcher points to directly, as the chat does.
