@@ -1,9 +1,10 @@
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
-import { FakeEventSource, fakeFetch } from "../test/fakes";
-import { WispSession } from "../WispSession";
-import { Panel } from "./Panel";
+import { FakeEventSource, fakeFetch } from "../../test/fakes";
+import { WispSession } from "../../WispSession";
+import { ShellContext } from "../../shell/context";
+import { ConversaTab } from "./ConversaTab";
 
 const info = { port: 4242, token: "tok" };
 
@@ -11,20 +12,12 @@ function Harness({ deps }: { deps: Parameters<typeof WispSession>[0]["deps"] }) 
   const [draft, setDraft] = useState("");
   return (
     <WispSession info={info} deps={deps} onSummary={() => {}}>
-      {(s) => (
-        <Panel
-          chat={s.state}
-          draft={draft}
-          focusComposer
-          onDraft={setDraft}
-          onOpen={(id) => void s.open(id)}
-          onNew={s.newConversation}
-          onSend={(t) => void s.send(t)}
-          onStop={() => void s.stop()}
-          onAnswer={(id, allow) => void s.answer(id, allow)}
-          onMouseEnter={() => {}}
-          onMouseLeave={() => {}}
-        />
+      {(session, bus) => (
+        <ShellContext.Provider
+          value={{ info, bus, session, draft, setDraft, focusComposer: true, navigate: () => {} }}
+        >
+          <ConversaTab />
+        </ShellContext.Provider>
       )}
     </WispSession>
   );
@@ -32,7 +25,7 @@ function Harness({ deps }: { deps: Parameters<typeof WispSession>[0]["deps"] }) 
 
 beforeEach(() => FakeEventSource.reset());
 
-describe("Panel against a fake sidecar", () => {
+describe("Conversa against a fake sidecar", () => {
   it("lists conversations, opens one, streams a reply, asks permission and answers it", async () => {
     const { impl, calls } = fakeFetch({
       "GET /conversations": () => ({ items: [{ id: "c1", title: "Primeira", updated_at: "x", engine: "claude" }] }),

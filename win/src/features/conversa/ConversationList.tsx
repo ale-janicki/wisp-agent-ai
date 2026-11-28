@@ -1,4 +1,4 @@
-import type { ConversationSummary, ThinkingState } from "../api/types";
+import type { ConversationSummary, ThinkingState } from "../../api/types";
 import styles from "./ConversationList.module.css";
 
 type Props = {

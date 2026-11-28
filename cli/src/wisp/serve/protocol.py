@@ -17,5 +17,9 @@ def event(conversation_id: str, type_: str, **fields: Any) -> dict[str, Any]:
     return {"conversation_id": conversation_id, "type": type_, **fields}
 
 
+def feature_event(feature: str, type_: str, **fields: Any) -> dict[str, Any]:
+    return {"feature": feature, "type": type_, **fields}
+
+
 def sse_data(payload: dict[str, Any]) -> str:
     return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"

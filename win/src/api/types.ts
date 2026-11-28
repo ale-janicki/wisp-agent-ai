@@ -37,3 +37,5 @@ export type ServerEvent =
   | (Base & { type: "error"; message: string });
 
 export type SidecarInfo = { port: number; token: string };
+
+export type FeatureEvent = { feature: string; type: string; [field: string]: unknown };

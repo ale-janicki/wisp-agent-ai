@@ -1,40 +1,27 @@
-import type { ChatState } from "../state/chat";
+import { useShell } from "../../shell/context";
 import { Composer } from "./Composer";
 import { ConversationList } from "./ConversationList";
 import { PermissionCard } from "./PermissionCard";
 import { Transcript } from "./Transcript";
-import styles from "./Panel.module.css";
+import styles from "./ConversaTab.module.css";
 
-type Props = {
-  chat: ChatState;
-  draft: string;
-  focusComposer: boolean;
-  onDraft: (value: string) => void;
-  onOpen: (id: string) => void;
-  onNew: () => void;
-  onSend: (text: string) => void;
-  onStop: () => void;
-  onAnswer: (requestId: string, allow: boolean) => void;
-  onMouseEnter: () => void;
-  onMouseLeave: () => void;
-};
-
-export function Panel(p: Props) {
-  const { chat } = p;
+export function ConversaTab() {
+  const { session, draft, setDraft, focusComposer } = useShell();
+  const chat = session.state;
   const mine = chat.permissions.filter((r) => r.conversationId === chat.currentId);
   const attention = new Set(chat.permissions.map((r) => r.conversationId));
   const thinking = chat.currentId !== null && chat.status[chat.currentId] === "thinking";
   const request = mine[0];
 
   return (
-    <div className={styles.panel} onMouseEnter={p.onMouseEnter} onMouseLeave={p.onMouseLeave}>
+    <div className={styles.conversa}>
       <ConversationList
         items={chat.conversations}
         currentId={chat.currentId}
         status={chat.status}
         attention={attention}
-        onOpen={p.onOpen}
-        onNew={p.onNew}
+        onOpen={(id) => void session.open(id)}
+        onNew={session.newConversation}
       />
       <section className={styles.chat}>
         <header className={styles.header}>
@@ -53,17 +40,17 @@ export function Panel(p: Props) {
               key={request.requestId}
               request={request}
               queued={mine.length - 1}
-              onAnswer={(allow) => p.onAnswer(request.requestId, allow)}
+              onAnswer={(allow) => void session.answer(request.requestId, allow)}
             />
           </div>
         )}
         <Composer
-          value={p.draft}
-          onChange={p.onDraft}
-          onSend={p.onSend}
-          onStop={p.onStop}
+          value={draft}
+          onChange={setDraft}
+          onSend={(t) => void session.send(t)}
+          onStop={() => void session.stop()}
           thinking={thinking}
-          autoFocus={p.focusComposer}
+          autoFocus={focusComposer}
         />
       </section>
     </div>

@@ -15,10 +15,12 @@ export function baseUrl(info: SidecarInfo): string {
   return `http://127.0.0.1:${info.port}`;
 }
 
-export function createClient(info: SidecarInfo, fetchImpl: typeof fetch = (...a) => fetch(...a)) {
+export type Requester = <T>(method: string, path: string, body?: unknown) => Promise<T>;
+
+export function createRequester(info: SidecarInfo, fetchImpl: typeof fetch = (...a) => fetch(...a)): Requester {
   const base = baseUrl(info);
 
-  async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
+  return async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
     const headers: Record<string, string> = { Authorization: `Bearer ${info.token}` };
     if (body !== undefined) headers["Content-Type"] = "application/json";
     const res = await fetchImpl(`${base}${path}`, {
@@ -29,8 +31,11 @@ export function createClient(info: SidecarInfo, fetchImpl: typeof fetch = (...a)
     if (!res.ok) throw new ApiError(res.status, `${method} ${path} -> ${res.status}`);
     const text = await res.text();
     return (text ? JSON.parse(text) : undefined) as T;
-  }
+  };
+}
 
+export function createClient(info: SidecarInfo, fetchImpl?: typeof fetch) {
+  const call = createRequester(info, fetchImpl);
   const enc = encodeURIComponent;
   return {
     health: () => call<unknown>("GET", "/health"),

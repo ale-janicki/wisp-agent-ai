@@ -48,9 +48,10 @@ pub fn run() {
         )
         .manage(SidecarHost::default())
         .invoke_handler(tauri::generate_handler![sidecar_info, set_mode, quit_app])
-        .on_window_event(|_window, event| {
+        .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
+                let _ = window.emit("shell://close", ());
             }
         })
         .setup(|app| {

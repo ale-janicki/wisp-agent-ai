@@ -14,7 +14,7 @@ from starlette.responses import JSONResponse, Response, StreamingResponse
 from starlette.routing import Route
 
 from wisp import __version__
-from wisp.serve import protocol
+from wisp.serve import features, protocol
 from wisp.serve.claude_session import ClaudeNotFound, ConversationSession, SessionGone, locate_claude
 from wisp.serve.store import (ConversationStore, TranscriptStore, claude_history, conversas_dir, data_dir,
                               format_time, locate_claude_session, wisp_history, wisp_root)
@@ -48,6 +48,9 @@ class Host:
 
     def publish(self, conversation_id: str, type_: str, **fields: Any) -> None:
         self.hub.publish(protocol.event(conversation_id, type_, **fields))
+
+    def publish_feature(self, feature: str, type_: str, **fields: Any) -> None:
+        self.hub.publish(protocol.feature_event(feature, type_, **fields))
 
     def claude_path(self) -> str:
         return locate_claude(os.environ.get("WISP_CLAUDE_BIN") or None)
@@ -208,9 +211,11 @@ def create_app(token: str, heartbeat: float = protocol.HEARTBEAT_SECONDS) -> COR
         Route("/conversations/{id}/stop", stop, methods=["POST"]),
         Route("/permissions/{request_id}", answer_permission, methods=["POST"]),
         Route("/events", events, methods=["GET"]),
+        *features.mounts(),
     ], lifespan=lifespan)
+    app.state.host = host
     return CORSMiddleware(TokenAuth(app, token), allow_origins=protocol.ALLOWED_ORIGINS,
-                          allow_methods=["GET", "POST", "OPTIONS"], allow_headers=["Authorization", "Content-Type"])
+                          allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"], allow_headers=["Authorization", "Content-Type"])
 
 
 __all__ = ["ClaudeNotFound", "create_app"]

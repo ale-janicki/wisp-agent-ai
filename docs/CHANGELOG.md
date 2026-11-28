@@ -15,6 +15,8 @@ Entries are in descending chronological order (newest first).
 - `wisp-serve`: a local HTTP and SSE server (127.0.0.1, per-run token, CORS only for the Tauri origins) that runs the Claude chat for the Windows app. It reads and writes the same `conversations.json` and transcripts as the Mac app. Claude starts with the same guard hooks, permission mode and instructions as on the Mac. If those cannot be set up, the turn is refused and Claude is not started.
 - CI: `.github/workflows/windows.yml` runs the Windows-safe tests and builds the NSIS installer as an artifact. It also runs the full suite, without blocking.
 - `scripts/fetch-uv-windows.sh` downloads the pinned `uv.exe` and checks its sha256.
+- Windows: the panel now has the Mac's layout. The sidebar lists every Mac tab in the same order (Início, Conversa, Brain, Tarefas, Agenda, Reuniões, Música, Copiados, Terminal, My Mac, Ajustes), and the icon rail folds it on Conversa, Reuniões and Terminal. "Abrir em janela" turns the pill into a normal resizable window. Tabs other than Conversa still say "Em breve no Windows".
+- `wisp-serve` features: each tab can add its own routes under `/api/<tab>` behind the same token, and publish its own events on `/events` with a `feature` key.
 
 ### Changed
 

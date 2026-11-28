@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { Panel } from "./components/Panel";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Pill, type PillTone } from "./components/Pill";
+import { PanelShell } from "./shell/PanelShell";
 import { listenShell, quit, readSidecar, setMode, type ShellMode, type SidecarState } from "./shell/bridge";
 import type { ChatDeps } from "./state/useChat";
 import { WispSession } from "./WispSession";
@@ -38,13 +38,14 @@ export function App({ deps }: { deps?: ChatDeps }) {
     clearTimers();
     setFocusComposer(next === "panel" && !byHover);
     setModeState(next);
-    void setMode(next, next === "panel" && !byHover);
+    void setMode(next, next !== "pill" && !byHover);
   }, []);
 
   useEffect(() => {
     let off: (() => void) | undefined;
     let gone = false;
     void listenShell({
+      onClose: () => modeRef.current === "window" && show("pill", false),
       onSidecar: setSidecar,
       onToggle: () => show(modeRef.current === "panel" ? "pill" : "panel", false),
       onOpen: () => show("panel", false),
@@ -81,12 +82,18 @@ export function App({ deps }: { deps?: ChatDeps }) {
     close.current = null;
   };
   const panelLeave = () => {
+    if (modeRef.current === "window") return;
     const typing = document.activeElement instanceof HTMLTextAreaElement;
     if (blockedRef.current || typing) return;
     close.current = setTimeout(() => show("pill", false), LEAVE_COLLAPSE_MS);
   };
 
-  if (sidecar.status !== "ready") {
+  const info = useMemo(
+    () => (sidecar.status === "ready" ? { port: sidecar.port, token: sidecar.token } : null),
+    [sidecar],
+  );
+
+  if (sidecar.status !== "ready" || !info) {
     const failed = sidecar.status === "failed";
     return (
       <Pill
@@ -101,27 +108,33 @@ export function App({ deps }: { deps?: ChatDeps }) {
     );
   }
 
+  const chatStatus = (s: { error: string | null }, busy: boolean) =>
+    s.error ? ({ label: "Erro", tone: "error" } as const) : busy ? ({ label: "Pensando…", tone: "busy" } as const) : ({ label: "Pronto", tone: "ok" } as const);
+
   const tone: PillTone = pendingPermission ? "attention" : thinking ? "busy" : "idle";
   const label = pendingPermission ? "Esperando tua aprovação" : thinking ? "Pensando…" : "Wisp";
 
   return (
     <WispSession
-      info={{ port: sidecar.port, token: sidecar.token }}
+      info={info}
       deps={deps}
       onSummary={onSummary}
     >
-      {(session) =>
-        mode === "panel" ? (
-          <Panel
-            chat={session.state}
-            draft={draft}
-            focusComposer={focusComposer}
-            onDraft={setDraft}
-            onOpen={(id) => void session.open(id)}
-            onNew={session.newConversation}
-            onSend={(t) => void session.send(t)}
-            onStop={() => void session.stop()}
-            onAnswer={(id, allow) => void session.answer(id, allow)}
+      {(session, bus) =>
+        mode !== "pill" ? (
+          <PanelShell
+            value={{
+              info,
+              bus,
+              fetchImpl: deps?.fetchImpl,
+              session,
+              draft,
+              setDraft,
+              focusComposer,
+            }}
+            windowed={mode === "window"}
+            onToggleWindow={() => show(mode === "window" ? "panel" : "window", false)}
+            status={chatStatus(session.state, thinking)}
             onMouseEnter={panelEnter}
             onMouseLeave={panelLeave}
           />

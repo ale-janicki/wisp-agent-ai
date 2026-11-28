@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 
-export type ShellMode = "pill" | "panel";
+export type ShellMode = "pill" | "panel" | "window";
 
 export type SidecarState =
   | { status: "preparing" }
@@ -26,11 +26,13 @@ export async function listenShell(handlers: {
   onSidecar: (s: SidecarState) => void;
   onToggle: () => void;
   onOpen: () => void;
+  onClose: () => void;
 }): Promise<() => void> {
   const offs = await Promise.all([
     listen<SidecarState>("sidecar://state", (e) => handlers.onSidecar(e.payload)),
     listen("shell://toggle", () => handlers.onToggle()),
     listen("shell://open", () => handlers.onOpen()),
+    listen("shell://close", () => handlers.onClose()),
   ]);
   return () => offs.forEach((off) => off());
 }

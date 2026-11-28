@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { ToolEntry } from "../state/chat";
+import type { ToolEntry } from "../../state/chat";
 import { pretty } from "./format";
 import styles from "./ToolBlock.module.css";
 

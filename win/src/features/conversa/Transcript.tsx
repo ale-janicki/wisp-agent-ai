@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
-import type { Block, Message } from "../api/types";
-import { collectTools, liveOnlyTools } from "../state/chat";
-import { Markdown } from "./Markdown";
+import type { Block, Message } from "../../api/types";
+import { collectTools, liveOnlyTools } from "../../state/chat";
+import { Markdown } from "../../components/Markdown";
 import { ToolBlock } from "./ToolBlock";
 import styles from "./Transcript.module.css";
 

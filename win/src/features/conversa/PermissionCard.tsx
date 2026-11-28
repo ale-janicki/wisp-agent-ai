@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { PendingPermission } from "../state/chat";
+import type { PendingPermission } from "../../state/chat";
 import { pretty } from "./format";
 import styles from "./PermissionCard.module.css";
 

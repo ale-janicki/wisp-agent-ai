@@ -1,15 +1,19 @@
 import { baseUrl } from "./client";
-import type { ServerEvent, SidecarInfo } from "./types";
+import type { FeatureEvent, ServerEvent, SidecarInfo } from "./types";
 
 export type EventStreamOptions = {
   info: SidecarInfo;
   onEvent: (event: ServerEvent) => void;
+  onFeatureEvent?: (event: FeatureEvent) => void;
   onOpen?: () => void;
   onDown?: () => void;
   createSource?: (url: string) => EventSource;
   minDelayMs?: number;
   maxDelayMs?: number;
 };
+
+const isFeatureEvent = (value: unknown): value is FeatureEvent =>
+  typeof value === "object" && value !== null && typeof (value as FeatureEvent).feature === "string";
 
 export function connectEvents(options: EventStreamOptions): () => void {
   const create = options.createSource ?? ((url: string) => new EventSource(url));
@@ -31,11 +35,14 @@ export function connectEvents(options: EventStreamOptions): () => void {
       options.onOpen?.();
     };
     es.onmessage = (message) => {
+      let parsed: unknown;
       try {
-        options.onEvent(JSON.parse(message.data) as ServerEvent);
+        parsed = JSON.parse(message.data);
       } catch {
         return;
       }
+      if (isFeatureEvent(parsed)) options.onFeatureEvent?.(parsed);
+      else options.onEvent(parsed as ServerEvent);
     };
     es.onerror = () => {
       es.close();

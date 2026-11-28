@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
 import { createClient } from "../api/client";
 import { connectEvents } from "../api/events";
-import type { SidecarInfo } from "../api/types";
+import type { FeatureEvent, SidecarInfo } from "../api/types";
 import { chatReducer, initialChat } from "./chat";
 
 export type ChatDeps = {
   fetchImpl?: typeof fetch;
   createSource?: (url: string) => EventSource;
+  onFeatureEvent?: (event: FeatureEvent) => void;
 };
 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
@@ -40,6 +41,7 @@ export function useChat(info: SidecarInfo, deps: ChatDeps = {}) {
       connectEvents({
         info,
         createSource: deps.createSource,
+        onFeatureEvent: deps.onFeatureEvent,
         onEvent: (event) => {
           dispatch({ type: "event", event });
           if (event.type === "status" && event.state === "idle") {
@@ -52,7 +54,7 @@ export function useChat(info: SidecarInfo, deps: ChatDeps = {}) {
           if (currentRef.current) void open(currentRef.current);
         },
       }),
-    [info, deps.createSource, refreshList, open],
+    [info, deps.createSource, deps.onFeatureEvent, refreshList, open],
   );
 
   const send = useCallback(
