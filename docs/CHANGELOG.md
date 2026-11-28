@@ -22,6 +22,11 @@ Entries are in descending chronological order (newest first).
 - Paths: Windows falls back to `~/AppData/Roaming` and `~/AppData/Local` when `APPDATA` or `LOCALAPPDATA` is missing. The venv uses `Scripts\` and `.exe` names. The `wisp` shim is a `wisp.cmd`. The bot's state and conversations paths follow the platform.
 - `scripts/leak-check.sh` also scans `win/` and `.github/`.
 
+### Fixed
+
+- Windows: finding Claude Code no longer picks npm's extensionless `claude` shim, which Windows cannot run (WinError 193). It now looks for `claude.exe` or `claude.cmd`.
+- Windows: `wisp setup shim` no longer crashes on the path type. A second run recognises its own `wisp.cmd` instead of reporting it as a foreign file, and detects an unchanged shim despite CRLF line endings.
+
 ## [0.6.0] - 2026-11-27
 
 - Version 0.6.0 (build 19).

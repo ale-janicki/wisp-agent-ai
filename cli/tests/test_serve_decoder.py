@@ -1,4 +1,6 @@
 import json
+import os
+import sys
 from pathlib import Path
 
 import pytest
@@ -152,20 +154,31 @@ def test_ledger_error_closes_everything_in_flight_but_not_queued():
 
 
 def test_locate_claude_prefers_configured_then_path_then_home(tmp_path):
-    exe = tmp_path / "claude"
+    platform = sys.platform if sys.platform == "win32" else "linux"
+    name = "claude.exe" if platform == "win32" else "claude"
+    exe = tmp_path / name
     exe.write_text("#!/bin/sh\n")
     exe.chmod(0o755)
-    assert locate_claude(str(exe), env={}, platform="linux", home=str(tmp_path / "nohome")) == str(exe)
+    assert locate_claude(str(exe), env={}, platform=platform, home=str(tmp_path / "nohome")) == str(exe)
     with pytest.raises(ClaudeNotFound):
-        locate_claude(str(tmp_path / "missing"), env={}, platform="linux", home=str(tmp_path))
-    assert locate_claude(None, env={"PATH": str(tmp_path)}, platform="linux", home=str(tmp_path / "nohome")) == str(exe)
+        locate_claude(str(tmp_path / "missing"), env={}, platform=platform, home=str(tmp_path))
+    assert locate_claude(None, env={"PATH": str(tmp_path)}, platform=platform, home=str(tmp_path / "nohome")) == str(exe)
     local = tmp_path / "h" / ".local" / "bin"
     local.mkdir(parents=True)
-    (local / "claude").write_text("x")
-    (local / "claude").chmod(0o755)
-    assert locate_claude(None, env={"PATH": ""}, platform="linux", home=str(tmp_path / "h")) == str(local / "claude")
+    (local / name).write_text("x")
+    (local / name).chmod(0o755)
+    assert locate_claude(None, env={"PATH": ""}, platform=platform, home=str(tmp_path / "h")) == str(local / name)
     with pytest.raises(ClaudeNotFound):
-        locate_claude(None, env={"PATH": ""}, platform="linux", home=str(tmp_path / "empty"))
+        locate_claude(None, env={"PATH": ""}, platform=platform, home=str(tmp_path / "empty"))
+
+
+def test_locate_claude_windows_ignores_the_extensionless_npm_shim(tmp_path):
+    (tmp_path / "claude").write_text("#!/bin/sh\n")
+    with pytest.raises(ClaudeNotFound):
+        locate_claude(None, env={"PATH": str(tmp_path)}, platform="win32", home=str(tmp_path / "nohome"))
+    (tmp_path / "claude.cmd").write_text("@echo off\r\n")
+    assert locate_claude(None, env={"PATH": str(tmp_path)}, platform="win32",
+                         home=str(tmp_path / "nohome")) == os.path.join(str(tmp_path), "claude.cmd")
 
 
 def test_locate_claude_windows_candidates(tmp_path):

@@ -1,7 +1,6 @@
 import json
 import os
 import queue
-import signal
 import stat
 import subprocess
 import sys
@@ -14,6 +13,7 @@ import pytest
 import uvicorn
 from starlette.testclient import TestClient
 
+from wisp.compat import kill_process_tree, new_session_kwargs
 from wisp.serve.app import create_app
 
 TOKEN = "t0ken-for-tests"
@@ -47,12 +47,18 @@ def guards(tmp_path, monkeypatch):
 
 @pytest.fixture
 def fake_claude(tmp_path, monkeypatch, guards):
-    script = tmp_path / "fake-claude"
     source = (FIXTURES / "fake_claude.py").read_text(encoding="utf-8")
-    script.write_text(source.replace("#!/usr/bin/env python3", f"#!{sys.executable}", 1), encoding="utf-8")
-    script.chmod(script.stat().st_mode | stat.S_IXUSR)
+    if sys.platform == "win32":
+        script = tmp_path / "fake_claude.py"
+        script.write_text(source, encoding="utf-8")
+        launcher = tmp_path / "fake_claude.cmd"
+        launcher.write_bytes(f'@echo off\r\n"{sys.executable}" "{script}" %*\r\n'.encode("utf-8"))
+    else:
+        launcher = tmp_path / "fake-claude"
+        launcher.write_text(source.replace("#!/usr/bin/env python3", f"#!{sys.executable}", 1), encoding="utf-8")
+        launcher.chmod(launcher.stat().st_mode | stat.S_IXUSR)
     log = tmp_path / "fake.log"
-    monkeypatch.setenv("WISP_CLAUDE_BIN", str(script))
+    monkeypatch.setenv("WISP_CLAUDE_BIN", str(launcher))
     monkeypatch.setenv("FAKE_CLAUDE_LOG", str(log))
     return log
 
@@ -373,12 +379,12 @@ def test_missing_claude_reports_an_error_event(data, monkeypatch, guards):
 
 def run_serve(env, *args):
     return subprocess.Popen([sys.executable, "-m", "wisp.serve", *args], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                            env=env, text=True, start_new_session=True)
+                            env=env, text=True, **new_session_kwargs())
 
 
 def stop_group(proc):
     try:
-        os.killpg(proc.pid, signal.SIGKILL)
+        kill_process_tree(proc.pid)
     except (ProcessLookupError, PermissionError):
         pass
     proc.wait(10)

@@ -1,5 +1,6 @@
 import asyncio
 import json
+import os
 import subprocess
 import sys
 import types
@@ -26,7 +27,11 @@ def _constants(env: dict) -> dict:
             "print(json.dumps({'store': str(store.STORE), 'ctl': str(ctl.DIR), 'abrir': str(abrir.FILA), "
             "'hosting': str(hosting.DIR), 'brain': str(topicos.BRAIN), "
             "'topics_dir': str(topicos.DIR), 'topics_rel': topicos.REL}))")
-    out = subprocess.run([sys.executable, "-c", code], env={**env, "PATH": "/usr/bin:/bin"},
+    base = {"PATH": "/usr/bin:/bin"}
+    if sys.platform == "win32":
+        base = {"PATH": os.environ.get("PATH", ""), "SYSTEMROOT": os.environ.get("SYSTEMROOT", ""),
+                "USERPROFILE": env["HOME"]}
+    out = subprocess.run([sys.executable, "-c", code], env={**base, **env},
                          capture_output=True, text=True, timeout=60)
     assert out.returncode == 0, out.stderr
     return json.loads(out.stdout)

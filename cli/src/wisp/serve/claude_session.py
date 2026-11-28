@@ -106,7 +106,7 @@ def locate_claude(configured: str | None = None, env=None, platform: str | None 
         if not _usable(path, platform):
             raise ClaudeNotFound(f"o claude configurado ({path}) não existe ou não é executável")
         return path
-    names = ["claude.exe", "claude.cmd", "claude.bat", "claude"] if platform == "win32" else ["claude"]
+    names = ["claude.exe", "claude.cmd", "claude.bat"] if platform == "win32" else ["claude"]
     for folder in filter(None, env.get("PATH", "").split(";" if platform == "win32" else ":")):
         for name in names:
             if _usable(os.path.join(folder, name), platform):

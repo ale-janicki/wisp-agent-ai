@@ -18,8 +18,9 @@ class WispPaths:
     @staticmethod
     def for_os(system: str, home: Path, env: Mapping[str, str]) -> "WispPaths":
         if system == "Windows":
-            roaming = PureWindowsPath(env.get("APPDATA") or home / "AppData/Roaming")
-            local = PureWindowsPath(env.get("LOCALAPPDATA") or home / "AppData/Local") / "wisp"
+            windows_path = Path if sys.platform == "win32" else PureWindowsPath
+            roaming = windows_path(env.get("APPDATA") or home / "AppData/Roaming")
+            local = windows_path(env.get("LOCALAPPDATA") or home / "AppData/Local") / "wisp"
             return WispPaths(home, roaming / "wisp", local / "runtime", local / "state", local / "bin", None)
         config = Path(env.get("XDG_CONFIG_HOME") or home / ".config")
         state = Path(env.get("XDG_STATE_HOME") or home / ".local/state")
