@@ -40,6 +40,7 @@ def env(fake_home, monkeypatch):
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(fake_home / "claude-config"))
     config = WispPaths.current().config
     config.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("WISP_CONFIG", str(config / "wisp.json"))
 
     def use(script=None):
         runner = Recorder(script)
@@ -184,8 +185,8 @@ def test_lessons_list_confirm_discard_forget(client, env):
     home, config, _ = env
     brain = home / "brain"
     (brain / "wisp").mkdir(parents=True)
-    (brain / "wisp/aprendizados.md").write_text("# h\n\n- responda curto · 2025-01-02 · conversa\n- sempre em pt · 2025-01-03 · colheita\n")
-    (brain / "wisp/aprendizados-pendentes.md").write_text("# p\n\n- use tabelas · 2025-02-01 · colheita\n- evite emojis · 2025-02-02 · conversa\n")
+    (brain / "wisp/aprendizados.md").write_text("# h\n\n- responda curto · 2025-01-02 · conversa\n- sempre em pt · 2025-01-03 · colheita\n", encoding="utf-8")
+    (brain / "wisp/aprendizados-pendentes.md").write_text("# p\n\n- use tabelas · 2025-02-01 · colheita\n- evite emojis · 2025-02-02 · conversa\n", encoding="utf-8")
     (config / "wisp.json").write_text(json.dumps({"brain": str(brain)}))
     listing = get(client, "/lessons").json()
     assert [(item["rule"], item["learned_alone"]) for item in listing["lessons"]] == [("responda curto", False), ("sempre em pt", True)]

@@ -1,3 +1,5 @@
+from pathlib import PurePosixPath
+
 from wisp.config import WispConfig
 from wisp.doctor import is_windows, locate_claude, locate_git, run_doctor
 from wisp.paths import WispPaths
@@ -26,7 +28,7 @@ def _runner(**scripted):
 
 def test_windows_paths_are_recognised_and_mac_paths_are_not(fake_home):
     assert is_windows(_paths(fake_home))
-    assert not is_windows(WispPaths.for_os("Darwin", fake_home, {}))
+    assert not is_windows(WispPaths.for_os("Darwin", PurePosixPath(fake_home.as_posix()), {}))
 
 
 def test_windows_check_list_has_no_mac_only_checks(fake_home):
