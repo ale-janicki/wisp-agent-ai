@@ -1,0 +1,12 @@
+.lines {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.4;
+  user-select: text;
+  cursor: text;
+}
+.line {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  min-height: 1.4em;
+}
