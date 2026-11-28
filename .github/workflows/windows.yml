@@ -33,6 +33,15 @@ jobs:
           cli/tests/test_serve_features.py
           cli/tests/test_serve_feature_brain_vault.py cli/tests/test_serve_feature_brain_drawing.py
           cli/tests/test_serve_feature_brain_routes.py cli/tests/test_serve_feature_tasks.py
+          cli/tests/test_serve_tab_home.py cli/tests/test_serve_tab_agenda.py cli/tests/test_serve_tab_clipboard.py
+          cli/tests/test_serve_tab_music.py cli/tests/test_serve_tab_mymac.py cli/tests/test_serve_tab_home_usage.py
+          cli/tests/test_serve_tab_oauth.py cli/tests/test_serve_tab_quick.py
+          cli/tests/test_doctor_windows.py
+          cli/tests/test_settings_automations.py
+          cli/tests/test_settings_feature.py
+          cli/tests/test_settings_updates.py
+          cli/tests/test_setup_windows.py
+          cli/tests/test_taskscheduler.py
           bot/tests/test_config.py
 
       - name: Full suite (informational)

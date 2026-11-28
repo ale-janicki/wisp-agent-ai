@@ -20,7 +20,7 @@ const MAC_TABS = [
   ["music", "Música"],
   ["clipboard", "Copiados"],
   ["terminal", "Terminal"],
-  ["mymac", "My Mac"],
+  ["mymac", "Meu PC"],
   ["settings", "Ajustes"],
 ];
 

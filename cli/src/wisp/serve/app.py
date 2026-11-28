@@ -214,7 +214,11 @@ def create_app(token: str, heartbeat: float = protocol.HEARTBEAT_SECONDS) -> COR
 
     @contextlib.asynccontextmanager
     async def lifespan(app):
+        stops = features.start(host)
         yield
+        for stop in stops:
+            with contextlib.suppress(Exception):
+                stop()
         await asyncio.gather(*(s.close() for s in host.sessions.values()), return_exceptions=True)
 
     app = Starlette(routes=[

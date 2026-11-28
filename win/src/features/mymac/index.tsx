@@ -1,10 +1,5 @@
 import { LaptopIcon } from "../../shell/icons";
-import { comingSoon } from "../ComingSoon";
 import type { Feature } from "../types";
+import { MyMacTab } from "./MyMacTab";
 
-const base = { id: "mymac", label: "My Mac", icon: LaptopIcon };
-
-export const mymac: Feature = {
-  ...base,
-  Component: comingSoon(base),
-};
+export const mymac: Feature = { id: "mymac", label: "Meu PC", icon: LaptopIcon, Component: MyMacTab };

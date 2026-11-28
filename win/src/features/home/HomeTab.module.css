@@ -1,0 +1,253 @@
+.home {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  padding-top: var(--space-xs);
+  overflow-y: auto;
+}
+.greeting {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+}
+.sub {
+  margin: 2px 0 0;
+  color: var(--text-secondary);
+}
+.composer {
+  margin-top: var(--space-m);
+}
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-m);
+  margin-top: var(--space-m);
+  padding-bottom: var(--space-m);
+}
+.tiles > :last-child:nth-child(odd) {
+  grid-column: 1 / -1;
+}
+.tile {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-s);
+  min-width: 0;
+  padding: var(--space-m) var(--space-l);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  border: 1px solid var(--stroke);
+}
+.tileHead {
+  display: flex;
+  align-items: center;
+  gap: var(--space-s);
+  height: 20px;
+}
+.tileIcon {
+  display: flex;
+  width: 16px;
+  justify-content: center;
+  font-size: 11px;
+  color: var(--accent);
+}
+.tileTitle {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.trailing {
+  margin-left: auto;
+  min-width: 0;
+  font-size: 11px;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.caption {
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+.message {
+  margin: 0;
+  color: var(--text-secondary);
+  text-align: center;
+}
+.music {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-m);
+}
+.musicTop {
+  display: flex;
+  gap: var(--space-m);
+}
+.art {
+  display: flex;
+  flex: none;
+  width: 56px;
+  height: 56px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  background: var(--surface-hi);
+  color: var(--text-tertiary);
+  overflow: hidden;
+}
+.art img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.musicText {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+.trackTitle {
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.progress {
+  height: 3px;
+  margin-top: var(--space-xs);
+  border-radius: 2px;
+  background: var(--surface-hi);
+  overflow: hidden;
+}
+.progressFill {
+  height: 100%;
+  background: var(--accent);
+}
+.clocks {
+  display: flex;
+  justify-content: space-between;
+  font: 11px var(--font-mono);
+  color: var(--text-tertiary);
+}
+.controls {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: var(--space-l);
+}
+.round {
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--surface-hi);
+}
+.main {
+  width: 36px;
+  height: 36px;
+  background: var(--accent);
+  color: #111214;
+}
+.usage {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-m);
+}
+.limit {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.limitHead {
+  display: flex;
+  gap: 5px;
+  align-items: baseline;
+}
+.limitLabel {
+  font: 11px var(--font-mono);
+  color: var(--text-secondary);
+}
+.track {
+  height: 5px;
+  border-radius: 3px;
+  background: var(--stroke);
+  overflow: hidden;
+}
+.fill {
+  height: 100%;
+  border-radius: 3px;
+}
+.normal {
+  background: var(--accent);
+}
+.warning {
+  background: var(--busy);
+}
+.critical {
+  background: var(--error);
+}
+.tokens {
+  margin: 0;
+  font-size: 11px;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.row {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: var(--space-s);
+  min-height: 38px;
+  padding: 0 var(--space-m);
+  margin: 0 calc(-1 * var(--space-m));
+  width: calc(100% + 2 * var(--space-m));
+  border: 0;
+  border-radius: var(--radius-nav);
+  background: none;
+  text-align: left;
+}
+.row:hover {
+  background: var(--highlight);
+}
+.avatar {
+  display: flex;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--accent-fill);
+  color: var(--accent);
+  font-size: 11px;
+}
+.rowText {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: 1px;
+}
+.rowHead {
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+}
+.rowTitle {
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

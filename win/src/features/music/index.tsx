@@ -1,10 +1,5 @@
 import { MusicIcon } from "../../shell/icons";
-import { comingSoon } from "../ComingSoon";
 import type { Feature } from "../types";
+import { MusicTab } from "./MusicTab";
 
-const base = { id: "music", label: "Música", icon: MusicIcon };
-
-export const music: Feature = {
-  ...base,
-  Component: comingSoon(base),
-};
+export const music: Feature = { id: "music", label: "Música", icon: MusicIcon, Component: MusicTab };

@@ -1,10 +1,5 @@
 import { ClipboardIcon } from "../../shell/icons";
-import { comingSoon } from "../ComingSoon";
 import type { Feature } from "../types";
+import { ClipboardTab } from "./ClipboardTab";
 
-const base = { id: "clipboard", label: "Copiados", icon: ClipboardIcon };
-
-export const clipboard: Feature = {
-  ...base,
-  Component: comingSoon(base),
-};
+export const clipboard: Feature = { id: "clipboard", label: "Copiados", icon: ClipboardIcon, Component: ClipboardTab };

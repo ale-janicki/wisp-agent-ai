@@ -1,10 +1,5 @@
 import { HomeIcon } from "../../shell/icons";
-import { comingSoon } from "../ComingSoon";
 import type { Feature } from "../types";
+import { HomeTab } from "./HomeTab";
 
-const base = { id: "home", label: "Início", icon: HomeIcon };
-
-export const home: Feature = {
-  ...base,
-  Component: comingSoon(base),
-};
+export const home: Feature = { id: "home", label: "Início", icon: HomeIcon, Component: HomeTab };

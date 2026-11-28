@@ -1,0 +1,165 @@
+.tab {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-m);
+  height: 100%;
+  min-height: 0;
+  padding: var(--space-xs) 0 var(--space-m);
+  overflow-y: auto;
+}
+.head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.name {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.subtitle {
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.row {
+  display: flex;
+  gap: var(--space-m);
+}
+.row > * {
+  flex: 1 1 0;
+  min-width: 0;
+}
+.tile {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-s);
+  padding: var(--space-m) var(--space-l);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  border: 1px solid var(--stroke);
+}
+.tileHead {
+  display: flex;
+  align-items: center;
+  gap: var(--space-s);
+  height: 20px;
+}
+.tileIcon {
+  display: flex;
+  width: 16px;
+  justify-content: center;
+  color: var(--accent);
+}
+.tileTitle {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.trailing {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+  min-width: 0;
+  font-size: 11px;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+.ok {
+  background: var(--ok);
+}
+.warning {
+  background: var(--busy);
+}
+.critical {
+  background: var(--error);
+}
+.figure {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  white-space: nowrap;
+}
+.value {
+  font-size: 20px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.figureDetail {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+.detail {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rateLine {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  font-variant-numeric: tabular-nums;
+}
+.spark {
+  width: 100%;
+  height: 36px;
+  margin-top: auto;
+}
+.bar {
+  height: 4px;
+  margin: 2px 0;
+  border-radius: 2px;
+  background: var(--surface-hi);
+  overflow: hidden;
+}
+.barFill {
+  height: 100%;
+  background: var(--accent);
+}
+.barFull {
+  background: var(--error);
+}
+.processes {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.process {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-s);
+  font-variant-numeric: tabular-nums;
+}
+.processName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.message {
+  margin: auto;
+  color: var(--text-secondary);
+  text-align: center;
+}
+.skeleton {
+  height: 24px;
+  width: 90px;
+  border-radius: 6px;
+  background: var(--surface-hi);
+}

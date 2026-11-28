@@ -1,10 +1,5 @@
 import { CalendarIcon } from "../../shell/icons";
-import { comingSoon } from "../ComingSoon";
 import type { Feature } from "../types";
+import { AgendaTab } from "./AgendaTab";
 
-const base = { id: "agenda", label: "Agenda", icon: CalendarIcon };
-
-export const agenda: Feature = {
-  ...base,
-  Component: comingSoon(base),
-};
+export const agenda: Feature = { id: "agenda", label: "Agenda", icon: CalendarIcon, Component: () => <AgendaTab /> };
