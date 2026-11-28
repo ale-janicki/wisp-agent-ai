@@ -5,13 +5,16 @@ import json
 import os
 import re
 import sys
+import shutil
 import threading
+import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Iterator
 
 from wisp.compat import lock_file, unlock_file
+from wisp.serve import protocol
 
 VERSION = 1
 RECENT_MESSAGES = 6
@@ -24,6 +27,16 @@ FOOTER = "[end of Wisp conversation memory]"
 LOST_SESSION_MARKERS = ("no conversation found with session id", "codex session not found: the saved conversation "
                         "will be replayed")
 TITLE_FALLBACK_LIMIT = 32
+TITLE_GENERATED_LIMIT = 40
+TITLE_TIMEOUT = 20.0
+TITLE_STRIP = "\"'`“”‘’«»*_#>-• "
+TITLE_TAIL = TITLE_STRIP + ".,;:!?…"
+ATTACHMENT_LIMIT = 10
+ATTACHMENT_ORIGIN = "Wisp"
+NO_CAPTION = "(sem texto — veja o que é e me diga)"
+IMAGE_EXTENSIONS = ("jpg", "jpeg", "png", "heic", "gif", "webp")
+_NEWLINE = re.compile(r"\r\n|[\n\r\v\f\x85\u2028\u2029]")
+_ABSOLUTE = re.compile(r"^(?:/|[A-Za-z]:[\\/]|\\\\)")
 _ID = re.compile(r"[0-9A-Za-z-]{1,64}")
 _WRAPPERS = ("<command-", "<local-command", "<system-reminder", "<task-notification", "<bash-")
 _SYNTHETIC_PROMPTS = ("[Request interrupted by user",)
@@ -96,15 +109,252 @@ def stamp() -> str:
     return format_time(datetime.now(timezone.utc))
 
 
-def title_fallback(text: str, limit: int = TITLE_FALLBACK_LIMIT) -> str:
-    flat = " ".join(text.split())
-    if len(flat) <= limit:
-        return flat
-    head = flat[:limit]
-    if flat[limit] == " ":
+def _cut(text: str, limit: int, hard: bool) -> str:
+    if len(text) <= limit:
+        return text
+    head = text[:limit]
+    if text[limit] == " ":
         return head.strip(" \t")
     space = head.rfind(" ")
-    return head[:space].strip(" \t") if space >= 0 else head
+    if space >= 0:
+        return head[:space].strip(" \t")
+    return head if hard else ""
+
+
+def title_fallback(text: str, limit: int = TITLE_FALLBACK_LIMIT) -> str:
+    return _cut(" ".join(text.split()), limit, True)
+
+
+def title_sanitize(raw: str, limit: int = TITLE_GENERATED_LIMIT) -> str | None:
+    line = next((x for x in (part.strip() for part in _NEWLINE.split(raw)) if x), None)
+    if line is None:
+        return None
+    text = line.strip(TITLE_STRIP)
+    if text.lower().startswith(("título:", "title:")):
+        text = text[text.index(":") + 1:].strip(TITLE_STRIP)
+    text = text.strip(TITLE_TAIL)
+    if not text or len([w for w in text.split(" ") if w]) > 8:
+        return None
+    return _cut(text, limit, False) or None
+
+
+def title_prompt(user: str, reply: str) -> str:
+    return ("Escreva o título de uma conversa entre um usuário e um assistente.\n"
+            "Regras: 2 a 4 palavras, no idioma da mensagem do usuário, só a primeira letra maiúscula (nomes próprios "
+            "à parte), sem aspas, sem ponto final, sem emoji. Responda SOMENTE com o título.\n\n"
+            f"Mensagem do usuário:\n{user[:1500]}\n\nInício da resposta:\n{reply[:800]}")
+
+
+def reply_split(text: str, status_prefix: str | None) -> tuple[str, str | None]:
+    if not status_prefix:
+        return text, None
+    lines = _NEWLINE.split(text)
+    index = next((i for i, line in enumerate(lines) if line.startswith(status_prefix)), None)
+    if index is None:
+        return text, None
+    return "\n".join(lines[:index]).rstrip(), lines[index][len(status_prefix):].strip()
+
+
+def is_image(name: str) -> bool:
+    return name.rsplit(".", 1)[-1].lower() in IMAGE_EXTENSIONS if "." in name else False
+
+
+_HEAD_PREFIX, _HEAD_ENVIOU, _HEAD_MIDDLE = "[o ", " enviou ", " arquivo(s) pelo "
+_HEAD_SUFFIX, _FAILED_MARKER = ", ja salvos nesta maquina:", ": nao consegui baixar"
+
+
+def _is_placeholder(caption: str) -> bool:
+    return caption == NO_CAPTION or (caption.startswith("(sem texto") and caption.endswith(")") and "\n" not in caption)
+
+
+def _is_block_head(text: str) -> bool:
+    if not text.startswith(_HEAD_PREFIX):
+        return False
+    head = text.split("\n", 1)[0][len(_HEAD_PREFIX):]
+    start = 0
+    while (at := head.find(_HEAD_ENVIOU, start)) >= 0:
+        rest = head[at + len(_HEAD_ENVIOU):]
+        digits = re.match(r"[0-9]+", rest)
+        if digits and rest[digits.end():].startswith(_HEAD_MIDDLE) \
+                and rest[digits.end() + len(_HEAD_MIDDLE):].startswith(("Telegram", "Wisp")):
+            return True
+        start = at + len(_HEAD_ENVIOU)
+    return False
+
+
+def _file_name(line: str) -> str:
+    head = line.split(" (", 1)[0]
+    return re.split(r"[\\/]", head)[-1]
+
+
+def _attachment_item(body: str) -> dict:
+    if not _ABSOLUTE.match(body) or not body.endswith(" bytes)"):
+        label = body.split(_FAILED_MARKER, 1)[0] if _FAILED_MARKER in body else body
+        return {"failed": _file_name(label)}
+    inner = body[:-len(" bytes)")]
+    comma = inner.rfind(", ")
+    if comma < 0 or not inner[comma + 2:].isdigit():
+        return {"failed": _file_name(body)}
+    both = inner[:comma]
+    cuts = [m.start() for m in re.finditer(re.escape(" ("), both)]
+    chosen = next((c for c in cuts if re.split(r"[\\/]", both[:c])[-1].endswith(both[c + 2:])), cuts[-1] if cuts else None)
+    if chosen is None:
+        return {"failed": _file_name(body)}
+    return {"path": both[:chosen], "name": both[chosen + 2:], "bytes": int(inner[comma + 2:])}
+
+
+def parse_attachments(text: str) -> dict | None:
+    lines = text.split("\n")
+    head = lines[0]
+    if not (head.startswith(_HEAD_PREFIX) and head.endswith(_HEAD_SUFFIX)):
+        return None
+    who = head[len(_HEAD_PREFIX):].find(_HEAD_ENVIOU)
+    if who < 0:
+        return None
+    middle = head[len(_HEAD_PREFIX) + who + len(_HEAD_ENVIOU):-len(_HEAD_SUFFIX)]
+    split = middle.find(_HEAD_MIDDLE)
+    if split < 0 or not middle[:split].isdigit() or int(middle[:split]) <= 0:
+        return None
+    origin = middle[split + len(_HEAD_MIDDLE):]
+    items: list[dict] = []
+    index, closed = 1, False
+    while index < len(lines) and not closed:
+        line = lines[index]
+        if not line.startswith("- "):
+            return None
+        if line.endswith("]"):
+            line, closed = line[:-1], True
+        items.append(_attachment_item(line[2:]))
+        index += 1
+    if not closed or len(items) != int(middle[:split]):
+        return None
+    rest = "\n".join(lines[index:]).strip()
+    return {"origin": origin, "items": items, "caption": None if not rest or _is_placeholder(rest) else rest}
+
+
+def unparsed_attachments(text: str) -> dict | None:
+    if not _is_block_head(text) or parse_attachments(text) is not None:
+        return None
+    rest = text.split("]\n\n", 1)[1].strip() if "]\n\n" in text else ""
+    return {"origin": "", "items": [], "caption": None if not rest or _is_placeholder(rest) else rest}
+
+
+def attachments_summary(found: dict) -> str:
+    files = [i for i in found["items"] if "path" in i]
+    photos = sum(1 for i in files if is_image(i["name"]))
+    others = len(found["items"]) - photos
+    parts = ["anexos"] if not found["items"] else []
+    if photos:
+        parts.append("1 foto" if photos == 1 else f"{photos} fotos")
+    if others:
+        parts.append("1 arquivo" if others == 1 else f"{others} arquivos")
+    if found["caption"]:
+        parts.append(found["caption"])
+    return " · ".join(parts)
+
+
+def attachments_root(configured: str | None, env=None, home: str | None = None) -> Path:
+    if configured and configured.strip():
+        raw = os.path.expanduser(configured) if configured.startswith("~") else configured
+        return Path(raw)
+    return wisp_root(env, home) / "anexos"
+
+
+def _day_folder(root: Path, day: datetime | None = None) -> Path:
+    return Path(root) / (day or datetime.now()).strftime("%Y-%m-%d")
+
+
+def refusal(names: list[str]) -> str:
+    return f"Não anexei {', '.join(names)}: só dá para anexar arquivos, não pastas nem pacotes."
+
+
+def is_inside(path: str, root: Path) -> bool:
+    try:
+        real, base = os.path.realpath(path), os.path.realpath(root)
+    except (OSError, ValueError):
+        return False
+    return os.path.commonpath([real, base]) == base if os.path.splitdrive(real)[0] == os.path.splitdrive(base)[0] else False
+
+
+MANIFEST = ".wisp-staged.json"
+_manifest_lock = threading.Lock()
+
+
+def _registered(root: Path) -> set[str]:
+    try:
+        data = json.loads((Path(root) / MANIFEST).read_text("utf-8"))
+    except (OSError, ValueError):
+        return set()
+    return {p for p in data if isinstance(p, str)} if isinstance(data, list) else set()
+
+
+def _register(root: Path, paths: list[str], remove: bool = False) -> None:
+    with _manifest_lock:
+        known = _registered(root)
+        known = known - set(paths) if remove else known | set(paths)
+        Path(root).mkdir(parents=True, exist_ok=True)
+        tmp = Path(root) / (MANIFEST + ".tmp")
+        tmp.write_text(json.dumps(sorted(known)), "utf-8")
+        os.replace(tmp, Path(root) / MANIFEST)
+
+
+def staged_file(path: str, root: Path) -> dict:
+    return {"path": path, "name": os.path.basename(path), "bytes": os.path.getsize(path), "image": is_image(path)}
+
+
+def too_big_notice(names: list[str], limit: int) -> str:
+    return f"Não anexei {', '.join(names)}: passa de {limit // (1024 * 1024)} MB."
+
+
+def stage_files(paths: list[str], root: Path, day: datetime | None = None,
+                limit: int | None = None) -> tuple[list[dict], list[str], list[str]]:
+    limit = protocol.MAX_UPLOAD_BYTES if limit is None else limit
+    folder = _day_folder(root, day)
+    folder.mkdir(parents=True, exist_ok=True)
+    folder = Path(os.path.realpath(folder))
+    staged: list[dict] = []
+    refused: list[str] = []
+    too_big: list[str] = []
+    try:
+        for source in paths:
+            real = os.path.realpath(source) if os.path.isabs(source) else ""
+            if not real or not os.path.isfile(real):
+                refused.append(os.path.basename(source.rstrip("/\\")) or source)
+                continue
+            if os.path.getsize(real) > limit:
+                too_big.append(os.path.basename(real))
+                continue
+            target = folder / f"wisp-{uuid.uuid4().hex[:8]}-{os.path.basename(real)}"
+            shutil.copyfile(real, target)
+            staged.append(staged_file(str(target), root))
+    except OSError:
+        for item in staged:
+            with contextlib.suppress(OSError):
+                os.remove(item["path"])
+        raise
+    _register(root, [os.path.realpath(i["path"]) for i in staged])
+    return staged, refused, too_big
+
+
+def save_upload(name: str, data: bytes, root: Path, day: datetime | None = None) -> dict:
+    leaf = re.split(r"[\\/]", name)[-1].strip().strip(".") or "arquivo"
+    folder = _day_folder(root, day)
+    folder.mkdir(parents=True, exist_ok=True)
+    target = Path(os.path.realpath(folder)) / f"wisp-{uuid.uuid4().hex[:8]}-{leaf}"
+    target.write_bytes(data)
+    _register(root, [os.path.realpath(target)])
+    return staged_file(str(target), root)
+
+
+def remove_staged(path: str, root: Path) -> bool:
+    if not is_inside(path, root) or not os.path.isfile(path):
+        return False
+    real = os.path.realpath(path)
+    if real not in _registered(root):
+        return False
+    os.remove(real)
+    _register(root, [real], remove=True)
+    return True
 
 
 def is_lost_session(text: str) -> bool:
@@ -402,7 +652,7 @@ def locate_claude_session(session_id: str, cwd: str | None, projects_root: Path 
         return None
 
 
-def claude_history(path: Path) -> list[dict]:
+def claude_history(path: Path, status_prefix: str | None = None) -> list[dict]:
     messages: list[dict] = []
     try:
         text = path.read_text(encoding="utf-8")
@@ -429,7 +679,7 @@ def claude_history(path: Path) -> list[dict]:
                 if blocks:
                     messages.append({"role": "user", "blocks": blocks})
         elif obj.get("type") == "assistant" and isinstance(content, list) and message.get("model") != "<synthetic>":
-            blocks = assistant_blocks(content)
+            blocks = assistant_blocks(content, status_prefix)
             if blocks:
                 messages.append({"role": "assistant", "blocks": blocks})
     return messages
@@ -443,13 +693,15 @@ def tool_result_text(content) -> str:
     return ""
 
 
-def assistant_blocks(content: list) -> list[dict]:
+def assistant_blocks(content: list, status_prefix: str | None = None) -> list[dict]:
     blocks = []
     for item in content:
         if not isinstance(item, dict):
             continue
         if item.get("type") == "text" and isinstance(item.get("text"), str) and item["text"].strip():
-            blocks.append({"type": "text", "text": item["text"]})
+            body = reply_split(item["text"], status_prefix)[0]
+            if body.strip():
+                blocks.append({"type": "text", "text": body})
         elif item.get("type") == "tool_use":
             blocks.append({"type": "tool_use", "id": item.get("id", ""), "name": item.get("name", ""),
                            "input": item.get("input") if isinstance(item.get("input"), dict) else {}})

@@ -17,6 +17,13 @@ Entries are in descending chronological order (newest first).
 - `scripts/fetch-uv-windows.sh` downloads the pinned `uv.exe` and checks its sha256.
 - Windows: the panel now has the Mac's layout. The sidebar lists every Mac tab in the same order (Início, Conversa, Brain, Tarefas, Agenda, Reuniões, Música, Copiados, Terminal, My Mac, Ajustes), and the icon rail folds it on Conversa, Reuniões and Terminal. "Abrir em janela" turns the pill into a normal resizable window. Tabs other than Conversa still say "Em breve no Windows".
 - `wisp-serve` features: each tab can add its own routes under `/api/<tab>` behind the same token, and publish its own events on `/events` with a `feature` key.
+- Windows: Conversa now matches the Mac's chat.
+  - Conversations get an automatic title from a short Haiku call. Conversations on the local engine never leave the machine and keep the first-message title.
+  - Files and images can be attached by picker, paste or drag-and-drop, and appear as tiles and chips in the transcript.
+  - The permission card offers "Sempre permitir" and shows, as visible text, every rule it saves and where.
+  - Codex and the local model run as engines per message, with the Mac's sandbox and fallback rules.
+  - The header shows session usage. Replies drop the STATUS footer.
+  - Messages queue while a turn runs. Conversations can be searched, renamed, deleted and reopened.
 - Windows: Início tab. It greets you by name from the profile and has a composer that sends to Conversa, plus tiles for now playing, Claude usage (limit bars and tokens today and this week) and recent conversations.
 - Windows: Agenda tab, backed by Google Calendar only, since EventKit is Mac-only. It has day, week and month views, event details with Entrar, RSVP and delete, and quick create with a preview. Google login uses PKCE on a loopback port, and tokens are stored with Windows DPAPI under the user's profile. Reminders come from EventKit on the Mac, so they show the Mac's empty state.
 - Windows: Copiados tab. It keeps clipboard history in the Mac's format and rules (100 items, 24 h, pins, 1 MB text cap). Copies that password managers mark as private are never stored.

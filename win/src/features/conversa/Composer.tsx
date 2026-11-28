@@ -1,4 +1,6 @@
-import { useEffect, useRef, type KeyboardEvent } from "react";
+import { useEffect, useRef, type ClipboardEvent, type KeyboardEvent } from "react";
+import type { StagedFile } from "../../api/types";
+import { PendingAttachments } from "./AttachmentViews";
 import styles from "./Composer.module.css";
 
 type Props = {
@@ -8,10 +10,29 @@ type Props = {
   onStop: () => void;
   thinking: boolean;
   autoFocus: boolean;
+  pending?: StagedFile[];
+  notice?: string | null;
+  disabled?: boolean;
+  onAttachFiles?: (files: File[]) => void;
+  onRemove?: (path: string) => void;
 };
 
-export function Composer({ value, onChange, onSend, onStop, thinking, autoFocus }: Props) {
+export function Composer({
+  value,
+  onChange,
+  onSend,
+  onStop,
+  thinking,
+  autoFocus,
+  pending = [],
+  notice = null,
+  disabled = false,
+  onAttachFiles,
+  onRemove,
+}: Props) {
   const area = useRef<HTMLTextAreaElement>(null);
+  const picker = useRef<HTMLInputElement>(null);
+  const canSend = !disabled && (value.trim() !== "" || pending.length > 0);
 
   useEffect(() => {
     if (autoFocus) area.current?.focus();
@@ -25,9 +46,8 @@ export function Composer({ value, onChange, onSend, onStop, thinking, autoFocus 
   }, [value]);
 
   const submit = () => {
-    const text = value.trim();
-    if (!text || thinking) return;
-    onSend(text);
+    if (!canSend) return;
+    onSend(value.trim());
     onChange("");
   };
 
@@ -38,26 +58,60 @@ export function Composer({ value, onChange, onSend, onStop, thinking, autoFocus 
     }
   };
 
+  const onPaste = (e: ClipboardEvent<HTMLTextAreaElement>) => {
+    const files = Array.from(e.clipboardData?.files ?? []);
+    if (files.length === 0 || !onAttachFiles || disabled) return;
+    e.preventDefault();
+    onAttachFiles(files);
+  };
+
   return (
-    <div className={styles.composer}>
-      <textarea
-        ref={area}
-        className={styles.input}
-        rows={1}
-        value={value}
-        placeholder="Pergunte ao Wisp…"
-        onChange={(e) => onChange(e.target.value)}
-        onKeyDown={onKeyDown}
-      />
-      {thinking ? (
-        <button type="button" className={styles.stop} onClick={onStop} title="Parar">
-          Parar
+    <div className={`${styles.composer} ${disabled ? styles.disabled : ""}`}>
+      {pending.length > 0 && onRemove && <PendingAttachments files={pending} onRemove={onRemove} />}
+      {notice && <div className={styles.notice}>{notice}</div>}
+      <div className={styles.row}>
+        <button
+          type="button"
+          className={styles.clip}
+          onClick={() => picker.current?.click()}
+          disabled={disabled || !onAttachFiles}
+          title="Anexar foto ou arquivo"
+          aria-label="Anexar foto ou arquivo"
+        >
+          📎
         </button>
-      ) : (
-        <button type="button" className={styles.send} onClick={submit} disabled={!value.trim()} title="Enviar (Enter)" aria-label="Enviar">
+        <input
+          ref={picker}
+          type="file"
+          multiple
+          hidden
+          data-testid="file-picker"
+          onChange={(e) => {
+            const files = Array.from(e.target.files ?? []);
+            e.target.value = "";
+            if (files.length > 0) onAttachFiles?.(files);
+          }}
+        />
+        <textarea
+          ref={area}
+          className={styles.input}
+          rows={1}
+          value={value}
+          disabled={disabled}
+          placeholder="Pergunte ao Wisp…"
+          onChange={(e) => onChange(e.target.value)}
+          onKeyDown={onKeyDown}
+          onPaste={onPaste}
+        />
+        {thinking && (
+          <button type="button" className={styles.stop} onClick={onStop} title="Parar">
+            Parar
+          </button>
+        )}
+        <button type="button" className={styles.send} onClick={submit} disabled={!canSend} title="Enviar (Enter)" aria-label="Enviar">
           ↑
         </button>
-      )}
+      </div>
     </div>
   );
 }

@@ -1,12 +1,36 @@
 .composer {
   display: flex;
-  align-items: flex-end;
-  gap: var(--space-s);
+  flex-direction: column;
   margin: 0 var(--space-l) var(--space-l);
-  padding: 5px 5px 5px var(--space-m);
   border-radius: 20px;
   background: var(--surface);
   border: 1px solid var(--stroke);
+}
+.disabled {
+  opacity: 0.6;
+}
+.row {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-s);
+  padding: 5px 5px 5px var(--space-s);
+}
+.clip {
+  flex: none;
+  width: var(--control);
+  height: var(--control);
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  font-size: 14px;
+}
+.clip:hover:not(:disabled) {
+  background: var(--highlight);
+}
+.notice {
+  padding: var(--space-s) var(--space-l) 0;
+  font-size: 11px;
+  color: var(--text-secondary);
 }
 .input {
   flex: 1;

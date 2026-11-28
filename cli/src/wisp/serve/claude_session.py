@@ -9,6 +9,7 @@ import re
 import shutil
 import subprocess
 import sys
+import traceback
 import uuid
 from collections import deque
 from dataclasses import dataclass, field
@@ -17,12 +18,14 @@ from pathlib import Path
 from typing import Any
 
 from wisp.compat import kill_process_tree, new_session_kwargs
-from wisp.serve import guards, protocol
+from wisp.serve import engines, guards, protocol
+from wisp.serve.engines import card
+from wisp.serve.engines.card import ASK_TOOLS
 from wisp.serve.guards import GuardsUnavailable
-from wisp.serve.store import is_lost_session, prime, title_fallback
+from wisp.serve.store import (attachments_summary, is_lost_session, parse_attachments, prime, reply_split,
+                              title_fallback, unparsed_attachments)
 
 SUMMARY_LIMIT = 80
-ASK_TOOLS = ("mcp__wisp-email__email_send", "mcp__wisp-mac__mac_send")
 DENY_MESSAGE = ("O usuário negou esta ação no Wisp. Não tente de novo do mesmo jeito; siga sem ela ou pergunte o que "
                 "fazer.")
 STDERR_LIMIT = 2048
@@ -56,6 +59,8 @@ class ResumePlan:
 def plan_resume(kind: str, last_engine: str | None, claude_session: str | None, codex_session: str | None,
                 lost: bool) -> ResumePlan:
     switched = last_engine is not None and last_engine != kind
+    if kind == "local":
+        return ResumePlan(None, False, switched, "new", False)
     known = codex_session if kind == "codex" else claude_session
     missing = last_engine is not None and known is None
     if not (lost or switched or missing):
@@ -215,28 +220,76 @@ class PermissionRequest:
     tool_use_id: str | None
     input: dict[str, Any]
     persist: list[dict[str, Any]]
+    summary: str = ""
+    detail: str = ""
+    summary_truncated: bool = False
+    requires_expansion: bool = True
+    persist_rules: list[str] = field(default_factory=list)
+    persist_where: list[str] = field(default_factory=list)
+    engine: str = "claude"
+
+    @property
+    def asker(self) -> str:
+        return "Codex" if self.engine == "codex" else "Claude"
+
+    @property
+    def can_persist(self) -> bool:
+        return bool(self.persist)
 
     @classmethod
-    def parse(cls, request_id: str, request: dict[str, Any]) -> PermissionRequest | None:
+    def parse(cls, request_id: str, request: dict[str, Any], home: str | None = None,
+              engine: str = "claude") -> PermissionRequest | None:
         if request.get("subtype") != "can_use_tool" or not request_id:
             return None
         tool = request.get("tool_name") if isinstance(request.get("tool_name"), str) else ""
         suggestions = request.get("permission_suggestions")
-        persist = [] if tool in ASK_TOOLS or not isinstance(suggestions, list) else [
-            s for s in suggestions if isinstance(s, dict) and s.get("type") == "addRules"
-            and s.get("behavior") == "allow" and s.get("destination") != "session"]
-        tool_input = request.get("input")
+        persist, rules, where, rules_hidden = ([], [], [], False) if tool in ASK_TOOLS else \
+            card.rebuild_persist(suggestions)
+        tool_input = request.get("input") if isinstance(request.get("input"), dict) else {}
         use_id = request.get("tool_use_id")
-        return cls(request_id, tool, use_id if isinstance(use_id, str) else None,
-                   tool_input if isinstance(tool_input, dict) else {}, persist)
+        description = request.get("description") if isinstance(request.get("description"), str) else None
+        if engine == "codex" and tool in ASK_TOOLS:
+            said = "enviar um e-mail" if tool == ASK_TOOLS[0] else "enviar uma mensagem pelo app"
+        else:
+            said = card.phrase(tool, tool_input, home or os.path.expanduser("~"))
+        truncated = len(said) > card.SUMMARY_LIMIT
+        return cls(request_id, tool, use_id if isinstance(use_id, str) else None, tool_input, persist,
+                   card.escaped(card.clip_summary(said)),
+                   card.escaped(card.detail(tool, tool_input, description)), truncated,
+                   card.requires_expansion(tool, tool_input, truncated) or rules_hidden, rules, where, engine)
+
+    def card(self) -> dict[str, Any]:
+        return {"summary": self.summary, "detail": self.detail, "summary_truncated": self.summary_truncated,
+                "requires_expansion": self.requires_expansion, "can_persist": self.can_persist,
+                "persist_rules": self.persist_rules, "persist_where": self.persist_where, "engine": self.engine, "asker": self.asker}
 
 
-def permission_response_line(request: PermissionRequest, allow: bool, message: str | None = None) -> bytes:
+def permission_response_line(request: PermissionRequest, allow: bool, message: str | None = None,
+                             always: bool = False) -> bytes:
+    if always and allow and not request.persist:
+        raise ValueError("nothing to persist")
     answer = {"behavior": "allow", "updatedInput": request.input} if allow else {
         "behavior": "deny", "message": message or DENY_MESSAGE}
+    if allow and always:
+        answer["updatedPermissions"] = request.persist
     line = {"type": "control_response",
             "response": {"subtype": "success", "request_id": request.request_id, "response": answer}}
     return (json.dumps(line, sort_keys=True, ensure_ascii=False) + "\n").encode("utf-8")
+
+
+def _window(raw: Any) -> dict[str, Any] | None:
+    utilization = raw.get("utilization") if isinstance(raw, dict) else None
+    if isinstance(utilization, bool) or not isinstance(utilization, (int, float)):
+        return None
+    resets = raw.get("resetsAt")
+    return {"utilization": utilization,
+            "resets_at": resets if isinstance(resets, (int, float)) and not isinstance(resets, bool) else None}
+
+
+def usage_windows(info: dict[str, Any] | None) -> dict[str, Any]:
+    windows = info.get("unifiedWindows") if isinstance(info, dict) else None
+    windows = windows if isinstance(windows, dict) else {}
+    return {"five_hour": _window(windows.get("five_hour")), "seven_day": _window(windows.get("seven_day"))}
 
 
 def _result_text(content: Any) -> str:
@@ -394,9 +447,11 @@ class TurnLedger:
         if entry:
             entry.consumed = True
 
-    def result(self, is_error: bool = False) -> list[LedgerEntry]:
+    def result(self, is_error: bool = False, engine: str = "claude") -> list[LedgerEntry]:
         if is_error:
             closed = self.in_flight_entries
+        elif engine != "claude":
+            closed = [e for e in self.entries if e.stage == "written"][:1]
         elif self._echoes:
             seen = [e for e in self.entries if e.consumed]
             closed = seen or [e for e in self.entries if e.stage == "written"][:1]
@@ -443,7 +498,8 @@ def compose_attachments(paths: list[str], caption: str, origin: str = "Wisp", us
 
 
 def preview_line(text: str) -> str:
-    collapsed = " ".join(text.split())
+    found = parse_attachments(text) or unparsed_attachments(text)
+    collapsed = " ".join(("📎 " + attachments_summary(found) if found else text).split())
     return collapsed if len(collapsed) <= PREVIEW_LIMIT else collapsed[:PREVIEW_LIMIT - 1].strip() + "…"
 
 
@@ -508,6 +564,15 @@ class ClaudeProcess:
                 return
             self.stderr_tail = (self.stderr_tail + chunk)[-STDERR_LIMIT:]
 
+    async def close_input(self) -> None:
+        stdin = self.proc.stdin
+        if stdin is None:
+            return
+        with contextlib.suppress(BrokenPipeError, ConnectionResetError, OSError):
+            await stdin.drain()
+        with contextlib.suppress(Exception):
+            stdin.close()
+
     def kill(self) -> None:
         with contextlib.suppress(Exception):
             if self.proc.stdin:
@@ -532,6 +597,21 @@ class Delivery:
     record: bool = True
 
 
+class EngineFailed(Exception):
+    pass
+
+
+@dataclass
+class TurnSpec:
+    argv: list[str]
+    cwd: str
+    env: dict[str, str]
+    stdin: bytes | None
+    keep_stdin: bool
+    decode: Any
+    closing: Any
+
+
 class ConversationSession:
     def __init__(self, conversation_id: str, host: Any):
         self.id = conversation_id.lower()
@@ -539,6 +619,7 @@ class ConversationSession:
         self.ledger = TurnLedger()
         self.permissions: dict[str, PermissionRequest] = {}
         self._proc: ClaudeProcess | None = None
+        self._turn: ClaudeProcess | None = None
         self._generation = 0
         self._queue: deque[Delivery] = deque()
         self._wake = asyncio.Event()
@@ -548,26 +629,37 @@ class ConversationSession:
         self._rebuilt_from: str | None = None
         self._linked: set[str] = set()
         self._model: str | None = None
-
+        self._kind: str | None = None
+        self._session_mode: str | None = None
+        self._forget_engine = False
+        self._link_reason = "new"
+        self._approval_noted = False
+        record = host.store.get(self.id) or {}
+        self._title_requested = bool(record.get("titleGenerated") or record.get("lastFrom"))
+        self._first_user: str | None = None
 
     def submit(self, text: str, attachments: list[str]) -> None:
         prompt = compose_attachments(attachments, text) if attachments else text
         item = Delivery(uuid.uuid4().hex, prompt, text)
         self.ledger.submit(item.id, prompt, text, list(attachments))
         self._queue.append(item)
-        self._record_submit(text)
+        if self._first_user is None:
+            self._first_user = prompt
+        self._record_submit(prompt)
         self._publish("status", state=protocol.STATE_THINKING)
         if self._worker is None or self._worker.done():
             self._worker = asyncio.get_running_loop().create_task(self._work())
         self._wake.set()
 
-    async def answer(self, request_id: str, allow: bool, message: str | None) -> None:
+    async def answer(self, request_id: str, allow: bool, message: str | None, always: bool = False) -> None:
         request = self.permissions.get(request_id)
         if request is None:
             raise KeyError(request_id)
-        if self._proc is None:
+        line = permission_response_line(request, allow, message, always)
+        writer = self._turn if self._turn is not None else self._proc
+        if writer is None:
             raise SessionGone("a sessão com o claude não está rodando")
-        await self._proc.write(permission_response_line(request, allow, message))
+        await writer.write(line)
         self.permissions.pop(request_id, None)
         self.host.forget_permission(request_id)
 
@@ -593,28 +685,207 @@ class ConversationSession:
     async def _deliver(self, item: Delivery) -> None:
         gen = self._generation
         try:
-            proc = await self._ensure_process()
+            kind, gen = await self._choose_engine(gen)
             if gen != self._generation:
                 return
-            outgoing = prime(self._prime, item.text)
-            self._prime = None
-            if item.record:
-                self._record_user(item.user)
-            self.ledger.writing(item.id)
-            try:
-                await proc.write((json.dumps({"type": "user", "message": {"role": "user", "content": outgoing}},
-                                             ensure_ascii=False) + "\n").encode("utf-8"))
-            except SessionGone:
-                if gen == self._generation:
-                    self.ledger.write_failed(item.id)
-                raise
-            if gen == self._generation and self.ledger.written(item.id) is not None:
-                self._settle_if_idle()
+            if kind == "claude":
+                await self._deliver_claude(item, gen)
+            else:
+                await self._deliver_turn(kind, item, gen)
         except asyncio.CancelledError:
             raise
-        except (ClaudeNotFound, GuardsUnavailable, SessionGone, OSError) as error:
+        except (ClaudeNotFound, GuardsUnavailable, SessionGone, EngineFailed, OSError) as error:
             if gen == self._generation:
                 self._fail(str(error) or error.__class__.__name__)
+        except Exception as error:
+            traceback.print_exc(file=sys.stderr)
+            if gen == self._generation:
+                self._fail(f"erro inesperado: {error.__class__.__name__}: {error}")
+
+    async def _choose_engine(self, gen: int) -> tuple[str, int]:
+        kind, note = await self.host.engine_choice(self)
+        if gen != self._generation:
+            return kind, gen
+        if note and self._kind != "claude":
+            self._publish("system", text=note)
+        if self._proc is not None and self._proc.alive:
+            if kind != "claude" and not self.ledger.in_flight_entries:
+                self._restart_process()
+                gen = self._generation
+            elif kind != "claude":
+                kind = "claude"
+        self._kind = kind
+        return kind, gen
+
+    async def _deliver_claude(self, item: Delivery, gen: int) -> None:
+        proc = await self._ensure_process()
+        if gen != self._generation:
+            return
+        outgoing = prime(self._prime, item.text)
+        self._prime = None
+        if item.record:
+            self._record_user(item.user)
+        self.ledger.writing(item.id)
+        try:
+            await proc.write((json.dumps({"type": "user", "message": {"role": "user", "content": outgoing}},
+                                         ensure_ascii=False) + "\n").encode("utf-8"))
+        except SessionGone:
+            if gen == self._generation:
+                self.ledger.write_failed(item.id)
+            raise
+        if gen == self._generation and self.ledger.written(item.id) is not None:
+            self._settle_if_idle()
+
+    async def _deliver_turn(self, kind: str, item: Delivery, gen: int) -> None:
+        plan = self._prepare_resume(kind)
+        outgoing = prime(self._prime, item.text)
+        spec = await (self._local_spec(outgoing) if kind == "local" else self._codex_spec(outgoing, plan))
+        if gen != self._generation:
+            return
+        proc = await ClaudeProcess.spawn(spec.argv[0], spec.argv[1:], spec.cwd, spec.env)
+        if gen != self._generation:
+            proc.kill()
+            return
+        self._prime = None
+        self._turn = proc
+        self._spawn(proc.drain_stderr())
+        if item.record:
+            self._record_user(item.user)
+        self.ledger.writing(item.id)
+        try:
+            if spec.stdin is not None:
+                await proc.write(spec.stdin)
+            if not spec.keep_stdin:
+                await proc.close_input()
+        except SessionGone:
+            if gen == self._generation:
+                self.ledger.write_failed(item.id)
+            raise
+        if gen != self._generation:
+            return
+        self.ledger.written(item.id)
+        async for line in proc.lines():
+            if gen != self._generation:
+                return
+            self._handle(spec.decode(line))
+        code = await proc.proc.wait()
+        await asyncio.sleep(0.05)
+        if gen != self._generation:
+            return
+        self._turn = None
+        self._handle(spec.closing(code, proc.stderr_tail.decode("utf-8", "replace")))
+        await proc.close_input()
+        if gen == self._generation and self.ledger.in_flight_entries:
+            self._fail(f"{engines.DISPLAY[kind]} encerrou sem concluir o turno")
+
+    async def _local_spec(self, outgoing: str) -> TurnSpec:
+        from wisp.serve.engines import local as engines_local
+        wisp = await asyncio.to_thread(guards.wisp_binary)
+        if not wisp:
+            raise GuardsUnavailable(engines_local.NO_BINARY)
+        if engines_local.too_large(outgoing):
+            raise EngineFailed(engines_local.TOO_LARGE)
+        record = self.host.store.get(self.id) or {}
+        mode = guards.permission_mode(self.host.store.directory) or "default"
+        env = dict(os.environ)
+        env["WISP_BIN"] = wisp
+        seen: dict[str, Any] = {"result": False, "error": None}
+
+        def decode(line: str) -> list[Event]:
+            try:
+                obj = json.loads(line)
+            except ValueError:
+                obj = None
+            if isinstance(obj, dict) and obj.get("type") == "error" and isinstance(obj.get("message"), str):
+                seen["error"] = obj["message"]
+            events = decode_line(line)
+            seen["result"] = seen["result"] or any(e.kind == "result" for e in events)
+            return events
+
+        def closing(code: int, tail: str) -> list[Event]:
+            if seen["result"]:
+                return []
+            detail = seen["error"] or tail.strip() or f"a IA local terminou sem concluir o turno (código {code})"
+            return [Event("result", {"session_id": "", "text": detail, "is_error": True, "denials": [], "usage": {}})]
+
+        return TurnSpec([wisp, *engines_local.arguments(outgoing, self._key(record), mode)],
+                        str(self.host.workspace), env, None, True, decode, closing)
+
+    async def _codex_spec(self, outgoing: str, plan: ResumePlan) -> TurnSpec:
+        from wisp.serve.engines import codex
+        record = self.host.store.get(self.id) or {}
+        wisp = await asyncio.to_thread(guards.wisp_binary)
+        if not wisp:
+            raise EngineFailed(f"codex encerrou (código -1): {codex.NO_WISP_BINARY}")
+        wisp_dir = str(self.host.workspace)
+        root = codex.workspace(record.get("cwd"), wisp_dir)
+        if root is None:
+            raise GuardsUnavailable(codex.NO_WORKSPACE)
+        try:
+            executable = await asyncio.to_thread(codex.locate_codex, None)
+            prefix = await asyncio.to_thread(codex.launch_prefix, executable)
+        except codex.CodexNotFound as error:
+            raise EngineFailed(str(error)) from None
+        env = codex.environment(executable, {}, wisp)
+        problem, owned = await asyncio.to_thread(codex.preflight, wisp, env, root)
+        if problem:
+            raise EngineFailed(f"codex encerrou (código -1): {problem}")
+        mode = guards.permission_mode(self.host.store.directory)
+        soul = await asyncio.to_thread(guards.soul_text, "codex")
+        add_dirs = codex.extra_directories(root, [wisp_dir, *self._brain_dirs()])
+        arguments = codex.arguments(root, mode, add_dirs, guards.instructions(soul, extra=guards.CODEX_NOTE), wisp,
+                                    plan.resume, owned)
+        if not self._approval_noted and sys.platform != "darwin":
+            self._approval_noted = True
+            self._publish("system", text=("não consegui abrir o canal de aprovação do e-mail; nesta conversa o Codex "
+                                          f"não envia e-mails ({codex.NO_APPROVAL_CHANNEL})"))
+        decoder = codex.CodexDecoder(codex.configured_model(), resumed=plan.resume is not None)
+        return TurnSpec([*prefix, *arguments], root, env, outgoing.encode("utf-8"), False, decoder.decode,
+                        lambda code, tail: decoder.closing(code, tail))
+
+    def _brain_dirs(self) -> list[str]:
+        try:
+            from wisp.config import load_config
+            from wisp.layout import layout_of
+            return [str(layout_of(load_config(), Path.home()).brain)]
+        except Exception:
+            return []
+
+    def _prepare_resume(self, kind: str) -> ResumePlan:
+        record = self.host.store.get(self.id) or {}
+        key = self._key(record)
+        transcripts = self.host.transcripts
+        plan = plan_resume(kind, transcripts.last_engine(key), record.get("sessionId"),
+                           transcripts.engine_session(key, "codex"), lost=self._forget_engine)
+        self._forget_engine = False
+        self._link_reason = plan.link_reason
+        if plan.switched and not plan.prime and kind == "local":
+            self._switched_note(kind)
+        if plan.prime and self._prime is None:
+            self._prime = transcripts.context(key)
+        if plan.switched and plan.prime and self._prime is not None:
+            self._switched_note(kind)
+        if plan.drop_claude_session:
+            self._rebuilt_from = record.get("sessionId") or key
+            self._set_record(sessionId=None)
+        elif record.get("sessionId"):
+            self._linked.add(record["sessionId"])
+        return plan
+
+    def _switched_note(self, kind: str) -> None:
+        self._publish("system", text=f"↻ agora quem responde é o {engines.DISPLAY[kind]}; ele retomou pela conversa "
+                                     "guardada no Wisp.")
+
+    def _restart_process(self) -> None:
+        self._generation += 1
+        self.ledger.process_restarted()
+        self._prime = None
+        for request_id in list(self.permissions):
+            self.host.forget_permission(request_id)
+        self.permissions.clear()
+        proc, self._proc = self._proc, None
+        if proc:
+            proc.kill()
 
     def _fail(self, message: str) -> None:
         self._discard()
@@ -634,6 +905,9 @@ class ConversationSession:
             self.host.forget_permission(request_id)
         self.permissions.clear()
         proc, self._proc = self._proc, None
+        turn, self._turn = self._turn, None
+        if turn and kill:
+            turn.kill()
         if proc and kill:
             proc.kill()
         return proc
@@ -644,24 +918,15 @@ class ConversationSession:
         gen = self._generation
         executable = await asyncio.to_thread(self.host.claude_path)
         record = self.host.store.get(self.id) or {}
-        key = self._key(record)
-        transcripts = self.host.transcripts
-        plan = plan_resume("claude", transcripts.last_engine(key), record.get("sessionId"),
-                           transcripts.engine_session(key, "codex"), lost=False)
-        if plan.prime and self._prime is None:
-            self._prime = transcripts.context(key)
-        if plan.drop_claude_session:
-            self._rebuilt_from = record.get("sessionId") or key
-            self._set_record(sessionId=None)
-        elif record.get("sessionId"):
-            self._linked.add(record["sessionId"])
+        plan = self._prepare_resume("claude")
         cwd = record.get("cwd")
         workdir = Path(cwd) if cwd and Path(cwd).is_dir() else self.host.workspace
         workdir.mkdir(parents=True, exist_ok=True)
         launch = await asyncio.to_thread(guards.prepare, self.host.store.directory)
+        self._session_mode = launch.permission_mode
         env = await asyncio.to_thread(child_environment, executable)
         env.update(launch.environment)
-        arguments = claude_arguments(model=None, resume=plan.resume, permission_mode=launch.permission_mode,
+        arguments = claude_arguments(model=guards.profile_text("model"), resume=plan.resume, permission_mode=launch.permission_mode,
                                      append_system_prompt=launch.append_system_prompt, settings=launch.settings,
                                      disallowed_tools=launch.disallowed_tools)
         program, *lead = await asyncio.to_thread(resolve_launch, executable)
@@ -704,9 +969,11 @@ class ConversationSession:
             self._publish("status", state=protocol.STATE_ERROR)
 
     def _handle(self, events: list[Event]) -> None:
-        blocks = [{"type": "text", "text": e.data["text"]} if e.kind == "text" else
+        prefix = self.host.status_prefix()
+        blocks = [{"type": "text", "text": reply_split(e.data["text"], prefix)[0]} if e.kind == "text" else
                   {"type": "tool_use", "id": e.data["id"], "name": e.data["name"], "input": e.data["input"]}
                   for e in events if e.kind in ("text", "tool_use") and (e.kind != "text" or e.data["text"].strip())]
+        blocks = [b for b in blocks if b["type"] != "text" or b["text"].strip()]
         if blocks:
             self._publish("assistant_message", message={"role": "assistant", "blocks": blocks})
         for event in events:
@@ -725,10 +992,19 @@ class ConversationSession:
                 self.permissions[request.request_id] = request
                 self.host.register_permission(request.request_id, self)
                 self._publish("permission_request", request_id=request.request_id, tool_name=request.tool_name,
-                              input=request.input)
+                              input=request.input, **request.card())
             elif event.kind == "permission_cancelled":
                 self.permissions.pop(data["id"], None)
                 self.host.forget_permission(data["id"])
+            elif event.kind == "permission_mode":
+                self._reported_mode(data["mode"])
+            elif event.kind == "engine_session":
+                self._link_engine_session(data["engine"], data["id"])
+            elif event.kind == "usage":
+                windows = usage_windows(data["info"])
+                if windows["five_hour"] or windows["seven_day"]:
+                    self.host.rate_limit = windows
+                    self._publish("usage", **windows)
             elif event.kind == "user_replayed":
                 self.ledger.consumed()
             elif event.kind == "result":
@@ -739,23 +1015,50 @@ class ConversationSession:
         text, is_error, session = data["text"], data["is_error"], data["session_id"]
         if is_error and is_lost_session(text) and self._rebuild_after_lost():
             return
-        self.ledger.result(is_error=is_error)
+        self.ledger.result(is_error=is_error, engine=self._kind or "claude")
         if session:
             self._link_session(session)
             self._set_record(sessionId=session)
-        if not is_error and text.strip():
-            self._record_assistant(text)
-        self._publish("result", usage=data["usage"], text=text, is_error=is_error, session_id=session)
+        body, status = reply_split(text, self.host.status_prefix()) if not is_error else (text, None)
+        if not is_error and body.strip():
+            self._record_assistant(body)
+            self._maybe_title(body)
+        self._publish("result", usage=data["usage"], text=body, is_error=is_error, session_id=session, status=status)
         if is_error:
             self._publish("error", message=text or "erro")
         if self.ledger.pending == 0:
             self._publish("status", state=protocol.STATE_ERROR if is_error else protocol.STATE_IDLE)
 
+    def _reported_mode(self, mode: str) -> None:
+        if self._session_mode == "auto" and mode != "auto":
+            self._publish("system", text=f"o modo Automático não está disponível nesta conta; esta conversa roda no modo {mode}")
+
+    def _maybe_title(self, reply: str) -> None:
+        first = self._first_user
+        if self._title_requested or first is None or not reply.strip():
+            return
+        self._title_requested = True
+        if self._kind == "local":
+            return
+        found = parse_attachments(first)
+        user = attachments_summary(found) if found else first
+        self._spawn(self._generate_title(user, reply))
+
+    async def _generate_title(self, user: str, reply: str) -> None:
+        title = await self.host.generate_title(user, reply)
+        record = self.host.store.get(self.id)
+        if not title or record is None or record.get("titleGenerated") or self.host.sessions.get(self.id) is not self:
+            return
+        self._set_record(title=title, titleGenerated=True)
+        self._publish("title", title=title)
+
     def _rebuild_after_lost(self) -> bool:
         pending = self.ledger.in_flight_entries
         record = self.host.store.get(self.id) or {}
-        lost = record.get("sessionId")
-        memory = self.host.transcripts.context(self._key(record), drop_trailing_users=len(pending)) if pending else None
+        key = self._key(record)
+        lost = record.get("sessionId") or (self.host.transcripts.engine_session(key, "codex")
+                                           if self._kind == "codex" else None)
+        memory = self.host.transcripts.context(key, drop_trailing_users=len(pending)) if pending else None
         if not pending or not lost or memory is None:
             return False
         redo = [Delivery(e.id, e.text, e.user, record=False) for e in pending]
@@ -764,11 +1067,19 @@ class ConversationSession:
         self._queue.clear()
         self._generation += 1
         proc, self._proc = self._proc, None
-        if proc:
-            proc.kill()
-        self._set_record(sessionId=None)
+        turn, self._turn = self._turn, None
+        for old in (proc, turn):
+            if old:
+                old.kill()
+        kind = self._kind or "claude"
+        if kind == "claude":
+            self._set_record(sessionId=None)
+            self._rebuilt_from = lost
+        else:
+            self._forget_engine = True
         self._prime = memory
-        self._rebuilt_from = lost
+        self._publish("system", text=f"↻ a sessão do {engines.DISPLAY[kind]} não estava aqui; retomei pela conversa "
+                                     "guardada no Wisp.")
         self._queue.extend(redo + queued)
         self._publish("status", state=protocol.STATE_THINKING)
         self._wake.set()
@@ -800,8 +1111,9 @@ class ConversationSession:
 
         def apply(record: dict) -> None:
             first = not record.get("lastFrom") and not record.get("lastPreview")
+            found = parse_attachments(text)
             if first and not record.get("titleGenerated") and record.get("title") in (None, protocol.DEFAULT_TITLE):
-                record["title"] = title_fallback(text) or protocol.DEFAULT_TITLE
+                record["title"] = title_fallback(attachments_summary(found) if found else text) or protocol.DEFAULT_TITLE
             record.setdefault("cwd", workspace)
             record["lastPreview"] = preview_line(text)
             record["lastFrom"] = "user"
@@ -827,6 +1139,15 @@ class ConversationSession:
         if session_id != key:
             self._safely(lambda: transcripts.link(session_id, key, "claude", reason))
 
+    def _link_engine_session(self, engine: str, session_id: str) -> None:
+        transcripts = self.host.transcripts
+        key = self._key(self.host.store.get(self.id) or {})
+        if not session_id or session_id in self._linked or not (transcripts.folder / f"{key}.jsonl").exists():
+            return
+        self._linked.add(session_id)
+        reason, self._link_reason = self._link_reason, "new"
+        self._safely(lambda: transcripts.link(session_id, key, engine, reason))
+
     def _record_user(self, text: str) -> None:
         record = self.host.store.get(self.id) or {}
         key = self._key(record)
@@ -835,8 +1156,9 @@ class ConversationSession:
     def _record_assistant(self, text: str) -> None:
         record = self.host.store.get(self.id) or {}
         key = self._key(record)
+        engine = self._kind or "claude"
         self._safely(lambda: self.host.transcripts.append_assistant(key, record.get("sessionId"), text, "app",
-                                                                    "claude", self._model))
+                                                                    engine, self._model))
         self._set_record(lastPreview=preview_line(text), lastFrom="agent")
 
     def _safely(self, write) -> None:
@@ -846,6 +1168,7 @@ class ConversationSession:
             self._publish("error", message=f"não consegui guardar a conversa na pasta do Wisp: {error}")
 
 
-__all__ = ["ClaudeNotFound", "ConversationSession", "Event", "PermissionRequest", "SessionGone", "TurnLedger",
+__all__ = ["ClaudeNotFound", "ConversationSession", "EngineFailed", "Event", "PermissionRequest", "SessionGone",
+           "TurnLedger", "usage_windows",
            "GuardsUnavailable", "claude_arguments", "decode_line", "locate_claude", "resolve_launch", "permission_response_line",
            "plan_resume"]

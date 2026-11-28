@@ -1,0 +1,23 @@
+.usage {
+  flex: none;
+  padding: 2px var(--space-s);
+  border-radius: var(--radius-pill);
+  background: var(--surface-hi);
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.warning {
+  color: var(--busy);
+}
+.critical {
+  color: var(--error);
+}
+.normal {
+  color: var(--accent);
+}
+.detail {
+  color: var(--text-tertiary);
+  font-family: var(--font);
+}

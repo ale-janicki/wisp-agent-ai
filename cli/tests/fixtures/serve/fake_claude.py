@@ -54,15 +54,24 @@ while True:
     if os.environ.get("FAKE_CLAUDE_NO_PERMISSION") != "1":
         emit({"type": "assistant", "message": {"role": "assistant", "content": [
             {"type": "tool_use", "id": "toolu_1", "name": "Bash", "input": {"command": "touch probe"}}]}})
-        emit({"type": "control_request", "request_id": "req-1", "request": {
-            "subtype": "can_use_tool", "tool_name": "Bash", "input": {"command": "touch probe"},
-            "tool_use_id": "toolu_1"}})
+        request = {"subtype": "can_use_tool", "tool_name": "Bash", "input": {"command": "touch probe"},
+                   "tool_use_id": "toolu_1"}
+        if os.environ.get("FAKE_CLAUDE_SUGGEST"):
+            request["permission_suggestions"] = [
+                {"type": "addRules", "rules": [{"toolName": "Bash", "ruleContent": "touch probe *"}],
+                 "behavior": "allow", "destination": "localSettings"},
+                {"type": "setMode", "mode": "acceptEdits", "destination": "session"}]
+        emit({"type": "control_request", "request_id": "req-1", "request": request})
         answer = wait_for_control_response()
         log({"control_response": answer})
         allowed = answer["response"]["response"]["behavior"] == "allow"
         emit({"type": "user", "message": {"role": "user", "content": [
             {"type": "tool_result", "tool_use_id": "toolu_1", "content": "done" if allowed else "denied",
              "is_error": not allowed}]}})
-    emit({"type": "assistant", "message": {"role": "assistant", "content": [{"type": "text", "text": "ok: " + text}]}})
-    emit({"type": "result", "subtype": "success", "is_error": False, "result": "ok: " + text,
+    if os.environ.get("FAKE_CLAUDE_USAGE"):
+        emit({"type": "rate_limit_event", "rate_limit_info": {"unifiedWindows": {
+            "five_hour": {"utilization": 0.42, "resetsAt": 1800000000}, "seven_day": {"utilization": 0.1}}}})
+    reply = "ok: " + text + os.environ.get("FAKE_CLAUDE_FOOTER", "")
+    emit({"type": "assistant", "message": {"role": "assistant", "content": [{"type": "text", "text": reply}]}})
+    emit({"type": "result", "subtype": "success", "is_error": False, "result": reply,
           "session_id": SESSION, "usage": {"input_tokens": 1, "output_tokens": 2}})

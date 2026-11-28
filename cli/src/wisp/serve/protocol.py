@@ -11,6 +11,7 @@ ALLOWED_ORIGINS = ["http://tauri.localhost", "https://tauri.localhost", "tauri:/
 HEARTBEAT_SECONDS = 15.0
 DEFAULT_TITLE = "Nova conversa"
 ENGINE = "claude"
+MAX_UPLOAD_BYTES = 100 * 1024 * 1024
 
 
 def event(conversation_id: str, type_: str, **fields: Any) -> dict[str, Any]:

@@ -1,0 +1,9 @@
+.picker {
+  flex: none;
+  height: 22px;
+  padding: 0 var(--space-s);
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius-pill);
+  background: var(--surface-hi);
+  font-size: 11px;
+}

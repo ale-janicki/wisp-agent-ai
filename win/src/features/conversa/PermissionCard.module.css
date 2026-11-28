@@ -85,3 +85,28 @@
   background: rgba(242, 85, 90, 0.18);
   color: var(--error);
 }
+.always {
+  height: 28px;
+  padding: 0 var(--space-l);
+  border: 1px solid var(--stroke);
+  border-radius: 14px;
+  background: none;
+  font-weight: 600;
+}
+.always:disabled {
+  color: var(--text-tertiary);
+  cursor: not-allowed;
+}
+.saves {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+.saves ul {
+  margin: 2px 0 0;
+  padding-left: var(--space-l);
+}
+.saves code {
+  font-family: var(--font-mono);
+  overflow-wrap: anywhere;
+  user-select: text;
+}

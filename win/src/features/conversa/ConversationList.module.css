@@ -36,10 +36,9 @@
 .row {
   display: flex;
   align-items: center;
-  gap: var(--space-s);
-  height: var(--control);
-  padding: 0 var(--space-s);
-  border: 0;
+  gap: var(--space-xs);
+  min-height: var(--control);
+  padding: 0 var(--space-xs) 0 var(--space-s);
   border-radius: var(--radius-nav);
   background: none;
   text-align: left;
@@ -50,11 +49,89 @@
 .current {
   background: var(--surface-hi);
 }
+.open {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  padding: 4px 0;
+  border: 0;
+  background: none;
+  text-align: left;
+}
+.titleLine {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-xs);
+  min-width: 0;
+}
 .title {
   flex: 1;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+.closed {
+  flex: none;
+  font-size: 10px;
+  color: var(--text-tertiary);
+}
+.preview {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+.search {
+  position: relative;
+  padding: 0 var(--space-xs) var(--space-s);
+}
+.searchInput,
+.rename {
+  width: 100%;
+  height: 28px;
+  padding: 0 var(--space-m);
+  border: 1px solid var(--stroke);
+  border-radius: 14px;
+  background: var(--surface-hi);
+  outline: 0;
+}
+.searchInput::-webkit-search-cancel-button {
+  display: none;
+}
+.rename {
+  flex: 1;
+  margin: 2px 0;
+}
+.clear,
+.delete {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: var(--text-tertiary);
+  font-size: 10px;
+  line-height: 1;
+}
+.clear {
+  position: absolute;
+  right: 10px;
+  top: 4px;
+}
+.clear:hover,
+.delete:hover {
+  background: var(--highlight);
+  color: var(--text-secondary);
+}
+.delete {
+  visibility: hidden;
+}
+.row:hover .delete,
+.delete:focus-visible {
+  visibility: visible;
 }
 .dot {
   flex: none;

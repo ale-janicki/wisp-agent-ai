@@ -50,7 +50,7 @@ def guards(tmp_path, monkeypatch):
     monkeypatch.setenv("LOCALAPPDATA", str(state))
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
     monkeypatch.setenv("APPDATA", str(tmp_path / "config"))
-    monkeypatch.setattr("wisp.serve.guards.soul_text", lambda: "SOUL-TEXT")
+    monkeypatch.setattr("wisp.serve.guards.soul_text", lambda engine="claude": "SOUL-TEXT")
     return binary
 
 
@@ -71,6 +71,7 @@ def fake_claude(tmp_path, monkeypatch, guards):
     log = tmp_path / "fake.log"
     monkeypatch.setenv("WISP_CLAUDE_BIN", str(launcher))
     monkeypatch.setenv("FAKE_CLAUDE_LOG", str(log))
+    monkeypatch.setattr("wisp.serve.engines.title.generate", lambda *a, **k: None)
     return log
 
 
@@ -187,7 +188,7 @@ def test_health_and_conversation_crud(data):
     items = client.get("/conversations").json()["items"]
     assert [(i["id"], i["title"], i["engine"]) for i in items] == [(cid, "Primeira", "claude")]
     assert items[0]["updated_at"].endswith("Z")
-    assert client.get(f"/conversations/{cid}").json() == {"id": cid, "title": "Primeira", "messages": []}
+    assert client.get(f"/conversations/{cid}").json() == {"id": cid, "title": "Primeira", "messages": [], "closed": False}
     assert client.get("/conversations/does-not-exist").status_code == 404
     assert client.post(f"/conversations/{cid}/messages", json={"text": ""}).status_code == 400
     assert client.post("/conversations/does-not-exist/messages", json={"text": "x"}).status_code == 404

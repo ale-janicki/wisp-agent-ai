@@ -21,3 +21,20 @@
   align-self: flex-start;
   max-width: 100%;
 }
+.attached {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--space-xs);
+  align-self: flex-end;
+  max-width: 80%;
+}
+.note {
+  align-self: center;
+  max-width: 90%;
+  padding: var(--space-xs) 0;
+  color: var(--text-tertiary);
+  font-size: 11px;
+  text-align: center;
+  user-select: text;
+}

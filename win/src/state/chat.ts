@@ -2,11 +2,14 @@ import type {
   Block,
   Conversation,
   ConversationSummary,
+  EngineOverview,
   Message,
   ServerEvent,
+  StagedFile,
   ThinkingState,
   ToolResultBlock,
   ToolUseBlock,
+  UsageWindows,
 } from "../api/types";
 
 export type PendingPermission = {
@@ -14,6 +17,14 @@ export type PendingPermission = {
   conversationId: string;
   toolName: string;
   input: unknown;
+  summary?: string;
+  detail?: string;
+  summaryTruncated?: boolean;
+  requiresExpansion?: boolean;
+  canPersist?: boolean;
+  persistRules?: string[];
+  persistWhere?: string[];
+  asker?: string;
 };
 
 export type ChatState = {
@@ -26,6 +37,13 @@ export type ChatState = {
   status: Record<string, ThinkingState>;
   permissions: PendingPermission[];
   error: string | null;
+  closed: boolean;
+  notes: Record<string, string[]>;
+  unseen: string[];
+  usage: UsageWindows | null;
+  engines: EngineOverview | null;
+  pending: StagedFile[];
+  attachNotice: string | null;
 };
 
 export const initialChat: ChatState = {
@@ -38,6 +56,13 @@ export const initialChat: ChatState = {
   status: {},
   permissions: [],
   error: null,
+  closed: false,
+  notes: {},
+  unseen: [],
+  usage: null,
+  engines: null,
+  pending: [],
+  attachNotice: null,
 };
 
 export type ChatAction =
@@ -47,7 +72,17 @@ export type ChatAction =
   | { type: "sent"; text: string }
   | { type: "failed"; message: string }
   | { type: "permission-answered"; requestId: string }
+  | { type: "renamed"; id: string; title: string }
+  | { type: "removed"; id: string }
+  | { type: "reopened"; id: string }
+  | { type: "engines"; engines: EngineOverview }
+  | { type: "usage"; usage: UsageWindows }
+  | { type: "attached"; files: StagedFile[]; notice: string | null }
+  | { type: "detached"; path: string }
+  | { type: "attach-failed"; message: string }
   | { type: "event"; event: ServerEvent };
+
+export const ATTACHMENT_LIMIT = 10;
 
 export function chatReducer(state: ChatState, action: ChatAction): ChatState {
   switch (action.type) {
@@ -59,18 +94,57 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         currentId: action.conversation.id,
         title: action.conversation.title,
         messages: action.conversation.messages,
+        closed: action.conversation.closed === true,
+        unseen: state.unseen.filter((id) => id !== action.conversation.id),
         streaming: "",
         liveTools: [],
         error: null,
       };
     case "reset-current":
-      return { ...state, currentId: null, title: "", messages: [], streaming: "", liveTools: [], error: null };
+      return { ...state, currentId: null, title: "", messages: [], streaming: "", liveTools: [], error: null, closed: false };
     case "sent":
       return {
         ...state,
         error: null,
+        pending: [],
+        attachNotice: null,
         messages: [...state.messages, { role: "user", blocks: [{ type: "text", text: action.text }] }],
       };
+    case "renamed":
+      return {
+        ...state,
+        title: action.id === state.currentId ? action.title : state.title,
+        conversations: state.conversations.map((c) => (c.id === action.id ? { ...c, title: action.title } : c)),
+      };
+    case "removed":
+      return {
+        ...state,
+        conversations: state.conversations.filter((c) => c.id !== action.id),
+        permissions: state.permissions.filter((p) => p.conversationId !== action.id),
+        unseen: state.unseen.filter((id) => id !== action.id),
+        ...(action.id === state.currentId
+          ? { currentId: null, title: "", messages: [], streaming: "", liveTools: [], error: null, closed: false }
+          : {}),
+      };
+    case "reopened":
+      return {
+        ...state,
+        closed: action.id === state.currentId ? false : state.closed,
+        conversations: state.conversations.map((c) => (c.id === action.id ? { ...c, closed: false } : c)),
+      };
+    case "engines":
+      return { ...state, engines: action.engines };
+    case "usage":
+      return { ...state, usage: action.usage };
+    case "attached": {
+      const known = new Set(state.pending.map((f) => f.path));
+      const merged = [...state.pending, ...action.files.filter((f) => !known.has(f.path))].slice(0, ATTACHMENT_LIMIT);
+      return { ...state, pending: merged, attachNotice: action.notice };
+    }
+    case "detached":
+      return { ...state, pending: state.pending.filter((f) => f.path !== action.path), attachNotice: null };
+    case "attach-failed":
+      return { ...state, attachNotice: action.message };
     case "failed":
       return { ...state, error: action.message };
     case "permission-answered":
@@ -111,13 +185,38 @@ function applyEvent(state: ChatState, event: ServerEvent): ChatState {
         ...state,
         permissions: [
           ...state.permissions,
-          { requestId: event.request_id, conversationId: event.conversation_id, toolName: event.tool_name, input: event.input },
+          {
+            requestId: event.request_id,
+            conversationId: event.conversation_id,
+            toolName: event.tool_name,
+            input: event.input,
+            summary: event.summary,
+            detail: event.detail,
+            summaryTruncated: event.summary_truncated,
+            requiresExpansion: event.requires_expansion,
+            canPersist: event.can_persist,
+            persistRules: event.persist_rules,
+            persistWhere: event.persist_where,
+            asker: event.asker,
+          },
         ],
       };
     case "error":
       return { ...state, error: event.message, status: { ...state.status, [event.conversation_id]: "error" } };
     case "result":
-      return state;
+      return event.is_error || current || state.unseen.includes(event.conversation_id)
+        ? state
+        : { ...state, unseen: [...state.unseen, event.conversation_id] };
+    case "title":
+      return {
+        ...state,
+        title: current ? event.title : state.title,
+        conversations: state.conversations.map((c) => (c.id === event.conversation_id ? { ...c, title: event.title } : c)),
+      };
+    case "system":
+      return { ...state, notes: { ...state.notes, [event.conversation_id]: [...(state.notes[event.conversation_id] ?? []), event.text] } };
+    case "usage":
+      return { ...state, usage: { five_hour: event.five_hour, seven_day: event.seven_day } };
   }
 }
 

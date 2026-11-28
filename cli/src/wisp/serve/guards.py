@@ -43,6 +43,10 @@ Never call the Telegram API directly and never read the bot token.
 A guard blocks direct API use and token reads.
 Never say you cannot send files."""
 
+CODEX_NOTE = """
+You are running under Codex, whose sandbox has no network: you cannot send files to Telegram, even when asked; say so \
+plainly. Your working folder is the Wisp folder or a project folder, never the user's whole home."""
+
 UNAVAILABLE = "não consegui ativar as travas do Wisp: "
 _MODES = {"default": "default", "manual": "default", "auto": "auto", "bypassPermissions": "bypassPermissions"}
 
@@ -127,15 +131,30 @@ def permission_mode(data_dir: Path, paths: WispPaths | None = None) -> str | Non
         or _mode_in(Path(paths.config) / "profile.json", "agent", "permissionMode")
 
 
-def instructions(soul: str, platform: str | None = None) -> str:
+def profile_agent(paths: WispPaths | None = None) -> dict:
+    paths = paths or WispPaths.current()
+    try:
+        agent = json.loads((Path(paths.config) / "profile.json").read_text("utf-8")).get("agent")
+    except (OSError, ValueError, AttributeError):
+        return {}
+    return agent if isinstance(agent, dict) else {}
+
+
+def profile_text(key: str, paths: WispPaths | None = None) -> str | None:
+    value = profile_agent(paths).get(key)
+    return value if isinstance(value, str) and value.strip() else None
+
+
+def instructions(soul: str, platform: str | None = None, extra: str = "") -> str:
     text = APP_FILES
     if (platform or sys.platform) == "darwin":
         from wisp_bot.claude_runner import AGENDA, MAC_TOOLS
         text += "\n\n" + MAC_TOOLS + "\n\n" + AGENDA
+    text += extra
     return text + "\n\n" + soul if soul else text
 
 
-def soul_text() -> str:
+def soul_text(engine: str = "claude") -> str:
     try:
         from wisp.config import WispConfig, load_config
         from wisp.soul import for_engine
@@ -143,7 +162,7 @@ def soul_text() -> str:
             cfg = load_config()
         except (ValueError, TypeError, OSError):
             cfg = WispConfig()
-        return for_engine(cfg, WispPaths.current(), "claude")[1]
+        return for_engine(cfg, WispPaths.current(), engine)[1]
     except Exception:
         return ""
 
